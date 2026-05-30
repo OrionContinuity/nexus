@@ -603,7 +603,39 @@
       return false;
     }
     try {
+      // v18.32 Phase 3b — read current status BEFORE the update so we
+      // can record the from→to transition on the activity stream. Used
+      // by the Daily Log "equipment activity" feed.
+      let priorStatus = null, eqName = null, eqLocation = null;
+      try {
+        const { data: priorRow } = await NX.sb.from('equipment')
+          .select('status, name, location').eq('id', equipmentId).single();
+        if (priorRow) {
+          priorStatus = priorRow.status;
+          eqName      = priorRow.name;
+          eqLocation  = priorRow.location;
+        }
+      } catch (_) {/* fall through — log will degrade gracefully */}
+
       await NX.sb.from('equipment').update({ status: newStatus }).eq('id', equipmentId);
+
+      // Best-effort activity log. NX.logEquipmentEvent is exposed by
+      // equipment.js — if that module hasn't loaded yet the call is a
+      // no-op via optional-chaining. Acceptable degradation: the AI-
+      // proposed change still happens, just won't surface in the day's
+      // activity feed for that one event.
+      if (priorStatus && priorStatus !== newStatus) {
+        NX.logEquipmentEvent?.({
+          equipmentId,
+          eventType: 'status_change',
+          location: eqLocation,
+          payload: {
+            from: priorStatus, to: newStatus,
+            equipment_name: eqName,
+            source: 'ai_proposal',
+          },
+        });
+      }
       try { if (NX.eqBrainSync?.syncOne) await NX.eqBrainSync.syncOne(equipmentId); } catch (_) {}
       return true;
     } catch (e) {
