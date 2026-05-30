@@ -4927,6 +4927,15 @@ function openEditModal(id) {
             <label>Notes</label>
             <textarea name="notes" rows="3" placeholder="Any special notes, quirks, service tips...">${esc(eq.notes||'')}</textarea>
           </div>
+          <!-- v18.32 — Current Status Note. Synced with the daily log's
+               Equipment Status section: editing here updates what shows
+               in the daily log, and vice versa. Only visible when status
+               is non-operational since the field is about the active
+               problem state. -->
+          <div class="eq-form-group" data-show-when="non-operational" ${['operational','retired','archived'].includes(eq.status) ? 'style="display:none;"' : ''}>
+            <label>Current Status Note <small style="opacity:0.6;font-weight:normal;">— synced with daily log</small></label>
+            <textarea name="status_note" rows="2" placeholder="What's the current story? Parts ordered, vendor coming, etc.">${esc(eq.status_note||'')}</textarea>
+          </div>
           <div class="eq-form-actions">
             <button type="button" class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.closeEdit()">Cancel</button>
             <button type="submit" class="eq-btn eq-btn-primary">${id ? 'Save Changes' : 'Create Equipment'}</button>
@@ -4936,6 +4945,19 @@ function openEditModal(id) {
     </div>
   `;
   modal.classList.add('active');
+
+  // v18.32 — Show/hide the Current Status Note field based on the
+  // status dropdown. Hidden when status is operational/retired/archived
+  // (no active problem to narrate). Listener attached once per modal
+  // open. Field is identified by data-show-when="non-operational".
+  const statusSel = document.querySelector('#eqForm select[name="status"]');
+  const noteGroup = document.querySelector('#eqForm [data-show-when="non-operational"]');
+  if (statusSel && noteGroup) {
+    statusSel.addEventListener('change', () => {
+      const v = statusSel.value;
+      noteGroup.style.display = ['operational', 'retired', 'archived'].includes(v) ? 'none' : '';
+    });
+  }
 
   document.getElementById('eqForm').addEventListener('submit', async e => {
     e.preventDefault();
@@ -4947,6 +4969,14 @@ function openEditModal(id) {
     ['purchase_price', 'pm_interval_days'].forEach(k => {
       if (data[k] != null) data[k] = parseFloat(data[k]);
     });
+
+    // v18.32 — When status flips back to operational, clear status_note.
+    // The daily-log "Mark Operational" button does the same; this keeps
+    // the two surfaces consistent. We explicitly set null (not just
+    // skip) so the column gets cleared in the UPDATE payload.
+    if (data.status === 'operational' || data.status === 'retired') {
+      data.status_note = null;
+    }
 
     // v18.18 — auto-compute next_pm_date from last_pm + interval. Only
     // overrides the field if the user left it blank OR if they
