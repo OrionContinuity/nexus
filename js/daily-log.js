@@ -116,12 +116,13 @@ let state = {
   // attaching to logData.equipment_activity before the Drive doc is
   // generated — keeps the doc auditable to "what NEXUS saw at upload".
   equipmentActivity: [],
-  // v18.32 Phase 3e — live ticket slices for the current log_date.
-  // Three lists: opened_today, closed_today, open_as_of. Same freeze-
-  // at-submit pattern as equipmentActivity — the form shows live, the
-  // Drive doc captures the moment of submission. Render path prefers
-  // the row's frozen snapshot (data.tickets) for already-submitted past
-  // logs since the live query can't reconstruct historical "open" state.
+  // v18.33 — live ticket slices for the current log_date, pulled from
+  // the Board (kanban_cards). Three lists: open / working / closed.
+  // Same freeze-at-submit pattern as equipmentActivity — the form shows
+  // live, the Drive doc captures the moment of submission. Render path
+  // prefers the row's frozen snapshot (data.tickets) for already-
+  // submitted past logs since the live query can't reconstruct
+  // historical state.
   ticketSlices: null,
   // v18.32 Vendor V1 — cached vendor list from the R&M vendors table.
   // Used for the vendor_calls picker (autocomplete) + the "Vendor
@@ -449,47 +450,106 @@ function collapseStatusChanges(events) {
 //   • closed_today  — tickets where closed_at falls on logDate AND status is terminal
 //   • open_as_of    — tickets currently open (not closed/resolved) AND created on/before logDate
 //
-// CAVEAT on open_as_of for past dates: NEXUS doesn't track ticket history,
-// so for a past date this returns "tickets currently open that existed
-// by then" — an approximation. A ticket that was open on that day but
-// has since closed won't appear. The accurate historical record lives
-// in the frozen snapshot of the daily log row (data.tickets at upload),
-// not in this live query. Render path prefers the snapshot for past
-// submitted logs.
+// v18.33 — REWRITTEN to pull from the Board (kanban_cards) instead of
+// the `tickets` table. The Board is where the actual work-tracking
+// happens; the `tickets` table is just the auto-generated inbound
+// stream (QR scans, AI reports). Three buckets aligned to the Board's
+// lane model:
+//   • open    — status reported / triaged          (logged, not started)
+//   • working — status dispatched / in_progress /
+//               waiting_parts                       (actively being worked)
+//   • closed  — status resolved / closed, closed_at TODAY (finished today)
+//
+// Cards carry equipment_id (link to a piece of equipment), priority,
+// location, and a lane label. Archived cards are excluded.
+//
+// "closed today" relies on kanban_cards.closed_at, set by board.js +
+// log.js whenever a card moves to a done lane (migration:
+// sql/kanban_cards_closed_at.sql). For older closed cards without a
+// closed_at (pre-migration), they simply won't appear in "closed today"
+// — which is correct, since we can't know when they closed.
+const BOARD_OPEN_STATUSES    = ['reported', 'triaged'];
+const BOARD_WORKING_STATUSES = ['dispatched', 'in_progress', 'waiting_parts'];
+const BOARD_CLOSED_STATUSES  = ['resolved', 'closed', 'done'];
 async function loadTicketSlices(logDate) {
   if (!NX.sb || !logDate) {
-    return { opened_today: [], closed_today: [], open_as_of: [] };
+    return { open: [], working: [], closed: [] };
   }
   const dayStart = `${logDate}T00:00:00.000Z`;
   const dayEnd   = `${logDate}T23:59:59.999Z`;
-  const SELECT_FIELDS = 'id, title, location, priority, status, created_at, closed_at';
+  const SELECT_FIELDS = 'id, title, location, priority, status, column_name, equipment_id, created_at, updated_at, closed_at, archived';
 
-  const [openedRes, closedRes, openRes] = await Promise.all([
-    NX.sb.from('tickets')
+  const [openRes, workingRes, closedRes] = await Promise.all([
+    // Open — reported / triaged, not archived
+    NX.sb.from('kanban_cards')
       .select(SELECT_FIELDS)
-      .gte('created_at', dayStart).lte('created_at', dayEnd)
-      .order('created_at', { ascending: false }),
-    NX.sb.from('tickets')
+      .in('status', BOARD_OPEN_STATUSES)
+      .eq('archived', false)
+      .order('created_at', { ascending: true }),   // oldest first — aging surfaces
+    // Working — dispatched / in_progress / waiting_parts
+    NX.sb.from('kanban_cards')
       .select(SELECT_FIELDS)
+      .in('status', BOARD_WORKING_STATUSES)
+      .eq('archived', false)
+      .order('updated_at', { ascending: false }),
+    // Closed today — resolved/closed with closed_at in the day window
+    NX.sb.from('kanban_cards')
+      .select(SELECT_FIELDS)
+      .in('status', BOARD_CLOSED_STATUSES)
       .gte('closed_at', dayStart).lte('closed_at', dayEnd)
-      .in('status', ['closed', 'resolved'])
       .order('closed_at', { ascending: false }),
-    NX.sb.from('tickets')
-      .select(SELECT_FIELDS)
-      .lte('created_at', dayEnd)
-      .not('status', 'in', '("closed","resolved","done")')
-      .order('created_at', { ascending: true }),  // oldest first — emphasizes aged ones
   ]);
 
-  if (openedRes.error) console.warn('[daily-log] tickets opened_today:', openedRes.error.message);
-  if (closedRes.error) console.warn('[daily-log] tickets closed_today:', closedRes.error.message);
-  if (openRes.error)   console.warn('[daily-log] tickets open_as_of:',  openRes.error.message);
+  // closed_at column may not exist yet (migration not run). Detect the
+  // 42703 error and fall back to updated_at as an approximation so the
+  // section still works pre-migration.
+  let closedData = closedRes.data;
+  if (closedRes.error && closedRes.error.code === '42703') {
+    const fb = await NX.sb.from('kanban_cards')
+      .select('id, title, location, priority, status, column_name, equipment_id, created_at, updated_at, archived')
+      .in('status', BOARD_CLOSED_STATUSES)
+      .gte('updated_at', dayStart).lte('updated_at', dayEnd)
+      .order('updated_at', { ascending: false });
+    closedData = fb.data;
+    if (!window._kanbanClosedAtWarned) {
+      window._kanbanClosedAtWarned = true;
+      console.warn('[daily-log] kanban_cards.closed_at missing — using updated_at. Run sql/kanban_cards_closed_at.sql.');
+    }
+  } else if (closedRes.error) {
+    console.warn('[daily-log] board closed:', closedRes.error.message);
+  }
+  if (openRes.error)    console.warn('[daily-log] board open:', openRes.error.message);
+  if (workingRes.error) console.warn('[daily-log] board working:', workingRes.error.message);
 
   return {
-    opened_today: openedRes.data || [],
-    closed_today: closedRes.data || [],
-    open_as_of:   openRes.data   || [],
+    open:    openRes.data    || [],
+    working: workingRes.data || [],
+    closed:  closedData      || [],
   };
+}
+
+// v18.33 — Resolve equipment_id → name for any cards that link to
+// equipment, so the Board Tickets section can show "🔧 Walk-In Cooler"
+// inline. Collects all distinct equipment_ids across the three buckets
+// and does one batched lookup. Stores the map in state._cardEquipmentNames.
+async function loadCardEquipmentNames(slices) {
+  if (!NX.sb || !slices) { state._cardEquipmentNames = {}; return; }
+  const ids = new Set();
+  ['open', 'working', 'closed'].forEach(k => {
+    (slices[k] || []).forEach(c => { if (c.equipment_id) ids.add(c.equipment_id); });
+  });
+  if (!ids.size) { state._cardEquipmentNames = {}; return; }
+  try {
+    const { data, error } = await NX.sb.from('equipment')
+      .select('id, name')
+      .in('id', Array.from(ids));
+    if (error) { state._cardEquipmentNames = {}; return; }
+    const map = {};
+    (data || []).forEach(e => { map[e.id] = e.name; });
+    state._cardEquipmentNames = map;
+  } catch (e) {
+    state._cardEquipmentNames = {};
+  }
 }
 
 // v18.32 Vendor V1 — pull the R&M vendors table for the picker autocomplete
@@ -1340,32 +1400,49 @@ function renderEquipmentActivitySection(d) {
 // a past submitted log that has a frozen snapshot in data.tickets —
 // in which case we prefer the snapshot for historical accuracy.
 function renderTicketsSection(d) {
-  // Source preference: frozen snapshot (auditable past) > live (today)
-  const slices = (d.tickets && (d.tickets.opened_today || d.tickets.closed_today || d.tickets.open_as_of))
+  // Source preference: frozen snapshot (auditable past) > live (today).
+  // v18.33 — new bucket keys (open/working/closed) from the Board.
+  const slices = (d.tickets && (d.tickets.open || d.tickets.working || d.tickets.closed))
     ? d.tickets
-    : state.ticketSlices || { opened_today: [], closed_today: [], open_as_of: [] };
-  const notes = d.ticket_notes || { open: '', closed: '', opened: '' };
+    : state.ticketSlices || { open: [], working: [], closed: [] };
+  const notes = d.ticket_notes || { open: '', working: '', closed: '' };
 
-  const openCount    = (slices.open_as_of   || []).length;
-  const closedCount  = (slices.closed_today || []).length;
-  const openedCount  = (slices.opened_today || []).length;
-  const totalCount   = openCount + closedCount + openedCount;
+  const openCount    = (slices.open    || []).length;
+  const workingCount = (slices.working || []).length;
+  const closedCount  = (slices.closed  || []).length;
+  const totalCount   = openCount + workingCount + closedCount;
 
-  const ticketRow = (t) => {
-    const pri = (t.priority || 'normal').toLowerCase();
+  // Map equipment_id → name for inline equipment links (state.equipmentDown
+  // + any loaded equipment). We keep a light lookup built from what's in
+  // memory; cards without a resolvable name just show the location.
+  const eqNameById = state._cardEquipmentNames || {};
+
+  const laneLabel = (status) => ({
+    reported: 'Reported', triaged: 'Triaged', dispatched: 'Dispatched',
+    in_progress: 'In Progress', waiting_parts: 'Waiting on Parts',
+    resolved: 'Resolved', closed: 'Closed', done: 'Done',
+  })[status] || (status || '').replace(/_/g, ' ');
+
+  const cardRow = (c) => {
+    const pri = (c.priority || 'normal').toLowerCase();
     const priClass = pri === 'urgent' ? 'bw-pri-urgent' : (pri === 'low' ? 'bw-pri-low' : 'bw-pri-normal');
+    const eqName = c.equipment_id ? eqNameById[c.equipment_id] : null;
+    const metaBits = [];
+    if (c.location) metaBits.push(esc(c.location));
+    if (eqName) metaBits.push('🔧 ' + esc(eqName));
+    metaBits.push(`<span class="dlog-tk-lane">${esc(laneLabel(c.status))}</span>`);
     return `
       <div class="dlog-tk-row">
         <span class="bw-pri-pill ${priClass}">${esc(pri)}</span>
         <div class="dlog-tk-main">
-          <div class="dlog-tk-title">${esc(t.title || 'Untitled ticket')}</div>
-          ${t.location ? `<div class="dlog-tk-loc">${esc(t.location)}</div>` : ''}
+          <div class="dlog-tk-title">${esc(c.title || 'Untitled card')}</div>
+          <div class="dlog-tk-loc">${metaBits.join(' · ')}</div>
         </div>
       </div>`;
   };
 
-  const slice = (label, key, items, notesKey, notesPlaceholder) => {
-    const rows = (items || []).map(ticketRow).join('');
+  const slice = (label, items, notesKey, notesPlaceholder) => {
+    const rows = (items || []).map(cardRow).join('');
     return `
       <div class="dlog-tk-slice">
         <div class="dlog-tk-slice-head">
@@ -1382,13 +1459,14 @@ function renderTicketsSection(d) {
   return `
     <details class="dlog-section" ${totalCount > 0 ? 'open' : ''}>
       <summary class="dlog-section-header">
-        <span class="dlog-section-title">Tickets</span>
+        <span class="dlog-section-title">Board Tickets</span>
         <span class="dlog-section-count">${totalCount}</span>
       </summary>
       <div class="dlog-section-body">
-        ${slice('Open as of today',  'open_as_of',   slices.open_as_of,   'open',   'Status notes on what\'s still open…')}
-        ${slice('Closed today',      'closed_today', slices.closed_today, 'closed', 'How they were resolved…')}
-        ${slice('Newly opened today','opened_today', slices.opened_today, 'opened', 'Context on new tickets…')}
+        <p class="dlog-empty-hint">Pulled live from the Board. Open = logged, Working = in progress, Closed = finished today.</p>
+        ${slice('Open',          slices.open,    'open',    'Notes on the backlog…')}
+        ${slice('Working',       slices.working, 'working', 'Status on what\'s being worked…')}
+        ${slice('Closed today',  slices.closed,  'closed',  'How they were resolved…')}
       </div>
     </details>
   `;
@@ -1725,6 +1803,7 @@ async function commitSave(opts) {
       ]);
       state.equipmentActivity = freshActivity;
       state.ticketSlices = freshSlices;
+      await loadCardEquipmentNames(freshSlices);
       state.equipmentDown = freshEqDown;
       log.data.equipment_activity = freshActivity;
       log.data.tickets = freshSlices;
@@ -1826,6 +1905,7 @@ async function openLogForDate(iso) {
   ]);
   state.equipmentActivity = activity;
   state.ticketSlices = slices;
+  await loadCardEquipmentNames(slices);
   state.vendors = vendors;
   state.vendorOpenIssues = vendorIssues;
   state.equipmentDown = eqDown;
@@ -1870,6 +1950,7 @@ async function init() {
   state.recentLogs = rs;
   state.equipmentActivity = activity || [];
   state.ticketSlices = slices;
+  await loadCardEquipmentNames(slices);
   state.vendors = vendors || [];
   state.vendorOpenIssues = vendorIssues || {};
   state.equipmentDown = eqDown || [];
@@ -1902,6 +1983,7 @@ async function show() {
   state.recentLogs = rs;
   state.equipmentActivity = activity || [];
   state.ticketSlices = slices;
+  await loadCardEquipmentNames(slices);
   state.vendors = vendors || [];
   state.vendorOpenIssues = vendorIssues || {};
   state.equipmentDown = eqDown || [];
