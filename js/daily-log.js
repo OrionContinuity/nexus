@@ -518,32 +518,27 @@ async function loadTicketSlices(logDate) {
     console.warn('[daily-log] board_lists exception:', e);
   }
 
-  // 2. Load all non-archived cards. .not('archived','is',true) matches
-  //    archived = false OR null (some cards have NULL archived).
-  const SELECT_FIELDS = 'id, title, location, priority, status, column_name, list_id, equipment_id, created_at, updated_at, closed_at, archived';
-  let cards = [];
-  let closedAtMissing = false;
-  let res = await NX.sb.from('kanban_cards')
-    .select(SELECT_FIELDS)
-    .not('archived', 'is', true)
+  // 2. Load all cards, then filter archived CLIENT-SIDE (avoids fragile
+  //    PostgREST archived operators). Try with closed_at; on ANY error
+  //    (column absent, etc.) retry without it so the section never blanks.
+  const FIELDS_FULL = 'id, title, location, priority, status, column_name, list_id, equipment_id, created_at, updated_at, closed_at, archived';
+  const FIELDS_MIN  = 'id, title, location, priority, status, column_name, list_id, equipment_id, created_at, updated_at, archived';
+  let res = await NX.sb.from('kanban_cards').select(FIELDS_FULL)
     .order('created_at', { ascending: true });
-  if (res.error && res.error.code === '42703') {
-    // closed_at column not present yet — retry without it
-    closedAtMissing = true;
-    res = await NX.sb.from('kanban_cards')
-      .select('id, title, location, priority, status, column_name, list_id, equipment_id, created_at, updated_at, archived')
-      .not('archived', 'is', true)
-      .order('created_at', { ascending: true });
+  if (res.error) {
     if (!window._kanbanClosedAtWarned) {
       window._kanbanClosedAtWarned = true;
-      console.warn('[daily-log] kanban_cards.closed_at missing — using updated_at. Run sql/kanban_cards_closed_at.sql.');
+      console.warn('[daily-log] kanban_cards full select failed (' + (res.error.code || '?') + ') — retrying without closed_at. Run sql/kanban_cards_closed_at.sql for accurate "closed today".');
     }
+    res = await NX.sb.from('kanban_cards').select(FIELDS_MIN)
+      .order('created_at', { ascending: true });
   }
   if (res.error) {
     console.warn('[daily-log] kanban_cards load:', res.error.message);
     return { open: [], working: [], closed: [] };
   }
-  cards = res.data || [];
+  // Exclude archived (true). Keep false AND null.
+  const cards = (res.data || []).filter(c => c.archived !== true);
 
   // 3. Bucket each card. Prefer the card's LIST classification; if the
   //    card has no resolvable list (orphaned), fall back to its status
@@ -672,35 +667,36 @@ async function loadVendorOpenIssueCounts() {
 const NON_OPERATIONAL_STATUSES = ['down', 'needs_service', 'broken'];
 async function loadEquipmentDown() {
   if (!NX.sb) return [];
+  // Filter archived CLIENT-SIDE rather than via a PostgREST operator.
+  // The previous .not('archived','is',true) / .eq('archived',false)
+  // approaches were fragile (one errored on this deployment, blanking
+  // the whole section). Fetching the small down-equipment set and
+  // filtering in JS is bulletproof.
   try {
-    // .not('archived','is',true) matches archived = false OR null.
-    // Plain .eq('archived', false) silently excludes equipment whose
-    // archived flag was never set (NULL) — that was hiding down
-    // equipment from this section.
-    const { data, error } = await NX.sb.from('equipment')
-      .select('id, name, location, status, status_note, notes, updated_at')
+    // Try with status_note (the synced narrative column). On ANY error
+    // (e.g. status_note column absent — migration not run), retry with a
+    // minimal column set so the section still renders.
+    let res = await NX.sb.from('equipment')
+      .select('id, name, location, status, status_note, notes, updated_at, archived')
       .in('status', NON_OPERATIONAL_STATUSES)
-      .not('archived', 'is', true)
       .order('updated_at', { ascending: false });
-    if (error) {
-      // status_note column may not exist (migration not run yet). Fall
-      // back to querying without it.
-      if (error.code === '42703') {
-        const { data: fallback, error: fbErr } = await NX.sb.from('equipment')
-          .select('id, name, location, status, notes, updated_at')
-          .in('status', NON_OPERATIONAL_STATUSES)
-          .not('archived', 'is', true)
-          .order('updated_at', { ascending: false });
-        if (fbErr) {
-          console.warn('[daily-log] loadEquipmentDown fallback:', fbErr.message);
-          return [];
-        }
-        return (fallback || []).map(eq => Object.assign(eq, { _missing_status_note_column: true }));
-      }
-      console.warn('[daily-log] loadEquipmentDown:', error.message);
+    let missingNote = false;
+    if (res.error) {
+      missingNote = true;
+      res = await NX.sb.from('equipment')
+        .select('id, name, location, status, notes, updated_at, archived')
+        .in('status', NON_OPERATIONAL_STATUSES)
+        .order('updated_at', { ascending: false });
+    }
+    if (res.error) {
+      console.warn('[daily-log] loadEquipmentDown:', res.error.message);
       return [];
     }
-    return data || [];
+    // Exclude archived (true). Keep false AND null.
+    const rows = (res.data || []).filter(eq => eq.archived !== true);
+    return missingNote
+      ? rows.map(eq => Object.assign(eq, { _missing_status_note_column: true }))
+      : rows;
   } catch (e) {
     console.warn('[daily-log] loadEquipmentDown exception:', e);
     return [];
