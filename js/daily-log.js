@@ -456,76 +456,134 @@ function collapseStatusChanges(events) {
 // stream (QR scans, AI reports). Three buckets aligned to the Board's
 // lane model:
 //   • open    — status reported / triaged          (logged, not started)
-//   • working — status dispatched / in_progress /
-//               waiting_parts                       (actively being worked)
-//   • closed  — status resolved / closed, closed_at TODAY (finished today)
+//   • working — Dispatched / In Progress / Waiting on Parts (active)
+//   • closed  — Resolved / Closed, closed today (finished today)
+//
+// IMPORTANT: cards are bucketed by their LIST (list_id → board_lists),
+// NOT by the `status` field. Newly-created cards insert with status=null
+// and column_name='' — `status` only gets populated when a card is
+// *moved* via the board's moveCard(). The board itself derives a card's
+// lane from its list (see board.js isDone()), so we mirror that: load
+// the lists, then classify each card by its list's name.
 //
 // Cards carry equipment_id (link to a piece of equipment), priority,
-// location, and a lane label. Archived cards are excluded.
+// location. Archived cards are excluded (tolerant of NULL archived).
 //
-// "closed today" relies on kanban_cards.closed_at, set by board.js +
-// log.js whenever a card moves to a done lane (migration:
-// sql/kanban_cards_closed_at.sql). For older closed cards without a
-// closed_at (pre-migration), they simply won't appear in "closed today"
-// — which is correct, since we can't know when they closed.
-const BOARD_OPEN_STATUSES    = ['reported', 'triaged'];
-const BOARD_WORKING_STATUSES = ['dispatched', 'in_progress', 'waiting_parts'];
-const BOARD_CLOSED_STATUSES  = ['resolved', 'closed', 'done'];
+// "closed today" prefers kanban_cards.closed_at (set by board.js +
+// log.js on move-to-done); falls back to updated_at when closed_at is
+// absent (pre-migration).
+
+// Classify a board list NAME into one of our three buckets. Mirrors
+// board.js's done-detection regex + adds working/open split.
+function classifyListName(name) {
+  const n = (name || '').toLowerCase();
+  if (/(done|closed|resolved|complete|completed|archived?|paid)/.test(n)) return 'closed';
+  if (/(progress|dispatch|waiting|parts|working|active|assigned)/.test(n)) return 'working';
+  return 'open';  // reported, triaged, new, backlog, to-?do, etc.
+}
+
+// Fallback lane label when a card's list can't be resolved — derive
+// something readable from the status field.
+function laneLabelFromStatus(status) {
+  return ({
+    reported: 'Reported', triaged: 'Triaged', dispatched: 'Dispatched',
+    in_progress: 'In Progress', waiting_parts: 'Waiting on Parts',
+    resolved: 'Resolved', closed: 'Closed', done: 'Done',
+  })[status] || (status ? String(status).replace(/_/g, ' ') : '');
+}
+
 async function loadTicketSlices(logDate) {
   if (!NX.sb || !logDate) {
     return { open: [], working: [], closed: [] };
   }
   const dayStart = `${logDate}T00:00:00.000Z`;
   const dayEnd   = `${logDate}T23:59:59.999Z`;
-  const SELECT_FIELDS = 'id, title, location, priority, status, column_name, equipment_id, created_at, updated_at, closed_at, archived';
 
-  const [openRes, workingRes, closedRes] = await Promise.all([
-    // Open — reported / triaged, not archived
-    NX.sb.from('kanban_cards')
-      .select(SELECT_FIELDS)
-      .in('status', BOARD_OPEN_STATUSES)
-      .eq('archived', false)
-      .order('created_at', { ascending: true }),   // oldest first — aging surfaces
-    // Working — dispatched / in_progress / waiting_parts
-    NX.sb.from('kanban_cards')
-      .select(SELECT_FIELDS)
-      .in('status', BOARD_WORKING_STATUSES)
-      .eq('archived', false)
-      .order('updated_at', { ascending: false }),
-    // Closed today — resolved/closed with closed_at in the day window
-    NX.sb.from('kanban_cards')
-      .select(SELECT_FIELDS)
-      .in('status', BOARD_CLOSED_STATUSES)
-      .gte('closed_at', dayStart).lte('closed_at', dayEnd)
-      .order('closed_at', { ascending: false }),
-  ]);
+  // 1. Load the board lists so we can map list_id → bucket. Without
+  //    this we can't tell which lane a card is in (status is unreliable).
+  let listBucket = {};   // list_id → 'open' | 'working' | 'closed'
+  let listName = {};     // list_id → display name (for the lane chip)
+  try {
+    const { data: lists, error: listErr } = await NX.sb.from('board_lists')
+      .select('id, name, position');
+    if (listErr) {
+      console.warn('[daily-log] board_lists load:', listErr.message);
+    } else {
+      (lists || []).forEach(l => {
+        listBucket[l.id] = classifyListName(l.name);
+        listName[l.id] = l.name;
+      });
+    }
+  } catch (e) {
+    console.warn('[daily-log] board_lists exception:', e);
+  }
 
-  // closed_at column may not exist yet (migration not run). Detect the
-  // 42703 error and fall back to updated_at as an approximation so the
-  // section still works pre-migration.
-  let closedData = closedRes.data;
-  if (closedRes.error && closedRes.error.code === '42703') {
-    const fb = await NX.sb.from('kanban_cards')
-      .select('id, title, location, priority, status, column_name, equipment_id, created_at, updated_at, archived')
-      .in('status', BOARD_CLOSED_STATUSES)
-      .gte('updated_at', dayStart).lte('updated_at', dayEnd)
-      .order('updated_at', { ascending: false });
-    closedData = fb.data;
+  // 2. Load all non-archived cards. .not('archived','is',true) matches
+  //    archived = false OR null (some cards have NULL archived).
+  const SELECT_FIELDS = 'id, title, location, priority, status, column_name, list_id, equipment_id, created_at, updated_at, closed_at, archived';
+  let cards = [];
+  let closedAtMissing = false;
+  let res = await NX.sb.from('kanban_cards')
+    .select(SELECT_FIELDS)
+    .not('archived', 'is', true)
+    .order('created_at', { ascending: true });
+  if (res.error && res.error.code === '42703') {
+    // closed_at column not present yet — retry without it
+    closedAtMissing = true;
+    res = await NX.sb.from('kanban_cards')
+      .select('id, title, location, priority, status, column_name, list_id, equipment_id, created_at, updated_at, archived')
+      .not('archived', 'is', true)
+      .order('created_at', { ascending: true });
     if (!window._kanbanClosedAtWarned) {
       window._kanbanClosedAtWarned = true;
       console.warn('[daily-log] kanban_cards.closed_at missing — using updated_at. Run sql/kanban_cards_closed_at.sql.');
     }
-  } else if (closedRes.error) {
-    console.warn('[daily-log] board closed:', closedRes.error.message);
   }
-  if (openRes.error)    console.warn('[daily-log] board open:', openRes.error.message);
-  if (workingRes.error) console.warn('[daily-log] board working:', workingRes.error.message);
+  if (res.error) {
+    console.warn('[daily-log] kanban_cards load:', res.error.message);
+    return { open: [], working: [], closed: [] };
+  }
+  cards = res.data || [];
 
-  return {
-    open:    openRes.data    || [],
-    working: workingRes.data || [],
-    closed:  closedData      || [],
-  };
+  // 3. Bucket each card. Prefer the card's LIST classification; if the
+  //    card has no resolvable list (orphaned), fall back to its status
+  //    field, then to 'open' as a safe default.
+  const open = [], working = [], closed = [];
+  const dayStartMs = new Date(dayStart).getTime();
+  const dayEndMs   = new Date(dayEnd).getTime();
+
+  cards.forEach(c => {
+    // Lane label for display: the card's list name, else a status-derived
+    // label, else nothing.
+    c._laneLabel = listName[c.list_id] || laneLabelFromStatus(c.status) || '';
+    let bucket = listBucket[c.list_id];
+    if (!bucket) {
+      // Fallback: use the status field if it was ever set by a move
+      const s = (c.status || '').toLowerCase();
+      if (['resolved', 'closed', 'done'].includes(s)) bucket = 'closed';
+      else if (['dispatched', 'in_progress', 'waiting_parts'].includes(s)) bucket = 'working';
+      else bucket = 'open';
+    }
+    if (bucket === 'closed') {
+      // Only show cards CLOSED TODAY. Use closed_at if present, else
+      // updated_at as the close-time proxy.
+      const closeMs = c.closed_at ? new Date(c.closed_at).getTime()
+                    : (c.updated_at ? new Date(c.updated_at).getTime() : 0);
+      if (closeMs >= dayStartMs && closeMs <= dayEndMs) closed.push(c);
+      // closed but not today → omit (keeps "closed today" honest)
+    } else if (bucket === 'working') {
+      working.push(c);
+    } else {
+      open.push(c);
+    }
+  });
+
+  // Working: newest activity first
+  working.sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
+  // Closed: most-recently-closed first
+  closed.sort((a, b) => new Date(b.closed_at || b.updated_at || 0) - new Date(a.closed_at || a.updated_at || 0));
+
+  return { open, working, closed };
 }
 
 // v18.33 — Resolve equipment_id → name for any cards that link to
@@ -615,10 +673,14 @@ const NON_OPERATIONAL_STATUSES = ['down', 'needs_service', 'broken'];
 async function loadEquipmentDown() {
   if (!NX.sb) return [];
   try {
+    // .not('archived','is',true) matches archived = false OR null.
+    // Plain .eq('archived', false) silently excludes equipment whose
+    // archived flag was never set (NULL) — that was hiding down
+    // equipment from this section.
     const { data, error } = await NX.sb.from('equipment')
       .select('id, name, location, status, status_note, notes, updated_at')
       .in('status', NON_OPERATIONAL_STATUSES)
-      .eq('archived', false)
+      .not('archived', 'is', true)
       .order('updated_at', { ascending: false });
     if (error) {
       // status_note column may not exist (migration not run yet). Fall
@@ -627,7 +689,7 @@ async function loadEquipmentDown() {
         const { data: fallback, error: fbErr } = await NX.sb.from('equipment')
           .select('id, name, location, status, notes, updated_at')
           .in('status', NON_OPERATIONAL_STATUSES)
-          .eq('archived', false)
+          .not('archived', 'is', true)
           .order('updated_at', { ascending: false });
         if (fbErr) {
           console.warn('[daily-log] loadEquipmentDown fallback:', fbErr.message);
@@ -1427,10 +1489,11 @@ function renderTicketsSection(d) {
     const pri = (c.priority || 'normal').toLowerCase();
     const priClass = pri === 'urgent' ? 'bw-pri-urgent' : (pri === 'low' ? 'bw-pri-low' : 'bw-pri-normal');
     const eqName = c.equipment_id ? eqNameById[c.equipment_id] : null;
+    const lane = c._laneLabel || laneLabel(c.status);
     const metaBits = [];
     if (c.location) metaBits.push(esc(c.location));
     if (eqName) metaBits.push('🔧 ' + esc(eqName));
-    metaBits.push(`<span class="dlog-tk-lane">${esc(laneLabel(c.status))}</span>`);
+    if (lane) metaBits.push(`<span class="dlog-tk-lane">${esc(lane)}</span>`);
     return `
       <div class="dlog-tk-row">
         <span class="bw-pri-pill ${priClass}">${esc(pri)}</span>
