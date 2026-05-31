@@ -155,23 +155,15 @@
                rest of Home renders. -->
           <div class="dcard-mount" id="libraryCardMount"></div>
 
-          <h1 class="home-lede">
-            ${esc(greeting)}<span class="home-lede-comma">,</span>
-            <span class="home-lede-name">${esc(firstName)}.</span>
-          </h1>
+          <!-- v18.34 Home redesign — compact greeting. The old giant
+               lede ate half the first screen; this keeps the warmth but
+               returns the vertical space to actionable content. -->
+          <div class="home-greet">
+            <h1 class="home-greet-line">${esc(greeting)}, <span class="home-greet-name">${esc(firstName)}</span></h1>
+            <p class="home-intro" id="homeIntro"><span class="home-intro-skel">···</span></p>
+          </div>
 
-          <!-- v18.32 Home Rebuild — Today's Mission line. Replaces the
-               static "Checking what's happening…" intro with a data-driven
-               1-liner that summarizes daily state in 4-12 words. Filled
-               in by loadTodayMission() after data lands. -->
-          <p class="home-intro" id="homeIntro">
-            <span class="home-intro-skel">···</span>
-          </p>
-
-          <!-- v18.32 Home Rebuild — Daily Operations card. Two pills:
-               Daily Log status (today's submission state) + Biweekly
-               Review countdown (days until next due). Most-tapped new
-               surfaces, deserve top-of-page placement. -->
+          <!-- Daily Operations — Daily Log + Biweekly status pills. -->
           <div class="home-ops" id="homeOps">
             <button class="home-ops-pill" data-ops="daily" type="button">
               <span class="home-ops-eyebrow">DAILY LOG</span>
@@ -185,40 +177,55 @@
             </button>
           </div>
 
-          <!-- STATS — moved above the fold. Most-tapped surface,
-               so it should be visible without scrolling. -->
+          <!-- v18.34 — Quick Actions. One-tap entry to the things you do
+               most: start the daily log, drop a card on the board, scan a
+               QR to file an issue. ResQ/UpKeep pattern — core actions
+               immediately accessible, no digging through menus. -->
+          <div class="home-quick">
+            <button class="home-quick-btn" data-quick="log" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h6"/><path d="M9 11h2"/></svg>
+              <span>Daily log</span>
+            </button>
+            <button class="home-quick-btn" data-quick="card" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+              <span>New card</span>
+            </button>
+            <button class="home-quick-btn" data-quick="scan" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/></svg>
+              <span>Scan plate</span>
+            </button>
+          </div>
+
+          <!-- KPI grid — compact squared chips (not giant pills). Drops
+               the vanity "Nodes in Brain"; surfaces the metrics a
+               facilities manager actually acts on. #homeGlance ID kept so
+               home-rm.js mounts its R&M tiles right after. -->
           <div class="home-glance" id="homeGlance">
-            ${['tickets','overdue','services','nodes'].map(k => `
-              <button class="nx-stat" data-stat="${k}">
-                <span class="nx-stat-num is-loading">—</span>
-                <span class="nx-stat-label">${labelFor(k)}</span>
+            ${['tickets','down','overdue','services'].map(k => `
+              <button class="home-kpi" data-stat="${k}">
+                <span class="home-kpi-num is-loading">—</span>
+                <span class="home-kpi-label">${labelFor(k)}</span>
               </button>
             `).join('')}
           </div>
 
-          <!-- v18.32 Home Rebuild — Vendor Watch. Hidden by default;
-               loadVendorWatch() populates and reveals only when vendors
-               have open work orders awaiting your action (quotes, parts
-               waits, overdue contacts). One-tap call buttons. -->
+          <!-- Vendor Watch — hidden until vendors need action. -->
           <section class="home-vendor-watch" id="homeVendorWatch" hidden>
-            <h2 class="nx-section">
-              <span class="nx-section-title">Vendor watch</span>
-            </h2>
+            <h2 class="nx-section"><span class="nx-section-title">Vendor watch</span></h2>
             <div class="home-vendor-list" id="homeVendorList"></div>
           </section>
 
-          <h2 class="nx-section">
-            <span class="nx-section-title">Today</span>
-          </h2>
+          <!-- The Daily Menu — what needs attention now, prioritized.
+               This is the hero of the page (ResQ's actionable dashboard
+               concept): act on the most pressing items directly. -->
+          <h2 class="nx-section"><span class="nx-section-title">Needs attention</span></h2>
           <div class="home-feed" id="homeFeed">
             <div class="home-skeleton"></div>
             <div class="home-skeleton"></div>
             <div class="home-skeleton"></div>
           </div>
 
-          <h2 class="nx-section">
-            <span class="nx-section-title">On the books</span>
-          </h2>
+          <h2 class="nx-section"><span class="nx-section-title">On the books</span></h2>
           <div class="home-cal" id="homeCal">
             <div class="home-skeleton home-skeleton-cal"></div>
             <div class="home-skeleton home-skeleton-cal"></div>
@@ -290,6 +297,32 @@
       if (opsDaily) opsDaily.addEventListener('click', () => NX.switchTo?.('daily-log'));
       const opsBiweekly = el.querySelector('[data-ops="biweekly"]');
       if (opsBiweekly) opsBiweekly.addEventListener('click', () => NX.switchTo?.('biweekly'));
+
+      // v18.34 — Quick action row. Daily log + new board card + scan QR.
+      // "New card" routes to the Board and signals it to open the card
+      // composer; "Scan QR" opens the equipment scanner if present, else
+      // falls back to the equipment view.
+      el.querySelectorAll('.home-quick-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const action = btn.dataset.quick;
+          if (action === 'log') {
+            NX.switchTo?.('daily-log');
+          } else if (action === 'card') {
+            NX.boardComposeIntent = true;   // board.js checks this on show()
+            NX.switchTo?.('board');
+          } else if (action === 'scan') {
+            // The in-app "scan" is the AI data-plate creator on the
+            // equipment module (reads a photo of an equipment data plate
+            // and fills in make/model/serial). Switch to the equipment
+            // view first, then open it once mounted. Falls back to just
+            // landing on the equipment view if the creator isn't present.
+            NX.switchTo?.('equipment');
+            setTimeout(() => {
+              try { NX.modules?.equipment?.openAICreator?.(); } catch (e) {}
+            }, 320);
+          }
+        });
+      });
     },
 
     async refresh() {
@@ -556,66 +589,61 @@
       const weekAgo = new Date(today.getTime() - 7 * 86400000).toISOString();
       const nowIso = today.toISOString();
 
-      // Fire all in parallel, let any individual failure degrade gracefully
-      const [ticketsRes, overdueRes, servicesRes, nodesRes] = await Promise.allSettled([
-        NX.sb.from('tickets').select('*', { count: 'exact', head: true }).eq('status', 'open'),
-        NX.sb.from('equipment').select('*', { count: 'exact', head: true }).lt('next_pm_date', nowIso.slice(0, 10)),
-        NX.sb.from('equipment_maintenance').select('*', { count: 'exact', head: true }).gte('event_date', weekAgo.slice(0, 10)),
-        // Total node count across the brain (not the 7-day slice — users
-        // want to know how big their knowledge graph is, not recent adds)
-        NX.sb.from('nodes').select('*', { count: 'exact', head: true }),
+      // v18.34 — stat set realigned to what a facilities manager acts on:
+      //   • tickets  — OPEN BOARD CARDS (kanban_cards not done/archived),
+      //                consistent with the daily-log Board migration. The
+      //                Board is the real workflow; the tickets table is
+      //                just the inbound auto-stream.
+      //   • down     — equipment currently down / needs service / broken
+      //   • overdue  — equipment past its next_pm_date
+      //   • services — equipment_maintenance events in the last 7 days
+      // Dropped the vanity "nodes in brain" metric.
+      const [ticketsRes, downRes, overdueRes, servicesRes] = await Promise.allSettled([
+        NX.sb.from('kanban_cards').select('*', { count: 'exact', head: true })
+          .not('status', 'in', '("closed","resolved","done")').eq('archived', false),
+        NX.sb.from('equipment').select('*', { count: 'exact', head: true })
+          .in('status', ['down', 'needs_service', 'broken']).eq('archived', false),
+        NX.sb.from('equipment').select('*', { count: 'exact', head: true })
+          .lt('next_pm_date', nowIso.slice(0, 10)),
+        NX.sb.from('equipment_maintenance').select('*', { count: 'exact', head: true })
+          .gte('event_date', weekAgo.slice(0, 10)),
       ]);
 
       const counts = {
         tickets:  numOrDash(ticketsRes),
+        down:     numOrDash(downRes),
         overdue:  numOrDash(overdueRes),
         services: numOrDash(servicesRes),
-        nodes:    numOrDash(nodesRes),
       };
 
       Object.keys(counts).forEach(k => {
-        const btn = document.querySelector(`.nx-stat[data-stat="${k}"]`);
+        const btn = document.querySelector(`.home-kpi[data-stat="${k}"]`);
         if (!btn) return;
-        const num = btn.querySelector('.nx-stat-num');
-        // Format numbers with commas so '2400' reads as '2,400' at a glance.
-        // Special case: show '2.4k' for the nodes stat when it gets very
-        // large so it doesn't spill over adjacent columns on small phones.
+        const num = btn.querySelector('.home-kpi-num');
         const v = counts[k];
-        if (typeof v === 'number') {
-          if (k === 'nodes' && v >= 1000) {
-            num.textContent = (v / 1000).toFixed(v >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'k';
-          } else {
-            num.textContent = v.toLocaleString();
-          }
-        } else {
-          num.textContent = v;
-        }
+        num.textContent = (typeof v === 'number') ? v.toLocaleString() : v;
         num.classList.remove('is-loading');
-        if (k === 'overdue' && typeof v === 'number' && v > 0) {
-          num.classList.add('is-alert');
-        }
+        // Alert styling: any non-zero down equipment or overdue PMs is
+        // worth a red accent — these are the "act now" metrics.
+        num.classList.toggle('is-alert', (k === 'down' || k === 'overdue') && typeof v === 'number' && v > 0);
       });
 
-      // Wire stat taps to relevant views — with filter intents where useful
+      // Tap routing — each chip jumps to the relevant view with a filter
+      // intent where useful.
       const statRoutes = {
-        tickets: () => {
-          NX.ticketsFilterIntent = { status: 'open' };
-          NX.switchTo?.('log');
+        tickets: () => NX.switchTo?.('board'),
+        down: () => {
+          NX.equipmentFilterIntent = { status: 'down' };
+          NX.switchTo?.('equipment');
         },
         overdue: () => {
-          // Pre-activate the overdue-PM filter in the equipment module.
-          // equipment.js reads this on show() and clears it after applying.
           NX.equipmentFilterIntent = { pm: 'overdue' };
           NX.switchTo?.('equipment');
         },
         services: () => NX.switchTo?.('cal'),
-        nodes: () => NX.switchTo?.('brain'),
       };
-      document.querySelectorAll('.nx-stat').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const k = btn.dataset.stat;
-          statRoutes[k]?.();
-        });
+      document.querySelectorAll('.home-kpi').forEach(btn => {
+        btn.addEventListener('click', () => statRoutes[btn.dataset.stat]?.());
       });
     },
 
@@ -810,19 +838,28 @@
         parts.push(this._dailyState.label);
       }
 
-      // Open tickets — pull from the glance tile's current text
-      const ticketsBtn = document.querySelector('.nx-stat[data-stat="tickets"] .nx-stat-num');
+      // Open tickets — pull from the KPI chip's current text
+      const ticketsBtn = document.querySelector('.home-kpi[data-stat="tickets"] .home-kpi-num');
       if (ticketsBtn && !ticketsBtn.classList.contains('is-loading')) {
         const n = parseInt(ticketsBtn.textContent.replace(/,/g, ''), 10);
         if (!isNaN(n)) {
-          if (n === 0) parts.push('no open tickets');
-          else if (n === 1) parts.push('1 open ticket');
-          else parts.push(`${n} open tickets`);
+          if (n === 0) parts.push('board clear');
+          else if (n === 1) parts.push('1 open card');
+          else parts.push(`${n} open cards`);
+        }
+      }
+
+      // Equipment down — high-signal, lead with it when non-zero
+      const downBtn = document.querySelector('.home-kpi[data-stat="down"] .home-kpi-num');
+      if (downBtn && !downBtn.classList.contains('is-loading')) {
+        const n = parseInt(downBtn.textContent.replace(/,/g, ''), 10);
+        if (!isNaN(n) && n > 0) {
+          parts.push(`${n} down`);
         }
       }
 
       // Overdue PMs — same pull
-      const overdueBtn = document.querySelector('.nx-stat[data-stat="overdue"] .nx-stat-num');
+      const overdueBtn = document.querySelector('.home-kpi[data-stat="overdue"] .home-kpi-num');
       if (overdueBtn && !overdueBtn.classList.contains('is-loading')) {
         const n = parseInt(overdueBtn.textContent.replace(/,/g, ''), 10);
         if (!isNaN(n) && n > 0) {
@@ -918,9 +955,9 @@
   function labelFor(k) {
     return ({
       tickets: 'Open tickets',
+      down: 'Equipment down',
       overdue: 'Overdue PMs',
       services: 'Services this wk',
-      nodes: 'Nodes in brain',
     })[k] || k.toUpperCase();
   }
 
