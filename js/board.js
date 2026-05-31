@@ -1289,13 +1289,41 @@ async function moveCard(card, targetList){
 
   // Fire server write in background
   try{
-    const { error } = await NX.sb.from('kanban_cards').update({
+    // v18.33 — stamp closed_at when entering a done lane, clear it when
+    // leaving one. The daily log's "closed today" bucket reads this.
+    const updatePayload = {
       list_id: targetList.id,
       column_name: targetColName,
       status,
-    }).eq('id', card.id);
-    if(error) throw error;
-
+    };
+    if (movingToDone && wasNotDone) {
+      updatePayload.closed_at = new Date().toISOString();
+    } else if (!movingToDone && isDone({ column_name: prev.column_name, list_id: prev.list_id })) {
+      // Moving OUT of a done lane — clear the close timestamp so a
+      // reopened card doesn't carry a stale closed_at.
+      updatePayload.closed_at = null;
+    }
+    const { error } = await NX.sb.from('kanban_cards').update(updatePayload).eq('id', card.id);
+    if(error){
+      // v18.33 — tolerate the pre-migration window where closed_at
+      // doesn't exist yet. Retry the move without the closed_at field
+      // so card moves never break. (Run sql/kanban_cards_closed_at.sql
+      // to enable "closed today" tracking in the daily log.)
+      if(error.code === '42703' && 'closed_at' in updatePayload){
+        const { closed_at, ...rest } = updatePayload;
+        const retry = await NX.sb.from('kanban_cards').update(rest).eq('id', card.id);
+        if(retry.error) throw retry.error;
+        if(!window._kanbanClosedAtWarned){
+          window._kanbanClosedAtWarned = true;
+          console.warn('[board] kanban_cards.closed_at missing — card moved without it. Run sql/kanban_cards_closed_at.sql.');
+        }
+      } else {
+        throw error;
+      }
+    } else {
+      // Keep the in-memory card consistent with what we wrote
+      if ('closed_at' in updatePayload) card.closed_at = updatePayload.closed_at;
+    }
     // ── CROSS-SYSTEM CLOSE-OUT ────────────────────────────────────
     // If this card just moved to Done and is linked to equipment
     // that isn't currently Operational, offer to mark the equipment
@@ -2466,7 +2494,14 @@ async function openTriageModal(){
         await NX.sb.from('kanban_cards').update({ archived: true }).eq('id', c.id);
         archivedCount++;
       } else if (action === 'close') {
-        await NX.sb.from('kanban_cards').update({ status: 'closed' }).eq('id', c.id);
+        // v18.33 — stamp closed_at so the daily log "closed today" bucket
+        // picks up triage-closed cards. Tolerate the column being absent.
+        const closePayload = { status: 'closed', closed_at: new Date().toISOString() };
+        let closeErr = (await NX.sb.from('kanban_cards').update(closePayload).eq('id', c.id)).error;
+        if (closeErr && closeErr.code === '42703') {
+          closeErr = (await NX.sb.from('kanban_cards').update({ status: 'closed' }).eq('id', c.id)).error;
+        }
+        if (closeErr) throw closeErr;
         closedCount++;
       } else if (action === 'skip') {
         skippedCount++;
@@ -2539,12 +2574,26 @@ async function init(){
 }
 
 async function show(){
+  // v18.34 — Home "New card" quick action sets NX.boardComposeIntent.
+  // After the board renders, click the first lane's add-card trigger so
+  // the composer opens automatically. One-shot — cleared after use.
+  const wantCompose = NX.boardComposeIntent;
+  NX.boardComposeIntent = false;
+  const openComposerSoon = () => {
+    if (!wantCompose) return;
+    setTimeout(() => {
+      const trigger = document.querySelector('.b-list .b-list-add');
+      if (trigger) trigger.click();
+    }, 250);
+  };
+
   // Stale-while-revalidate: if we have a live realtime subscription and
   // data pulled recently, render from memory NOW (instant), then kick
   // a silent refresh in the background. Tab switches become snappy.
   const isWarm = rtChannel && rtConnected && (Date.now() - lastFetchAt) < 10000;
   if(isWarm){
     render();
+    openComposerSoon();
     // Silent background refresh — only re-renders if anything changed
     // (realtime should have caught mutations already, this is a safety
     // net against dropped events during reconnect windows).
@@ -2554,6 +2603,7 @@ async function show(){
   await loadCards();
   loadStats();
   render();
+  openComposerSoon();
   // (Re)subscribe if we don't have an active channel
   if(!rtChannel) subscribeRealtime();
 }
