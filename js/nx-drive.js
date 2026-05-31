@@ -678,6 +678,12 @@ function computeWindowStart(endDateIso) {
 function renderDailyTicketsSection(slices, notes) {
   if (!slices) return '';
   const n = notes || {};
+  const laneLabel = (status) => ({
+    reported: 'Reported', triaged: 'Triaged', dispatched: 'Dispatched',
+    in_progress: 'In Progress', waiting_parts: 'Waiting on Parts',
+    resolved: 'Resolved', closed: 'Closed', done: 'Done',
+  })[status] || (status || '').replace(/_/g, ' ');
+
   const ticketTable = (items, emptyMsg) => {
     const rows = (items || []).filter(t => t && t.title).map(t => {
       const pri = (t.priority || 'normal').toLowerCase();
@@ -685,7 +691,8 @@ function renderDailyTicketsSection(slices, notes) {
         <tr>
           <td style="width:80px;font-size:9pt;text-transform:uppercase;color:#555;"><b>${esc(pri)}</b></td>
           <td><b>${esc(t.title)}</b></td>
-          <td style="width:30%;font-size:9pt;color:#666;">${esc(t.location || '—')}</td>
+          <td style="width:22%;font-size:9pt;color:#666;">${esc(t.location || '—')}</td>
+          <td style="width:20%;font-size:9pt;color:#666;">${esc(laneLabel(t.status))}</td>
         </tr>`;
     }).join('');
     if (!rows) return `<p style="font-style:italic;color:#999;">${esc(emptyMsg)}</p>`;
@@ -695,6 +702,7 @@ function renderDailyTicketsSection(slices, notes) {
           <th style="text-align:left;"><b>Priority</b></th>
           <th style="text-align:left;"><b>Title</b></th>
           <th style="text-align:left;"><b>Location</b></th>
+          <th style="text-align:left;"><b>Lane</b></th>
         </tr>
         ${rows}
       </table>`;
@@ -706,10 +714,10 @@ function renderDailyTicketsSection(slices, notes) {
     ${noteText ? `<p style="font-style:italic;color:#555;margin-top:6pt;">${nl2br(noteText)}</p>` : ''}`;
 
   return `
-    <h1 style="border-bottom:2px solid #333;padding-bottom:4pt;">Tickets</h1>
-    ${block('Open as of today',   slices.open_as_of,   n.open,   'No tickets currently open.')}
-    ${block('Closed today',       slices.closed_today, n.closed, 'No tickets closed today.')}
-    ${block('Newly opened today', slices.opened_today, n.opened, 'No new tickets opened today.')}`;
+    <h1 style="border-bottom:2px solid #333;padding-bottom:4pt;">Board Tickets</h1>
+    ${block('Open',         slices.open,    n.open,    'Nothing open on the board.')}
+    ${block('Working',      slices.working, n.working, 'Nothing actively being worked.')}
+    ${block('Closed today', slices.closed,  n.closed,  'Nothing closed today.')}`;
 }
 
 // v18.32 Vendor V1 — Daily vendor activity in the Drive doc.
