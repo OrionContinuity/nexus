@@ -505,7 +505,7 @@ async function loadTicketSlices(logDate) {
   let listName = {};     // list_id → display name (for the lane chip)
   try {
     const { data: lists, error: listErr } = await NX.sb.from('board_lists')
-      .select('id, name, position');
+      .select('*');
     if (listErr) {
       console.warn('[daily-log] board_lists load:', listErr.message);
     } else {
@@ -518,21 +518,12 @@ async function loadTicketSlices(logDate) {
     console.warn('[daily-log] board_lists exception:', e);
   }
 
-  // 2. Load all cards, then filter archived CLIENT-SIDE (avoids fragile
-  //    PostgREST archived operators). Try with closed_at; on ANY error
-  //    (column absent, etc.) retry without it so the section never blanks.
-  const FIELDS_FULL = 'id, title, location, priority, status, column_name, list_id, equipment_id, created_at, updated_at, closed_at, archived';
-  const FIELDS_MIN  = 'id, title, location, priority, status, column_name, list_id, equipment_id, created_at, updated_at, archived';
-  let res = await NX.sb.from('kanban_cards').select(FIELDS_FULL)
-    .order('created_at', { ascending: true });
-  if (res.error) {
-    if (!window._kanbanClosedAtWarned) {
-      window._kanbanClosedAtWarned = true;
-      console.warn('[daily-log] kanban_cards full select failed (' + (res.error.code || '?') + ') — retrying without closed_at. Run sql/kanban_cards_closed_at.sql for accurate "closed today".');
-    }
-    res = await NX.sb.from('kanban_cards').select(FIELDS_MIN)
-      .order('created_at', { ascending: true });
-  }
+  // 2. Load all cards with select('*') — naming specific columns
+  //    (closed_at, equipment_id, created_at, etc.) errors the whole
+  //    query if any one is absent, which silently blanked this section.
+  //    select('*') returns whatever exists and can't fail on a missing
+  //    column. Archived filtered + sorted client-side for the same reason.
+  let res = await NX.sb.from('kanban_cards').select('*');
   if (res.error) {
     console.warn('[daily-log] kanban_cards load:', res.error.message);
     return { open: [], working: [], closed: [] };
@@ -573,6 +564,8 @@ async function loadTicketSlices(logDate) {
     }
   });
 
+  // Open: oldest first (aging surfaces). Working: newest activity first.
+  open.sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
   // Working: newest activity first
   working.sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
   // Closed: most-recently-closed first
@@ -1214,9 +1207,6 @@ function renderEquipmentStatusSection(d) {
             <span class="dlog-eqstatus-name">${esc(eq.name || 'Untitled equipment')}</span>
             <span class="dlog-eqstatus-meta">${esc(eq.location || '')}${dayLabel ? ' · ' + esc(dayLabel) : ''}</span>
           </div>
-          <button type="button" class="dlog-eqstatus-fix" data-eq-fix="${esc(eq.id)}" title="Mark this equipment operational">
-            ✓ Fixed
-          </button>
         </div>
         <textarea
           class="dlog-eqstatus-note"
@@ -1234,7 +1224,7 @@ function renderEquipmentStatusSection(d) {
         <span class="dlog-section-count">${items.length}</span>
       </summary>
       <div class="dlog-section-body">
-        <p class="dlog-empty-hint">Equipment that's not operational — notes here update the equipment record directly. Tap ✓ Fixed when an item's back up.</p>
+        <p class="dlog-empty-hint">Equipment that's not operational — notes here update the equipment record directly. Change status in the Equip view when it's back up.</p>
         <div class="dlog-eqstatus-list">${rows}</div>
       </div>
     </details>`;
@@ -1650,38 +1640,6 @@ function wireForm() {
     ta.addEventListener('blur', () => {
       if (writeTimer) { clearTimeout(writeTimer); writeTimer = null; }
       flush();
-    });
-  });
-
-  // ── v18.32 "✓ Fixed" — flips equipment to operational + clears
-  // status_note + logs a status_change event. The equipment drops out
-  // of the Equipment Status section AND appears in Today's Equipment
-  // Activity (status_change from down → operational) immediately.
-  view.querySelectorAll('[data-eq-fix]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const equipmentId = btn.dataset.eqFix;
-      const item = (state.equipmentDown || []).find(eq => eq.id === equipmentId);
-      const eqName = (item && item.name) || 'this equipment';
-      if (!confirm(`Mark "${eqName}" as operational? This will clear its status note and log a status change.`)) return;
-      btn.disabled = true;
-      btn.textContent = '…';
-      const result = await markEquipmentOperational(equipmentId);
-      if (result.error) {
-        btn.disabled = false;
-        btn.textContent = '✓ Fixed';
-        if (NX.toast) NX.toast('Could not update: ' + result.error, 'error', 4500);
-        return;
-      }
-      if (NX.toast) NX.toast(`${eqName} marked operational`, 'success', 2400);
-      // Drop the item from local state immediately for snappy UI
-      state.equipmentDown = (state.equipmentDown || []).filter(eq => eq.id !== equipmentId);
-      // Refresh today's equipment activity so the status_change appears
-      try {
-        const log = ensureCurrentLog();
-        const freshActivity = await loadEquipmentActivity(log.data.header.date);
-        state.equipmentActivity = freshActivity;
-      } catch (e) { /* non-fatal */ }
-      render();
     });
   });
 
