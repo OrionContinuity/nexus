@@ -394,13 +394,26 @@ function buildTicketCard(r, pinned) {
       }
 
       // 3. Close the linked board card
+      // v18.33 — also stamp closed_at so the daily log "closed today"
+      // bucket sees feed-closed cards. closed_at is wrapped in its own
+      // try so a missing column (pre-migration) doesn't block the close.
       if (boardCardId) {
-        try { await NX.sb.from('kanban_cards').update({ status: 'closed', column_name: 'done', updated_at: new Date().toISOString() }).eq('id', boardCardId); } catch (e) {}
+        const now = new Date().toISOString();
+        try { await NX.sb.from('kanban_cards').update({ status: 'closed', column_name: 'done', closed_at: now, updated_at: now }).eq('id', boardCardId); }
+        catch (e) {
+          try { await NX.sb.from('kanban_cards').update({ status: 'closed', column_name: 'done', updated_at: now }).eq('id', boardCardId); } catch (e2) {}
+        }
       }
 
       // Legacy paths — covers the case where r.id is a kanban_card id
       // rather than a ticket id (older feed rendering path).
-      try { await NX.sb.from('kanban_cards').update({ status: 'closed', updated_at: new Date().toISOString() }).eq('id', r.id); } catch(e){}
+      {
+        const now = new Date().toISOString();
+        try { await NX.sb.from('kanban_cards').update({ status: 'closed', closed_at: now, updated_at: now }).eq('id', r.id); }
+        catch(e){
+          try { await NX.sb.from('kanban_cards').update({ status: 'closed', updated_at: now }).eq('id', r.id); } catch(e2){}
+        }
+      }
 
       btn.textContent = 'Closed';
       d.style.opacity = '0.4';
