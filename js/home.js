@@ -599,10 +599,15 @@
       //   • services — equipment_maintenance events in the last 7 days
       // Dropped the vanity "nodes in brain" metric.
       const [ticketsRes, downRes, overdueRes, servicesRes] = await Promise.allSettled([
+        // Open board cards. status is NULL on freshly-created cards
+        // (only set on move), and `null NOT IN (...)` is not-true in SQL —
+        // so we must explicitly include NULL status as "open". Also
+        // tolerate NULL archived via not-is-true.
         NX.sb.from('kanban_cards').select('*', { count: 'exact', head: true })
-          .not('status', 'in', '("closed","resolved","done")').eq('archived', false),
+          .or('status.is.null,status.not.in.(closed,resolved,done)')
+          .not('archived', 'is', true),
         NX.sb.from('equipment').select('*', { count: 'exact', head: true })
-          .in('status', ['down', 'needs_service', 'broken']).eq('archived', false),
+          .in('status', ['down', 'needs_service', 'broken']).not('archived', 'is', true),
         NX.sb.from('equipment').select('*', { count: 'exact', head: true })
           .lt('next_pm_date', nowIso.slice(0, 10)),
         NX.sb.from('equipment_maintenance').select('*', { count: 'exact', head: true })
