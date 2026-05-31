@@ -598,25 +598,34 @@
       //   • overdue  — equipment past its next_pm_date
       //   • services — equipment_maintenance events in the last 7 days
       // Dropped the vanity "nodes in brain" metric.
+      // v18.34 — stat set realigned to what a facilities manager acts on.
+      // Counts use client-side filtering on small result sets rather than
+      // PostgREST archived/null operators (which proved fragile on this
+      // deployment — the equipment-down count was erroring to a dash).
       const [ticketsRes, downRes, overdueRes, servicesRes] = await Promise.allSettled([
-        // Open board cards. status is NULL on freshly-created cards
-        // (only set on move), and `null NOT IN (...)` is not-true in SQL —
-        // so we must explicitly include NULL status as "open". Also
-        // tolerate NULL archived via not-is-true.
-        NX.sb.from('kanban_cards').select('*', { count: 'exact', head: true })
-          .or('status.is.null,status.not.in.(closed,resolved,done)')
-          .not('archived', 'is', true),
-        NX.sb.from('equipment').select('*', { count: 'exact', head: true })
-          .in('status', ['down', 'needs_service', 'broken']).not('archived', 'is', true),
+        // Open board cards: fetch light rows, count non-archived + non-done
+        // client-side. status is NULL on freshly-created cards (only set on
+        // move), so we treat NULL/anything-not-done as open.
+        NX.sb.from('kanban_cards').select('id, status, archived'),
+        // Equipment down: fetch matching rows, exclude archived in JS
+        NX.sb.from('equipment').select('id, archived').in('status', ['down', 'needs_service', 'broken']),
         NX.sb.from('equipment').select('*', { count: 'exact', head: true })
           .lt('next_pm_date', nowIso.slice(0, 10)),
         NX.sb.from('equipment_maintenance').select('*', { count: 'exact', head: true })
           .gte('event_date', weekAgo.slice(0, 10)),
       ]);
 
+      // Tickets + down are now row fetches we count in JS.
+      const DONE = new Set(['closed', 'resolved', 'done']);
+      const countRows = (settled, pred) => {
+        if (settled?.status !== 'fulfilled' || settled.value?.error) return '—';
+        const rows = settled.value?.data;
+        if (!Array.isArray(rows)) return '—';
+        return rows.filter(pred).length;
+      };
       const counts = {
-        tickets:  numOrDash(ticketsRes),
-        down:     numOrDash(downRes),
+        tickets:  countRows(ticketsRes, r => r.archived !== true && !DONE.has((r.status || '').toLowerCase())),
+        down:     countRows(downRes,    r => r.archived !== true),
         overdue:  numOrDash(overdueRes),
         services: numOrDash(servicesRes),
       };
