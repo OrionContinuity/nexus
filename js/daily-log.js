@@ -667,36 +667,23 @@ async function loadVendorOpenIssueCounts() {
 const NON_OPERATIONAL_STATUSES = ['down', 'needs_service', 'broken'];
 async function loadEquipmentDown() {
   if (!NX.sb) return [];
-  // Filter archived CLIENT-SIDE rather than via a PostgREST operator.
-  // The previous .not('archived','is',true) / .eq('archived',false)
-  // approaches were fragile (one errored on this deployment, blanking
-  // the whole section). Fetching the small down-equipment set and
-  // filtering in JS is bulletproof.
+  // select('*') — NEVER name optional columns (status_note, notes,
+  // updated_at) in the select. Those are written by the form only when
+  // non-empty, so the columns may not exist in the DB; naming a missing
+  // column errors the WHOLE query and blanks the section. select('*')
+  // returns whatever columns exist and can't fail on a missing one.
+  // Archived filtered + sorting done client-side for the same reason.
   try {
-    // Try with status_note (the synced narrative column). On ANY error
-    // (e.g. status_note column absent — migration not run), retry with a
-    // minimal column set so the section still renders.
-    let res = await NX.sb.from('equipment')
-      .select('id, name, location, status, status_note, notes, updated_at, archived')
-      .in('status', NON_OPERATIONAL_STATUSES)
-      .order('updated_at', { ascending: false });
-    let missingNote = false;
-    if (res.error) {
-      missingNote = true;
-      res = await NX.sb.from('equipment')
-        .select('id, name, location, status, notes, updated_at, archived')
-        .in('status', NON_OPERATIONAL_STATUSES)
-        .order('updated_at', { ascending: false });
-    }
-    if (res.error) {
-      console.warn('[daily-log] loadEquipmentDown:', res.error.message);
+    const { data, error } = await NX.sb.from('equipment')
+      .select('*')
+      .in('status', NON_OPERATIONAL_STATUSES);
+    if (error) {
+      console.warn('[daily-log] loadEquipmentDown:', error.message);
       return [];
     }
-    // Exclude archived (true). Keep false AND null.
-    const rows = (res.data || []).filter(eq => eq.archived !== true);
-    return missingNote
-      ? rows.map(eq => Object.assign(eq, { _missing_status_note_column: true }))
-      : rows;
+    const rows = (data || []).filter(eq => eq.archived !== true);
+    rows.sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
+    return rows;
   } catch (e) {
     console.warn('[daily-log] loadEquipmentDown exception:', e);
     return [];
@@ -1458,11 +1445,19 @@ function renderEquipmentActivitySection(d) {
 // a past submitted log that has a frozen snapshot in data.tickets —
 // in which case we prefer the snapshot for historical accuracy.
 function renderTicketsSection(d) {
-  // Source preference: frozen snapshot (auditable past) > live (today).
-  // v18.33 — new bucket keys (open/working/closed) from the Board.
-  const slices = (d.tickets && (d.tickets.open || d.tickets.working || d.tickets.closed))
+  // Source preference: LIVE state.ticketSlices for today's editable log.
+  // The frozen snapshot (d.tickets) is only used for a PAST SUBMITTED log
+  // — there, live can't reconstruct historical state, so the snapshot is
+  // authoritative. The old check used d.tickets truthiness, but empty
+  // arrays are truthy, so a saved-empty snapshot beat live data and the
+  // section showed 0 even when the board had cards. Now we only defer to
+  // the snapshot for genuinely-past submitted logs.
+  const log = state.currentLog || {};
+  const isPastSubmitted = !!log.submitted_at && log.log_date && log.log_date < todayISO();
+  const slices = (isPastSubmitted && d.tickets &&
+                  (d.tickets.open || d.tickets.working || d.tickets.closed))
     ? d.tickets
-    : state.ticketSlices || { open: [], working: [], closed: [] };
+    : (state.ticketSlices || { open: [], working: [], closed: [] });
   const notes = d.ticket_notes || { open: '', working: '', closed: '' };
 
   const openCount    = (slices.open    || []).length;
