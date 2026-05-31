@@ -874,47 +874,62 @@
   padding: 18px 16px 80px;
 }
 .dlog-header {
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 .dlog-title-row {
   display: flex; align-items: center; justify-content: space-between;
-  gap: 12px; margin-bottom: 10px;
+  gap: 12px; margin-bottom: 8px;
 }
 .dlog-title {
   font-family: 'Outfit', 'DM Sans', sans-serif;
-  font-weight: 600; font-size: 22px; letter-spacing: 0.2px;
+  font-weight: 600; font-size: 19px; letter-spacing: -0.01em;
   color: var(--nx-text-strong, var(--text));
-  margin: 0;
+  margin: 0; line-height: 1.15;
 }
-.dlog-meta {
-  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-  font-size: 12px;
-}
-.dlog-date-pick { display: flex; flex-direction: column; gap: 3px; }
-.dlog-meta-label {
-  font-size: 9.5px; letter-spacing: 1.5px; text-transform: uppercase;
-  color: var(--nx-faint, var(--muted));
-  font-family: 'JetBrains Mono', monospace;
-}
-.dlog-date-pick input[type="date"] {
+/* Compact "+ New" pill — replaces the heavier eq-btn-secondary */
+.dlog-new-btn {
+  flex-shrink: 0;
+  font-family: inherit; font-size: 12.5px; font-weight: 500;
+  color: var(--nx-text, var(--text));
   background: var(--nx-surface-solid, var(--surface));
   border: 1px solid var(--nx-border, var(--border));
-  border-radius: 6px; padding: 6px 10px;
+  border-radius: 999px;
+  padding: 6px 13px; cursor: pointer;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+.dlog-new-btn:hover { border-color: var(--nx-gold, var(--accent)); background: var(--nx-gold-faint); }
+.dlog-new-btn:active { transform: scale(0.97); }
+
+/* Single-row meta: date input + status + Drive link, all inline.
+   No more stacked "LOG DATE" label or multi-line wrap. */
+.dlog-meta {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.dlog-date-input {
+  background: var(--nx-surface-solid, var(--surface));
+  border: 1px solid var(--nx-border, var(--border));
+  border-radius: 7px; padding: 5px 9px;
   color: var(--nx-text, var(--text));
   font: inherit; font-size: 13px;
-  min-height: 32px;
+  min-height: 30px;
 }
+/* Lighter status — plain colored mono text with a leading dot, no heavy
+   pill chrome. Reads as a quiet annotation, not a billboard. */
 .dlog-status {
-  font-size: 10.5px; letter-spacing: 1.2px; text-transform: uppercase;
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10px; letter-spacing: 0.8px; text-transform: uppercase;
   font-family: 'JetBrains Mono', monospace;
-  padding: 4px 10px; border-radius: 999px;
-  border: 1px solid var(--nx-border, var(--border));
-  background: var(--nx-surface-solid, var(--surface));
 }
-.dlog-status-draft     { color: var(--nx-muted, var(--muted)); }
-.dlog-status-pending   { color: var(--nx-gold, var(--accent)); border-color: var(--nx-gold-line); background: var(--nx-gold-faint); }
-.dlog-status-uploaded  { color: #67c08c; border-color: rgba(103, 192, 140, 0.32); background: rgba(103, 192, 140, 0.08); }
-.dlog-status-failed    { color: var(--nx-red, #a83e3e); border-color: var(--nx-red-line); background: var(--nx-red-soft); }
+.dlog-status::before {
+  content: ''; width: 5px; height: 5px; border-radius: 999px;
+  background: currentColor; flex-shrink: 0;
+}
+.dlog-status-draft     { color: var(--nx-faint, var(--muted)); }
+.dlog-status-pending   { color: var(--nx-gold, var(--accent)); }
+.dlog-status-uploaded  { color: #67c08c; }
+.dlog-status-failed    { color: var(--nx-red, #a83e3e); }
 
 /* v18.32 Phase 3a — dynamic locations UI. + Add Location button sits
    below the last location section; the dropdown menu floats above with
@@ -1274,6 +1289,51 @@
 .dlog-tk-lane {
   color: var(--nx-gold, var(--accent));
   font-weight: 600;
+}
+/* Bucket-tinted lane chips so state reads at a glance within a location */
+.dlog-tk-lane-open    { color: var(--nx-gold, var(--accent)); }
+.dlog-tk-lane-working { color: #67c08c; }
+.dlog-tk-lane-closed  { color: var(--nx-faint, var(--muted)); }
+
+/* v18.35 — location group blocks (shared by Equipment Status + Board
+   Tickets). A location subheader with a count, then its rows. */
+.dlog-loc-group { margin-bottom: 14px; }
+.dlog-loc-group:last-child { margin-bottom: 0; }
+.dlog-loc-group-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 0 6px; margin-bottom: 8px;
+  border-bottom: 1px solid var(--nx-gold-line, var(--border));
+}
+.dlog-loc-group-name {
+  font-family: 'Outfit', 'DM Sans', sans-serif;
+  font-weight: 600; font-size: 13px;
+  letter-spacing: 0.3px;
+  color: var(--nx-gold, var(--accent));
+  text-transform: uppercase;
+}
+.dlog-loc-group-auto {
+  font-size: 8.5px; letter-spacing: 0.6px; text-transform: uppercase;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--nx-faint, var(--muted));
+  border: 1px solid var(--nx-border, var(--border));
+  border-radius: 999px; padding: 1px 6px;
+}
+.dlog-loc-group-count {
+  margin-left: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: var(--nx-muted, var(--muted));
+  min-width: 18px; text-align: center;
+}
+/* Bucket notes parked at the bottom of Board Tickets */
+.dlog-tk-notes-wrap {
+  margin-top: 14px; padding-top: 12px;
+  border-top: 1px solid var(--nx-border, var(--border));
+  display: flex; flex-direction: column; gap: 8px;
+}
+.dlog-tk-note .dlog-field-label {
+  font-size: 9.5px; letter-spacing: 1px; text-transform: uppercase;
+  color: var(--nx-faint, var(--muted));
+  font-family: 'JetBrains Mono', monospace;
 }
 
 /* v18.32 Vendor V1 — Vendor Activity Today card.
@@ -1707,28 +1767,29 @@
 }
 
 .dlog-recent {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 0; margin-bottom: 12px;
-  border-top: 1px solid var(--nx-border, var(--border));
-  border-bottom: 1px solid var(--nx-border, var(--border));
+  display: flex; align-items: center; gap: 8px;
+  padding: 0; margin: 0 0 14px;
   overflow-x: auto;
+  scrollbar-width: none;
 }
+.dlog-recent::-webkit-scrollbar { display: none; }
 .dlog-recent-label {
-  font-size: 9.5px; letter-spacing: 1.5px; text-transform: uppercase;
+  font-size: 8.5px; letter-spacing: 1.2px; text-transform: uppercase;
   color: var(--nx-faint, var(--muted));
   font-family: 'JetBrains Mono', monospace;
   flex-shrink: 0;
 }
 .dlog-recent-strip { display: flex; gap: 6px; }
 .dlog-recent-chip {
-  display: flex; align-items: center; gap: 6px;
-  padding: 6px 10px; border-radius: 999px;
+  display: flex; align-items: center; gap: 5px;
+  padding: 5px 11px; border-radius: 999px;
   background: var(--nx-surface-solid, var(--surface));
   border: 1px solid var(--nx-border, var(--border));
   color: var(--nx-muted, var(--muted));
-  font-size: 11.5px; cursor: pointer;
+  font-size: 11px; cursor: pointer;
   white-space: nowrap;
-  transition: all 150ms ease;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 150ms ease, border-color 150ms ease, background 150ms ease;
 }
 .dlog-recent-chip:hover { color: var(--nx-text, var(--text)); border-color: var(--nx-border-strong); }
 .dlog-recent-chip.is-active {
@@ -1918,14 +1979,13 @@
   font-style: italic;
 }
 .dlog-drive-link {
-  font-size: 12px;
+  font-size: 11px; font-weight: 500;
   color: var(--nx-gold, var(--accent));
   text-decoration: none;
-  border-bottom: 1px solid var(--nx-gold-line);
-  padding-bottom: 1px;
-  transition: all 150ms ease;
+  white-space: nowrap;
+  transition: color 150ms ease;
 }
-.dlog-drive-link:hover { color: var(--nx-text-strong); border-color: var(--nx-gold); }
+.dlog-drive-link:hover { color: var(--nx-text-strong); }
 .dlog-error-detail {
   font-size: 11.5px;
   color: var(--nx-red, #a83e3e);
