@@ -91,13 +91,106 @@
   letter-spacing: -0.03em;
 }
 
+/* ═══ v18.34 HOME REDESIGN ═════════════════════════════════════════
+   Research-grounded rebuild (ResQ "Daily Menu" + Limble/UpKeep card
+   density). Compact greeting reclaims the vertical space the old giant
+   lede wasted; quick actions put core tasks one tap away; KPI chips are
+   dense squared cards, not childish giant pills. */
+
+/* Compact greeting — ~half the height of the old .home-lede */
+.home-greet { margin: var(--nx-space-4) 0 var(--nx-space-4); }
+.home-greet-line {
+  margin: 0 0 var(--nx-space-2);
+  font-family: var(--nx-font-display);
+  font-weight: 300;
+  font-size: clamp(24px, 5.5vw, 32px);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--nx-text);
+}
+.home-greet-name { color: var(--nx-gold); font-weight: 400; }
+
+/* Quick Actions — three equal one-tap targets. Icon over label. */
+.home-quick {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--nx-space-2);
+  margin: 0 0 var(--nx-space-4);
+}
+.home-quick-btn {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 5px;
+  padding: 12px 6px;
+  min-height: 60px;
+  border: 1px solid var(--nx-gold-line);
+  border-radius: var(--nx-radius-card, 12px);
+  background: var(--nx-gold-faint);
+  color: var(--nx-text);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--nx-press), border-color var(--nx-press), transform var(--nx-press);
+}
+.home-quick-btn svg { width: 19px; height: 19px; color: var(--nx-gold); }
+.home-quick-btn:hover  { border-color: var(--nx-gold-line-2); background: var(--nx-gold-soft); }
+.home-quick-btn:active { transform: scale(0.97); }
+
+/* Compact KPI chips — replaces the giant .nx-stat pills on Home.
+   Matches the .home-rm-tile aesthetic so the home.js KPIs and the
+   home-rm.js R&M tiles below them read as one cohesive grid. */
+.home-glance {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin: 0 0 6px;
+}
+@media (max-width: 520px) {
+  .home-glance { grid-template-columns: repeat(2, 1fr); }
+}
+.home-kpi {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 3px;
+  padding: 11px 8px;
+  min-height: 62px;
+  background: var(--nx-gold-tint, rgba(212,164,78,0.06));
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,0.20));
+  border-radius: 10px;
+  cursor: pointer;
+  font-family: inherit;
+  color: inherit;
+  text-align: center;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color var(--nx-press), background var(--nx-press), transform var(--nx-press);
+}
+.home-kpi:hover  { border-color: var(--nx-gold); transform: translateY(-1px); }
+.home-kpi:active { transform: scale(0.97); }
+.home-kpi-num {
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 20px; font-weight: 800;
+  color: var(--nx-text-strong, var(--nx-text));
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.home-kpi-num.is-loading { color: var(--nx-faint); font-weight: 400; }
+.home-kpi-num.is-alert   { color: var(--nx-red, #d4756b); }
+.home-kpi-label {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--nx-muted, #8a8576);
+}
+
 /* The situation line ("X overdue PMs and Y new tickets…") — quiet
    body copy that carries the intelligence behind the lede. */
 .home-intro {
   font-size: var(--nx-text-md);
   color: var(--nx-muted);
-  line-height: 1.55;
-  margin: 0 0 var(--nx-space-7);
+  line-height: 1.5;
+  margin: 0;
   max-width: 48ch;
   letter-spacing: 0.05px;
 }
