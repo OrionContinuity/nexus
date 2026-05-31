@@ -475,6 +475,48 @@ function collapseStatusChanges(events) {
 
 // Classify a board list NAME into one of our three buckets. Mirrors
 // board.js's done-detection regex + adds working/open split.
+// ═══════════════════════════════════════════════════════════════════
+// LOCATION GROUPING (v18.35)
+// Equipment Status + Board Tickets are split by location. The three data
+// sources store location differently:
+//   • board cards  → key:   'suerte' | 'este' | 'toti'
+//   • equipment    → label: 'Suerte' | 'Este' | 'Bar Toti'
+//   • log location → label: 'Este' | 'Suerte' (with id 'este'/'suerte')
+// normLocKey collapses any of these to one canonical key so they group
+// together. Unknown/empty → '' (rendered as "Unassigned").
+// ═══════════════════════════════════════════════════════════════════
+function normLocKey(v) {
+  const s = (v == null ? '' : String(v)).toLowerCase().trim();
+  if (!s) return '';
+  if (s.includes('suerte')) return 'suerte';
+  if (s.includes('este'))   return 'este';
+  if (s.includes('toti'))   return 'toti';   // 'toti' or 'bar toti'
+  if (s.includes('karaz'))  return 'karaz';  // forthcoming 4th location
+  return s;
+}
+function locDisplayLabel(key) {
+  return ({ suerte: 'Suerte', este: 'Este', toti: 'Bar Toti', karaz: 'Karaz' })[key]
+    || (key ? key.charAt(0).toUpperCase() + key.slice(1) : 'Unassigned');
+}
+// Decide which location groups to render and in what order. The log's
+// ACTIVE locations come first (in their log order); then any location
+// that has equipment/cards but isn't active in the log auto-populates
+// after (in preset order); 'Unassigned' ('') always last. Only keys that
+// actually have items (in presentKeys) are returned.
+function orderedLocationKeys(d, presentKeys) {
+  const seen = new Set();
+  const ordered = [];
+  const push = (k) => { if (presentKeys.has(k) && !seen.has(k)) { seen.add(k); ordered.push(k); } };
+  // 1. Active log locations, in log order
+  (d.locations || []).forEach(l => push(normLocKey(l.label)));
+  // 2. Auto-populated: preset order, then any other present keys
+  ['suerte', 'este', 'toti', 'karaz'].forEach(push);
+  [...presentKeys].forEach(k => { if (k) push(k); });
+  // 3. Unassigned last
+  push('');
+  return ordered;
+}
+
 function classifyListName(name) {
   const n = (name || '').toLowerCase();
   if (/(done|closed|resolved|complete|completed|archived?|paid)/.test(n)) return 'closed';
@@ -971,16 +1013,16 @@ function render() {
   if (driveStatus === 'uploaded' && lastUploadedAt) {
     const t = new Date(lastUploadedAt);
     const timeStr = t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-    statusText = `✓ Updated in Drive · ${timeStr}`;
+    statusText = `✓ Saved ${timeStr}`;
     statusKind = 'uploaded';
   } else if (driveStatus === 'pending') {
-    statusText = '⏳ Uploading…';
+    statusText = 'Uploading…';
     statusKind = 'pending';
   } else if (driveStatus === 'failed') {
-    statusText = '✗ Drive upload failed';
+    statusText = 'Upload failed';
     statusKind = 'failed';
   } else {
-    statusText = 'Not yet uploaded';
+    statusText = 'Not uploaded';
     statusKind = 'draft';
   }
   const uploadBtnLabel = hasDriveFile ? 'Update Drive doc' : 'Upload to Drive';
@@ -990,16 +1032,13 @@ function render() {
       <header class="dlog-header">
         <div class="dlog-title-row">
           <h1 class="dlog-title">Daily Facilities Log</h1>
-          <button class="eq-btn eq-btn-secondary" id="dlogNewBtn" title="Start a log for a different date">＋ New</button>
+          <button class="dlog-new-btn" id="dlogNewBtn" title="Start a log for a different date">＋ New</button>
         </div>
         <div class="dlog-meta">
-          <label class="dlog-date-pick">
-            <span class="dlog-meta-label">Log date</span>
-            <input type="date" id="dlogDateInput" value="${esc(d.header.date || todayISO())}">
-          </label>
+          <input type="date" id="dlogDateInput" class="dlog-date-input" value="${esc(d.header.date || todayISO())}">
           <span class="dlog-status dlog-status-${statusKind}">${esc(statusText)}</span>
           ${hasDriveFile ? `
-            <a class="dlog-drive-link" href="${esc(log.drive_file_url || '#')}" target="_blank" rel="noopener">Open in Drive ↗</a>
+            <a class="dlog-drive-link" href="${esc(log.drive_file_url || '#')}" target="_blank" rel="noopener">Open ↗</a>
           ` : ''}
         </div>
         ${(driveStatus === 'failed' && log && log.drive_upload_error) ? `
@@ -1188,9 +1227,8 @@ function renderEquipmentStatusSection(d) {
       </details>`;
   }
 
-  // Build a row per piece of down equipment
-  const rows = items.map(eq => {
-    // Days since last update — gives a sense of how long this has been down
+  // One row per piece of down equipment.
+  const eqRow = (eq) => {
     const daysDown = eq.updated_at
       ? Math.max(0, Math.floor((Date.now() - new Date(eq.updated_at).getTime()) / 86400000))
       : null;
@@ -1205,7 +1243,7 @@ function renderEquipmentStatusSection(d) {
           <span class="dlog-eqstatus-pill ${statusPillClass(eq.status)}">${esc(statusLabel(eq.status))}</span>
           <div class="dlog-eqstatus-info">
             <span class="dlog-eqstatus-name">${esc(eq.name || 'Untitled equipment')}</span>
-            <span class="dlog-eqstatus-meta">${esc(eq.location || '')}${dayLabel ? ' · ' + esc(dayLabel) : ''}</span>
+            <span class="dlog-eqstatus-meta">${dayLabel ? esc(dayLabel) : ''}</span>
           </div>
         </div>
         <textarea
@@ -1214,6 +1252,30 @@ function renderEquipmentStatusSection(d) {
           rows="2"
           placeholder="Current status &mdash; parts ordered, vendor coming, etc."
         >${esc(noteValue)}</textarea>
+      </div>`;
+  };
+
+  // Group by location, then render in log-order (active first, then
+  // auto-populated, then unassigned).
+  const groups = {};
+  items.forEach(eq => {
+    const k = normLocKey(eq.location);
+    (groups[k] = groups[k] || []).push(eq);
+  });
+  const orderedKeys = orderedLocationKeys(d, new Set(Object.keys(groups)));
+  const activeKeys = new Set((d.locations || []).map(l => normLocKey(l.label)));
+
+  const groupBlocks = orderedKeys.map(k => {
+    const rows = groups[k].map(eqRow).join('');
+    const isAuto = !activeKeys.has(k);
+    return `
+      <div class="dlog-loc-group">
+        <div class="dlog-loc-group-head">
+          <span class="dlog-loc-group-name">${esc(locDisplayLabel(k))}</span>
+          ${isAuto ? '<span class="dlog-loc-group-auto">not in log</span>' : ''}
+          <span class="dlog-loc-group-count">${groups[k].length}</span>
+        </div>
+        <div class="dlog-eqstatus-list">${rows}</div>
       </div>`;
   }).join('');
 
@@ -1224,8 +1286,8 @@ function renderEquipmentStatusSection(d) {
         <span class="dlog-section-count">${items.length}</span>
       </summary>
       <div class="dlog-section-body">
-        <p class="dlog-empty-hint">Equipment that's not operational — notes here update the equipment record directly. Change status in the Equip view when it's back up.</p>
-        <div class="dlog-eqstatus-list">${rows}</div>
+        <p class="dlog-empty-hint">Not operational, split by location — notes update the equipment record directly. Change status in the Equip view when back up.</p>
+        ${groupBlocks}
       </div>
     </details>`;
 }
@@ -1466,15 +1528,14 @@ function renderTicketsSection(d) {
     resolved: 'Resolved', closed: 'Closed', done: 'Done',
   })[status] || (status || '').replace(/_/g, ' ');
 
-  const cardRow = (c) => {
+  const cardRow = (c, bucket) => {
     const pri = (c.priority || 'normal').toLowerCase();
     const priClass = pri === 'urgent' ? 'bw-pri-urgent' : (pri === 'low' ? 'bw-pri-low' : 'bw-pri-normal');
     const eqName = c.equipment_id ? eqNameById[c.equipment_id] : null;
     const lane = c._laneLabel || laneLabel(c.status);
     const metaBits = [];
-    if (c.location) metaBits.push(esc(c.location));
     if (eqName) metaBits.push('🔧 ' + esc(eqName));
-    if (lane) metaBits.push(`<span class="dlog-tk-lane">${esc(lane)}</span>`);
+    if (lane) metaBits.push(`<span class="dlog-tk-lane dlog-tk-lane-${bucket}">${esc(lane)}</span>`);
     return `
       <div class="dlog-tk-row">
         <span class="bw-pri-pill ${priClass}">${esc(pri)}</span>
@@ -1485,20 +1546,45 @@ function renderTicketsSection(d) {
       </div>`;
   };
 
-  const slice = (label, items, notesKey, notesPlaceholder) => {
-    const rows = (items || []).map(cardRow).join('');
+  // v18.35 — split cards by LOCATION. Each card is tagged with its bucket
+  // (open/working/closed) so the lane chip still conveys state, but the
+  // primary grouping is location, matching the rest of the log. Cards
+  // within a location are ordered open → working → closed-today.
+  const tagged = [];
+  (slices.open    || []).forEach(c => tagged.push({ c, bucket: 'open',    rank: 0 }));
+  (slices.working || []).forEach(c => tagged.push({ c, bucket: 'working', rank: 1 }));
+  (slices.closed  || []).forEach(c => tagged.push({ c, bucket: 'closed',  rank: 2 }));
+
+  const groups = {};
+  tagged.forEach(t => {
+    const k = normLocKey(t.c.location);
+    (groups[k] = groups[k] || []).push(t);
+  });
+  Object.values(groups).forEach(arr => arr.sort((a, b) => a.rank - b.rank));
+  const orderedKeys = orderedLocationKeys(d, new Set(Object.keys(groups)));
+  const activeKeys = new Set((d.locations || []).map(l => normLocKey(l.label)));
+
+  const groupBlocks = orderedKeys.map(k => {
+    const rows = groups[k].map(t => cardRow(t.c, t.bucket)).join('');
+    const isAuto = !activeKeys.has(k);
     return `
-      <div class="dlog-tk-slice">
-        <div class="dlog-tk-slice-head">
-          <span class="dlog-tk-slice-label">${esc(label)}</span>
-          <span class="dlog-tk-slice-count">${(items || []).length}</span>
+      <div class="dlog-loc-group">
+        <div class="dlog-loc-group-head">
+          <span class="dlog-loc-group-name">${esc(locDisplayLabel(k))}</span>
+          ${isAuto ? '<span class="dlog-loc-group-auto">not in log</span>' : ''}
+          <span class="dlog-loc-group-count">${groups[k].length}</span>
         </div>
-        ${rows ? `<div class="dlog-tk-list">${rows}</div>` : '<p class="dlog-empty-hint">None</p>'}
-        <label class="dlog-field">
-          <textarea data-path="ticket_notes.${notesKey}" rows="2" placeholder="${esc(notesPlaceholder)}">${esc(notes[notesKey] || '')}</textarea>
-        </label>
+        <div class="dlog-tk-list">${rows}</div>
       </div>`;
-  };
+  }).join('');
+
+  // Bucket notes preserved at the section bottom (data model unchanged:
+  // ticket_notes.open / .working / .closed).
+  const noteField = (label, key, placeholder) => `
+    <label class="dlog-field dlog-tk-note">
+      <span class="dlog-field-label">${esc(label)} notes</span>
+      <textarea data-path="ticket_notes.${key}" rows="2" placeholder="${esc(placeholder)}">${esc(notes[key] || '')}</textarea>
+    </label>`;
 
   return `
     <details class="dlog-section" ${totalCount > 0 ? 'open' : ''}>
@@ -1507,10 +1593,13 @@ function renderTicketsSection(d) {
         <span class="dlog-section-count">${totalCount}</span>
       </summary>
       <div class="dlog-section-body">
-        <p class="dlog-empty-hint">Pulled live from the Board. Open = logged, Working = in progress, Closed = finished today.</p>
-        ${slice('Open',          slices.open,    'open',    'Notes on the backlog…')}
-        ${slice('Working',       slices.working, 'working', 'Status on what\'s being worked…')}
-        ${slice('Closed today',  slices.closed,  'closed',  'How they were resolved…')}
+        <p class="dlog-empty-hint">Live from the Board, split by location. Lane chips show state — open, working, or closed today.</p>
+        ${groupBlocks || '<p class="dlog-empty-hint">No active cards.</p>'}
+        <div class="dlog-tk-notes-wrap">
+          ${noteField('Open',         'open',    'Notes on the backlog…')}
+          ${noteField('Working',      'working', 'Status on what\'s being worked…')}
+          ${noteField('Closed today', 'closed',  'How they were resolved…')}
+        </div>
       </div>
     </details>
   `;
