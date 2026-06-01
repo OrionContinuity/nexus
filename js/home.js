@@ -294,7 +294,7 @@
       // Daily → daily-log view, Biweekly → biweekly view. Uses the same
       // switchTo helper everything else uses.
       const opsDaily = el.querySelector('[data-ops="daily"]');
-      if (opsDaily) opsDaily.addEventListener('click', () => NX.switchTo?.('daily-log'));
+      if (opsDaily) opsDaily.addEventListener('click', () => NX.switchTo?.('dailylog'));
       const opsBiweekly = el.querySelector('[data-ops="biweekly"]');
       if (opsBiweekly) opsBiweekly.addEventListener('click', () => NX.switchTo?.('biweekly'));
 
@@ -306,7 +306,7 @@
         btn.addEventListener('click', () => {
           const action = btn.dataset.quick;
           if (action === 'log') {
-            NX.switchTo?.('daily-log');
+            NX.switchTo?.('dailylog');
           } else if (action === 'card') {
             NX.boardComposeIntent = true;   // board.js checks this on show()
             NX.switchTo?.('board');
@@ -1306,7 +1306,7 @@
             title: 'Daily log not started',
             body: 'Today\'s facility log hasn\'t been opened yet. Quick entry now keeps the trail current.',
             actionLabel: 'Open daily log',
-            onClick: () => NX.switchTo?.('daily-log'),
+            onClick: () => NX.switchTo?.('dailylog'),
           });
         }
       }
