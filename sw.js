@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v79-vendor-unlink';
+const CACHE_NAME = 'nexus-v80-back-nav';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
