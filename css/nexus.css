@@ -72,7 +72,7 @@ body::-webkit-scrollbar{display:none}
 .pin-display{display:flex;gap:16px;justify-content:center;margin-bottom:28px}
 .pin-circle{width:16px;height:16px;border-radius:50%;border:2px solid var(--faint);transition:all .15s}
 .pin-circle.filled{background:var(--accent);border-color:var(--accent);box-shadow:0 0 8px var(--glow)}
-.pin-pad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:240px;margin:0 auto}
+.pin-pad{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;max-width:300px;width:100%;margin:0 auto;padding:0 8px;box-sizing:border-box}
 .pin-key{width:72px;height:56px;border-radius:var(--r);border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:22px;font-family:'JetBrains Mono',monospace;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;-webkit-tap-highlight-color:transparent}
 .pin-key:active{background:var(--accent);color:var(--bg);transform:scale(.95)}
 .pin-key-empty{visibility:hidden}
@@ -1533,10 +1533,10 @@ body.panel-open .chat-hud{opacity:0;pointer-events:none;transform:translateY(100
 .pin-display{gap:14px;margin-bottom:28px}
 .pin-circle{width:13px;height:13px;border-width:1.5px;border-color:var(--nx-gold-line);transition:all .2s cubic-bezier(.4,0,.2,1)}
 .pin-circle.filled{box-shadow:0 0 12px var(--glow);transform:scale(1.15)}
-.pin-key{font-family:'Outfit',sans-serif;font-weight:300;font-size:22px;border-color:var(--nx-highlight-faint);background:var(--nx-highlight-tint);border-radius:14px;transition:all .12s cubic-bezier(.4,0,.2,1);width:76px;height:60px}
+.pin-key{font-family:'Outfit',sans-serif;font-weight:300;font-size:23px;border-color:var(--nx-gold-line);background:var(--nx-highlight-tint);border-radius:14px;transition:all .12s cubic-bezier(.4,0,.2,1);width:100%;height:62px}
 .pin-key:active{background:var(--nx-gold-mist);border-color:var(--nx-gold-aura);transform:scale(.92)}
 [data-theme="light"] .pin-screen{background:linear-gradient(180deg,var(--bg) 0%,#EAE6DD 100%)}
-[data-theme="light"] .pin-key{background:rgba(0,0,0,.04);border-color:rgba(0,0,0,.06)}
+[data-theme="light"] .pin-key{background:rgba(0,0,0,.05);border-color:rgba(0,0,0,.1)}
 [data-theme="light"] .pin-key:active{background:rgba(139,105,20,.1);border-color:rgba(139,105,20,.3)}
 [data-theme="light"] .pin-circle{border-color:rgba(139,105,20,.25)}
 .pin-user{font-weight:500;letter-spacing:.5px}
