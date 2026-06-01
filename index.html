@@ -867,15 +867,16 @@
 
   /* Shift main content right by sidebar width + a comfortable gutter on all
      sides so the workspace breathes off the chrome (the views' own padding
-     is tight — e.g. equipment is only 16px). fill the height below the 60px
-     masthead via flex (no magic numbers). */
+     is tight — e.g. equipment is only 16px). A DEFINITE viewport-relative
+     height is required so each view's `height:100%` resolves and the view
+     becomes the scroll container — without it (height:auto) the view grows to
+     content and .main's overflow:hidden just clips it (no scroll). */
   .main {
     padding-left: calc(240px + 24px);
     padding-right: 24px;
     padding-top: 26px;
-    flex: 1 1 auto;
-    height: auto;
-    min-height: 0;
+    height: calc(100vh - 60px);
+    height: calc(100dvh - 60px);
     box-sizing: border-box;
   }
   .offline-banner,
@@ -887,6 +888,42 @@
      (Log, Cal, Education, Transactions, Clock, Theme, Prefs, Settings)
      should not appear when the user opens the dial on desktop. */
   .sd-mobile-only { display: none !important; }
+
+  /* Visible, slim gold scrollbars on desktop so mouse users see the scroll
+     affordance (mobile keeps them hidden for a clean look). Applies to the
+     scrolling views and the board's card lists + horizontal lane row. */
+  .view {
+    scrollbar-width: thin !important;
+    scrollbar-color: var(--nx-gold-line) transparent;
+  }
+  .view::-webkit-scrollbar { display: block !important; width: 12px; height: 12px; }
+  .view::-webkit-scrollbar-thumb {
+    background: var(--nx-gold-line);
+    border-radius: 7px;
+    border: 3px solid transparent;
+    background-clip: padding-box;
+  }
+  .view::-webkit-scrollbar-thumb:hover { background: var(--nx-gold-line-2, var(--accent)); }
+  .view::-webkit-scrollbar-track { background: transparent; }
+
+  .b-list-cards, .board-list-cards, .board-lists {
+    scrollbar-width: thin !important;
+    scrollbar-color: var(--nx-gold-line) transparent;
+  }
+  .b-list-cards::-webkit-scrollbar,
+  .board-list-cards::-webkit-scrollbar,
+  .board-lists::-webkit-scrollbar { display: block !important; width: 9px; height: 9px; }
+  .b-list-cards::-webkit-scrollbar-thumb,
+  .board-list-cards::-webkit-scrollbar-thumb,
+  .board-lists::-webkit-scrollbar-thumb {
+    background: var(--nx-gold-line);
+    border-radius: 5px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  .b-list-cards::-webkit-scrollbar-track,
+  .board-list-cards::-webkit-scrollbar-track,
+  .board-lists::-webkit-scrollbar-track { background: transparent; }
 }
 
 /* ─── v18.32 — DAILY FACILITIES LOG ───────────────────────────────────
