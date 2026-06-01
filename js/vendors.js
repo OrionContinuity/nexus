@@ -262,6 +262,24 @@
         issues = data || [];
       } catch (_) {}
     }
+    // PMs assigned to this vendor (Phase 2 — PMs live in vendors). select('*')
+    // + client-side filter/sort is the bulletproof pattern; equipment id+name
+    // are always present so naming them is safe.
+    let pms = [];
+    if (NX?.sb) {
+      try {
+        const { data } = await NX.sb.from('pm_schedules').select('*').eq('vendor_id', vendor.id);
+        pms = (data || [])
+          .filter(p => (p.status || '') !== 'cancelled')
+          .sort((a, b) => String(a.scheduled_date || '').localeCompare(String(b.scheduled_date || '')));
+        const eqIds = [...new Set(pms.map(p => p.equipment_id).filter(Boolean))];
+        if (eqIds.length) {
+          const { data: eqs } = await NX.sb.from('equipment').select('id, name').in('id', eqIds);
+          const nameById = new Map((eqs || []).map(e => [String(e.id), e.name]));
+          pms.forEach(p => { p._eqName = nameById.get(String(p.equipment_id)) || 'Equipment'; });
+        }
+      } catch (_) {}
+    }
     const grade = score.vendorGrade(vendor);
 
     view.innerHTML = `
@@ -328,6 +346,16 @@
           </div>
         ` : ''}
 
+        ${(vendor.contact_name || vendor.website || vendor.address || vendor.account_number || vendor.hours) ? `
+          <div class="nxrm-vendor-meta" style="display:flex;flex-direction:column;gap:6px;margin:4px 0 12px;font-size:13px;color:var(--text)">
+            ${vendor.contact_name ? `<div><span style="color:var(--muted)">Contact:</span> ${esc(vendor.contact_name)}</div>` : ''}
+            ${vendor.hours ? `<div><span style="color:var(--muted)">Hours:</span> ${esc(vendor.hours)}</div>` : ''}
+            ${vendor.address ? `<div><span style="color:var(--muted)">Address:</span> ${esc(vendor.address)}</div>` : ''}
+            ${vendor.account_number ? `<div><span style="color:var(--muted)">Account #:</span> ${esc(vendor.account_number)}</div>` : ''}
+            ${vendor.website ? `<div><span style="color:var(--muted)">Web:</span> <a href="${esc(/^https?:\/\//.test(vendor.website) ? vendor.website : 'https://' + vendor.website)}" target="_blank" rel="noopener" style="color:var(--nx-gold)">${esc(vendor.website)}</a></div>` : ''}
+          </div>
+        ` : ''}
+
         ${vendor.notes ? `<div class="nxrm-vendor-notes">${esc(vendor.notes)}</div>` : ''}
 
         <div class="nxrm-section">
@@ -348,6 +376,34 @@
                 ${i.invoice_amount ? `<div class="nxrm-card-cost">${fmt.money(i.invoice_amount)}</div>` : ''}
               </button>
             `).join('') : '<div class="nxrm-empty"><div class="nxrm-empty-body">No jobs assigned to this vendor yet.</div></div>'}
+          </div>
+        </div>
+
+        <div class="nxrm-section">
+          <div class="nxrm-section-title">Scheduled PMs · ${pms.length}</div>
+          <div class="nxrm-list">
+            ${pms.length ? pms.map(p => {
+              const d = p.scheduled_date ? new Date(p.scheduled_date) : null;
+              const today = new Date(); today.setHours(0, 0, 0, 0);
+              let chip = 'scheduled', chipCls = '';
+              if (d) {
+                if (d < today) { chip = 'overdue'; chipCls = 'is-overdue'; }
+                else if (d < new Date(today.getTime() + 14 * 86400000)) { chip = 'soon'; chipCls = 'is-soon'; }
+              }
+              const dstr = d ? d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : 'no date';
+              return `
+              <button class="nxrm-card" data-equipment-id="${esc(p.equipment_id)}">
+                <div class="nxrm-card-row1">
+                  <span class="nxrm-card-priority">${esc((p.status || 'scheduled').toUpperCase())}</span>
+                  <span class="nxrm-card-age ${chipCls}">${chip}</span>
+                </div>
+                <div class="nxrm-card-title">${esc(p._eqName || p.title || 'PM')}</div>
+                <div class="nxrm-card-row2">
+                  <span class="nxrm-card-eq">${esc(dstr)}</span>
+                  ${p.phase_label ? `<span class="nxrm-sep">·</span><span class="nxrm-card-restaurant">${esc(p.phase_label)}</span>` : ''}
+                </div>
+              </button>`;
+            }).join('') : '<div class="nxrm-empty"><div class="nxrm-empty-body">No PMs scheduled with this vendor yet. Schedule one from any equipment\'s detail page.</div></div>'}
           </div>
         </div>
       </div>
@@ -581,42 +637,124 @@
   // NEW / EDIT
   // ─────────────────────────────────────────────────────────────────────
 
-  async function promptNewVendor() {
+  const TRADES = ['HVAC', 'Refrigeration', 'Plumbing', 'Electrical', 'Pest Control',
+    'Fire & Safety', 'Hood / Vent', 'Grease', 'Locksmith', 'Appliance Repair',
+    'General Contractor', 'Landscaping', 'Cleaning', 'Other'];
+
+  // Full contractor/trade profile form — replaces the old prompt() chain so a
+  // vendor record can hold everything (contact, trade, rates, availability,
+  // account #, notes). Handles both create and edit.
+  function openVendorForm(existing) {
     if (!NX?.sb) return;
-    const company = prompt('Vendor company name:');
-    if (!company) return;
-    const category = prompt('Category (HVAC, Refrigeration, Plumbing, Electrical, Pest, etc.):') || null;
-    const phone = prompt('Phone (optional):') || null;
-    const email = prompt('Email (optional):') || null;
-    const { error } = await NX.sb.from('vendors').insert({
-      company, name: company, category, phone, email, active: true,
+    const v = existing || {};
+    const isEdit = !!(existing && existing.id);
+
+    if (!document.getElementById('nxvf-style')) {
+      const st = document.createElement('style');
+      st.id = 'nxvf-style';
+      st.textContent =
+        '.nxvf-field{display:block;margin-bottom:11px}' +
+        '.nxvf-label{display:block;font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);margin-bottom:5px}' +
+        '.nxvf-input{width:100%;box-sizing:border-box;padding:11px 12px;border-radius:9px;border:1px solid var(--border);background:var(--surface-2,var(--surface));color:var(--text);font-family:inherit;font-size:15px}' +
+        '.nxvf-input:focus{outline:none;border-color:var(--nx-gold)}';
+      document.head.appendChild(st);
+    }
+
+    const fld = (label, id, value, type, ph) =>
+      `<label class="nxvf-field"><span class="nxvf-label">${label}</span>` +
+      `<input class="nxvf-input" id="${id}" type="${type || 'text'}" value="${value != null ? esc(String(value)) : ''}" placeholder="${ph || ''}"` +
+      `${type === 'number' ? ' inputmode="decimal" step="any" min="0"' : ''}></label>`;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'nxrm-vendor-form-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9200;display:flex;align-items:flex-end;justify-content:center';
+    overlay.innerHTML = `
+      <div class="nxvf-backdrop" style="position:absolute;inset:0;background:rgba(0,0,0,.5)"></div>
+      <div class="nxvf-sheet" style="position:relative;width:100%;max-width:560px;max-height:92vh;overflow-y:auto;background:var(--surface);border:1px solid var(--nx-gold-line);border-radius:16px 16px 0 0;padding:20px 18px 28px">
+        <div style="font-size:18px;font-weight:700;margin-bottom:14px">${isEdit ? 'Edit vendor' : 'New vendor'}</div>
+        ${fld('Company *', 'vfCompany', v.company || v.name, 'text', 'e.g. Austin Air and Ice')}
+        ${fld('Contact name', 'vfContact', v.contact_name, 'text', 'Person you call')}
+        <label class="nxvf-field"><span class="nxvf-label">Trade / category</span>
+          <input class="nxvf-input" id="vfCategory" list="vfTrades" value="${v.category != null ? esc(v.category) : ''}" placeholder="HVAC, Refrigeration…">
+          <datalist id="vfTrades">${TRADES.map(t => `<option value="${t}">`).join('')}</datalist>
+        </label>
+        ${fld('Phone', 'vfPhone', v.phone, 'tel', '512-…')}
+        ${fld('Email', 'vfEmail', v.email, 'email', 'name@company.com')}
+        ${fld('Website', 'vfWebsite', v.website, 'text', 'company.com')}
+        ${fld('Address', 'vfAddress', v.address, 'text', 'Shop / dispatch address')}
+        ${fld('Account #', 'vfAccount', v.account_number, 'text', 'Our account number')}
+        ${fld('Hours / availability', 'vfHours', v.hours, 'text', 'Mon–Fri 7–5, 24h emergency')}
+        <div style="display:flex;gap:10px">
+          <div style="flex:1">${fld('Hourly rate ($)', 'vfRate', v.hourly_rate, 'number', '0')}</div>
+          <div style="flex:1">${fld('Trip charge ($)', 'vfTrip', v.trip_charge, 'number', '0')}</div>
+        </div>
+        <label style="display:flex;align-items:center;gap:10px;padding:10px 0;cursor:pointer">
+          <input type="checkbox" id="vfPreferred" ${v.is_preferred ? 'checked' : ''}> <span>⭐ Preferred vendor</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;padding:0 0 10px;cursor:pointer">
+          <input type="checkbox" id="vfEmergency" ${v.is_emergency ? 'checked' : ''}> <span>24-hour emergency availability</span>
+        </label>
+        <label class="nxvf-field"><span class="nxvf-label">Notes</span>
+          <textarea class="nxvf-input" id="vfNotes" rows="3" placeholder="Anything worth remembering">${v.notes != null ? esc(v.notes) : ''}</textarea>
+        </label>
+        <div style="display:flex;gap:10px;margin-top:16px">
+          <button id="vfCancel" style="flex:1;padding:13px;border-radius:10px;border:1px solid var(--border);background:none;color:var(--text);font-family:inherit;cursor:pointer">Cancel</button>
+          <button id="vfSave" style="flex:2;padding:13px;border-radius:10px;border:none;background:var(--nx-gold);color:#000;font-weight:700;font-family:inherit;cursor:pointer">${isEdit ? 'Save changes' : 'Create vendor'}</button>
+        </div>
+      </div>`;
+
+    const close = () => overlay.remove();
+    overlay.querySelector('.nxvf-backdrop').addEventListener('click', close);
+    overlay.querySelector('#vfCancel').addEventListener('click', close);
+
+    overlay.querySelector('#vfSave').addEventListener('click', async () => {
+      const val = id => (overlay.querySelector('#' + id)?.value || '').trim();
+      const num = id => { const n = parseFloat(val(id)); return isNaN(n) ? null : n; };
+      const company = val('vfCompany');
+      if (!company) { alert('Company name is required.'); return; }
+      const payload = {
+        company, name: company,
+        contact_name: val('vfContact') || null,
+        category: val('vfCategory') || null,
+        phone: val('vfPhone') || null,
+        email: val('vfEmail') || null,
+        website: val('vfWebsite') || null,
+        address: val('vfAddress') || null,
+        account_number: val('vfAccount') || null,
+        hours: val('vfHours') || null,
+        hourly_rate: num('vfRate'),
+        trip_charge: num('vfTrip'),
+        is_preferred: overlay.querySelector('#vfPreferred').checked,
+        is_emergency: overlay.querySelector('#vfEmergency').checked,
+        notes: val('vfNotes') || null,
+        updated_at: new Date().toISOString(),
+      };
+      const saveBtn = overlay.querySelector('#vfSave');
+      saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+      try {
+        if (isEdit) {
+          const { error } = await NX.sb.from('vendors').update(payload).eq('id', existing.id);
+          if (error) throw error;
+        } else {
+          payload.active = true;
+          const { error } = await NX.sb.from('vendors').insert(payload);
+          if (error) throw error;
+        }
+        close();
+        state.activeVendor = null;
+        await loadVendors();
+      } catch (e) {
+        alert('Failed: ' + (e.message || e));
+        saveBtn.disabled = false; saveBtn.textContent = isEdit ? 'Save changes' : 'Create vendor';
+      }
     });
-    if (error) { alert('Failed: ' + error.message); return; }
-    await loadVendors();
+
+    document.body.appendChild(overlay);
+    setTimeout(() => overlay.querySelector('#vfCompany')?.focus(), 50);
   }
 
-  async function promptEditVendor(v) {
-    const company = prompt('Company:', v.company || v.name);
-    if (company === null) return;
-    const category = prompt('Category:', v.category || '');
-    const phone = prompt('Phone:', v.phone || '');
-    const email = prompt('Email:', v.email || '');
-    const preferred = confirm('Mark as PREFERRED vendor? (OK = yes, Cancel = no)');
-    const emergency = confirm('Available 24-hour for emergencies? (OK = yes, Cancel = no)');
-    const notes = prompt('Notes (optional):', v.notes || '');
-    if (!NX?.sb) return;
-    const { error } = await NX.sb.from('vendors').update({
-      company, name: company,
-      category: category || null,
-      phone: phone || null, email: email || null,
-      is_preferred: preferred, is_emergency: emergency,
-      notes: notes || null,
-      updated_at: new Date().toISOString(),
-    }).eq('id', v.id);
-    if (error) { alert('Failed: ' + error.message); return; }
-    state.activeVendor = null;
-    await loadVendors();
-  }
+  async function promptNewVendor() { openVendorForm(null); }
+  async function promptEditVendor(v) { openVendorForm(v); }
 
   // ─────────────────────────────────────────────────────────────────────
   // LIFECYCLE
