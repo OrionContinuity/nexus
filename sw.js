@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v81-vendor-pm-create';
+const CACHE_NAME = 'nexus-v82-desktop-separation';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
