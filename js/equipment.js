@@ -10247,7 +10247,7 @@ async function openFullEditor(equipId) {
                 <label style="font-size:11px">Contact Name <span style="color:var(--muted)">— pick existing to auto-link</span></label>
                 <input data-field="service_contractor_name" id="eqServiceContactName-${eq.id}" value="${escAttr(eq.service_contractor_name||'')}" placeholder="Austin Air and Ice" list="eqContractorOptions-${eq.id}" autocomplete="off">
                 <datalist id="eqContractorOptions-${eq.id}"></datalist>
-                <input type="hidden" data-field="service_contractor_node_id" value="${escAttr(eq.service_contractor_node_id||'')}">
+                <input type="hidden" data-field="service_vendor_id" value="${escAttr(eq.service_vendor_id||'')}">
                 <div id="eqContractorLinkChip-${eq.id}" class="eq-contractor-link-chip" style="display:none">
                   <span class="eq-contractor-link-chip-icon">🔗</span>
                   <span class="eq-contractor-link-chip-text"></span>
@@ -10264,7 +10264,7 @@ async function openFullEditor(equipId) {
                 ${uiSvg('search', '13px')} Look up phone from contractor
               </button>
               ${eq.service_contractor_phone ? `<a href="tel:${escAttr(eq.service_contractor_phone)}" class="eq-btn eq-btn-tiny" style="flex:0 0 auto">Test Call</a>` : ''}
-              ${(eq.service_contractor_node_id || eq.service_contractor_name || eq.service_contractor_phone) ? `<button type="button" class="eq-btn eq-btn-tiny eq-btn-danger" id="eqServiceClear-${eq.id}" style="flex:0 0 auto">Unassign</button>` : ''}
+              ${(eq.service_vendor_id || eq.service_contractor_name || eq.service_contractor_phone) ? `<button type="button" class="eq-btn eq-btn-tiny eq-btn-danger" id="eqServiceClear-${eq.id}" style="flex:0 0 auto">Unassign</button>` : ''}
             </div>
             <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.4">
               The maintenance contractor handles scheduled PMs. Type a name to link an existing contractor, or leave as plain text.
@@ -10281,7 +10281,7 @@ async function openFullEditor(equipId) {
                 <label style="font-size:11px">Contact Name <span style="color:var(--muted)">— pick existing to auto-link</span></label>
                 <input data-field="repair_contractor_name" id="eqRepairContactName-${eq.id}" value="${escAttr(eq.repair_contractor_name||'')}" placeholder="A1 Refrigeration Repair" list="eqRepairContractorOptions-${eq.id}" autocomplete="off">
                 <datalist id="eqRepairContractorOptions-${eq.id}"></datalist>
-                <input type="hidden" data-field="repair_contractor_node_id" value="${escAttr(eq.repair_contractor_node_id||'')}">
+                <input type="hidden" data-field="repair_vendor_id" value="${escAttr(eq.repair_vendor_id||'')}">
                 <div id="eqRepairContractorLinkChip-${eq.id}" class="eq-contractor-link-chip" style="display:none">
                   <span class="eq-contractor-link-chip-icon">🔗</span>
                   <span class="eq-contractor-link-chip-text"></span>
@@ -10295,7 +10295,7 @@ async function openFullEditor(equipId) {
             </div>
             <div style="display:flex;gap:8px;margin-top:8px">
               ${eq.repair_contractor_phone ? `<a href="tel:${escAttr(eq.repair_contractor_phone)}" class="eq-btn eq-btn-tiny" style="flex:0 0 auto">Test Call</a>` : ''}
-              ${(eq.repair_contractor_node_id || eq.repair_contractor_name || eq.repair_contractor_phone) ? `<button type="button" class="eq-btn eq-btn-tiny eq-btn-danger" id="eqRepairClear-${eq.id}" style="flex:0 0 auto">Unassign</button>` : ''}
+              ${(eq.repair_vendor_id || eq.repair_contractor_name || eq.repair_contractor_phone) ? `<button type="button" class="eq-btn eq-btn-tiny eq-btn-danger" id="eqRepairClear-${eq.id}" style="flex:0 0 auto">Unassign</button>` : ''}
             </div>
             <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.4">
               The repair contractor is who you call when something breaks. <strong>Public QR codes default to this contact.</strong> Can be the same as maintenance — or a different specialist.
@@ -10360,13 +10360,15 @@ async function openFullEditor(equipId) {
   (async () => {
     let contractorCache = [];
     try {
-      const { data } = await NX.sb.from('nodes')
-        .select('id, name, links, notes, tags')
-        .eq('category', 'contractors')
-        .order('name', { ascending: true });
-      contractorCache = data || [];
+      // Vendor consolidation: the equipment contractor pickers now pull from
+      // the vendors table (single source of truth), not legacy brain nodes.
+      // select('*') + client-side active filter is the bulletproof pattern.
+      const { data } = await NX.sb.from('vendors').select('*').order('company', { ascending: true });
+      contractorCache = (data || [])
+        .filter(v => v.active !== false)
+        .map(v => ({ id: v.id, name: v.company || v.name || 'Unnamed vendor', phone: v.phone || '' }));
     } catch (err) {
-      console.warn('[full-editor] contractor lookup failed:', err);
+      console.warn('[full-editor] vendor lookup failed:', err);
     }
 
     // Reusable wirer — works for both maintenance ("") and repair ("Repair") slots.
@@ -10411,7 +10413,7 @@ async function openFullEditor(equipId) {
           fkI.value = match.id;
           // Auto-fill phone if equipment doesn't have one yet.
           if (phoneI && !phoneI.value) {
-            const cphone = extractContractorPhone(match);
+            const cphone = match.phone || '';
             if (cphone) phoneI.value = cphone;
           }
           refreshChip();
@@ -10448,7 +10450,7 @@ async function openFullEditor(equipId) {
       datalistId:    `eqContractorOptions-${eq.id}`,
       nameInputId:   `eqServiceContactName-${eq.id}`,
       phoneInputId:  `eqServicePhone-${eq.id}`,
-      fkSel:         'input[data-field="service_contractor_node_id"]',
+      fkSel:         'input[data-field="service_vendor_id"]',
       chipId:        `eqContractorLinkChip-${eq.id}`,
       clearBtnId:    `eqServiceClear-${eq.id}`,
       fieldNamePrefix: 'maintenance',
@@ -10458,7 +10460,7 @@ async function openFullEditor(equipId) {
       datalistId:    `eqRepairContractorOptions-${eq.id}`,
       nameInputId:   `eqRepairContactName-${eq.id}`,
       phoneInputId:  `eqRepairPhone-${eq.id}`,
-      fkSel:         'input[data-field="repair_contractor_node_id"]',
+      fkSel:         'input[data-field="repair_vendor_id"]',
       chipId:        `eqRepairContractorLinkChip-${eq.id}`,
       clearBtnId:    `eqRepairClear-${eq.id}`,
       fieldNamePrefix: 'repair',
@@ -10536,26 +10538,25 @@ async function openFullEditor(equipId) {
       });
       updates.specs = newSpecs;
 
-      // Save with graceful column-missing fallback. If the user hasn't run
-      // the repair_contractor_* migration yet, those keys will hard-fail
-      // the entire UPDATE. Strip and retry so the rest of the form still
-      // saves — and toast a warning so they know to run the SQL migration.
+      // Save with graceful column-missing fallback. If a column the form
+      // writes doesn't exist yet (migration not run — e.g. repair_vendor_id,
+      // service_vendor_id, repair_contractor_*), Postgres hard-fails the whole
+      // UPDATE. Strip the offending column and retry so the rest still saves,
+      // and toast a warning so the user knows to run the SQL migration.
       let saveErr;
       {
-        const r = await NX.sb.from('equipment').update(updates).eq('id', equipId);
-        if (r.error && /column.+repair_contractor.+does not exist/i.test(r.error.message || '')) {
-          const stripped = { ...updates };
-          delete stripped.repair_contractor_node_id;
-          delete stripped.repair_contractor_name;
-          delete stripped.repair_contractor_phone;
-          const r2 = await NX.sb.from('equipment').update(stripped).eq('id', equipId);
-          saveErr = r2.error;
-          if (!r2.error) {
-            NX.toast && NX.toast('Saved — but repair contractor not stored (run the SQL migration)', 'warn', 5000);
-          }
-        } else {
-          saveErr = r.error;
+        let attempt = { ...updates };
+        let r = await NX.sb.from('equipment').update(attempt).eq('id', equipId);
+        let guard = 0;
+        while (r.error && guard < 6) {
+          const m = /column "?([a-z_]+)"?.*does not exist/i.exec(r.error.message || '');
+          if (!m || !(m[1] in attempt)) break;
+          delete attempt[m[1]];
+          NX.toast && NX.toast(`Saved without ${m[1]} — run the SQL migration to store it`, 'warn', 4000);
+          r = await NX.sb.from('equipment').update(attempt).eq('id', equipId);
+          guard++;
         }
+        saveErr = r.error;
       }
       if (saveErr) throw saveErr;
 
@@ -11456,74 +11457,46 @@ function buildDispatchMessage(eq, ticket, contact, userName) {
 
 async function lookupServicePhoneFromNode(equipId) {
   try {
-    const { data: eq } = await NX.sb.from('equipment')
-      .select('service_contractor_node_id, name')
-      .eq('id', equipId).single();
+    // select('*') tolerates schema gaps (service_vendor_id may be new).
+    const { data: eq } = await NX.sb.from('equipment').select('*').eq('id', equipId).single();
     if (!eq) throw new Error('Equipment not found');
 
-    let node = null;
-    
-    // Primary: preferred contractor
-    if (eq.service_contractor_node_id) {
-      const { data } = await NX.sb.from('nodes')
-        .select('id, name, notes, tags, links')
-        .eq('id', eq.service_contractor_node_id).single();
-      node = data;
-    }
-    
-    // Fallback: find most recent maintenance record with a performed_by,
-    // then match that string against contractor nodes
-    if (!node) {
-      const { data: maint } = await NX.sb.from('equipment_maintenance')
-        .select('performed_by')
-        .eq('equipment_id', equipId)
-        .not('performed_by', 'is', null)
-        .order('event_date', { ascending: false })
-        .limit(5);
-      
-      if (maint?.length) {
-        // Get the most common contractor name
-        const counts = {};
-        maint.forEach(m => {
-          if (m.performed_by) counts[m.performed_by] = (counts[m.performed_by] || 0) + 1;
-        });
-        const topName = Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0];
-        
-        // Search contractor nodes matching that name
-        const pool = NX.nodes || [];
-        node = pool.find(n => {
-          const cat = (n.category || '').toLowerCase();
-          if (cat !== 'contractor' && cat !== 'vendor' && cat !== 'service') return false;
-          return (n.name || '').toLowerCase().includes(topName.toLowerCase().split(/\s+/)[0]);
-        });
+    // Load vendors and resolve this equipment's maintenance vendor — by the
+    // linked vendor_id first, else by name match against the saved contractor
+    // name. Vendor consolidation: phone comes straight off the vendor record.
+    let vendor = null;
+    try {
+      const { data } = await NX.sb.from('vendors').select('*');
+      const vendors = (data || []).filter(v => v.active !== false);
+      if (eq.service_vendor_id) {
+        vendor = vendors.find(v => String(v.id) === String(eq.service_vendor_id)) || null;
       }
-    }
-    
-    if (!node) {
-      NX.toast && NX.toast('No contractor found. Set a preferred contractor first via the Dispatch sheet.', 'warning');
+      if (!vendor && eq.service_contractor_name) {
+        const want = eq.service_contractor_name.toLowerCase();
+        vendor = vendors.find(v => (v.company || v.name || '').toLowerCase() === want) || null;
+      }
+    } catch (_) {}
+
+    if (!vendor) {
+      NX.toast && NX.toast('No linked vendor. Type a vendor name in the field, or add one in Vendors.', 'warning');
       return;
     }
-    
-    // Extract phone from node (links.phone OR regex from notes)
-    const text = (node.notes || '') + '\n' + JSON.stringify(node.tags || []) + '\n' + (node.name || '');
-    const phoneMatch = text.match(/(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
-    const links = node.links || {};
-    const phone = links.phone || (phoneMatch ? phoneMatch[0].trim() : '');
-    
+    const phone = vendor.phone || '';
     if (!phone) {
-      NX.toast && NX.toast(`Found ${node.name} but no phone on file. Add one to their node in Brain first.`, 'warning');
+      NX.toast && NX.toast(`${vendor.company || vendor.name} has no phone on file. Add one in Vendors.`, 'warning');
       return;
     }
-    
-    // Populate form inputs
+
     const modal = document.getElementById('eqFullEditModal');
     if (!modal) return;
-    const nameInput = modal.querySelector('[data-field="service_contractor_name"]');
+    const nameInput  = modal.querySelector('[data-field="service_contractor_name"]');
     const phoneInput = modal.querySelector('[data-field="service_contractor_phone"]');
-    if (nameInput && !nameInput.value) nameInput.value = node.name || '';
+    const fkInput    = modal.querySelector('[data-field="service_vendor_id"]');
+    if (nameInput && !nameInput.value) nameInput.value = vendor.company || vendor.name || '';
     if (phoneInput) phoneInput.value = phone;
-    
-    NX.toast && NX.toast(`✓ Filled from ${node.name}`, 'success');
+    if (fkInput) fkInput.value = vendor.id;
+
+    NX.toast && NX.toast(`✓ Filled from ${vendor.company || vendor.name}`, 'success');
   } catch (err) {
     console.error('[lookupServicePhoneFromNode] failed:', err);
     NX.toast && NX.toast('Lookup failed: ' + err.message, 'error');
