@@ -1092,8 +1092,20 @@ td.check{background:#F0EDE6 !important}
       // Also activate bottom nav button
       const bnav = document.querySelector(`.bnav-btn[data-view="${view}"]`);
       if (bnav) bnav.classList.add('active');
-      document.getElementById(view + 'View').classList.add('active');
-      this.activateModule(view);
+      // Guard: an unknown/misspelled view name must not throw here (a
+      // null .classList would blank the whole app, since every .view was
+      // just deactivated above). Fall back to home if the target view
+      // element doesn't exist.
+      const _viewEl = document.getElementById(view + 'View');
+      if (_viewEl) {
+        _viewEl.classList.add('active');
+        this.activateModule(view);
+      } else {
+        console.warn('[app] switchTo: no view element for "' + view + '" — falling back to home');
+        const _home = document.getElementById('homeView');
+        if (_home) _home.classList.add('active');
+        this.activateModule('home');
+      }
       // Re-apply language after view switch
       if(this.i18n)setTimeout(()=>this.i18n.applyUI(),100);
     };
