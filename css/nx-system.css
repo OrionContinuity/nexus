@@ -2238,10 +2238,10 @@ html {
     margin-bottom: 18px !important;
     gap: 14px !important;
   }
-  #pinScreen .pin-pad { margin-bottom: 4px !important; gap: 8px !important; }
+  #pinScreen .pin-pad { margin-bottom: 4px !important; gap: 10px !important; max-width: 288px !important; }
   #pinScreen .pin-pad .pin-key {
-    height: 50px !important;
-    width: auto !important;
+    height: 54px !important;
+    width: 100% !important;
     font-size: 20px !important;
   }
   #pinScreen .pin-sub { margin: 6px 0 0 !important; font-size: 12px !important; }
@@ -2290,7 +2290,7 @@ html {
     font-size: 10px !important;
   }
   #pinScreen .pin-display { margin-bottom: 12px !important; gap: 10px !important; }
-  #pinScreen .pin-pad .pin-key { height: 42px !important; font-size: 18px !important; }
+  #pinScreen .pin-pad .pin-key { height: 46px !important; width: 100% !important; font-size: 18px !important; }
   #pinScreen .tc-card {
     max-height: 60vh !important;
     padding: 8px 12px 6px !important;
