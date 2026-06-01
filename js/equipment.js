@@ -1874,20 +1874,28 @@ function hasMissedScheduledPm(equipId) {
 
 /* ─── Contractor picker (loaded fresh from nodes table on demand) ──── */
 
-async function loadContractorsForPicker() {
+async function loadVendorsForPicker() {
   if (!NX.sb) return [];
   try {
-    const { data, error } = await NX.sb.from('nodes')
-      .select('id, name, links, tags')
-      .in('category', ['contractor', 'contractors'])
-      .order('name');
+    // Vendor consolidation (Phase 1): the PM scheduler now picks from the
+    // real `vendors` table — the single source of truth for service
+    // providers — instead of brain nodes. select('*') + client-side active
+    // filter is the bulletproof pattern (never errors on an optional column).
+    const { data, error } = await NX.sb.from('vendors').select('*').order('company');
     if (error) {
-      console.warn('[equipment] loadContractorsForPicker:', error.message);
+      console.warn('[equipment] loadVendorsForPicker:', error.message);
       return [];
     }
-    return data || [];
+    return (data || [])
+      .filter(v => v.active !== false)   // keep active = true OR null
+      .map(v => ({
+        id: v.id,
+        name: v.company || v.name || 'Unnamed vendor',
+        phone: v.phone || '',
+        category: v.category || '',
+      }));
   } catch (e) {
-    console.warn('[equipment] loadContractorsForPicker threw:', e);
+    console.warn('[equipment] loadVendorsForPicker threw:', e);
     return [];
   }
 }
@@ -1904,14 +1912,20 @@ async function openScheduleEditor(equipId) {
   const eq = equipment.find(e => String(e.id) === String(equipId));
   if (!eq) { NX.toast?.('Equipment not found', 'error', 1500); return; }
 
-  // Load contractors live — small enough to refetch each open.
-  const contractors = await loadContractorsForPicker();
+  // Load vendors live — small enough to refetch each open.
+  const vendors = await loadVendorsForPicker();
   const current = getScheduledPhases(equipId);
 
-  // Initial state — if there's an existing schedule, pre-fill it so this
-  // sheet doubles as edit. Otherwise start with one empty phase.
-  let selectedContractorId = current[0]?.contractor_node_id || null;
-  let selectedContractorName = current[0]?.contractor_name || null;
+  // Initial selection. New schedules store vendor_id; prefer that. For older
+  // schedules that only have a contractor_name (node-era), match a vendor by
+  // name so the editor still pre-selects the right one.
+  let selectedVendorId = current[0]?.vendor_id || null;
+  let selectedVendorName = current[0]?.contractor_name || null;
+  if (!selectedVendorId && selectedVendorName) {
+    const match = vendors.find(v => v.name.toLowerCase() === selectedVendorName.toLowerCase());
+    if (match) selectedVendorId = match.id;
+  }
+  let selectedVendorPhone = (vendors.find(v => v.id === selectedVendorId) || {}).phone || '';
   let phases = current.length > 0
     ? current.map(s => ({ id: s.id, date: s.scheduled_date, label: s.phase_label || '' }))
     : [{ id: null, date: '', label: '' }];
@@ -1921,10 +1935,10 @@ async function openScheduleEditor(equipId) {
   overlay.style.zIndex = '9100';
 
   const render = () => {
-    const contractorRows = contractors.map(c => `
-      <button class="eq-sched-contractor-row${selectedContractorId == c.id ? ' is-selected' : ''}" data-c-id="${esc(c.id)}" data-c-name="${esc(c.name)}" type="button">
-        <span class="eq-sched-contractor-name">${esc(c.name)}</span>
-        ${selectedContractorId == c.id ? `<span class="eq-sched-check">${uiSvg('check', '14px')}</span>` : ''}
+    const contractorRows = vendors.map(c => `
+      <button class="eq-sched-contractor-row${selectedVendorId == c.id ? ' is-selected' : ''}" data-c-id="${esc(c.id)}" data-c-name="${esc(c.name)}" data-c-phone="${esc(c.phone)}" type="button">
+        <span class="eq-sched-contractor-name">${esc(c.name)}${c.category ? ` <span style="opacity:.5;font-size:11px">· ${esc(c.category)}</span>` : ''}</span>
+        ${selectedVendorId == c.id ? `<span class="eq-sched-check">${uiSvg('check', '14px')}</span>` : ''}
       </button>
     `).join('');
 
@@ -1945,13 +1959,13 @@ async function openScheduleEditor(equipId) {
         <div class="eq-bulk-sheet-handle"></div>
         <div class="eq-bulk-sheet-title">Schedule PM for ${esc(eq.name)}</div>
 
-        <!-- Step 1: Contractor -->
+        <!-- Step 1: Vendor -->
         <div class="eq-sched-section">
-          <div class="eq-sched-section-label">CONTRACTOR</div>
+          <div class="eq-sched-section-label">VENDOR</div>
           <div class="eq-sched-contractors">
-            ${contractorRows || '<div class="eq-sched-empty">No contractors yet</div>'}
+            ${contractorRows || '<div class="eq-sched-empty">No vendors yet</div>'}
             <button class="eq-sched-add-contractor" id="eqSchedAddContractor" type="button">
-              <span style="font-size:18px; line-height:1">+</span> Add new contractor
+              <span style="font-size:18px; line-height:1">+</span> Add new vendor
             </button>
           </div>
         </div>
@@ -1977,30 +1991,37 @@ async function openScheduleEditor(equipId) {
     overlay.querySelector('.eq-bulk-sheet-backdrop').addEventListener('click', () => overlay.remove());
     overlay.querySelector('[data-action="cancel"]').addEventListener('click', () => overlay.remove());
 
-    // Contractor selection
+    // Vendor selection
     overlay.querySelectorAll('[data-c-id]').forEach(btn => {
       btn.addEventListener('click', () => {
-        selectedContractorId = btn.dataset.cId;
-        selectedContractorName = btn.dataset.cName;
+        selectedVendorId = btn.dataset.cId;
+        selectedVendorName = btn.dataset.cName;
+        selectedVendorPhone = btn.dataset.cPhone || '';
         render();
       });
     });
 
-    // Add contractor inline (minimal name-only prompt; full editor lives elsewhere)
+    // Add vendor inline — writes to the vendors table (single source of
+    // truth) so it's immediately available everywhere vendors appear.
     overlay.querySelector('#eqSchedAddContractor').addEventListener('click', async () => {
-      const name = (prompt('Contractor name:') || '').trim();
+      const name = (prompt('Vendor / company name:') || '').trim();
       if (!name) return;
+      const phone = (prompt('Phone (optional):') || '').trim();
       try {
-        const newNode = await createContractorNode(name, '', '');
-        if (newNode && newNode.id) {
-          contractors.push(newNode);
-          selectedContractorId = newNode.id;
-          selectedContractorName = newNode.name;
+        const { data, error } = await NX.sb.from('vendors')
+          .insert({ company: name, name, phone: phone || null, active: true })
+          .select('*').single();
+        if (error) throw error;
+        if (data && data.id) {
+          vendors.push({ id: data.id, name: data.company || data.name, phone: data.phone || '', category: data.category || '' });
+          selectedVendorId = data.id;
+          selectedVendorName = data.company || data.name;
+          selectedVendorPhone = data.phone || '';
           render();
         }
       } catch (e) {
-        console.warn('[scheduleEditor] add contractor:', e);
-        NX.toast?.('Could not save contractor', 'error', 2000);
+        console.warn('[scheduleEditor] add vendor:', e);
+        NX.toast?.('Could not save vendor', 'error', 2000);
       }
     });
 
@@ -2035,7 +2056,7 @@ async function openScheduleEditor(equipId) {
   };
 
   const save = async () => {
-    if (!selectedContractorId) { NX.toast?.('Pick a contractor first', 'warn', 1800); return; }
+    if (!selectedVendorId) { NX.toast?.('Pick a vendor first', 'warn', 1800); return; }
     const validPhases = phases.filter(p => p.date && p.date.trim());
     if (validPhases.length === 0) { NX.toast?.('At least one phase date required', 'warn', 1800); return; }
 
@@ -2066,8 +2087,9 @@ async function openScheduleEditor(equipId) {
 
       const rows = validPhases.map((p, i) => ({
         equipment_id: equipId,
-        contractor_node_id: selectedContractorId,
-        contractor_name: selectedContractorName,
+        vendor_id: selectedVendorId,        // NEW — the vendor bridge
+        contractor_node_id: null,           // node era retired for new PMs
+        contractor_name: selectedVendorName, // kept for display + back-compat
         scheduled_date: p.date,
         phase: i + 1,
         phase_label: p.label.trim() || null,
@@ -2076,8 +2098,8 @@ async function openScheduleEditor(equipId) {
         // its own label the user typed, prefer that.
         title: p.label.trim()
           || (validPhases.length > 1
-              ? `PM Phase ${i + 1} — ${selectedContractorName}`
-              : `PM — ${selectedContractorName}`),
+              ? `PM Phase ${i + 1} — ${selectedVendorName}`
+              : `PM — ${selectedVendorName}`),
         status: 'scheduled',
         reschedule_count: rescheduleCount,
       }));
@@ -2092,8 +2114,10 @@ async function openScheduleEditor(equipId) {
         const earliestDate = validPhases[0].date;
         const eqUpdate = {
           next_pm_date: earliestDate,
-          service_contractor_node_id: selectedContractorId,
-          service_contractor_name: selectedContractorName,
+          service_vendor_id: selectedVendorId,          // NEW — vendor linkage
+          service_contractor_node_id: null,             // node era retired
+          service_contractor_name: selectedVendorName,  // display
+          service_contractor_phone: selectedVendorPhone || null, // keeps Call Service working
         };
         // Infer pm_interval_days only when there's a prior PM to measure
         // from. Brand-new units with no last_pm_date will populate it on
@@ -2113,7 +2137,7 @@ async function openScheduleEditor(equipId) {
         console.warn('[scheduleEditor] equipment sync (non-fatal):', e);
       }
 
-      NX.toast?.(`PM scheduled with ${selectedContractorName}`, 'success', 2000);
+      NX.toast?.(`PM scheduled with ${selectedVendorName}`, 'success', 2000);
       await loadPmSchedules();
       overlay.remove();
       if (typeof openDetail === 'function') openDetail(equipId);
