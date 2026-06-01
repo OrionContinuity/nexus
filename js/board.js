@@ -853,14 +853,14 @@ function renderLists(){
       dragCard = null;
     });
 
-    listCards.forEach(c => cardsWrap.appendChild(createCardEl(c)));
-    listEl.appendChild(cardsWrap);
-
     const addBtn = document.createElement('button');
     addBtn.className = 'b-list-add';
     addBtn.textContent = '+ Add a card';
     addBtn.addEventListener('click', () => promptNewCard(list.id, addBtn));
-    listEl.appendChild(addBtn);
+    listEl.appendChild(addBtn);          // pinned under the header — Trello-style add-to-top
+
+    listCards.forEach(c => cardsWrap.appendChild(createCardEl(c)));
+    listEl.appendChild(cardsWrap);
 
     wrapper.appendChild(listEl);
   });
@@ -2175,7 +2175,13 @@ async function createCard(listId, payload){
       board_id: activeBoard.id,
       list_id: listId,
       column_name: '',
-      position: cards.filter(c=>c.list_id===listId).length,
+      // Add-to-top (Trello-style): one below the current lowest position so
+      // the new card renders first. Render sorts by position ascending.
+      position: (() => {
+        const inList = cards.filter(c => c.list_id === listId);
+        if (!inList.length) return 0;
+        return Math.min(...inList.map(c => (typeof c.position === 'number' ? c.position : 0))) - 1;
+      })(),
       priority: payload.priority || 'normal',
       location: payload.location || null,
       equipment_id: payload.equipment_id || null,
