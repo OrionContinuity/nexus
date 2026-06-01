@@ -380,7 +380,10 @@
         </div>
 
         <div class="nxrm-section">
-          <div class="nxrm-section-title">Scheduled PMs · ${pms.length}</div>
+          <div class="nxrm-section-head" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+            <div class="nxrm-section-title">Scheduled PMs · ${pms.length}</div>
+            <button class="nxrm-vendor-action" data-act="schedule-pm" style="flex:0 0 auto;padding:7px 12px">+ Schedule PM</button>
+          </div>
           <div class="nxrm-list">
             ${pms.length ? pms.map(p => {
               const d = p.scheduled_date ? new Date(p.scheduled_date) : null;
@@ -414,6 +417,8 @@
     });
     const editBtn = view.querySelector('[data-act="edit-vendor"]');
     if (editBtn) editBtn.addEventListener('click', () => promptEditVendor(vendor));
+    const schedBtn = view.querySelector('[data-act="schedule-pm"]');
+    if (schedBtn) schedBtn.addEventListener('click', () => openVendorPmScheduler(vendor));
     view.querySelectorAll('[data-equipment-id]').forEach(el => {
       el.addEventListener('click', () => {
         const id = el.getAttribute('data-equipment-id');
@@ -755,6 +760,192 @@
 
   async function promptNewVendor() { openVendorForm(null); }
   async function promptEditVendor(v) { openVendorForm(v); }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // SCHEDULE PM — vendor-side mirror of the equipment scheduler.
+  // The vendor is known (this profile); the user picks the EQUIPMENT and up
+  // to 3 phase dates. Insert shape, cancel-and-reinsert strategy, title
+  // synthesis, and equipment sync all match openScheduleEditor in
+  // equipment.js so a PM created here is identical to one created there.
+  // ─────────────────────────────────────────────────────────────────────
+  async function openVendorPmScheduler(vendor) {
+    if (!NX?.sb) return;
+    const vName = vendor.company || vendor.name || 'this vendor';
+    const vPhone = vendor.phone || '';
+
+    if (!document.getElementById('nxvf-style')) {
+      const st = document.createElement('style');
+      st.id = 'nxvf-style';
+      st.textContent =
+        '.nxvf-field{display:block;margin-bottom:11px}' +
+        '.nxvf-label{display:block;font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);margin-bottom:5px}' +
+        '.nxvf-input{width:100%;box-sizing:border-box;padding:11px 12px;border-radius:9px;border:1px solid var(--border);background:var(--surface-2,var(--surface));color:var(--text);font-family:inherit;font-size:15px}' +
+        '.nxvf-input:focus{outline:none;border-color:var(--nx-gold)}';
+      document.head.appendChild(st);
+    }
+
+    // Equipment for the picker. select('*') tolerates schema gaps; filter
+    // archived client-side (bulletproof pattern).
+    let allEquip = [];
+    try {
+      const { data } = await NX.sb.from('equipment').select('*');
+      allEquip = (data || [])
+        .filter(e => e.archived !== true)
+        .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+    } catch (_) {}
+
+    let selectedId = null, selectedName = '', search = '';
+    let phases = [{ date: '', label: '' }];
+
+    const overlay = document.createElement('div');
+    overlay.className = 'nxrm-vendor-form-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9200;display:flex;align-items:flex-end;justify-content:center';
+
+    const applyFilter = () => {
+      const q = search.trim().toLowerCase();
+      overlay.querySelectorAll('[data-eq]').forEach(b => {
+        const hay = (b.getAttribute('data-hay') || '').toLowerCase();
+        b.style.display = (!q || hay.includes(q)) ? 'flex' : 'none';
+      });
+    };
+
+    const draw = () => {
+      const eqRows = allEquip.map(e => {
+        const meta = [e.location, e.category].filter(Boolean).join(' · ') || '—';
+        const sel = selectedId === e.id;
+        return `<button type="button" class="vpm-eq-row" data-eq="${esc(e.id)}" data-name="${esc(e.name || '')}" data-hay="${esc((e.name || '') + ' ' + meta)}"
+          style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;text-align:left;padding:10px 12px;border-radius:9px;border:1px solid ${sel ? 'var(--nx-gold)' : 'var(--border)'};background:${sel ? 'var(--nx-gold-faint)' : 'var(--surface-2,var(--surface))'};color:var(--text);font-family:inherit;cursor:pointer;margin-bottom:6px">
+          <span style="font-weight:600;font-size:14px">${esc(e.name || 'Unnamed')}</span>
+          <span style="font-size:11px;color:var(--muted)">${esc(meta)}</span>
+        </button>`;
+      }).join('') || '<div style="padding:14px;color:var(--muted);font-size:13px">No equipment found.</div>';
+
+      const phaseRows = phases.map((p, i) => `
+        <div style="margin-bottom:8px;padding:10px;border:1px solid var(--border);border-radius:9px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted)">Phase ${i + 1}</span>
+            ${phases.length > 1 ? `<button type="button" data-delphase="${i}" style="border:none;background:none;color:var(--muted);font-size:20px;line-height:1;cursor:pointer">×</button>` : ''}
+          </div>
+          <input class="nxvf-input" type="date" data-pdate="${i}" value="${esc(p.date)}" style="margin-bottom:6px">
+          <input class="nxvf-input" type="text" data-plabel="${i}" value="${esc(p.label)}" placeholder="Phase label (optional) — e.g. Coil clean" maxlength="50">
+        </div>`).join('');
+
+      overlay.innerHTML = `
+        <div class="nxvf-backdrop" style="position:absolute;inset:0;background:rgba(0,0,0,.5)"></div>
+        <div class="nxvf-sheet" style="position:relative;width:100%;max-width:560px;max-height:92vh;overflow-y:auto;background:var(--surface);border:1px solid var(--nx-gold-line);border-radius:16px 16px 0 0;padding:20px 18px 28px">
+          <div style="font-size:18px;font-weight:700;margin-bottom:2px">Schedule PM</div>
+          <div style="font-size:13px;color:var(--muted);margin-bottom:14px">with ${esc(vName)}</div>
+
+          <div class="nxvf-label">Equipment${selectedId ? ' · <span style="color:var(--nx-gold);text-transform:none;letter-spacing:0">' + esc(selectedName) + '</span>' : ''}</div>
+          <input class="nxvf-input" id="vpmSearch" value="${esc(search)}" placeholder="Search equipment by name, location…" autocomplete="off" style="margin-bottom:8px">
+          <div style="max-height:240px;overflow-y:auto;margin-bottom:16px">${eqRows}</div>
+
+          <div class="nxvf-label">Phases <span style="text-transform:none;letter-spacing:0;opacity:.6">${phases.length}/3 — most PMs are 1 visit</span></div>
+          ${phaseRows}
+          ${phases.length < 3 ? `<button type="button" id="vpmAddPhase" style="width:100%;padding:10px;border-radius:9px;border:1px dashed var(--border);background:none;color:var(--text);font-family:inherit;cursor:pointer;margin-bottom:8px">+ Add phase</button>` : ''}
+
+          <div style="display:flex;gap:10px;margin-top:12px">
+            <button id="vpmCancel" style="flex:1;padding:13px;border-radius:10px;border:1px solid var(--border);background:none;color:var(--text);font-family:inherit;cursor:pointer">Cancel</button>
+            <button id="vpmSave" style="flex:2;padding:13px;border-radius:10px;border:none;background:var(--nx-gold);color:#000;font-weight:700;font-family:inherit;cursor:pointer">Save schedule</button>
+          </div>
+        </div>`;
+
+      overlay.querySelector('.nxvf-backdrop').addEventListener('click', () => overlay.remove());
+      overlay.querySelector('#vpmCancel').addEventListener('click', () => overlay.remove());
+      const si = overlay.querySelector('#vpmSearch');
+      si.addEventListener('input', () => { search = si.value; applyFilter(); });
+      overlay.querySelectorAll('[data-eq]').forEach(b => b.addEventListener('click', () => {
+        selectedId = b.dataset.eq; selectedName = b.dataset.name; draw();
+      }));
+      overlay.querySelectorAll('[data-pdate]').forEach(inp => inp.addEventListener('input', e => { phases[+e.target.dataset.pdate].date = e.target.value; }));
+      overlay.querySelectorAll('[data-plabel]').forEach(inp => inp.addEventListener('input', e => { phases[+e.target.dataset.plabel].label = e.target.value; }));
+      overlay.querySelectorAll('[data-delphase]').forEach(b => b.addEventListener('click', () => { phases.splice(+b.dataset.delphase, 1); draw(); }));
+      const addP = overlay.querySelector('#vpmAddPhase');
+      if (addP) addP.addEventListener('click', () => { if (phases.length < 3) { phases.push({ date: '', label: '' }); draw(); } });
+      overlay.querySelector('#vpmSave').addEventListener('click', save);
+      applyFilter();
+    };
+
+    async function save() {
+      if (!selectedId) { alert('Pick an equipment first.'); return; }
+      const valid = phases.filter(p => p.date && p.date.trim());
+      if (!valid.length) { alert('At least one phase date is required.'); return; }
+      for (let i = 1; i < valid.length; i++) {
+        if (valid[i].date < valid[i - 1].date) {
+          if (!confirm(`Phase ${i + 1} (${valid[i].date}) is before Phase ${i} (${valid[i - 1].date}). Save anyway?`)) return;
+          break;
+        }
+      }
+      const saveBtn = overlay.querySelector('#vpmSave');
+      saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+      try {
+        // Cancel this equipment's existing scheduled rows (keep history), then
+        // insert fresh — single source of truth per equipment, same as the
+        // equipment-side scheduler.
+        const { data: existing } = await NX.sb.from('pm_schedules')
+          .select('id').eq('equipment_id', selectedId).eq('status', 'scheduled');
+        const rescheduleCount = (existing && existing.length) ? 1 : 0;
+        if (existing && existing.length) {
+          await NX.sb.from('pm_schedules').update({ status: 'cancelled', updated_at: new Date().toISOString() })
+            .eq('equipment_id', selectedId).eq('status', 'scheduled');
+        }
+        const rows = valid.map((p, i) => ({
+          equipment_id: selectedId,
+          vendor_id: vendor.id,
+          contractor_node_id: null,
+          contractor_name: vName,
+          scheduled_date: p.date,
+          phase: i + 1,
+          phase_label: p.label.trim() || null,
+          title: p.label.trim() || (valid.length > 1 ? `PM Phase ${i + 1} — ${vName}` : `PM — ${vName}`),
+          status: 'scheduled',
+          reschedule_count: rescheduleCount,
+        }));
+        const { error } = await NX.sb.from('pm_schedules').insert(rows);
+        if (error) throw error;
+
+        // Sync the equipment row (best-effort, with generic column-missing recovery).
+        try {
+          const earliest = valid[0].date;
+          const eqUpdate = {
+            next_pm_date: earliest,
+            service_vendor_id: vendor.id,
+            service_contractor_node_id: null,
+            service_contractor_name: vName,
+            service_contractor_phone: vPhone || null,
+          };
+          const { data: priorEq } = await NX.sb.from('equipment').select('last_pm_date').eq('id', selectedId).maybeSingle();
+          if (priorEq?.last_pm_date) {
+            const days = Math.round((new Date(earliest) - new Date(priorEq.last_pm_date)) / 86400000);
+            if (days > 0 && days <= 3650) eqUpdate.pm_interval_days = days;
+          }
+          let attempt = { ...eqUpdate };
+          let r = await NX.sb.from('equipment').update(attempt).eq('id', selectedId);
+          let guard = 0;
+          while (r.error && guard < 6) {
+            const m = /column "?([a-z_]+)"?.*does not exist/i.exec(r.error.message || '');
+            if (!m || !(m[1] in attempt)) break;
+            delete attempt[m[1]];
+            r = await NX.sb.from('equipment').update(attempt).eq('id', selectedId);
+            guard++;
+          }
+        } catch (_) {}
+
+        overlay.remove();
+        if (NX.toast) NX.toast(`PM scheduled with ${vName}`, 'success', 2000);
+        // Refresh the vendor detail so the new PM appears in Scheduled PMs.
+        state.activeVendor = vendor;
+        render();
+      } catch (e) {
+        alert('Failed: ' + (e.message || e));
+        saveBtn.disabled = false; saveBtn.textContent = 'Save schedule';
+      }
+    }
+
+    draw();
+    document.body.appendChild(overlay);
+    setTimeout(() => overlay.querySelector('#vpmSearch')?.focus(), 50);
+  }
 
   // ─────────────────────────────────────────────────────────────────────
   // LIFECYCLE
