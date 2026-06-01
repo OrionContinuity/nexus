@@ -102,6 +102,7 @@
   // ─────────────────────────────────────────────────────────────────────
 
   function render() {
+    ensurePicStyle();
     const view = NXRM.view.ensure('vendorsView', 'vendors');
     if (state.activeVendor) return renderDetail(view, state.activeVendor);
 
@@ -185,7 +186,7 @@
       const grade = score.vendorGrade(v);
       return `
         <button class="nxrm-vendor-card" data-vendor-id="${esc(v.id)}">
-          <div class="nxrm-vendor-grade ${grade.tone}">${grade.letter}</div>
+          ${vendorListAvatar(v, grade)}
           <div class="nxrm-vendor-body">
             <div class="nxrm-vendor-row1">
               <span class="nxrm-vendor-name">${esc(v.company || v.name)}</span>
@@ -280,6 +281,18 @@
         }
       } catch (_) {}
     }
+    // Equipment assigned to this vendor (service_vendor_id). select('*') +
+    // client filter is the bulletproof pattern (tolerates schema gaps).
+    let servicedEquip = [];
+    if (NX?.sb) {
+      try {
+        const { data } = await NX.sb.from('equipment').select('*');
+        servicedEquip = (data || [])
+          .filter(e => e.archived !== true && String(e.service_vendor_id || '') === String(vendor.id))
+          .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+      } catch (_) {}
+    }
+    ensurePicStyle();
     const grade = score.vendorGrade(vendor);
 
     view.innerHTML = `
@@ -287,10 +300,7 @@
         <button class="nxrm-back" data-act="back-to-list">← Back to vendors</button>
 
         <div class="nxrm-vendor-header">
-          <div class="nxrm-vendor-grade-big ${grade.tone}">
-            <div class="nxrm-vendor-grade-letter">${grade.letter}</div>
-            <div class="nxrm-vendor-grade-lbl">${grade.label}</div>
-          </div>
+          ${vendorDetailAvatar(vendor, grade)}
           <div class="nxrm-vendor-headline">
             <div class="nxrm-eyebrow">${esc(vendor.category || 'VENDOR')}</div>
             <h1 class="nxrm-h1">${esc(vendor.company || vendor.name)}</h1>
@@ -381,6 +391,26 @@
 
         <div class="nxrm-section">
           <div class="nxrm-section-head" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+            <div class="nxrm-section-title">Equipment Serviced · ${servicedEquip.length}</div>
+            <button class="nxrm-vendor-action" data-act="assign-equip" style="flex:0 0 auto;padding:7px 12px">+ Assign equipment</button>
+          </div>
+          <div class="nxrm-list">
+            ${servicedEquip.length ? servicedEquip.map(e => {
+              const meta = [e.location, e.category].filter(Boolean).join(' · ') || '—';
+              return `
+              <div class="nxrm-vendor-eq-row">
+                <button class="nxrm-card" data-equipment-id="${esc(e.id)}" style="flex:1;margin:0">
+                  <div class="nxrm-card-title">${esc(e.name || 'Equipment')}</div>
+                  <div class="nxrm-card-row2"><span class="nxrm-card-eq">${esc(meta)}</span></div>
+                </button>
+                <button class="nxrm-vendor-eq-unassign" data-unassign-eq="${esc(e.id)}" data-eq-name="${esc(e.name || 'this equipment')}" title="Unassign from this vendor">×</button>
+              </div>`;
+            }).join('') : '<div class="nxrm-empty"><div class="nxrm-empty-body">No equipment assigned to this vendor yet. Tap &ldquo;Assign equipment&rdquo; to link units this vendor services.</div></div>'}
+          </div>
+        </div>
+
+        <div class="nxrm-section">
+          <div class="nxrm-section-head" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
             <div class="nxrm-section-title">Scheduled PMs · ${pms.length}</div>
             <button class="nxrm-vendor-action" data-act="schedule-pm" style="flex:0 0 auto;padding:7px 12px">+ Schedule PM</button>
           </div>
@@ -419,6 +449,32 @@
     if (editBtn) editBtn.addEventListener('click', () => promptEditVendor(vendor));
     const schedBtn = view.querySelector('[data-act="schedule-pm"]');
     if (schedBtn) schedBtn.addEventListener('click', () => openVendorPmScheduler(vendor));
+    const assignBtn = view.querySelector('[data-act="assign-equip"]');
+    if (assignBtn) assignBtn.addEventListener('click', () => openVendorEquipmentAssign(vendor));
+    const photoBtn = view.querySelector('[data-act="change-photo"]');
+    if (photoBtn) photoBtn.addEventListener('click', async () => {
+      const url = await pickVendorPhoto();
+      if (url === null) return; // user cancelled the picker
+      try {
+        await saveVendorPatch(vendor.id, { image_url: url });
+        vendor.image_url = url;   // instant feedback
+        render();                 // re-render the detail with the new photo
+        loadVendors();            // sync the list in the background
+      } catch (e) { alert('Could not save photo: ' + (e.message || e)); }
+    });
+    view.querySelectorAll('[data-unassign-eq]').forEach(el => {
+      el.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        const id = el.getAttribute('data-unassign-eq');
+        const nm = el.getAttribute('data-eq-name') || 'this equipment';
+        if (!id) return;
+        if (!confirm('Unassign ' + nm + ' from ' + (vendor.company || vendor.name) + '?')) return;
+        try {
+          await saveEquipPatch(id, { service_vendor_id: null });
+          render();
+        } catch (e) { alert('Failed: ' + (e.message || e)); }
+      });
+    });
     view.querySelectorAll('[data-equipment-id]').forEach(el => {
       el.addEventListener('click', () => {
         const id = el.getAttribute('data-equipment-id');
@@ -639,6 +695,262 @@
   }
 
   // ─────────────────────────────────────────────────────────────────────
+  // PHOTO + AVATAR + ASSIGN-EQUIPMENT HELPERS
+  // Photos are stored as small base64 JPEG data URLs in vendors.image_url,
+  // exactly like the ordering module's order_vendors.image_url. The list +
+  // detail show the photo when set, falling back to the A–F grade scorecard
+  // (so the grade is never lost — it becomes a corner chip over a photo).
+  // ─────────────────────────────────────────────────────────────────────
+
+  function ensurePicStyle() {
+    if (document.getElementById('nxrm-pic-style')) return;
+    const st = document.createElement('style');
+    st.id = 'nxrm-pic-style';
+    st.textContent =
+      '.nxrm-vendor-ava-img,.nxrm-vendor-ava-img-big{background-size:cover;background-position:center;position:relative;overflow:hidden}' +
+      '.nxrm-vendor-ava-chip{position:absolute;right:-1px;bottom:-1px;min-width:15px;text-align:center;font-size:10px;font-weight:800;padding:1px 5px;border-radius:8px 0 0 0;background:rgba(0,0,0,.66);color:#fff;line-height:1.4;letter-spacing:0}' +
+      '.nxrm-vendor-ava-chip-big{position:absolute;right:6px;bottom:6px;font-size:12px;font-weight:800;padding:2px 8px;border-radius:9px;background:rgba(0,0,0,.6);color:#fff;letter-spacing:0}' +
+      'button.nxrm-vendor-grade-big{cursor:pointer;border:none;font-family:inherit;padding:0;position:relative}' +
+      '.nxrm-vendor-eq-row{display:flex;align-items:stretch;gap:8px;margin-bottom:8px}' +
+      '.nxrm-vendor-eq-unassign{flex:0 0 auto;width:44px;border:1px solid var(--border);border-radius:9px;background:none;color:var(--muted);font-size:22px;line-height:1;cursor:pointer}' +
+      '.nxrm-vendor-eq-unassign:hover{border-color:#c44;color:#c44}';
+    document.head.appendChild(st);
+  }
+
+  // Take a picked image File → centered, cover-fit square JPEG data URL,
+  // small enough for TEXT storage. Ported from the ordering module.
+  function downscaleImageToDataUrl(file, maxDim, quality) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const sz = Math.min(img.width, img.height);
+            const sx = (img.width - sz) / 2;
+            const sy = (img.height - sz) / 2;
+            const canvas = document.createElement('canvas');
+            canvas.width = canvas.height = maxDim;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, maxDim, maxDim);
+            ctx.drawImage(img, sx, sy, sz, sz, 0, 0, maxDim, maxDim);
+            resolve(canvas.toDataURL('image/jpeg', quality));
+          } catch (e) { reject(e); }
+        };
+        img.onerror = () => reject(new Error('Image decode failed'));
+        img.src = reader.result;
+      };
+      reader.onerror = () => reject(new Error('File read failed'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // Open the OS photo picker, return a downscaled data URL (or null if the
+  // user cancels). Resolves null on cancel so callers can no-op cleanly.
+  function pickVendorPhoto() {
+    return new Promise((resolve) => {
+      const inp = document.createElement('input');
+      inp.type = 'file';
+      inp.accept = 'image/*';
+      inp.style.display = 'none';
+      inp.addEventListener('change', async () => {
+        const file = inp.files && inp.files[0];
+        inp.remove();
+        if (!file) { resolve(null); return; }
+        try { resolve(await downscaleImageToDataUrl(file, 320, 0.82)); }
+        catch (e) { alert('Could not read image: ' + (e.message || e)); resolve(null); }
+      });
+      // Some mobile browsers need the input in the DOM before .click().
+      document.body.appendChild(inp);
+      inp.click();
+    });
+  }
+
+  // Avatar markup. Photo when image_url is set (with the grade as a corner
+  // chip); otherwise the existing grade square — unchanged for vendors
+  // without a photo, so nothing regresses.
+  function vendorListAvatar(v, grade) {
+    if (v && v.image_url) {
+      const u = String(v.image_url).replace(/'/g, '%27');
+      return `<div class="nxrm-vendor-grade nxrm-vendor-ava-img" style="background-image:url('${u}')">` +
+        `<span class="nxrm-vendor-ava-chip">${grade.letter}</span></div>`;
+    }
+    return `<div class="nxrm-vendor-grade ${grade.tone}">${grade.letter}</div>`;
+  }
+
+  function vendorDetailAvatar(v, grade) {
+    if (v && v.image_url) {
+      const u = String(v.image_url).replace(/'/g, '%27');
+      return `<button class="nxrm-vendor-grade-big nxrm-vendor-ava-img-big" data-act="change-photo" title="Change photo" style="background-image:url('${u}')">` +
+        `<span class="nxrm-vendor-ava-chip-big">${grade.letter}</span></button>`;
+    }
+    return `<button class="nxrm-vendor-grade-big ${grade.tone}" data-act="change-photo" title="Add photo">` +
+      `<div class="nxrm-vendor-grade-letter">${grade.letter}</div>` +
+      `<div class="nxrm-vendor-grade-lbl">${grade.label}</div>` +
+      `<span class="nxrm-vendor-ava-chip-big" style="background:var(--nx-gold);color:#000">+</span></button>`;
+  }
+
+  // Generic column-tolerant UPDATE on vendors. If the DB is missing a column
+  // the payload names (e.g. image_url before the migration is run), drop that
+  // key and retry instead of failing the whole save.
+  async function saveVendorPatch(id, patch) {
+    let p = Object.assign({}, patch, { updated_at: new Date().toISOString() });
+    for (let i = 0; i < 8; i++) {
+      const { error } = await NX.sb.from('vendors').update(p).eq('id', id);
+      if (!error) return true;
+      const m = /column "?([a-z_]+)"?.*does not exist/i.exec(error.message || '');
+      if (m && m[1] && (m[1] in p)) { delete p[m[1]]; continue; }
+      throw error;
+    }
+    return false;
+  }
+
+  // Generic column-tolerant INSERT/UPDATE on vendors (used by the editor).
+  async function saveVendorRow(payload, existingId) {
+    let p = Object.assign({}, payload);
+    for (let i = 0; i < 10; i++) {
+      let error;
+      if (existingId) ({ error } = await NX.sb.from('vendors').update(p).eq('id', existingId));
+      else ({ error } = await NX.sb.from('vendors').insert(p));
+      if (!error) return true;
+      const m = /column "?([a-z_]+)"?.*does not exist/i.exec(error.message || '');
+      if (m && m[1] && (m[1] in p)) { delete p[m[1]]; continue; }
+      throw error;
+    }
+    return false;
+  }
+
+  // Generic column-tolerant UPDATE on equipment (assign/unassign vendor).
+  async function saveEquipPatch(id, patch) {
+    let p = Object.assign({}, patch);
+    for (let i = 0; i < 8; i++) {
+      const { error } = await NX.sb.from('equipment').update(p).eq('id', id);
+      if (!error) return true;
+      const m = /column "?([a-z_]+)"?.*does not exist/i.exec(error.message || '');
+      if (m && m[1] && (m[1] in p)) { delete p[m[1]]; continue; }
+      throw error;
+    }
+    return false;
+  }
+
+  // ── ASSIGN EQUIPMENT ──────────────────────────────────────────────────
+  // Vendor is known (this profile); user multi-selects equipment. Selecting
+  // sets equipment.service_vendor_id = vendor.id; de-selecting a previously
+  // assigned unit clears it. Mirrors the PM scheduler's picker shape.
+  async function openVendorEquipmentAssign(vendor) {
+    if (!NX?.sb) return;
+    const vName = vendor.company || vendor.name || 'this vendor';
+    ensurePicStyle();
+    if (!document.getElementById('nxvf-style')) {
+      const st = document.createElement('style');
+      st.id = 'nxvf-style';
+      st.textContent =
+        '.nxvf-field{display:block;margin-bottom:11px}' +
+        '.nxvf-label{display:block;font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);margin-bottom:5px}' +
+        '.nxvf-input{width:100%;box-sizing:border-box;padding:11px 12px;border-radius:9px;border:1px solid var(--border);background:var(--surface-2,var(--surface));color:var(--text);font-family:inherit;font-size:15px}' +
+        '.nxvf-input:focus{outline:none;border-color:var(--nx-gold)}';
+      document.head.appendChild(st);
+    }
+
+    let allEquip = [];
+    try {
+      const { data } = await NX.sb.from('equipment').select('*');
+      allEquip = (data || [])
+        .filter(e => e.archived !== true)
+        .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+    } catch (_) {}
+
+    const selected = new Set(
+      allEquip.filter(e => String(e.service_vendor_id || '') === String(vendor.id)).map(e => e.id)
+    );
+    const initiallyAssigned = new Set(selected);
+    let search = '';
+
+    const overlay = document.createElement('div');
+    overlay.className = 'nxrm-vendor-form-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9200;display:flex;align-items:flex-end;justify-content:center';
+
+    const applyFilter = () => {
+      const q = search.trim().toLowerCase();
+      overlay.querySelectorAll('[data-eq]').forEach(b => {
+        const hay = (b.getAttribute('data-hay') || '').toLowerCase();
+        b.style.display = (!q || hay.includes(q)) ? 'flex' : 'none';
+      });
+    };
+
+    const draw = () => {
+      const eqRows = allEquip.map(e => {
+        const meta = [e.location, e.category].filter(Boolean).join(' · ') || '—';
+        const sel = selected.has(e.id);
+        const otherVendor = e.service_vendor_id && String(e.service_vendor_id) !== String(vendor.id);
+        return `<button type="button" class="vpm-eq-row" data-eq="${esc(e.id)}" data-hay="${esc((e.name || '') + ' ' + meta)}"
+          style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 12px;border-radius:9px;border:1px solid ${sel ? 'var(--nx-gold)' : 'var(--border)'};background:${sel ? 'var(--nx-gold-faint)' : 'var(--surface-2,var(--surface))'};color:var(--text);font-family:inherit;cursor:pointer;margin-bottom:6px">
+          <span style="flex:0 0 auto;width:20px;height:20px;border-radius:6px;border:1.5px solid ${sel ? 'var(--nx-gold)' : 'var(--border)'};background:${sel ? 'var(--nx-gold)' : 'transparent'};color:#000;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800">${sel ? '✓' : ''}</span>
+          <span style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1">
+            <span style="font-weight:600;font-size:14px">${esc(e.name || 'Unnamed')}</span>
+            <span style="font-size:11px;color:var(--muted)">${esc(meta)}${otherVendor && !sel ? ' · assigned elsewhere' : ''}</span>
+          </span>
+        </button>`;
+      }).join('') || '<div style="padding:14px;color:var(--muted);font-size:13px">No equipment found.</div>';
+
+      overlay.innerHTML = `
+        <div class="nxvf-backdrop" style="position:absolute;inset:0;background:rgba(0,0,0,.5)"></div>
+        <div class="nxvf-sheet" style="position:relative;width:100%;max-width:560px;max-height:92vh;overflow-y:auto;background:var(--surface);border:1px solid var(--nx-gold-line);border-radius:16px 16px 0 0;padding:20px 18px 28px">
+          <div style="font-size:18px;font-weight:700;margin-bottom:2px">Assign equipment</div>
+          <div style="font-size:13px;color:var(--muted);margin-bottom:14px">to ${esc(vName)}</div>
+          <input class="nxvf-input" id="veaSearch" value="${esc(search)}" placeholder="Search equipment by name, location…" autocomplete="off" style="margin-bottom:8px">
+          <div style="max-height:300px;overflow-y:auto;margin-bottom:16px">${eqRows}</div>
+          <div style="display:flex;gap:10px">
+            <button id="veaCancel" style="flex:1;padding:13px;border-radius:10px;border:1px solid var(--border);background:none;color:var(--text);font-family:inherit;cursor:pointer">Cancel</button>
+            <button id="veaSave" style="flex:2;padding:13px;border-radius:10px;border:none;background:var(--nx-gold);color:#000;font-weight:700;font-family:inherit;cursor:pointer">Save · ${selected.size} selected</button>
+          </div>
+        </div>`;
+
+      overlay.querySelector('.nxvf-backdrop').addEventListener('click', () => overlay.remove());
+      overlay.querySelector('#veaCancel').addEventListener('click', () => overlay.remove());
+      const si = overlay.querySelector('#veaSearch');
+      si.addEventListener('input', () => { search = si.value; applyFilter(); });
+      overlay.querySelectorAll('[data-eq]').forEach(b => b.addEventListener('click', () => {
+        const id = b.dataset.eq;
+        if (selected.has(id)) selected.delete(id); else selected.add(id);
+        draw();
+      }));
+      overlay.querySelector('#veaSave').addEventListener('click', save);
+      applyFilter();
+    };
+
+    async function save() {
+      const toAssign = [...selected].filter(id => !initiallyAssigned.has(id));
+      const toUnassign = [...initiallyAssigned].filter(id => !selected.has(id));
+      const saveBtn = overlay.querySelector('#veaSave');
+      saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+      try {
+        for (const id of toAssign) {
+          await saveEquipPatch(id, {
+            service_vendor_id: vendor.id,
+            service_contractor_name: vName,
+            service_contractor_node_id: null,
+          });
+        }
+        for (const id of toUnassign) {
+          await saveEquipPatch(id, { service_vendor_id: null });
+        }
+        overlay.remove();
+        NX.toast && NX.toast(`${toAssign.length} assigned · ${toUnassign.length} removed`, 'success', 1800);
+        render(); // re-render the detail (state.activeVendor still set)
+      } catch (e) {
+        alert('Failed: ' + (e.message || e));
+        saveBtn.disabled = false; saveBtn.textContent = `Save · ${selected.size} selected`;
+      }
+    }
+
+    draw();
+    document.body.appendChild(overlay);
+    setTimeout(() => overlay.querySelector('#veaSearch')?.focus(), 50);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
   // NEW / EDIT
   // ─────────────────────────────────────────────────────────────────────
 
@@ -653,6 +965,7 @@
     if (!NX?.sb) return;
     const v = existing || {};
     const isEdit = !!(existing && existing.id);
+    let photoUrl = v.image_url || '';
 
     if (!document.getElementById('nxvf-style')) {
       const st = document.createElement('style');
@@ -677,6 +990,13 @@
       <div class="nxvf-backdrop" style="position:absolute;inset:0;background:rgba(0,0,0,.5)"></div>
       <div class="nxvf-sheet" style="position:relative;width:100%;max-width:560px;max-height:92vh;overflow-y:auto;background:var(--surface);border:1px solid var(--nx-gold-line);border-radius:16px 16px 0 0;padding:20px 18px 28px">
         <div style="font-size:18px;font-weight:700;margin-bottom:14px">${isEdit ? 'Edit vendor' : 'New vendor'}</div>
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
+          <div id="vfPhotoPreview" style="width:64px;height:64px;flex:0 0 auto;border-radius:14px;border:1px solid var(--nx-gold-line);background:${photoUrl ? "url('" + String(photoUrl).replace(/'/g, '%27') + "') center/cover" : 'var(--surface-2,var(--surface))'};display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.4px">${photoUrl ? '' : 'No photo'}</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <button type="button" id="vfPhotoPick" style="padding:9px 14px;border-radius:9px;border:1px solid var(--border);background:none;color:var(--text);font-family:inherit;cursor:pointer">${photoUrl ? 'Change photo' : '+ Add photo'}</button>
+            <button type="button" id="vfPhotoRemove" style="padding:7px 14px;border-radius:9px;border:none;background:none;color:var(--muted);font-family:inherit;cursor:pointer;${photoUrl ? '' : 'display:none'}">Remove</button>
+          </div>
+        </div>
         ${fld('Company *', 'vfCompany', v.company || v.name, 'text', 'e.g. Austin Air and Ice')}
         ${fld('Contact name', 'vfContact', v.contact_name, 'text', 'Person you call')}
         <label class="nxvf-field"><span class="nxvf-label">Trade / category</span>
@@ -712,6 +1032,24 @@
     overlay.querySelector('.nxvf-backdrop').addEventListener('click', close);
     overlay.querySelector('#vfCancel').addEventListener('click', close);
 
+    const refreshPhotoUi = () => {
+      const prev = overlay.querySelector('#vfPhotoPreview');
+      const rm = overlay.querySelector('#vfPhotoRemove');
+      const pick = overlay.querySelector('#vfPhotoPick');
+      if (prev) {
+        if (photoUrl) { prev.style.background = "url('" + String(photoUrl).replace(/'/g, '%27') + "') center/cover"; prev.textContent = ''; }
+        else { prev.style.background = 'var(--surface-2,var(--surface))'; prev.textContent = 'No photo'; }
+      }
+      if (pick) pick.textContent = photoUrl ? 'Change photo' : '+ Add photo';
+      if (rm) rm.style.display = photoUrl ? '' : 'none';
+    };
+    overlay.querySelector('#vfPhotoPick')?.addEventListener('click', async () => {
+      const url = await pickVendorPhoto();
+      if (url === null) return;
+      photoUrl = url; refreshPhotoUi();
+    });
+    overlay.querySelector('#vfPhotoRemove')?.addEventListener('click', () => { photoUrl = ''; refreshPhotoUi(); });
+
     overlay.querySelector('#vfSave').addEventListener('click', async () => {
       const val = id => (overlay.querySelector('#' + id)?.value || '').trim();
       const num = id => { const n = parseFloat(val(id)); return isNaN(n) ? null : n; };
@@ -732,19 +1070,14 @@
         is_preferred: overlay.querySelector('#vfPreferred').checked,
         is_emergency: overlay.querySelector('#vfEmergency').checked,
         notes: val('vfNotes') || null,
+        image_url: photoUrl || null,
         updated_at: new Date().toISOString(),
       };
       const saveBtn = overlay.querySelector('#vfSave');
       saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
       try {
-        if (isEdit) {
-          const { error } = await NX.sb.from('vendors').update(payload).eq('id', existing.id);
-          if (error) throw error;
-        } else {
-          payload.active = true;
-          const { error } = await NX.sb.from('vendors').insert(payload);
-          if (error) throw error;
-        }
+        if (!isEdit) payload.active = true;
+        await saveVendorRow(payload, isEdit ? existing.id : null);
         close();
         state.activeVendor = null;
         await loadVendors();
