@@ -807,6 +807,19 @@
    right at those widths.
    ─────────────────────────────────────────────────────────────────── */
 @media (min-width: 900px) {
+  /* CRITICAL: .nav has backdrop-filter (the masthead glass blur), which
+     makes it the *containing block* for position:fixed descendants. The
+     sidebar below is a child of .nav, so without this it would position
+     relative to the ~60px masthead (top:70px/bottom:0 collapses it to
+     nothing) and get clipped by .nav's overflow — leaving an empty left
+     gap where the nav should be. Dropping the filter + overflow clip on
+     desktop lets the fixed sidebar anchor to the viewport correctly. The
+     masthead keeps its solid surface background, so it still looks right. */
+  .nav {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    overflow: visible !important;
+  }
   .nav-tabs {
     position: fixed !important;
     left: 0;
