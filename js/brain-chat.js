@@ -277,9 +277,7 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
           btn.disabled=true;btn.textContent+=' ✓';
           try{
             if(action.type==='ticket'){
-              const ticketData={title:action.title,notes:action.detail,status:'open',priority:action.urgency==='high'?'urgent':'normal',reported_by:NX.currentUser?.name||'AI'};
-              await NX.sb.from('tickets').insert(ticketData);
-              if (NX.notifyTicketCreated) NX.notifyTicketCreated(ticketData);
+              await NX.work.create({title:action.title, notes:action.detail, priority:action.urgency==='high'?'urgent':'normal', reportedBy:NX.currentUser?.name||'AI', aiCreated:true});
               chainLog.push({type:'ticket',title:action.title,result:'created'});
             }else if(action.type==='card'){
               // Resolve a board + list so the card is visible on the
@@ -541,19 +539,17 @@ After the troubleshoot steps, ask the person to add more details and optionally 
       const submitBtn=form.querySelector('#ticketSubmitBtn');
       submitBtn.disabled=true;submitBtn.textContent=lang==='es'?'Enviando...':'Submitting...';
       try{
-        const ticketData={
-          title:notes.slice(0,100),notes,location:userLoc,
-          reported_by:userName,status:'open',priority,
-          photo_url:photoUrl,ai_troubleshoot:troubleshoot
-        };
-        const{error}=await NX.sb.from('tickets').insert(ticketData);
+        const res=await NX.work.create({
+          title:notes.slice(0,100), notes, location:userLoc,
+          reportedBy:userName, priority,
+          photoUrl, aiTroubleshoot:troubleshoot
+        });
+        const error = res.ticket ? null : { message: lang==='es'?'Error al crear':'Create failed' };
         if(!error){
           submitBtn.textContent='✓';
           form.querySelector('#ticketStatus').textContent=lang==='es'?'✓ Ticket creado':'✓ Ticket submitted';
           form.querySelector('#ticketStatus').style.color='var(--green)';
           addB(lang==='es'?`✓ Ticket registrado: "${notes.slice(0,60)}"`:`✓ Ticket logged: "${notes.slice(0,60)}"`,'ai');
-          // Fire push to managers — fire and forget
-          if (NX.notifyTicketCreated) NX.notifyTicketCreated(ticketData);
           // Also log to daily log
           await NX.sb.from('daily_logs').insert({entry:`TICKET [${priority.toUpperCase()}] by ${userName} @ ${userLoc}: ${notes.slice(0,200)}${photoUrl?' [photo attached]':''}`});
           updateTicketBadge();
