@@ -634,7 +634,7 @@
   -webkit-backdrop-filter: blur(10px) !important;
 }
 .b-modal {
-  background: var(--nx-surface-1) !important;
+  background: var(--nx-surface-solid) !important;
   border: 1px solid var(--nx-highlight-faint) !important;
   border-radius: var(--nx-radius-card) !important;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6) !important;
@@ -691,6 +691,8 @@
 
 /* Field controls */
 .b-field {
+  appearance: none !important;
+  -webkit-appearance: none !important;
   background: var(--nx-surface-2) !important;
   border: 1px solid var(--nx-gold-line) !important;
   border-radius: var(--nx-radius-tight) !important;
@@ -702,6 +704,13 @@
   transition: border-color var(--nx-press) !important;
 }
 .b-field:focus { border-color: var(--nx-gold-line-3) !important; }
+/* appearance:none strips the native dropdown arrow — paint our own caret */
+select.b-field {
+  padding-right: 34px !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='none' stroke='%23d4a44e' stroke-width='1.6' d='M1 1.5 6 6.5 11 1.5'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 12px center !important;
+}
 textarea.b-field {
   resize: vertical;
   min-height: 72px !important;
