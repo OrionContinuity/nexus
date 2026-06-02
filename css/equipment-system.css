@@ -556,3 +556,38 @@
   font-style: italic;
   letter-spacing: 0.3px;
 }
+
+/* ─── v18.36 — Desktop list density ─────────────────────────────────
+   On wide screens (sidebar layout, ≥900px) a single column of full-width
+   equipment rows wastes most of the horizontal space and shows only ~4
+   items. Card-UI best practice is 2 columns on tablet, 3-4 on desktop —
+   so flow the rows into an auto-filling grid. minmax(400px) gives 2
+   columns on a laptop and 3 on a wide monitor, each row staying readable.
+   The grid gap replaces the per-row margin so separation is even, and a
+   slightly stronger border helps each tile read as distinct on the light
+   desktop canvas. List MODE only (.eq-rows) — the card grid mode
+   (.eq-list-grid) has its own responsive columns. */
+@media (min-width: 900px) {
+  #equipmentView .eq-rows {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+    gap: 12px;
+    align-items: start;
+  }
+  #equipmentView .eq-rows .eq-row,
+  #equipmentView .eq-rows .eq-list-item {
+    margin-bottom: 0 !important;
+    border-color: var(--nx-gold-line) !important;
+  }
+  /* Give the category section a touch more breathing room above each
+     group header so the grouped grids don't run together. */
+  #equipmentView .eq-cat-section + .eq-cat-section {
+    margin-top: var(--nx-space-5);
+  }
+}
+
+/* ── Contractors retired (v88) ─────────────────────────────────────────
+   Vendors is now the single hub for service providers. The equipment
+   "Contractors" tool button is hidden; the manager code is retained so
+   removing this one rule re-enables it if a rollback is ever needed. */
+#eqToolContractors { display: none !important; }
