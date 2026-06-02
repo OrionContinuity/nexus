@@ -1061,6 +1061,7 @@
       '.vea-pm-detail .nxvf-row{display:flex;gap:8px}' +
       '.vea-pm-detail .nxvf-input{padding:8px 10px;font-size:13px}' +
       '.vea-row-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}' +
+      '.vea-state{font-size:10px;font-weight:800;letter-spacing:.3px;color:var(--nx-gold);text-transform:uppercase}' +
       '.vea-name{font-weight:600;font-size:14px}' +
       '.vea-meta{font-size:11px;color:var(--muted)}' +
       '.vea-toggles{flex:0 0 auto;display:flex;gap:6px}' +
@@ -1514,40 +1515,41 @@
     };
 
     const draw = () => {
-      const eqRows = allEquip.map(e => {
-        const meta = [e.location, e.category].filter(Boolean).join(' · ') || '—';
-        const pmOn = pmSel.has(e.id);
-        const rpOn = repairSel.has(e.id);
-        const pmOther = e.service_vendor_id && String(e.service_vendor_id) !== vid;
-        const rpOther = e.repair_vendor_id  && String(e.repair_vendor_id)  !== vid;
-        const flags = [];
-        if (pmOther && !pmOn) flags.push('PM elsewhere');
-        if (rpOther && !rpOn) flags.push('repair elsewhere');
-        return `<div class="vea-row" data-hay="${esc((e.name || '') + ' ' + meta)}">
-          <div class="vea-row-info">
-            <span class="vea-name">${esc(e.name || 'Unnamed')}</span>
-            <span class="vea-meta">${esc(meta)}${flags.length ? ' · ' + esc(flags.join(' · ')) : ''}</span>
-          </div>
-          <div class="vea-toggles">
-            <button type="button" class="vea-toggle ${pmOn ? 'on' : ''}" data-toggle-pm="${esc(e.id)}">PM</button>
-            <button type="button" class="vea-toggle ${rpOn ? 'on' : ''}" data-toggle-repair="${esc(e.id)}">Repair</button>
-          </div>
-          <div class="vea-pm-detail" data-pm-detail="${esc(e.id)}" style="display:${pmOn ? 'block' : 'none'}">
-            <div class="nxvf-label">Next PM date · cadence <span style="text-transform:none;letter-spacing:0;opacity:.6">— optional, schedules the visit</span></div>
-            <div class="nxvf-row">
-              <input class="nxvf-input" type="date" data-pmdate="${esc(e.id)}" value="${esc(pmDates[e.id] || e.next_pm_date || '')}" style="flex:1">
-              <select class="nxvf-input" data-pmint="${esc(e.id)}" style="flex:1">${cadenceOptions(pmIntervals[e.id] ?? e.pm_interval_days ?? 90)}</select>
+      const eqRows = allEquip
+        // Hide units already assigned to another vendor for PM — they're
+        // "taken", so they shouldn't show up in this vendor's picker. To move
+        // one, unassign it from the other vendor first.
+        .filter(e => !(e.service_vendor_id && String(e.service_vendor_id) !== vid))
+        .map(e => {
+          const meta = [e.location, e.category].filter(Boolean).join(' · ') || '—';
+          const pmOn = pmSel.has(e.id);
+          const rpOn = repairSel.has(e.id);
+          const rpOther = e.repair_vendor_id && String(e.repair_vendor_id) !== vid;
+          const flags = [];
+          if (rpOther && !rpOn) flags.push('repair elsewhere');
+          // Surface a legacy contractor (old "node era" or typed name, no vendor
+          // link) so these units can be migrated onto this vendor with a tap.
+          const legacyName = (!e.service_vendor_id && e.service_contractor_name) ? e.service_contractor_name : '';
+          if (legacyName) flags.push('was ' + legacyName);
+          const state = pmOn && rpOn ? 'Both' : pmOn ? 'PM only' : rpOn ? 'Repair only' : '';
+          return `<div class="vea-row" data-hay="${esc((e.name || '') + ' ' + meta + ' ' + legacyName)}">
+            <div class="vea-row-info">
+              <span class="vea-name">${esc(e.name || 'Unnamed')} <span class="vea-state" data-state="${esc(e.id)}">${state}</span></span>
+              <span class="vea-meta">${esc(meta)}${flags.length ? ' · ' + esc(flags.join(' · ')) : ''}</span>
             </div>
-          </div>
-        </div>`;
-      }).join('') || '<div style="padding:14px;color:var(--muted);font-size:13px">No equipment found.</div>';
+            <div class="vea-toggles">
+              <button type="button" class="vea-toggle ${pmOn ? 'on' : ''}" data-toggle-pm="${esc(e.id)}">PM</button>
+              <button type="button" class="vea-toggle ${rpOn ? 'on' : ''}" data-toggle-repair="${esc(e.id)}">Repair</button>
+            </div>
+          </div>`;
+        }).join('') || '<div style="padding:14px;color:var(--muted);font-size:13px">No equipment available — every unit is already assigned to another vendor for PM.</div>';
 
       overlay.innerHTML = `
         <div class="nxvf-backdrop" style="position:absolute;inset:0;background:rgba(0,0,0,.5)"></div>
         <div class="nxvf-sheet" style="position:relative;width:100%;max-width:560px;max-height:92vh;overflow-y:auto;background:var(--surface);border:1px solid var(--nx-gold-line);border-radius:16px 16px 0 0;padding:20px 18px 28px">
           <div style="font-size:18px;font-weight:700;margin-bottom:2px">Assign equipment</div>
           <div style="font-size:13px;color:var(--muted);margin-bottom:4px">to ${esc(vName)}</div>
-          <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Turn on <strong style="color:var(--nx-gold)">PM</strong> to make this the service vendor — add a date to schedule the visit. <strong style="color:#6c7bd0">Repair</strong> sets the repair vendor.</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Tap <strong style="color:var(--nx-gold)">PM</strong> to make this the unit's service (PM) vendor. <strong style="color:#6c7bd0">Repair</strong> sets the repair vendor. Set how often PM runs over in PM&nbsp;Schedules.</div>
           <input class="nxvf-input" id="veaSearch" value="${esc(search)}" placeholder="Search equipment by name, location…" autocomplete="off" style="margin-bottom:8px">
           <div style="max-height:320px;overflow-y:auto;margin-bottom:16px">${eqRows}</div>
           <div style="display:flex;gap:10px">
@@ -1562,24 +1564,22 @@
       si.addEventListener('input', () => { search = si.value; applyFilter(); });
       // In-place toggles — flip the Set + the button class without a full
       // redraw, so scroll position and the search box stay put.
+      const refreshState = (id) => {
+        const el = overlay.querySelector(`[data-state="${id}"]`);
+        if (el) el.textContent = pmSel.has(id) && repairSel.has(id) ? 'Both' : pmSel.has(id) ? 'PM only' : repairSel.has(id) ? 'Repair only' : '';
+      };
       overlay.querySelectorAll('[data-toggle-pm]').forEach(b => b.addEventListener('click', () => {
         const id = b.getAttribute('data-toggle-pm');
         if (pmSel.has(id)) pmSel.delete(id); else pmSel.add(id);
         b.classList.toggle('on', pmSel.has(id));
-        const detail = overlay.querySelector(`[data-pm-detail="${id}"]`);
-        if (detail) detail.style.display = pmSel.has(id) ? 'block' : 'none';
+        refreshState(id);
         updateCount();
-      }));
-      overlay.querySelectorAll('[data-pmdate]').forEach(inp => inp.addEventListener('input', e => {
-        pmDates[e.target.dataset.pmdate] = e.target.value;
-      }));
-      overlay.querySelectorAll('[data-pmint]').forEach(sel => sel.addEventListener('change', e => {
-        pmIntervals[e.target.dataset.pmint] = parseInt(e.target.value, 10) || 0;
       }));
       overlay.querySelectorAll('[data-toggle-repair]').forEach(b => b.addEventListener('click', () => {
         const id = b.getAttribute('data-toggle-repair');
         if (repairSel.has(id)) repairSel.delete(id); else repairSel.add(id);
         b.classList.toggle('on', repairSel.has(id));
+        refreshState(id);
         updateCount();
       }));
       overlay.querySelector('#veaSave').addEventListener('click', save);
@@ -1595,18 +1595,7 @@
       saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
       try {
         for (const id of pmAdd) {
-          const date = (pmDates[id] || '').trim();
-          if (date) {
-            await schedulePmFor(id, date, pmIntervals[id] ?? 90);
-          } else {
-            await saveEquipPatch(id, { service_vendor_id: vendor.id, service_contractor_name: vName, service_contractor_node_id: null });
-          }
-        }
-        // Already-assigned units where a date was entered/changed → (re)schedule.
-        for (const id of pmSel) {
-          if (initialPm.has(id) && (pmDates[id] || '').trim()) {
-            await schedulePmFor(id, pmDates[id].trim(), pmIntervals[id] ?? 90);
-          }
+          await saveEquipPatch(id, { service_vendor_id: vendor.id, service_contractor_name: vName, service_contractor_node_id: null });
         }
         for (const id of pmRemove) {
           await saveEquipPatch(id, { service_vendor_id: null, service_contractor_name: null });
