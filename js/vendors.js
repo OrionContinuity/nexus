@@ -103,6 +103,7 @@
 
   function render() {
     ensurePicStyle();
+    backfillContractorsToVendors(); // one-time, flag-guarded, fire-and-forget
     const view = NXRM.view.ensure('vendorsView', 'vendors');
     if (state.activeVendor) return renderDetail(view, state.activeVendor);
 
@@ -254,45 +255,143 @@
   // ─────────────────────────────────────────────────────────────────────
 
   async function renderDetail(view, vendor) {
-    let issues = [];
-    if (NX?.sb) {
-      try {
-        const { data } = await NX.sb.from('v_issue_summary')
-          .select('*').eq('vendor_id', vendor.id)
-          .order('reported_at', { ascending: false }).limit(50);
-        issues = data || [];
-      } catch (_) {}
-    }
-    // PMs assigned to this vendor (Phase 2 — PMs live in vendors). select('*')
-    // + client-side filter/sort is the bulletproof pattern; equipment id+name
-    // are always present so naming them is safe.
-    let pms = [];
-    if (NX?.sb) {
-      try {
-        const { data } = await NX.sb.from('pm_schedules').select('*').eq('vendor_id', vendor.id);
-        pms = (data || [])
-          .filter(p => (p.status || '') !== 'cancelled')
-          .sort((a, b) => String(a.scheduled_date || '').localeCompare(String(b.scheduled_date || '')));
-        const eqIds = [...new Set(pms.map(p => p.equipment_id).filter(Boolean))];
-        if (eqIds.length) {
-          const { data: eqs } = await NX.sb.from('equipment').select('id, name').in('id', eqIds);
-          const nameById = new Map((eqs || []).map(e => [String(e.id), e.name]));
-          pms.forEach(p => { p._eqName = nameById.get(String(p.equipment_id)) || 'Equipment'; });
-        }
-      } catch (_) {}
-    }
-    // Equipment assigned to this vendor (service_vendor_id). select('*') +
-    // client filter is the bulletproof pattern (tolerates schema gaps).
-    let servicedEquip = [];
-    if (NX?.sb) {
-      try {
-        const { data } = await NX.sb.from('equipment').select('*');
-        servicedEquip = (data || [])
-          .filter(e => e.archived !== true && String(e.service_vendor_id || '') === String(vendor.id))
-          .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
-      } catch (_) {}
-    }
     ensurePicStyle();
+    const vid = String(vendor.id);
+    const nameLower = (vendor.company || vendor.name || '').toLowerCase().trim();
+    if (state.detailLocation === undefined) {
+      try { state.detailLocation = localStorage.getItem('nexus.vendors.detailLocation') || 'all'; }
+      catch (_) { state.detailLocation = 'all'; }
+    }
+
+    // Raw data, cached per vendor so the location pills re-filter instantly
+    // (no refetch). Cache is invalidated by mutations (assign / unassign / PM).
+    let cache = state._detailCache;
+    if (!cache || cache.vendorId !== vid) {
+      const out = { vendorId: vid, issues: [], pms: [], allEquip: [], maint: [] };
+      if (NX?.sb) {
+        try {
+          const { data } = await NX.sb.from('v_issue_summary').select('*')
+            .eq('vendor_id', vendor.id).order('reported_at', { ascending: false }).limit(80);
+          out.issues = data || [];
+        } catch (_) {}
+        try {
+          const { data } = await NX.sb.from('pm_schedules').select('*').eq('vendor_id', vendor.id);
+          out.pms = (data || []).filter(p => (p.status || '') !== 'cancelled')
+            .sort((a, b) => String(a.scheduled_date || '').localeCompare(String(b.scheduled_date || '')));
+        } catch (_) {}
+        try {
+          const { data } = await NX.sb.from('equipment').select('*');
+          out.allEquip = (data || []).filter(e => e.archived !== true);
+        } catch (_) {}
+        try {
+          const since = new Date(Date.now() - 730 * 86400000).toISOString().slice(0, 10);
+          const { data } = await NX.sb.from('equipment_maintenance')
+            .select('id, equipment_id, event_date, event_type, description, performed_by, cost')
+            .gte('event_date', since);
+          out.maint = data || [];
+        } catch (_) {
+          try { const { data } = await NX.sb.from('equipment_maintenance').select('equipment_id, performed_by, event_date'); out.maint = data || []; } catch (_2) {}
+        }
+        // Open work orders for this vendor's equipment — pulled live from the
+        // Board module (cross-module read). One call per serviced unit; cached
+        // so the location pills don't re-query.
+        out.workOrders = [];
+        try {
+          const sids = [...new Set(out.allEquip
+            .filter(e => String(e.service_vendor_id || '') === vid || String(e.repair_vendor_id || '') === vid)
+            .map(e => e.id))];
+          const board = (window.NX && NX.modules && NX.modules.board) || null;
+          if (sids.length && board && typeof board.getOpenCardsForEquipment === 'function') {
+            const eqById = new Map(out.allEquip.map(e => [String(e.id), e]));
+            for (const id of sids) {
+              let cards = [];
+              try { cards = await board.getOpenCardsForEquipment(id); } catch (_) {}
+              (cards || []).forEach(c => {
+                const eq = eqById.get(String(id)) || {};
+                c._eqName = eq.name || '';
+                c._eqLoc = eq.location || '';
+                out.workOrders.push(c);
+              });
+            }
+          }
+        } catch (_) {}
+      }
+      cache = out;
+      state._detailCache = cache;
+    }
+
+    const { issues: allIssues, pms: allPms, allEquip, maint } = cache;
+    const eqMap = new Map(allEquip.map(e => [String(e.id), { name: e.name, location: e.location }]));
+    allPms.forEach(p => {
+      const m = eqMap.get(String(p.equipment_id));
+      p._eqName = (m && m.name) || p.title || 'Equipment';
+      p._eqLoc = (m && m.location) || '';
+    });
+
+    // Assigned (per role) + previously-serviced (historical).
+    let servicedEquip = allEquip
+      .filter(e => String(e.service_vendor_id || '') === vid || String(e.repair_vendor_id || '') === vid)
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+    servicedEquip.forEach(e => {
+      e._isPm = String(e.service_vendor_id || '') === vid;
+      e._isRepair = String(e.repair_vendor_id || '') === vid;
+    });
+    const assignedIds = new Set(servicedEquip.map(e => e.id));
+    const myMaint = maint.filter(m => {
+      const pb = (m.performed_by || '').toLowerCase().trim();
+      return nameLower && pb && (pb.includes(nameLower) || nameLower.includes(pb));
+    });
+    const servicedIds = new Set(myMaint.map(m => m.equipment_id));
+    let historicalEquip = allEquip
+      .filter(e => servicedIds.has(e.id) && !assignedIds.has(e.id))
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+
+    // Activity feed = matched maintenance events + issues, newest first.
+    let activity = [];
+    myMaint.forEach(m => {
+      const eq = eqMap.get(String(m.equipment_id)) || {};
+      activity.push({
+        type: 'maintenance', date: m.event_date,
+        title: m.event_type ? String(m.event_type).replace(/_/g, ' ').replace(/^./, c => c.toUpperCase()) : 'Service',
+        cost: parseFloat(m.cost) || 0,
+        eqId: m.equipment_id, eqName: eq.name || '(equipment removed)', eqLoc: eq.location || '',
+        desc: m.description || '',
+      });
+    });
+    allIssues.forEach(i => {
+      activity.push({
+        type: 'issue', date: i.reported_at,
+        title: i.title || 'Issue', cost: parseFloat(i.invoice_amount) || 0,
+        eqId: i.equipment_id, eqName: i.equipment_name || '(equipment)', eqLoc: i.restaurant || '',
+        status: i.status, desc: '',
+      });
+    });
+    activity.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    // Open work orders (Board) — exclude closed/resolved.
+    let workOrders = (cache.workOrders || []).filter(c => !/^(closed|resolved|done)$/i.test(c.status || ''));
+
+    // Location scope — derive the set of restaurants this vendor actually
+    // touches; show pills only when there's more than one.
+    const locSet = new Set();
+    servicedEquip.forEach(e => e.location && locSet.add(e.location));
+    historicalEquip.forEach(e => e.location && locSet.add(e.location));
+    activity.forEach(ev => ev.eqLoc && locSet.add(ev.eqLoc));
+    allPms.forEach(p => p._eqLoc && locSet.add(p._eqLoc));
+    workOrders.forEach(c => c._eqLoc && locSet.add(c._eqLoc));
+    const LOCS = [...locSet].sort();
+    let activeLoc = state.detailLocation || 'all';
+    if (activeLoc !== 'all' && !LOCS.includes(activeLoc)) activeLoc = 'all';
+    const showLocPills = LOCS.length >= 2;
+    const inLoc = (loc) => activeLoc === 'all' || (loc || '') === activeLoc;
+    if (activeLoc !== 'all') {
+      servicedEquip = servicedEquip.filter(e => inLoc(e.location));
+      historicalEquip = historicalEquip.filter(e => inLoc(e.location));
+      activity = activity.filter(ev => inLoc(ev.eqLoc));
+      workOrders = workOrders.filter(c => inLoc(c._eqLoc));
+    }
+    const pms = (activeLoc !== 'all') ? allPms.filter(p => inLoc(p._eqLoc)) : allPms;
+    const locLabel = (l) => esc(String(l).replace(/^Bar\s+/i, ''));
     const grade = score.vendorGrade(vendor);
 
     view.innerHTML = `
@@ -305,6 +404,7 @@
             <div class="nxrm-eyebrow">${esc(vendor.category || 'VENDOR')}</div>
             <h1 class="nxrm-h1">${esc(vendor.company || vendor.name)}</h1>
             <div class="nxrm-vendor-tags">
+              <span class="nxrm-grade-pill">${grade.letter}${grade.label ? ' · ' + esc(grade.label) : ''}</span>
               ${vendor.is_preferred ? '<span class="nxrm-vendor-badge is-pref">⭐ Preferred</span>' : ''}
               ${vendor.is_emergency ? '<span class="nxrm-vendor-badge is-emerg">24-hour</span>' : ''}
             </div>
@@ -313,14 +413,26 @@
 
         <div class="nxrm-vendor-contact">
           ${vendor.phone ? `
-            <a class="nxrm-vendor-action" href="tel:${esc(vendor.phone)}">📞 Call</a>
-            <a class="nxrm-vendor-action" href="sms:${esc(vendor.phone)}">💬 Text</a>
+            <a class="nxrm-vendor-action" href="tel:${esc(vendor.phone)}" data-act="contact-call">📞 Call</a>
+            <a class="nxrm-vendor-action" href="sms:${esc(vendor.phone)}" data-act="contact-text">💬 Text</a>
           ` : ''}
           ${vendor.email ? `
-            <a class="nxrm-vendor-action" href="mailto:${esc(vendor.email)}">✉ Email</a>
+            <a class="nxrm-vendor-action" href="mailto:${esc(vendor.email)}" data-act="contact-email">✉ Email</a>
           ` : ''}
           <button class="nxrm-vendor-action" data-act="edit-vendor">⚙ Edit</button>
         </div>
+        ${(Array.isArray(vendor.phones) && vendor.phones.length > 1) || (Array.isArray(vendor.emails) && vendor.emails.length > 1) ? `
+        <div class="nxrm-extra-contacts">
+          ${(Array.isArray(vendor.phones) ? vendor.phones.slice(1) : []).filter(p => p && p.value).map(p => `<a class="nxrm-extra-chip" href="tel:${esc(p.value)}" data-act="contact-call">📞 ${esc(p.label || p.value)}</a>`).join('')}
+          ${(Array.isArray(vendor.emails) ? vendor.emails.slice(1) : []).filter(e => e && e.value).map(e => `<a class="nxrm-extra-chip" href="mailto:${esc(e.value)}" data-act="contact-email">✉ ${esc(e.label || e.value)}</a>`).join('')}
+        </div>` : ''}
+        ${vendor.last_contact_at ? `<div class="nxrm-last-contact">Last contacted ${esc(fmtLastContact(vendor.last_contact_at))}</div>` : ''}
+
+        ${showLocPills ? `
+        <div class="nxrm-loc-pills">
+          <button class="nxrm-loc-pill ${activeLoc === 'all' ? 'is-active' : ''}" data-loc="all">All</button>
+          ${LOCS.map(l => `<button class="nxrm-loc-pill ${activeLoc === l ? 'is-active' : ''}" data-loc="${esc(l)}">${locLabel(l)}</button>`).join('')}
+        </div>` : ''}
 
         <div class="nxrm-vendor-detail-stats">
           <div class="nxrm-vendor-detail-stat">
@@ -368,24 +480,60 @@
 
         ${vendor.notes ? `<div class="nxrm-vendor-notes">${esc(vendor.notes)}</div>` : ''}
 
+        ${workOrders.length ? `
         <div class="nxrm-section">
-          <div class="nxrm-section-title">Recent Jobs · ${issues.length}</div>
+          <div class="nxrm-section-title">Open work orders · ${workOrders.length}</div>
           <div class="nxrm-list">
-            ${issues.length ? issues.map(i => `
-              <button class="nxrm-card" data-equipment-id="${esc(i.equipment_id)}" data-issue-id="${esc(i.id)}">
+            ${workOrders.map(c => {
+              const pr = (c.priority || '').toLowerCase();
+              const prCls = (pr === 'high' || pr === 'urgent') ? 'is-overdue' : '';
+              return `
+              <button class="nxrm-card" data-card-id="${esc(c.id)}">
                 <div class="nxrm-card-row1">
-                  <span class="nxrm-card-priority">${esc((i.status || '').toUpperCase())}</span>
-                  <span class="nxrm-card-age">${i.repaired_at ? 'closed' : 'open'}</span>
+                  <span class="nxrm-card-priority">${esc((c.status || 'open').toUpperCase().replace(/_/g, ' '))}</span>
+                  ${pr ? `<span class="nxrm-card-age ${prCls}">${esc(pr)}</span>` : ''}
                 </div>
-                <div class="nxrm-card-title">${esc(i.title)}</div>
-                <div class="nxrm-card-row2">
-                  <span class="nxrm-card-eq">${esc(i.equipment_name || '—')}</span>
-                  <span class="nxrm-sep">·</span>
-                  <span class="nxrm-card-restaurant">${esc(i.restaurant || '—')}</span>
-                </div>
-                ${i.invoice_amount ? `<div class="nxrm-card-cost">${fmt.money(i.invoice_amount)}</div>` : ''}
-              </button>
-            `).join('') : '<div class="nxrm-empty"><div class="nxrm-empty-body">No jobs assigned to this vendor yet.</div></div>'}
+                <div class="nxrm-card-title">${esc(c.title || 'Untitled')}</div>
+                <div class="nxrm-card-row2"><span class="nxrm-card-eq">${esc(c._eqName || 'Equipment')}</span>${c._eqLoc ? `<span class="nxrm-sep">·</span><span class="nxrm-card-restaurant">${esc(c._eqLoc)}</span>` : ''}</div>
+              </button>`;
+            }).join('')}
+          </div>
+        </div>` : ''}
+
+        <div class="nxrm-section">
+          <div class="nxrm-section-head" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+            <div class="nxrm-section-title">Activity${activeLoc !== 'all' ? ' · ' + locLabel(activeLoc) : ''} · ${activity.length}</div>
+            <button class="nxrm-vendor-action" data-act="log-service" style="flex:0 0 auto;padding:7px 12px">+ Log service</button>
+          </div>
+          <div class="nxrm-list">
+            ${activity.length ? (() => {
+              const groups = {};
+              activity.forEach(ev => {
+                const d = new Date(ev.date);
+                const key = isNaN(d) ? '0000-00' : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                if (!groups[key]) groups[key] = { label: isNaN(d) ? 'Undated' : d.toLocaleDateString([], { month: 'long', year: 'numeric' }), events: [] };
+                groups[key].events.push(ev);
+              });
+              return Object.keys(groups).sort().reverse().map(k => {
+                const g = groups[k];
+                return `<div class="nxrm-act-group"><div class="nxrm-act-month">${esc(g.label)}</div>` +
+                  g.events.map(ev => {
+                    const dt = new Date(ev.date);
+                    const dstr = isNaN(dt) ? '—' : dt.toLocaleDateString([], { month: 'short', day: 'numeric' });
+                    const tone = ev.type === 'issue' ? 'is-issue' : 'is-maint';
+                    const sub = [ev.eqName, ev.eqLoc].filter(Boolean).join(' · ');
+                    const statusChip = (ev.type === 'issue' && ev.status) ? ` <span class="nxrm-act-status">${esc(String(ev.status).toUpperCase())}</span>` : '';
+                    return `<button class="nxrm-act-row ${tone}" ${ev.eqId ? `data-equipment-id="${esc(ev.eqId)}"` : ''}>
+                      <span class="nxrm-act-date">${esc(dstr)}</span>
+                      <span class="nxrm-act-body">
+                        <span class="nxrm-act-title">${esc(ev.title)}${ev.cost ? ' · ' + fmt.money(ev.cost) : ''}${statusChip}</span>
+                        <span class="nxrm-act-eq">${esc(sub)}</span>
+                        ${ev.desc ? `<span class="nxrm-act-desc">${esc(ev.desc)}</span>` : ''}
+                      </span>
+                    </button>`;
+                  }).join('') + `</div>`;
+              }).join('');
+            })() : '<div class="nxrm-empty"><div class="nxrm-empty-body">No service calls or issues logged for this vendor yet.</div></div>'}
           </div>
         </div>
 
@@ -397,16 +545,32 @@
           <div class="nxrm-list">
             ${servicedEquip.length ? servicedEquip.map(e => {
               const meta = [e.location, e.category].filter(Boolean).join(' · ') || '—';
+              const chips =
+                (e._isPm ? '<span class="nxrm-role-chip is-pm">PM</span>' : '') +
+                (e._isRepair ? '<span class="nxrm-role-chip is-repair">Repair</span>' : '');
               return `
               <div class="nxrm-vendor-eq-row">
                 <button class="nxrm-card" data-equipment-id="${esc(e.id)}" style="flex:1;margin:0">
-                  <div class="nxrm-card-title">${esc(e.name || 'Equipment')}</div>
+                  <div class="nxrm-card-title">${esc(e.name || 'Equipment')}${chips}</div>
                   <div class="nxrm-card-row2"><span class="nxrm-card-eq">${esc(meta)}</span></div>
                 </button>
-                <button class="nxrm-vendor-eq-unassign" data-unassign-eq="${esc(e.id)}" data-eq-name="${esc(e.name || 'this equipment')}" title="Unassign from this vendor">×</button>
+                <button class="nxrm-vendor-eq-unassign" data-unassign-eq="${esc(e.id)}" data-eq-name="${esc(e.name || 'this equipment')}" data-pm="${e._isPm ? 1 : 0}" data-repair="${e._isRepair ? 1 : 0}" title="Unassign from this vendor">×</button>
               </div>`;
-            }).join('') : '<div class="nxrm-empty"><div class="nxrm-empty-body">No equipment assigned to this vendor yet. Tap &ldquo;Assign equipment&rdquo; to link units this vendor services.</div></div>'}
+            }).join('') : '<div class="nxrm-empty"><div class="nxrm-empty-body">No equipment assigned yet. Tap &ldquo;Assign equipment&rdquo; to set this vendor as the PM and/or repair provider for any unit.</div></div>'}
           </div>
+          ${historicalEquip.length ? `
+            <div class="nxrm-eq-sub-title">Previously serviced · ${historicalEquip.length}</div>
+            <div class="nxrm-list">
+              ${historicalEquip.map(e => {
+                const meta = [e.location, e.category].filter(Boolean).join(' · ') || '—';
+                return `
+                <button class="nxrm-card" data-equipment-id="${esc(e.id)}" style="width:100%;margin-bottom:8px">
+                  <div class="nxrm-card-title">${esc(e.name || 'Equipment')}</div>
+                  <div class="nxrm-card-row2"><span class="nxrm-card-eq">${esc(meta)}</span><span class="nxrm-sep">·</span><span class="nxrm-card-restaurant">serviced before</span></div>
+                </button>`;
+              }).join('')}
+            </div>
+          ` : ''}
         </div>
 
         <div class="nxrm-section">
@@ -443,14 +607,31 @@
     `;
 
     view.querySelector('[data-act="back-to-list"]').addEventListener('click', () => {
+      state._detailCache = null;
       state.activeVendor = null; render();
+    });
+    view.querySelectorAll('.nxrm-loc-pill[data-loc]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const loc = btn.getAttribute('data-loc') || 'all';
+        if (loc === state.detailLocation) return;
+        state.detailLocation = loc;
+        try { localStorage.setItem('nexus.vendors.detailLocation', loc); } catch (_) {}
+        render(); // cache stays valid → instant re-filter, no refetch
+      });
     });
     const editBtn = view.querySelector('[data-act="edit-vendor"]');
     if (editBtn) editBtn.addEventListener('click', () => promptEditVendor(vendor));
+    // Stamp last_contact_at whenever the user taps Call / Text / Email.
+    // No preventDefault, so the tel:/sms:/mailto: link still fires.
+    view.querySelectorAll('[data-act="contact-call"],[data-act="contact-text"],[data-act="contact-email"]').forEach(el => {
+      el.addEventListener('click', () => { stampVendorContact(vendor.id); });
+    });
     const schedBtn = view.querySelector('[data-act="schedule-pm"]');
     if (schedBtn) schedBtn.addEventListener('click', () => openVendorPmScheduler(vendor));
     const assignBtn = view.querySelector('[data-act="assign-equip"]');
     if (assignBtn) assignBtn.addEventListener('click', () => openVendorEquipmentAssign(vendor));
+    const logBtn = view.querySelector('[data-act="log-service"]');
+    if (logBtn) logBtn.addEventListener('click', () => openVendorServiceLogger(vendor));
     const photoBtn = view.querySelector('[data-act="change-photo"]');
     if (photoBtn) photoBtn.addEventListener('click', async () => {
       const url = await pickVendorPhoto();
@@ -467,10 +648,37 @@
         ev.stopPropagation();
         const id = el.getAttribute('data-unassign-eq');
         const nm = el.getAttribute('data-eq-name') || 'this equipment';
+        const vName = vendor.company || vendor.name;
+        const isPm = el.getAttribute('data-pm') === '1';
+        const isRepair = el.getAttribute('data-repair') === '1';
         if (!id) return;
-        if (!confirm('Unassign ' + nm + ' from ' + (vendor.company || vendor.name) + '?')) return;
+        let clearPm = false, clearRepair = false;
+        if (isPm && isRepair) {
+          const choice = (prompt(
+            'Unassign ' + nm + ' from ' + vName + '?\n\n' +
+            'Linked for BOTH PM and Repair.\n\n' +
+            'Type:\n  P = remove PM only\n  R = remove Repair only\n  B = remove Both\n\nOr cancel to keep both.',
+            'B'
+          ) || '').trim().toUpperCase();
+          if (!choice) return;
+          if (choice === 'P') clearPm = true;
+          else if (choice === 'R') clearRepair = true;
+          else if (choice === 'B') { clearPm = true; clearRepair = true; }
+          else { NX.toast && NX.toast('Cancelled — type P, R, or B', 'info', 1800); return; }
+        } else if (isPm) {
+          if (!confirm('Remove ' + nm + ' from ' + vName + ' as the PM provider?')) return;
+          clearPm = true;
+        } else if (isRepair) {
+          if (!confirm('Remove ' + nm + ' from ' + vName + ' as the repair provider?')) return;
+          clearRepair = true;
+        } else { return; }
+        const patch = {};
+        if (clearPm) { patch.service_vendor_id = null; patch.service_contractor_name = null; }
+        if (clearRepair) { patch.repair_vendor_id = null; patch.repair_contractor_name = null; }
         try {
-          await saveEquipPatch(id, { service_vendor_id: null });
+          await saveEquipPatch(id, patch);
+          NX.toast && NX.toast(nm + ' unassigned', 'success', 1500);
+          state._detailCache = null;
           render();
         } catch (e) { alert('Failed: ' + (e.message || e)); }
       });
@@ -483,6 +691,18 @@
         setTimeout(() => {
           if (typeof window.eqOpenDetail === 'function') window.eqOpenDetail(id);
         }, 180);
+      });
+    });
+
+    // Open work orders → deep-link into the exact Board card (cross-module).
+    view.querySelectorAll('[data-card-id]').forEach(el => {
+      el.addEventListener('click', () => {
+        const id = el.getAttribute('data-card-id');
+        if (!id) return;
+        const board = (window.NX && NX.modules && NX.modules.board) || null;
+        if (board && typeof board.openCard === 'function') board.openCard(id);
+        else if (NXRM && NXRM.view && NXRM.view.switchTo) NXRM.view.switchTo('board');
+        else if (window.NX && typeof NX.switchTo === 'function') NX.switchTo('board');
       });
     });
   }
@@ -516,9 +736,17 @@
     return parts.join('\n');
   }
 
-  function buildEmailSubject(issue, equipment) {
+  function buildEmailSubject(issue, equipment, vendor) {
     const restaurant = equipment?.location || issue.restaurant || '';
     const eqName = equipment?.name || issue.equipment_name || 'equipment';
+    if (vendor?.dispatch_subject) {
+      return vendor.dispatch_subject
+        .replace(/{restaurant}/g, restaurant)
+        .replace(/{equipment}/g, eqName)
+        .replace(/{issue}/g, issue.title || '')
+        .replace(/{priority}/g, issue.priority || 'normal')
+        .replace(/{description}/g, issue.description || '');
+    }
     const prefix = issue.priority === 'critical' ? '[URGENT] '
                  : issue.priority === 'high'     ? '[Priority] '
                  : '';
@@ -552,6 +780,19 @@
     return lines.join('\n');
   }
 
+  // Stamp last_contact_at when the user actually reaches out (call/text/email/
+  // dispatch). Column-tolerant via saveVendorPatch: silently no-ops if the
+  // migration hasn't been run yet.
+  async function stampVendorContact(vendorId) {
+    if (!vendorId) return;
+    const now = new Date().toISOString();
+    try {
+      await saveVendorPatch(vendorId, { last_contact_at: now });
+      const v = mergeData().find(x => String(x.id) === String(vendorId));
+      if (v) v.last_contact_at = now;
+    } catch (_) {}
+  }
+
   function dispatchSMS(issue, equipment, vendor) {
     if (!vendor?.phone) { alert('No phone on file for this vendor.'); return; }
     const body = buildSMSBody(issue, equipment, vendor);
@@ -566,7 +807,7 @@
   }
   function dispatchEmail(issue, equipment, vendor, comments) {
     if (!vendor?.email) { alert('No email on file for this vendor.'); return; }
-    const subject = buildEmailSubject(issue, equipment);
+    const subject = buildEmailSubject(issue, equipment, vendor);
     const body = buildEmailBody(issue, equipment, vendor, comments);
     window.location.href = 'mailto:' + vendor.email
       + '?subject=' + encodeURIComponent(subject)
@@ -575,6 +816,7 @@
   }
 
   async function logDispatch(issue, vendor, channel) {
+    if (vendor && vendor.id) stampVendorContact(vendor.id);
     if (!NX?.sb || !issue?.id) return;
     const label = { sms: 'SMS', call: 'Call', email: 'Email' }[channel] || channel;
     try {
@@ -713,7 +955,45 @@
       'button.nxrm-vendor-grade-big{cursor:pointer;border:none;font-family:inherit;padding:0;position:relative}' +
       '.nxrm-vendor-eq-row{display:flex;align-items:stretch;gap:8px;margin-bottom:8px}' +
       '.nxrm-vendor-eq-unassign{flex:0 0 auto;width:44px;border:1px solid var(--border);border-radius:9px;background:none;color:var(--muted);font-size:22px;line-height:1;cursor:pointer}' +
-      '.nxrm-vendor-eq-unassign:hover{border-color:#c44;color:#c44}';
+      '.nxrm-vendor-eq-unassign:hover{border-color:#c44;color:#c44}' +
+      '.nxrm-role-chip{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.3px;padding:1px 6px;border-radius:6px;vertical-align:middle;margin-left:6px}' +
+      '.nxrm-role-chip.is-pm{background:var(--nx-gold-faint,rgba(212,164,78,.16));color:var(--nx-gold)}' +
+      '.nxrm-role-chip.is-repair{background:rgba(108,123,208,.16);color:#6c7bd0}' +
+      '.nxrm-eq-sub-title{margin:16px 0 8px;font-size:12px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted)}' +
+      '.vea-row{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:9px;border:1px solid var(--border);background:var(--surface-2,var(--surface));margin-bottom:6px}' +
+      '.vea-row-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}' +
+      '.vea-name{font-weight:600;font-size:14px}' +
+      '.vea-meta{font-size:11px;color:var(--muted)}' +
+      '.vea-toggles{flex:0 0 auto;display:flex;gap:6px}' +
+      '.vea-toggle{padding:6px 11px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--muted);font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;-webkit-tap-highlight-color:transparent}' +
+      '.vea-toggle.on{background:var(--nx-gold);color:#000;border-color:var(--nx-gold)}' +
+      '.vea-toggle.on[data-toggle-pm]{background:var(--nx-gold);color:#000;border-color:var(--nx-gold)}' +
+      '.vea-toggle.on[data-toggle-repair]{background:#6c7bd0;color:#fff;border-color:#6c7bd0}' +
+      '.nxrm-loc-pills{display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 14px}' +
+      '.nxrm-loc-pill{padding:6px 13px;border-radius:999px;border:1px solid var(--border);background:none;color:var(--muted);font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent}' +
+      '.nxrm-loc-pill.is-active{background:var(--nx-gold);color:#000;border-color:var(--nx-gold)}' +
+      '.nxrm-act-group{margin-bottom:8px}' +
+      '.nxrm-act-month{font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);margin:8px 2px 6px}' +
+      '.nxrm-act-row{display:flex;gap:10px;width:100%;text-align:left;padding:9px 10px;border-radius:9px;border:1px solid var(--border);border-left-width:3px;background:var(--surface-2,var(--surface));color:var(--text);font-family:inherit;cursor:pointer;margin-bottom:6px}' +
+      '.nxrm-act-row.is-issue{border-left-color:#c98a3a}' +
+      '.nxrm-act-row.is-maint{border-left-color:#6c7bd0}' +
+      '.nxrm-act-date{flex:0 0 auto;width:42px;font-size:11px;color:var(--muted);padding-top:1px}' +
+      '.nxrm-act-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}' +
+      '.nxrm-act-title{font-weight:600;font-size:13.5px}' +
+      '.nxrm-act-status{font-size:9px;font-weight:800;letter-spacing:.3px;padding:1px 5px;border-radius:5px;background:rgba(0,0,0,.10);margin-left:4px;vertical-align:middle}' +
+      '.nxrm-act-eq{font-size:11.5px;color:var(--muted)}' +
+      '.nxrm-act-desc{font-size:11.5px;color:var(--muted);opacity:.85}' +
+      '.nxrm-ava-wrap{position:relative;flex-shrink:0;display:inline-flex;align-self:center}' +
+      '.nxrm-ava-btn{background:transparent;border:0;padding:0;cursor:pointer;border-radius:50%;-webkit-tap-highlight-color:transparent;transition:transform .12s}' +
+      '.nxrm-ava-btn:active{transform:scale(.96)}' +
+      '.ord-vendor-avatar.nxrm-ava-md{width:56px;height:56px;font-size:21px}' +
+      '.ord-vendor-avatar.nxrm-ava-lg{width:80px;height:80px;font-size:31px}' +
+      '.nxrm-ava-grade-dot{position:absolute;right:-3px;bottom:-3px;min-width:19px;height:19px;padding:0 4px;border-radius:10px;background:rgba(28,24,18,.82);color:#fff;font-size:10px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;border:2px solid var(--surface,#faf6ef);line-height:1}' +
+      '.nxrm-ava-cam{position:absolute;right:-2px;bottom:-2px;width:24px;height:24px;border-radius:50%;background:var(--nx-gold);color:#000;display:inline-flex;align-items:center;justify-content:center;border:2px solid var(--surface,#faf6ef);pointer-events:none}' +
+      '.nxrm-grade-pill{display:inline-flex;align-items:center;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;background:var(--nx-gold-faint,rgba(212,164,78,.16));color:var(--nx-gold)}' +
+      '.nxrm-extra-contacts{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 4px}' +
+      '.nxrm-extra-chip{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;padding:5px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface-2,var(--surface));color:var(--text);text-decoration:none}' +
+      '.nxrm-last-contact{font-size:11px;color:var(--muted);margin:2px 0 6px}';
     document.head.appendChild(st);
   }
 
@@ -770,25 +1050,102 @@
   // Avatar markup. Photo when image_url is set (with the grade as a corner
   // chip); otherwise the existing grade square — unchanged for vendors
   // without a photo, so nothing regresses.
-  function vendorListAvatar(v, grade) {
+  // Deterministic hue from a string — matches the ordering module so a
+  // vendor's initial-avatar color is stable and gold-adjacent.
+  // Short relative phrasing for "last contacted" — today / Nd ago / a date.
+  function fmtLastContact(iso) {
+    if (!iso) return '';
+    const then = new Date(iso);
+    if (isNaN(then.getTime())) return '';
+    const days = Math.floor((Date.now() - then.getTime()) / 86400000);
+    if (days <= 0) return 'today';
+    if (days === 1) return 'yesterday';
+    if (days < 7) return days + ' days ago';
+    if (days < 30) { const w = Math.floor(days / 7); return w + (w === 1 ? ' week ago' : ' weeks ago'); }
+    const sameYear = then.getFullYear() === new Date().getFullYear();
+    return then.toLocaleDateString(undefined, sameYear ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  function hashHue(str) {
+    const clean = (str || '').trim();
+    let h = 0;
+    for (let i = 0; i < clean.length; i++) h = ((h << 5) - h + clean.charCodeAt(i)) | 0;
+    return Math.abs(h) % 360;
+  }
+
+  // Circular avatar — identical to ordering's .ord-vendor-avatar. Photo when
+  // image_url is set; otherwise a hue-tinted circle with the initial. Reuses
+  // ordering's global classes so it matches that UI exactly (incl. light mode).
+  function vendorAvatarCircle(v, sizeClass) {
+    const name = (v && (v.company || v.name)) || '';
     if (v && v.image_url) {
       const u = String(v.image_url).replace(/'/g, '%27');
-      return `<div class="nxrm-vendor-grade nxrm-vendor-ava-img" style="background-image:url('${u}')">` +
-        `<span class="nxrm-vendor-ava-chip">${grade.letter}</span></div>`;
+      return `<span class="ord-vendor-avatar ord-vendor-avatar-img ${sizeClass || ''}" style="background-image:url('${u}')" role="img" aria-label="${esc(name)}"></span>`;
     }
-    return `<div class="nxrm-vendor-grade ${grade.tone}">${grade.letter}</div>`;
+    const hue = (v && typeof v.avatar_hue === 'number' && v.avatar_hue >= 0 && v.avatar_hue < 360) ? v.avatar_hue : hashHue(name);
+    const initial = (name.trim().charAt(0) || '?').toUpperCase();
+    return `<span class="ord-vendor-avatar ${sizeClass || ''}" style="--avatar-hue:${hue}">${esc(initial)}</span>`;
+  }
+
+  function vendorListAvatar(v, grade) {
+    return `<span class="nxrm-ava-wrap">${vendorAvatarCircle(v, 'nxrm-ava-md')}` +
+      `<span class="nxrm-ava-grade-dot" title="Grade: ${esc(grade.label || '')}">${grade.letter}</span></span>`;
   }
 
   function vendorDetailAvatar(v, grade) {
-    if (v && v.image_url) {
-      const u = String(v.image_url).replace(/'/g, '%27');
-      return `<button class="nxrm-vendor-grade-big nxrm-vendor-ava-img-big" data-act="change-photo" title="Change photo" style="background-image:url('${u}')">` +
-        `<span class="nxrm-vendor-ava-chip-big">${grade.letter}</span></button>`;
+    const hasPhoto = !!(v && v.image_url);
+    return `<button class="nxrm-ava-wrap nxrm-ava-btn" data-act="change-photo" title="${hasPhoto ? 'Change photo' : 'Add photo'}">` +
+      `${vendorAvatarCircle(v, 'nxrm-ava-lg')}` +
+      `<span class="nxrm-ava-cam" aria-hidden="true"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></span></button>`;
+  }
+
+  // One-time migration: import legacy contractor "nodes" into the vendors
+  // table so Vendors can fully replace the equipment Contractors manager.
+  // Guarded by a localStorage flag; de-dupes by normalized name so vendors
+  // that already exist are never duplicated. Fire-and-forget from render().
+  async function backfillContractorsToVendors() {
+    if (!NX?.sb) return;
+    try { if (localStorage.getItem('nexus.vendors.contractorBackfillDone')) return; } catch (_) { return; }
+    let nodes = [];
+    try {
+      const { data, error } = await NX.sb.from('nodes').select('*').in('category', ['contractor', 'contractors']);
+      if (error) throw error;
+      nodes = data || [];
+    } catch (_) {
+      try { const { data } = await NX.sb.from('nodes').select('*').eq('category', 'contractors'); nodes = data || []; } catch (_2) { return; }
     }
-    return `<button class="nxrm-vendor-grade-big ${grade.tone}" data-act="change-photo" title="Add photo">` +
-      `<div class="nxrm-vendor-grade-letter">${grade.letter}</div>` +
-      `<div class="nxrm-vendor-grade-lbl">${grade.label}</div>` +
-      `<span class="nxrm-vendor-ava-chip-big" style="background:var(--nx-gold);color:#000">+</span></button>`;
+    const done = () => { try { localStorage.setItem('nexus.vendors.contractorBackfillDone', '1'); } catch (_) {} };
+    if (!nodes.length) { done(); return; }
+    let existing = [];
+    try { const { data } = await NX.sb.from('vendors').select('*'); existing = data || []; } catch (_) {}
+    const norm = s => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const have = new Set(existing.map(v => norm(v.company || v.name)));
+    const toImport = nodes.filter(n => n.name && !have.has(norm(n.name)));
+    if (!toImport.length) { done(); return; }
+    let imported = 0;
+    for (const n of toImport) {
+      const links = (n.links && typeof n.links === 'object' && !Array.isArray(n.links)) ? n.links : {};
+      let phone = links.phone || null;
+      if (!phone && n.notes) { const m = String(n.notes).match(/(\+?[\d\s().-]{10,})/); if (m) phone = m[1].trim(); }
+      let email = links.email || null;
+      if (!email && n.notes) { const m = String(n.notes).match(/[\w.+-]+@[\w-]+\.[\w.-]+/); if (m) email = m[0]; }
+      const tags = Array.isArray(n.tags) ? n.tags.filter(t => t && !/^contractors?$/i.test(t)) : [];
+      try {
+        await saveVendorRow({
+          company: n.name, name: n.name,
+          phone: phone, email: email,
+          category: tags[0] || null,
+          notes: n.notes || null,
+          active: true,
+        }, null);
+        imported++;
+      } catch (_) {}
+    }
+    done();
+    if (imported > 0) {
+      NX.toast && NX.toast(`Imported ${imported} contractor${imported === 1 ? '' : 's'} into Vendors`, 'success', 3200);
+      try { await loadVendors(); } catch (_) {}
+    }
   }
 
   // Generic column-tolerant UPDATE on vendors. If the DB is missing a column
@@ -834,13 +1191,18 @@
     return false;
   }
 
-  // ── ASSIGN EQUIPMENT ──────────────────────────────────────────────────
-  // Vendor is known (this profile); user multi-selects equipment. Selecting
-  // sets equipment.service_vendor_id = vendor.id; de-selecting a previously
-  // assigned unit clears it. Mirrors the PM scheduler's picker shape.
+  // ── ASSIGN EQUIPMENT (role-aware) ─────────────────────────────────────
+  // Vendor is known (this profile). For each piece of equipment the user
+  // toggles PM and/or Repair independently:
+  //   PM     → equipment.service_vendor_id
+  //   Repair → equipment.repair_vendor_id
+  // This is the vendor-side mirror of the equipment detail's two contractor
+  // pickers, so a vendor can be the PM provider, the repair provider, or
+  // both — full parity with the (legacy) equipment Contractors manager.
   async function openVendorEquipmentAssign(vendor) {
     if (!NX?.sb) return;
     const vName = vendor.company || vendor.name || 'this vendor';
+    const vid = String(vendor.id);
     ensurePicStyle();
     if (!document.getElementById('nxvf-style')) {
       const st = document.createElement('style');
@@ -861,11 +1223,166 @@
         .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
     } catch (_) {}
 
-    const selected = new Set(
-      allEquip.filter(e => String(e.service_vendor_id || '') === String(vendor.id)).map(e => e.id)
-    );
-    const initiallyAssigned = new Set(selected);
+    const pmSel     = new Set(allEquip.filter(e => String(e.service_vendor_id || '') === vid).map(e => e.id));
+    const repairSel = new Set(allEquip.filter(e => String(e.repair_vendor_id  || '') === vid).map(e => e.id));
+    const initialPm     = new Set(pmSel);
+    const initialRepair = new Set(repairSel);
     let search = '';
+
+    const overlay = document.createElement('div');
+    overlay.className = 'nxrm-vendor-form-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9200;display:flex;align-items:flex-end;justify-content:center';
+
+    const applyFilter = () => {
+      const q = search.trim().toLowerCase();
+      overlay.querySelectorAll('.vea-row').forEach(r => {
+        const hay = (r.getAttribute('data-hay') || '').toLowerCase();
+        r.style.display = (!q || hay.includes(q)) ? 'flex' : 'none';
+      });
+    };
+
+    const updateCount = () => {
+      const btn = overlay.querySelector('#veaSave');
+      if (btn) btn.textContent = `Save · ${pmSel.size} PM · ${repairSel.size} repair`;
+    };
+
+    const draw = () => {
+      const eqRows = allEquip.map(e => {
+        const meta = [e.location, e.category].filter(Boolean).join(' · ') || '—';
+        const pmOn = pmSel.has(e.id);
+        const rpOn = repairSel.has(e.id);
+        const pmOther = e.service_vendor_id && String(e.service_vendor_id) !== vid;
+        const rpOther = e.repair_vendor_id  && String(e.repair_vendor_id)  !== vid;
+        const flags = [];
+        if (pmOther && !pmOn) flags.push('PM elsewhere');
+        if (rpOther && !rpOn) flags.push('repair elsewhere');
+        return `<div class="vea-row" data-hay="${esc((e.name || '') + ' ' + meta)}">
+          <div class="vea-row-info">
+            <span class="vea-name">${esc(e.name || 'Unnamed')}</span>
+            <span class="vea-meta">${esc(meta)}${flags.length ? ' · ' + esc(flags.join(' · ')) : ''}</span>
+          </div>
+          <div class="vea-toggles">
+            <button type="button" class="vea-toggle ${pmOn ? 'on' : ''}" data-toggle-pm="${esc(e.id)}">PM</button>
+            <button type="button" class="vea-toggle ${rpOn ? 'on' : ''}" data-toggle-repair="${esc(e.id)}">Repair</button>
+          </div>
+        </div>`;
+      }).join('') || '<div style="padding:14px;color:var(--muted);font-size:13px">No equipment found.</div>';
+
+      overlay.innerHTML = `
+        <div class="nxvf-backdrop" style="position:absolute;inset:0;background:rgba(0,0,0,.5)"></div>
+        <div class="nxvf-sheet" style="position:relative;width:100%;max-width:560px;max-height:92vh;overflow-y:auto;background:var(--surface);border:1px solid var(--nx-gold-line);border-radius:16px 16px 0 0;padding:20px 18px 28px">
+          <div style="font-size:18px;font-weight:700;margin-bottom:2px">Assign equipment</div>
+          <div style="font-size:13px;color:var(--muted);margin-bottom:4px">to ${esc(vName)}</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Toggle <strong style="color:var(--nx-gold)">PM</strong> and/or <strong style="color:#6c7bd0">Repair</strong> for each unit.</div>
+          <input class="nxvf-input" id="veaSearch" value="${esc(search)}" placeholder="Search equipment by name, location…" autocomplete="off" style="margin-bottom:8px">
+          <div style="max-height:320px;overflow-y:auto;margin-bottom:16px">${eqRows}</div>
+          <div style="display:flex;gap:10px">
+            <button id="veaCancel" style="flex:1;padding:13px;border-radius:10px;border:1px solid var(--border);background:none;color:var(--text);font-family:inherit;cursor:pointer">Cancel</button>
+            <button id="veaSave" style="flex:2;padding:13px;border-radius:10px;border:none;background:var(--nx-gold);color:#000;font-weight:700;font-family:inherit;cursor:pointer">Save · ${pmSel.size} PM · ${repairSel.size} repair</button>
+          </div>
+        </div>`;
+
+      overlay.querySelector('.nxvf-backdrop').addEventListener('click', () => overlay.remove());
+      overlay.querySelector('#veaCancel').addEventListener('click', () => overlay.remove());
+      const si = overlay.querySelector('#veaSearch');
+      si.addEventListener('input', () => { search = si.value; applyFilter(); });
+      // In-place toggles — flip the Set + the button class without a full
+      // redraw, so scroll position and the search box stay put.
+      overlay.querySelectorAll('[data-toggle-pm]').forEach(b => b.addEventListener('click', () => {
+        const id = b.getAttribute('data-toggle-pm');
+        if (pmSel.has(id)) pmSel.delete(id); else pmSel.add(id);
+        b.classList.toggle('on', pmSel.has(id));
+        updateCount();
+      }));
+      overlay.querySelectorAll('[data-toggle-repair]').forEach(b => b.addEventListener('click', () => {
+        const id = b.getAttribute('data-toggle-repair');
+        if (repairSel.has(id)) repairSel.delete(id); else repairSel.add(id);
+        b.classList.toggle('on', repairSel.has(id));
+        updateCount();
+      }));
+      overlay.querySelector('#veaSave').addEventListener('click', save);
+      applyFilter();
+    };
+
+    async function save() {
+      const pmAdd    = [...pmSel].filter(id => !initialPm.has(id));
+      const pmRemove = [...initialPm].filter(id => !pmSel.has(id));
+      const rpAdd    = [...repairSel].filter(id => !initialRepair.has(id));
+      const rpRemove = [...initialRepair].filter(id => !repairSel.has(id));
+      const saveBtn = overlay.querySelector('#veaSave');
+      saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+      try {
+        for (const id of pmAdd) {
+          await saveEquipPatch(id, { service_vendor_id: vendor.id, service_contractor_name: vName, service_contractor_node_id: null });
+        }
+        for (const id of pmRemove) {
+          await saveEquipPatch(id, { service_vendor_id: null, service_contractor_name: null });
+        }
+        for (const id of rpAdd) {
+          await saveEquipPatch(id, { repair_vendor_id: vendor.id, repair_contractor_name: vName, repair_contractor_node_id: null });
+        }
+        for (const id of rpRemove) {
+          await saveEquipPatch(id, { repair_vendor_id: null, repair_contractor_name: null });
+        }
+        overlay.remove();
+        const changes = pmAdd.length + pmRemove.length + rpAdd.length + rpRemove.length;
+        NX.toast && NX.toast(changes ? `Saved ${changes} change${changes === 1 ? '' : 's'}` : 'No changes', 'success', 1800);
+        state._detailCache = null;
+        render(); // re-render the detail (state.activeVendor still set)
+      } catch (e) {
+        alert('Failed: ' + (e.message || e));
+        saveBtn.disabled = false; updateCount();
+      }
+    }
+
+    draw();
+    document.body.appendChild(overlay);
+    setTimeout(() => overlay.querySelector('#veaSearch')?.focus(), 50);
+  }
+
+  // Generic column-tolerant INSERT on equipment_maintenance.
+  async function saveMaintRow(payload) {
+    let p = Object.assign({}, payload);
+    for (let i = 0; i < 8; i++) {
+      const { error } = await NX.sb.from('equipment_maintenance').insert(p);
+      if (!error) return true;
+      const m = /column "?([a-z_]+)"?.*does not exist/i.exec(error.message || '');
+      if (m && m[1] && (m[1] in p)) { delete p[m[1]]; continue; }
+      throw error;
+    }
+    return false;
+  }
+
+  // ── LOG SERVICE ───────────────────────────────────────────────────────
+  // Record a service call performed by this vendor — writes an
+  // equipment_maintenance row with performed_by = vendor name, so it feeds
+  // straight into this vendor's Activity feed and the equipment's history.
+  async function openVendorServiceLogger(vendor) {
+    if (!NX?.sb) return;
+    const vName = vendor.company || vendor.name || 'this vendor';
+    ensurePicStyle();
+    if (!document.getElementById('nxvf-style')) {
+      const st = document.createElement('style');
+      st.id = 'nxvf-style';
+      st.textContent =
+        '.nxvf-field{display:block;margin-bottom:11px}' +
+        '.nxvf-label{display:block;font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);margin-bottom:5px}' +
+        '.nxvf-input{width:100%;box-sizing:border-box;padding:11px 12px;border-radius:9px;border:1px solid var(--border);background:var(--surface-2,var(--surface));color:var(--text);font-family:inherit;font-size:15px}' +
+        '.nxvf-input:focus{outline:none;border-color:var(--nx-gold)}';
+      document.head.appendChild(st);
+    }
+
+    let allEquip = [];
+    try {
+      const { data } = await NX.sb.from('equipment').select('*');
+      allEquip = (data || []).filter(e => e.archived !== true)
+        .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+    } catch (_) {}
+
+    const today = new Date().toISOString().slice(0, 10);
+    let selId = null, selName = '', search = '';
+    let evType = 'repair', dateStr = today, costStr = '', descStr = '';
+    const TYPES = ['repair', 'pm', 'inspection', 'other'];
 
     const overlay = document.createElement('div');
     overlay.className = 'nxrm-vendor-form-overlay';
@@ -882,72 +1399,86 @@
     const draw = () => {
       const eqRows = allEquip.map(e => {
         const meta = [e.location, e.category].filter(Boolean).join(' · ') || '—';
-        const sel = selected.has(e.id);
-        const otherVendor = e.service_vendor_id && String(e.service_vendor_id) !== String(vendor.id);
-        return `<button type="button" class="vpm-eq-row" data-eq="${esc(e.id)}" data-hay="${esc((e.name || '') + ' ' + meta)}"
-          style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 12px;border-radius:9px;border:1px solid ${sel ? 'var(--nx-gold)' : 'var(--border)'};background:${sel ? 'var(--nx-gold-faint)' : 'var(--surface-2,var(--surface))'};color:var(--text);font-family:inherit;cursor:pointer;margin-bottom:6px">
-          <span style="flex:0 0 auto;width:20px;height:20px;border-radius:6px;border:1.5px solid ${sel ? 'var(--nx-gold)' : 'var(--border)'};background:${sel ? 'var(--nx-gold)' : 'transparent'};color:#000;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800">${sel ? '✓' : ''}</span>
-          <span style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1">
-            <span style="font-weight:600;font-size:14px">${esc(e.name || 'Unnamed')}</span>
-            <span style="font-size:11px;color:var(--muted)">${esc(meta)}${otherVendor && !sel ? ' · assigned elsewhere' : ''}</span>
-          </span>
+        const sel = selId === e.id;
+        return `<button type="button" class="vpm-eq-row" data-eq="${esc(e.id)}" data-name="${esc(e.name || '')}" data-hay="${esc((e.name || '') + ' ' + meta)}"
+          style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;text-align:left;padding:10px 12px;border-radius:9px;border:1px solid ${sel ? 'var(--nx-gold)' : 'var(--border)'};background:${sel ? 'var(--nx-gold-faint)' : 'var(--surface-2,var(--surface))'};color:var(--text);font-family:inherit;cursor:pointer;margin-bottom:6px">
+          <span style="font-weight:600;font-size:14px">${esc(e.name || 'Unnamed')}</span>
+          <span style="font-size:11px;color:var(--muted)">${esc(meta)}</span>
         </button>`;
       }).join('') || '<div style="padding:14px;color:var(--muted);font-size:13px">No equipment found.</div>';
+
+      const typePills = TYPES.map(t => `<button type="button" class="vea-toggle ${evType === t ? 'on' : ''}" data-type="${t}" style="text-transform:capitalize">${t}</button>`).join('');
 
       overlay.innerHTML = `
         <div class="nxvf-backdrop" style="position:absolute;inset:0;background:rgba(0,0,0,.5)"></div>
         <div class="nxvf-sheet" style="position:relative;width:100%;max-width:560px;max-height:92vh;overflow-y:auto;background:var(--surface);border:1px solid var(--nx-gold-line);border-radius:16px 16px 0 0;padding:20px 18px 28px">
-          <div style="font-size:18px;font-weight:700;margin-bottom:2px">Assign equipment</div>
-          <div style="font-size:13px;color:var(--muted);margin-bottom:14px">to ${esc(vName)}</div>
-          <input class="nxvf-input" id="veaSearch" value="${esc(search)}" placeholder="Search equipment by name, location…" autocomplete="off" style="margin-bottom:8px">
-          <div style="max-height:300px;overflow-y:auto;margin-bottom:16px">${eqRows}</div>
-          <div style="display:flex;gap:10px">
-            <button id="veaCancel" style="flex:1;padding:13px;border-radius:10px;border:1px solid var(--border);background:none;color:var(--text);font-family:inherit;cursor:pointer">Cancel</button>
-            <button id="veaSave" style="flex:2;padding:13px;border-radius:10px;border:none;background:var(--nx-gold);color:#000;font-weight:700;font-family:inherit;cursor:pointer">Save · ${selected.size} selected</button>
+          <div style="font-size:18px;font-weight:700;margin-bottom:2px">Log service</div>
+          <div style="font-size:13px;color:var(--muted);margin-bottom:14px">by ${esc(vName)}</div>
+
+          <div class="nxvf-label">Equipment${selId ? ' · <span style="color:var(--nx-gold);text-transform:none;letter-spacing:0">' + esc(selName) + '</span>' : ''}</div>
+          <input class="nxvf-input" id="vslSearch" value="${esc(search)}" placeholder="Search equipment by name, location…" autocomplete="off" style="margin-bottom:8px">
+          <div style="max-height:220px;overflow-y:auto;margin-bottom:16px">${eqRows}</div>
+
+          <div class="nxvf-label">Type</div>
+          <div class="vea-toggles" style="flex-wrap:wrap;margin-bottom:14px">${typePills}</div>
+
+          <label class="nxvf-field"><span class="nxvf-label">Date</span>
+            <input class="nxvf-input" type="date" id="vslDate" value="${esc(dateStr)}"></label>
+          <label class="nxvf-field"><span class="nxvf-label">Cost ($)</span>
+            <input class="nxvf-input" type="number" inputmode="decimal" step="any" min="0" id="vslCost" value="${esc(costStr)}" placeholder="0"></label>
+          <label class="nxvf-field"><span class="nxvf-label">What was done</span>
+            <textarea class="nxvf-input" id="vslDesc" rows="3" placeholder="Optional notes about the work">${esc(descStr)}</textarea></label>
+
+          <div style="display:flex;gap:10px;margin-top:6px">
+            <button id="vslCancel" style="flex:1;padding:13px;border-radius:10px;border:1px solid var(--border);background:none;color:var(--text);font-family:inherit;cursor:pointer">Cancel</button>
+            <button id="vslSave" style="flex:2;padding:13px;border-radius:10px;border:none;background:var(--nx-gold);color:#000;font-weight:700;font-family:inherit;cursor:pointer">Log service</button>
           </div>
         </div>`;
 
       overlay.querySelector('.nxvf-backdrop').addEventListener('click', () => overlay.remove());
-      overlay.querySelector('#veaCancel').addEventListener('click', () => overlay.remove());
-      const si = overlay.querySelector('#veaSearch');
+      overlay.querySelector('#vslCancel').addEventListener('click', () => overlay.remove());
+      const si = overlay.querySelector('#vslSearch');
       si.addEventListener('input', () => { search = si.value; applyFilter(); });
       overlay.querySelectorAll('[data-eq]').forEach(b => b.addEventListener('click', () => {
-        const id = b.dataset.eq;
-        if (selected.has(id)) selected.delete(id); else selected.add(id);
-        draw();
+        selId = b.dataset.eq; selName = b.dataset.name; draw();
       }));
-      overlay.querySelector('#veaSave').addEventListener('click', save);
+      overlay.querySelectorAll('[data-type]').forEach(b => b.addEventListener('click', () => { evType = b.dataset.type; draw(); }));
+      overlay.querySelector('#vslDate').addEventListener('input', e => { dateStr = e.target.value; });
+      overlay.querySelector('#vslCost').addEventListener('input', e => { costStr = e.target.value; });
+      overlay.querySelector('#vslDesc').addEventListener('input', e => { descStr = e.target.value; });
+      overlay.querySelector('#vslSave').addEventListener('click', save);
       applyFilter();
     };
 
     async function save() {
-      const toAssign = [...selected].filter(id => !initiallyAssigned.has(id));
-      const toUnassign = [...initiallyAssigned].filter(id => !selected.has(id));
-      const saveBtn = overlay.querySelector('#veaSave');
+      if (!selId) { alert('Pick the equipment that was serviced.'); return; }
+      if (!dateStr) { alert('Pick a date.'); return; }
+      const saveBtn = overlay.querySelector('#vslSave');
       saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
       try {
-        for (const id of toAssign) {
-          await saveEquipPatch(id, {
-            service_vendor_id: vendor.id,
-            service_contractor_name: vName,
-            service_contractor_node_id: null,
-          });
-        }
-        for (const id of toUnassign) {
-          await saveEquipPatch(id, { service_vendor_id: null });
-        }
+        const cost = costStr ? (parseFloat(costStr) || null) : null;
+        await saveMaintRow({
+          equipment_id: selId,
+          event_date: dateStr,
+          event_type: evType,
+          description: descStr.trim() || null,
+          performed_by: vName,
+          cost: cost,
+          notes: 'Logged from Vendors',
+        });
         overlay.remove();
-        NX.toast && NX.toast(`${toAssign.length} assigned · ${toUnassign.length} removed`, 'success', 1800);
-        render(); // re-render the detail (state.activeVendor still set)
+        NX.toast && NX.toast('Service logged', 'success', 1600);
+        state._detailCache = null;
+        render();
       } catch (e) {
         alert('Failed: ' + (e.message || e));
-        saveBtn.disabled = false; saveBtn.textContent = `Save · ${selected.size} selected`;
+        saveBtn.disabled = false; saveBtn.textContent = 'Log service';
       }
     }
 
     draw();
     document.body.appendChild(overlay);
-    setTimeout(() => overlay.querySelector('#veaSearch')?.focus(), 50);
+    setTimeout(() => overlay.querySelector('#vslSearch')?.focus(), 50);
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -983,6 +1514,28 @@
       `<input class="nxvf-input" id="${id}" type="${type || 'text'}" value="${value != null ? esc(String(value)) : ''}" placeholder="${ph || ''}"` +
       `${type === 'number' ? ' inputmode="decimal" step="any" min="0"' : ''}></label>`;
 
+    // Multi-value repeater (phones / emails). Each row is value + optional
+    // label + a remove button. The first non-empty value becomes the primary
+    // (synced to the single phone/email columns for Call/Text + dispatch).
+    const repRow = (kind, r) => {
+      const ph = kind === 'email' ? 'name@company.com' : '512-555-1234';
+      const itype = kind === 'email' ? 'email' : 'tel';
+      return `<div class="nxvf-rep-row" style="display:flex;gap:6px;margin-bottom:6px">` +
+        `<input class="nxvf-input nxvf-rep-val" type="${itype}" value="${esc((r && r.value) || '')}" placeholder="${ph}" style="flex:2;min-width:0">` +
+        `<input class="nxvf-input nxvf-rep-label" type="text" value="${esc((r && r.label) || '')}" placeholder="label" style="flex:1;min-width:0">` +
+        `<button type="button" class="nxvf-rep-del" title="Remove" style="flex:0 0 auto;width:40px;border-radius:9px;border:1px solid var(--border);background:none;color:var(--muted);font-size:18px;cursor:pointer">×</button>` +
+        `</div>`;
+    };
+    const repSection = (kind, label, items) => {
+      const rows = (items && items.length ? items : [null]);
+      return `<div class="nxvf-field"><span class="nxvf-label">${label}</span>` +
+        `<div class="nxvf-rep" data-rep="${kind}">${rows.map(r => repRow(kind, r)).join('')}</div>` +
+        `<button type="button" class="nxvf-rep-add" data-rep-add="${kind}" style="margin-top:2px;padding:7px 12px;border-radius:8px;border:1px dashed var(--border);background:none;color:var(--nx-gold);font:inherit;font-size:12px;cursor:pointer">+ Add ${kind === 'email' ? 'email' : 'phone'}</button>` +
+        `</div>`;
+    };
+    const seedPhones = Array.isArray(v.phones) && v.phones.length ? v.phones : (v.phone ? [{ value: v.phone }] : []);
+    const seedEmails = Array.isArray(v.emails) && v.emails.length ? v.emails : (v.email ? [{ value: v.email }] : []);
+
     const overlay = document.createElement('div');
     overlay.className = 'nxrm-vendor-form-overlay';
     overlay.style.cssText = 'position:fixed;inset:0;z-index:9200;display:flex;align-items:flex-end;justify-content:center';
@@ -1003,8 +1556,8 @@
           <input class="nxvf-input" id="vfCategory" list="vfTrades" value="${v.category != null ? esc(v.category) : ''}" placeholder="HVAC, Refrigeration…">
           <datalist id="vfTrades">${TRADES.map(t => `<option value="${t}">`).join('')}</datalist>
         </label>
-        ${fld('Phone', 'vfPhone', v.phone, 'tel', '512-…')}
-        ${fld('Email', 'vfEmail', v.email, 'email', 'name@company.com')}
+        ${repSection('phone', 'Phones', seedPhones)}
+        ${repSection('email', 'Emails', seedEmails)}
         ${fld('Website', 'vfWebsite', v.website, 'text', 'company.com')}
         ${fld('Address', 'vfAddress', v.address, 'text', 'Shop / dispatch address')}
         ${fld('Account #', 'vfAccount', v.account_number, 'text', 'Our account number')}
@@ -1018,6 +1571,12 @@
         </label>
         <label style="display:flex;align-items:center;gap:10px;padding:0 0 10px;cursor:pointer">
           <input type="checkbox" id="vfEmergency" ${v.is_emergency ? 'checked' : ''}> <span>24-hour emergency availability</span>
+        </label>
+        <label class="nxvf-field"><span class="nxvf-label">Dispatch email subject <span style="text-transform:none;color:var(--muted)">— optional</span></span>
+          <input class="nxvf-input" id="vfDispatchSubject" value="${v.dispatch_subject != null ? esc(v.dispatch_subject) : ''}" placeholder="{restaurant}: {equipment} — {issue}">
+        </label>
+        <label class="nxvf-field"><span class="nxvf-label">Dispatch message template <span style="text-transform:none;color:var(--muted)">— SMS &amp; email</span></span>
+          <textarea class="nxvf-input" id="vfDispatchBody" rows="3" placeholder="Variables: {restaurant} {equipment} {issue} {priority} {description}">${v.dispatch_template != null ? esc(v.dispatch_template) : ''}</textarea>
         </label>
         <label class="nxvf-field"><span class="nxvf-label">Notes</span>
           <textarea class="nxvf-input" id="vfNotes" rows="3" placeholder="Anything worth remembering">${v.notes != null ? esc(v.notes) : ''}</textarea>
@@ -1050,17 +1609,47 @@
     });
     overlay.querySelector('#vfPhotoRemove')?.addEventListener('click', () => { photoUrl = ''; refreshPhotoUi(); });
 
+    // Repeater add/remove (phones / emails)
+    overlay.querySelectorAll('[data-rep-add]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const kind = btn.getAttribute('data-rep-add');
+        const cont = overlay.querySelector('.nxvf-rep[data-rep="' + kind + '"]');
+        if (!cont) return;
+        const tmp = document.createElement('div');
+        tmp.innerHTML = repRow(kind, null);
+        const row = tmp.firstElementChild;
+        if (row) { cont.appendChild(row); row.querySelector('.nxvf-rep-val')?.focus(); }
+      });
+    });
+    overlay.addEventListener('click', (ev) => {
+      const del = ev.target.closest('.nxvf-rep-del');
+      if (del) { const row = del.closest('.nxvf-rep-row'); if (row) row.remove(); }
+    });
+
     overlay.querySelector('#vfSave').addEventListener('click', async () => {
       const val = id => (overlay.querySelector('#' + id)?.value || '').trim();
       const num = id => { const n = parseFloat(val(id)); return isNaN(n) ? null : n; };
+      const collectRep = (kind) => {
+        const out = [];
+        overlay.querySelectorAll('.nxvf-rep[data-rep="' + kind + '"] .nxvf-rep-row').forEach(row => {
+          const value = (row.querySelector('.nxvf-rep-val')?.value || '').trim();
+          const label = (row.querySelector('.nxvf-rep-label')?.value || '').trim();
+          if (value) out.push(label ? { value, label } : { value });
+        });
+        return out;
+      };
       const company = val('vfCompany');
       if (!company) { alert('Company name is required.'); return; }
+      const phones = collectRep('phone');
+      const emails = collectRep('email');
       const payload = {
         company, name: company,
         contact_name: val('vfContact') || null,
         category: val('vfCategory') || null,
-        phone: val('vfPhone') || null,
-        email: val('vfEmail') || null,
+        phone: (phones[0] && phones[0].value) || null,
+        email: (emails[0] && emails[0].value) || null,
+        phones: phones.length ? phones : null,
+        emails: emails.length ? emails : null,
         website: val('vfWebsite') || null,
         address: val('vfAddress') || null,
         account_number: val('vfAccount') || null,
@@ -1069,6 +1658,8 @@
         trip_charge: num('vfTrip'),
         is_preferred: overlay.querySelector('#vfPreferred').checked,
         is_emergency: overlay.querySelector('#vfEmergency').checked,
+        dispatch_subject: val('vfDispatchSubject') || null,
+        dispatch_template: val('vfDispatchBody') || null,
         notes: val('vfNotes') || null,
         image_url: photoUrl || null,
         updated_at: new Date().toISOString(),
@@ -1268,6 +1859,7 @@
         if (NX.toast) NX.toast(`PM scheduled with ${vName}`, 'success', 2000);
         // Refresh the vendor detail so the new PM appears in Scheduled PMs.
         state.activeVendor = vendor;
+        state._detailCache = null;
         render();
       } catch (e) {
         alert('Failed: ' + (e.message || e));
@@ -1303,6 +1895,25 @@
       if (!state.loaded) await this.init();
       else await loadVendors();
     },
+    // Deep-link primitive: open a specific vendor's profile from anywhere
+    // (Equipment, Board, Calendar). Loads the vendor if it isn't in memory,
+    // switches to the Vendors view, and renders its detail.
+    async openVendor(vendorId) {
+      if (!vendorId) return;
+      if (!state.loaded) { try { await mod.init(); } catch (_) {} }
+      let v = mergeData().find(x => String(x.id) === String(vendorId));
+      if (!v && window.NX && NX.sb) {
+        try { const { data } = await NX.sb.from('vendors').select('*').eq('id', vendorId).single(); if (data) v = data; } catch (_) {}
+      }
+      if (!v) { (window.NX && NX.toast) && NX.toast('Vendor not found', 'warn', 1800); return; }
+      state.activeVendor = v;
+      state._detailCache = null;
+      try {
+        if (NXRM && NXRM.view && NXRM.view.switchTo) NXRM.view.switchTo('vendors');
+        else if (window.NX && typeof NX.switchTo === 'function') NX.switchTo('vendors');
+      } catch (_) {}
+      render();
+    },
     async refresh() { return loadVendors(); },
   };
 
@@ -1321,6 +1932,7 @@
     getPreferred: () => mergeData().filter(v => v.is_preferred),
     getByCategory: (cat) => mergeData().filter(v =>
       (v.category || '').toLowerCase() === cat.toLowerCase()),
+    openVendor: (id) => mod.openVendor(id),
   };
 
   window.NXDispatch = {
