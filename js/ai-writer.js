@@ -447,22 +447,20 @@
     const notes = (p.notes || '').slice(0, 2000);
     const location = p.location ? assertEnum(p.location, VALID_LOCATIONS, 'location') : null;
     const priority = p.priority ? assertEnum(p.priority, VALID_PRIORITIES, 'priority') : 'normal';
-    const {data, error} = await NX.sb.from('tickets').insert({
-      title, notes, location, priority, status:'open',
-      reported_by: NX.currentUser?.name || 'AI',
-      ai_created: true
-    }).select().single();
-    if(error) throw new Error(error.message);
-    // Stage S: push notification to managers. AI-created tickets
-    // are often from the daily brief or chat flow — managers
-    // benefit from being alerted fast.
-    if (NX.notifyTicketCreated) NX.notifyTicketCreated(data);
+    // Unified path: creates the board card + mirrored ticket together.
+    const res = await NX.work.create({
+      title, notes, location, priority,
+      reportedBy: NX.currentUser?.name || 'AI',
+      aiCreated: true,
+    });
+    const data = res.ticket;
+    if (!data) throw new Error('Ticket creation failed');
     return {
       status:'success',
       affectedTable:'tickets', affectedRowId:data.id,
       snapshotBefore:null, snapshotAfter:data,
       inverseTool:'_hard_delete_row', inverseParams:{table:'tickets', id:data.id},
-      result:{ticket_id:data.id, title, priority},
+      result:{ticket_id:data.id, title, priority, card_id: res.card ? res.card.id : null},
       sqlEquivalent:`insert into tickets (title, notes, ...) values (...)`
     };
   };
