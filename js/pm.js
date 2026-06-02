@@ -258,7 +258,7 @@
       });
     });
     const newBtn = view.querySelector('[data-act="new-schedule"]');
-    if (newBtn) newBtn.addEventListener('click', createSchedule);
+    if (newBtn) newBtn.addEventListener('click', bulkCreateSchedule);
   }
 
   async function markScheduleDone(scheduleId) {
@@ -332,6 +332,157 @@
 
     await loadSchedules();
     renderPMView();
+  }
+
+  // Bulk PM creation — pick a task + cadence once, then check every unit it
+  // applies to. Creates one recurring pm_schedules row per selected unit.
+  // Replaces the old prompt() chain (single unit, numeric picking). Modeled on
+  // the vendor "Assign equipment" multi-select. Renders once, then mutates the
+  // DOM in place so the text fields don't lose focus/value.
+  function injectBulkStyles() {
+    if (document.getElementById('pm-bulk-style')) return;
+    const s = document.createElement('style');
+    s.id = 'pm-bulk-style';
+    s.textContent = `
+      .pm-bulk-lbl{display:block;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--nx-muted);margin:10px 0 5px}
+      .pm-bulk-input{width:100%;box-sizing:border-box;padding:11px 12px;border-radius:9px;border:1px solid var(--nx-gold-line);background:var(--nx-surface-2);color:var(--nx-text);font-family:inherit;font-size:14px;-webkit-appearance:none;appearance:none}
+      .pm-bulk-input:focus{outline:none;border-color:var(--nx-gold)}
+      .pm-bulk-row{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 12px;border:1px solid var(--nx-gold-line);border-radius:10px;background:var(--nx-surface-1);color:var(--nx-text);font-family:inherit;cursor:pointer;margin-bottom:6px}
+      .pm-bulk-row.on{border-color:var(--nx-gold);background:var(--nx-gold-soft)}
+      .pm-bulk-check{flex:0 0 22px;width:22px;height:22px;display:flex;align-items:center;justify-content:center;border-radius:6px;border:1.5px solid var(--nx-gold-line);color:#1a1710;font-weight:800;font-size:13px}
+      .pm-bulk-row.on .pm-bulk-check{background:var(--nx-gold);border-color:var(--nx-gold)}
+      .pm-bulk-info{display:flex;flex-direction:column;min-width:0}
+      .pm-bulk-name{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .pm-bulk-meta{font-size:12px;color:var(--nx-muted)}
+      .pm-bulk-btn-ghost{flex:1;padding:13px;border-radius:10px;border:1px solid var(--nx-gold-line);background:none;color:var(--nx-text);font-family:inherit;font-weight:600;cursor:pointer}
+      .pm-bulk-btn-gold{flex:2;padding:13px;border-radius:10px;border:none;background:var(--nx-gold);color:#1a1710;font-weight:700;font-family:inherit;cursor:pointer}
+      .pm-bulk-btn-gold:disabled{opacity:.6}
+    `;
+    document.head.appendChild(s);
+  }
+
+  async function bulkCreateSchedule() {
+    if (!NX?.sb) return;
+    await loadEquipment();
+    if (!state.equipment.length) { alert('No equipment found.'); return; }
+    injectBulkStyles();
+
+    const sel = new Set();
+    const iso = d => d.toISOString().slice(0, 10);
+    const plusDays = n => { const d = new Date(); d.setDate(d.getDate() + n); return iso(d); };
+    const CADENCES = [
+      { d: 7,   label: 'Weekly · 7d' },
+      { d: 14,  label: 'Biweekly · 14d' },
+      { d: 30,  label: 'Monthly · 30d' },
+      { d: 60,  label: 'Every 2 months · 60d' },
+      { d: 90,  label: 'Quarterly · 90d' },
+      { d: 180, label: 'Semiannual · 180d' },
+      { d: 365, label: 'Annual · 365d' },
+    ];
+    const DEFAULT_CADENCE = 90;
+    let firstTouched = false;   // did the user hand-edit "first due"?
+
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:1000;display:flex;align-items:flex-end;justify-content:center';
+
+    const rows = state.equipment.map(e => {
+      const meta = [e.restaurant, e.category].filter(Boolean).join(' · ') || '—';
+      const hay = ((e.name || '') + ' ' + meta).toLowerCase();
+      return `<button type="button" class="pm-bulk-row" data-pick="${esc(e.id)}" data-hay="${esc(hay)}">
+        <span class="pm-bulk-check"></span>
+        <span class="pm-bulk-info"><span class="pm-bulk-name">${esc(e.name || 'Unnamed')}</span><span class="pm-bulk-meta">${esc(meta)}</span></span>
+      </button>`;
+    }).join('');
+
+    overlay.innerHTML = `
+      <div class="pm-bulk-backdrop" style="position:absolute;inset:0;background:rgba(0,0,0,.5)"></div>
+      <div class="pm-bulk-sheet" style="position:relative;width:100%;max-width:560px;max-height:92vh;overflow-y:auto;background:var(--nx-surface-solid,#1b1b24);border:1px solid var(--nx-gold-line);border-radius:16px 16px 0 0;padding:20px 18px 28px">
+        <div style="font-size:18px;font-weight:700;color:var(--nx-text)">New PM schedule</div>
+        <div style="font-size:12.5px;color:var(--nx-muted);margin-bottom:6px">Pick a task and cadence, then select every unit it applies to. One recurring schedule is created per unit.</div>
+        <label class="pm-bulk-lbl">Task</label>
+        <input id="pmbTitle" class="pm-bulk-input" placeholder="e.g. Hood cleaning, Filter change" autocomplete="off">
+        <div style="display:flex;gap:10px">
+          <div style="flex:1"><label class="pm-bulk-lbl">Cadence</label>
+            <select id="pmbCadence" class="pm-bulk-input">
+              ${CADENCES.map(c => `<option value="${c.d}"${c.d === DEFAULT_CADENCE ? ' selected' : ''}>${c.label}</option>`).join('')}
+            </select></div>
+          <div style="flex:1"><label class="pm-bulk-lbl">First due</label>
+            <input id="pmbFirst" type="date" class="pm-bulk-input" value="${plusDays(DEFAULT_CADENCE)}"></div>
+        </div>
+        <label class="pm-bulk-lbl">Assigned to <span style="text-transform:none;letter-spacing:0;opacity:.6">— optional</span></label>
+        <input id="pmbAssignee" class="pm-bulk-input" placeholder="Vendor or person" autocomplete="off">
+        <label class="pm-bulk-lbl" style="margin-top:8px">Equipment</label>
+        <input id="pmbSearch" class="pm-bulk-input" placeholder="Search equipment…" autocomplete="off">
+        <div class="pm-bulk-list" style="max-height:300px;overflow-y:auto;margin:8px 0 16px">${rows || '<div style="padding:14px;color:var(--nx-muted);font-size:13px">No equipment found.</div>'}</div>
+        <div style="display:flex;gap:10px">
+          <button id="pmbCancel" class="pm-bulk-btn-ghost">Cancel</button>
+          <button id="pmbSave" class="pm-bulk-btn-gold" disabled>Create · 0</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    const $ = s => overlay.querySelector(s);
+    const close = () => overlay.remove();
+    const saveBtn = $('#pmbSave');
+    const updateCount = () => { saveBtn.textContent = `Create · ${sel.size}`; saveBtn.disabled = sel.size === 0; };
+
+    $('.pm-bulk-backdrop').addEventListener('click', close);
+    $('#pmbCancel').addEventListener('click', close);
+
+    // First-due tracks cadence until the user edits it by hand.
+    $('#pmbCadence').addEventListener('change', e => {
+      if (!firstTouched) $('#pmbFirst').value = plusDays(parseInt(e.target.value, 10) || DEFAULT_CADENCE);
+    });
+    $('#pmbFirst').addEventListener('input', () => { firstTouched = true; });
+
+    // Search filters rows in place (no redraw → fields keep focus/value).
+    $('#pmbSearch').addEventListener('input', e => {
+      const q = e.target.value.trim().toLowerCase();
+      overlay.querySelectorAll('.pm-bulk-row').forEach(r => {
+        r.style.display = (!q || (r.dataset.hay || '').includes(q)) ? 'flex' : 'none';
+      });
+    });
+
+    overlay.querySelectorAll('[data-pick]').forEach(b => b.addEventListener('click', () => {
+      const id = b.dataset.pick;
+      if (sel.has(id)) sel.delete(id); else sel.add(id);
+      b.classList.toggle('on', sel.has(id));
+      b.querySelector('.pm-bulk-check').textContent = sel.has(id) ? '✓' : '';
+      updateCount();
+    }));
+
+    saveBtn.addEventListener('click', async () => {
+      const title = $('#pmbTitle').value.trim();
+      const cadence = parseInt($('#pmbCadence').value, 10) || DEFAULT_CADENCE;
+      const firstDue = $('#pmbFirst').value || plusDays(cadence);
+      const assignee = $('#pmbAssignee').value.trim() || null;
+      if (!title) { $('#pmbTitle').focus(); $('#pmbTitle').style.borderColor = 'var(--nx-red)'; return; }
+      if (!sel.size) return;
+
+      saveBtn.disabled = true; saveBtn.textContent = 'Creating…';
+      const rowsToInsert = [...sel].map(equipment_id => ({
+        equipment_id, title,
+        frequency_days: cadence,
+        next_due_at: firstDue,
+        assigned_to: assignee,
+        active: true,
+      }));
+      const { error } = await NX.sb.from('pm_schedules').insert(rowsToInsert);
+      if (error) { alert('Failed: ' + error.message); saveBtn.disabled = false; updateCount(); return; }
+
+      close();
+      NXRM.notify.bubble(`Bzzt — ${rowsToInsert.length} PM schedule${rowsToInsert.length === 1 ? '' : 's'} created. Every ${cadence} days.`,
+        { autoHide: 3500, eyebrow: '✓ SCHEDULED' });
+
+      // Materialize any that are already due into board cards (deliberate action).
+      if (NX.domain?.checkPMsDue) {
+        NX.domain.checkPMsDue({ force: true }).catch(e => console.warn('[pm bulkCreate] checkPMsDue hook failed:', e));
+      }
+      await loadSchedules();
+      renderPMView();
+    });
+
+    requestAnimationFrame(() => $('#pmbTitle')?.focus());
   }
 
   async function editSchedule(s) {
