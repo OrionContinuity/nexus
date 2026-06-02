@@ -180,9 +180,10 @@ const STYLES = `
   .b-card.is-done{opacity:.55}
   .b-card.is-done .b-card-title{text-decoration:line-through;color:var(--text-dim)}
   .b-card.is-done .b-card-cover img{filter:grayscale(.6)}
-  .b-card-move-btn{position:absolute;top:6px;right:6px;background:rgba(255,255,255,0.06);border:0;color:var(--text-dim);padding:3px 8px;border-radius:10px;font-size:10px;cursor:pointer;opacity:0;transition:opacity .15s;z-index:2}
-  .b-card:hover .b-card-move-btn,.b-card.show-move .b-card-move-btn{opacity:1}
-  @media(hover:none){.b-card-move-btn{opacity:1}}
+  .b-card-kebab{position:absolute;top:3px;right:3px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;background:transparent;border:0;color:var(--text-dim);font-size:18px;line-height:1;border-radius:8px;cursor:pointer;opacity:0;transition:opacity .15s,background .15s;z-index:2;-webkit-tap-highlight-color:transparent}
+  .b-card:hover .b-card-kebab,.b-card.show-move .b-card-kebab{opacity:1}
+  .b-card-kebab:hover,.b-card-kebab:active{background:rgba(255,255,255,0.08);color:var(--text)}
+  @media(hover:none){.b-card-kebab{opacity:.8}}
 
   /* Detail modal */
   .b-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:20px 10px;overflow-y:auto;animation:bfade .15s ease}
@@ -261,6 +262,7 @@ let boards = [], activeBoard = null, lists = [], cards = [], stats = null;
 let equipmentCache = [];     // for the equipment picker in the card modal
 let filters = { priority:null, location:null, equipment:null, state:null };
 let searchQuery = '';        // free-text title/description search
+let boardIO = null;          // IntersectionObserver for the mobile list nav
 let dragCard = null, dragOverListId = null;
 
 // ── REALTIME + PERF STATE ────────────────────────────────────────────
@@ -297,7 +299,18 @@ function injectStyles(){
 }
 
 function priorityInfo(key){ return PRIORITIES[key] || PRIORITIES.normal; }
-function locationInfo(key){ return LOCATIONS.find(l => l.key === key) || null; }
+// Resolve any stored location value to its canonical LOCATIONS key.
+// Tolerant of case and of label-vs-key (legacy cards were saved with the
+// raw equipment.location string, e.g. "SUERTE", which never matched the
+// lowercase canonical keys — so badges/filters/modal silently dropped it).
+function locKey(v){
+  if(v == null) return null;
+  const s = String(v).trim().toLowerCase();
+  if(!s) return null;
+  const hit = LOCATIONS.find(l => l.key.toLowerCase() === s || l.label.toLowerCase() === s);
+  return hit ? hit.key : null;
+}
+function locationInfo(key){ const k = locKey(key); return k ? LOCATIONS.find(l => l.key === k) : null; }
 
 function timeAgo(ts){
   if(!ts)return '';
@@ -433,6 +446,12 @@ function applyRealtimeChange(payload){
       renderSoon();
       return;
     }
+    // Moved to a different board = remove from this board's view
+    if(activeBoard && row.board_id !== activeBoard.id){
+      cards.splice(idx, 1);
+      renderSoon();
+      return;
+    }
     // Detect a column move for the toast — "Ana moved X to In Progress"
     const old = cards[idx];
     if(old.list_id !== row.list_id){
@@ -563,7 +582,7 @@ function applyFilters(cardList){
   const fortnight = 14 * 86400000;
   return cardList.filter(c => {
     if(filters.priority && c.priority !== filters.priority) return false;
-    if(filters.location && c.location !== filters.location) return false;
+    if(filters.location && locKey(c.location) !== filters.location) return false;
     if(filters.equipment && c.equipment_id !== filters.equipment) return false;
     if(filters.state === 'overdue'){
       if(isDone(c)) return false;
@@ -592,7 +611,11 @@ function render(){
   wrap.appendChild(renderSummaryStrip());
   wrap.appendChild(renderBoardHeader());
   wrap.appendChild(renderFilterBar());
-  wrap.appendChild(renderLists());
+  const navEl = renderListNav();
+  if(navEl) wrap.appendChild(navEl);
+  const listsEl = renderLists();
+  wrap.appendChild(listsEl);
+  if(navEl) wireListNav(navEl, listsEl);
   // Paint the live pip AFTER the DOM is in place — the renderer writes
   // #bRtDot / #bRtLabel placeholders, we update their class+text now.
   updatePresenceIndicator();
@@ -784,15 +807,60 @@ function renderFilterBar(){
   return bar;
 }
 
+// Mobile list navigator — a horizontal pill row (one per list, with the
+// filtered card count) shown only on narrow screens. Tapping a pill scrolls
+// that column into view; the active pill tracks whichever column is centered.
+// On desktop the CSS hides it (the multi-column layout doesn't need it).
+function renderListNav(){
+  if(!lists.length) return null;
+  const vis = applyFilters(cards);
+  const nav = document.createElement('div');
+  nav.className = 'b-listnav';
+  nav.innerHTML = lists.map(l => {
+    const n = vis.filter(c => c.list_id === l.id).length;
+    return `<button class="b-listnav-pill" data-target="${l.id}">${esc(l.name)}<span class="b-listnav-count">${n}</span></button>`;
+  }).join('');
+  return nav;
+}
+
+function wireListNav(navEl, listsEl){
+  if(boardIO){ try{ boardIO.disconnect(); }catch(_){} boardIO = null; }
+  const pills = Array.from(navEl.querySelectorAll('.b-listnav-pill'));
+  const listEls = Array.from(listsEl.querySelectorAll('.b-list[data-list-id]'));
+  if(!pills.length || !listEls.length) return;
+  const byId = id => listEls.find(e => e.dataset.listId === id);
+  const setActive = id => pills.forEach(p => {
+    const on = p.dataset.target === id;
+    p.classList.toggle('is-active', on);
+    if(on) try{ p.scrollIntoView({ inline:'nearest', block:'nearest' }); }catch(_){}
+  });
+  pills.forEach(p => p.addEventListener('click', () => {
+    const t = byId(p.dataset.target);
+    if(t) t.scrollIntoView({ inline:'center', block:'nearest', behavior:'smooth' });
+    setActive(p.dataset.target);
+  }));
+  if('IntersectionObserver' in window){
+    boardIO = new IntersectionObserver(entries => {
+      let best = null, bestRatio = 0;
+      entries.forEach(e => { if(e.isIntersecting && e.intersectionRatio > bestRatio){ bestRatio = e.intersectionRatio; best = e.target; } });
+      if(best && best.dataset.listId) setActive(best.dataset.listId);
+    }, { root: listsEl, threshold: [0.25, 0.5, 0.75] });
+    listEls.forEach(e => boardIO.observe(e));
+  }
+  pills[0].classList.add('is-active');
+}
+
 function renderLists(){
   const wrapper = document.createElement('div');
   wrapper.className = 'b-lists';
 
   const visibleCards = applyFilters(cards);
+  const filtersActive = !!(searchQuery || filters.priority || filters.location || filters.equipment || filters.state);
 
   lists.forEach(list => {
     const listEl = document.createElement('div');
     listEl.className = 'b-list';
+    listEl.dataset.listId = list.id;
 
     const listCards = visibleCards
       .filter(c => c.list_id === list.id)
@@ -860,6 +928,18 @@ function renderLists(){
     listEl.appendChild(addBtn);          // pinned under the header — Trello-style add-to-top
 
     listCards.forEach(c => cardsWrap.appendChild(createCardEl(c)));
+    // Explicit empty state (replaces the desktop-only "Drop cards here"
+    // :empty CSS). Distinguishes a genuinely empty column from one emptied
+    // by an active search/filter so a filtered board doesn't look broken.
+    if(listCards.length === 0){
+      const empty = document.createElement('div');
+      empty.className = 'b-list-empty';
+      const hasAnyUnfiltered = cards.some(c => c.list_id === list.id && !c.archived);
+      empty.textContent = filtersActive
+        ? (hasAnyUnfiltered ? 'No cards match the filter' : 'No cards match')
+        : 'No cards yet';
+      cardsWrap.appendChild(empty);
+    }
     listEl.appendChild(cardsWrap);
 
     wrapper.appendChild(listEl);
@@ -939,8 +1019,10 @@ function createCardEl(card){
   // Body (padded content — separate from cover so cover bleeds to edges)
   html += '<div class="b-card-body">';
 
-  // Move button (visible on mobile always, on desktop on hover)
-  html += `<button class="b-card-move-btn" data-move="${card.id}">→ Move</button>`;
+  // Kebab (⋯) — opens the quick-actions sheet (priority, due, move, archive).
+  // Replaces the old "→ Move" button: declutters the card and surfaces the
+  // previously hidden long-press menu with a visible, tappable affordance.
+  html += `<button class="b-card-kebab" data-kebab="${card.id}" aria-label="Card actions">⋯</button>`;
 
   // Labels (small chips, more Trello-ish — already exists, just more compact)
   if(visibleLabels.length){
@@ -1015,15 +1097,15 @@ function createCardEl(card){
 
   // Tap card → detail
   el.addEventListener('click', e => {
-    if(e.target.dataset.move) return; // handled below
+    if(e.target.dataset.kebab) return; // handled below
     if(e.target.closest('.nx-tr-btn')) return; // don't open detail on translate tap
     openCardDetail(card);
   });
 
-  // Move button
-  el.querySelector('.b-card-move-btn').addEventListener('click', e => {
+  // Kebab → quick-actions sheet
+  el.querySelector('.b-card-kebab').addEventListener('click', e => {
     e.stopPropagation();
-    openMovePicker(card);
+    openQuickActions(card, el);
   });
 
   // Drag — toggle .is-dragging class so CSS can apply tilt + lift +
@@ -1036,6 +1118,7 @@ function createCardEl(card){
   });
   el.addEventListener('dragend', () => {
     el.classList.remove('is-dragging');
+    dragCard = null;   // clear even on an abandoned drag (drop outside a list)
   });
 
   // Quick-actions menu — long-press on mobile, right-click on desktop.
@@ -1317,6 +1400,17 @@ async function moveCard(card, targetList){
       column_name: targetColName,
       status,
     };
+    // Give the moved card a fresh position in the destination list (land on
+    // top, matching the add-to-top convention) — otherwise it keeps its old
+    // list's position number and sorts into a random spot in the new list.
+    {
+      const inDest = cards.filter(c => c.list_id === targetList.id && c.id !== card.id);
+      const topPos = inDest.length
+        ? Math.min(...inDest.map(c => (typeof c.position === 'number' ? c.position : 0))) - 1
+        : 0;
+      updatePayload.position = topPos;
+      card.position = topPos;
+    }
     if (movingToDone && wasNotDone) {
       updatePayload.closed_at = new Date().toISOString();
     } else if (!movingToDone && isDone({ column_name: prev.column_name, list_id: prev.list_id })) {
@@ -1379,6 +1473,9 @@ async function moveCard(card, targetList){
         console.warn('[board] resolveEquipmentIssue hook failed:', e);
       });
     }
+    // Safety net: clear the optimistic guard even if the realtime echo never
+    // arrives, so a later genuine remote move isn't silently swallowed.
+    setTimeout(() => optimisticSet.delete(card.id), 4000);
   }catch(e){
     console.error('[board] moveCard:', e);
     // Revert
@@ -1477,9 +1574,57 @@ async function offerEquipmentRepaired(card) {
 // ─────────────────────────────────────────────────────────────────────────
 // CARD DETAIL MODAL
 // ─────────────────────────────────────────────────────────────────────────
+// Stable id for checklist items / comments so atomic merges can match
+// them across concurrent edits (legacy rows have none — stamped on open).
+function genId(){
+  try { if (crypto?.randomUUID) return crypto.randomUUID(); } catch(_) {}
+  return 'x_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+// Atomic single-column read-modify-write. Re-fetches the current value so
+// we merge against the latest server state instead of clobbering it with a
+// stale snapshot (the old whole-row save lost concurrent comments/photos).
+// Updates the in-memory card + cards[] entry and guards the realtime echo.
+async function patchCardField(card, field, mutator){
+  let current = card[field];
+  try{
+    const { data } = await NX.sb.from('kanban_cards').select(field).eq('id', card.id).single();
+    if(data && data[field] != null) current = data[field];
+  }catch(_){ /* fall back to local copy */ }
+  const base = Array.isArray(current) ? [...current] : (current || []);
+  const next = mutator(base);
+  optimisticSet.add(card.id);
+  try{
+    const { error } = await NX.sb.from('kanban_cards').update({ [field]: next }).eq('id', card.id);
+    if(error) throw error;
+  }catch(e){
+    optimisticSet.delete(card.id);
+    console.error('[board] patchCardField', field, e);
+    NX.toast && NX.toast('Save failed', 'error');
+    throw e;
+  }
+  card[field] = next;
+  const idx = cards.findIndex(c => c.id === card.id);
+  if(idx >= 0) cards[idx][field] = next;
+  // Safety net: clear the optimistic guard even if the realtime echo never
+  // arrives (offline / dropped socket), so later genuine remote edits aren't
+  // silently swallowed.
+  setTimeout(() => optimisticSet.delete(card.id), 4000);
+  return next;
+}
+
 async function openCardDetail(card){
   // Refresh equipment cache in background for the picker
   loadEquipmentCache();
+
+  // Stamp stable ids on checklist items that lack them (legacy rows) so
+  // toggles/merges can match by id. If we stamped any, persist once so the
+  // DB copy carries the ids too.
+  let _needIdStamp = false;
+  (card.checklist || []).forEach(it => { if(it && !it.id){ it.id = genId(); _needIdStamp = true; } });
+  if(_needIdStamp){
+    try{ await NX.sb.from('kanban_cards').update({ checklist: card.checklist }).eq('id', card.id); }catch(_){}
+  }
 
   const bg = document.createElement('div');
   bg.className = 'b-modal-bg';
@@ -1520,7 +1665,7 @@ async function openCardDetail(card){
           <select class="b-field" id="bLoc">
             <option value="">— no location —</option>
             ${LOCATIONS.map(l =>
-              `<option value="${l.key}"${card.location===l.key?' selected':''}>${l.label}</option>`
+              `<option value="${l.key}"${locKey(card.location)===l.key?' selected':''}>${l.label}</option>`
             ).join('')}
           </select>
         </div>
@@ -1576,8 +1721,8 @@ async function openCardDetail(card){
       <div class="b-section">
         <div class="b-section-label">Checklist</div>
         <div id="bChecklist">
-          ${(card.checklist||[]).map((c,i) =>
-            `<div class="b-check${c.done?' done':''}"><input type="checkbox" data-idx="${i}"${c.done?' checked':''}><span>${esc(c.text||'')}</span></div>`
+          ${(card.checklist||[]).map((c) =>
+            `<div class="b-check${c.done?' done':''}"><input type="checkbox" data-id="${esc(c.id||'')}"${c.done?' checked':''}><span>${esc(c.text||'')}</span></div>`
           ).join('')}
         </div>
         <div class="b-check-add">
@@ -1675,10 +1820,30 @@ async function openCardDetail(card){
     });
   }
 
-  // Close handlers
-  const close = ()=>bg.remove();
-  bg.addEventListener('click', e => { if(e.target===bg) saveCard(card, bg, true); });
-  bg.querySelector('.b-modal-close').addEventListener('click', ()=>saveCard(card, bg, true));
+  // Close handlers — only write if a scalar field actually changed (or the
+  // equipment link changed). Array fields (checklist/comments/photos) are
+  // already persisted atomically as they're edited, so a plain close — or an
+  // accidental backdrop tap — no longer issues a full-row write that could
+  // clobber a concurrent edit.
+  const readScalars = () => ({
+    title:         (bg.querySelector('#bTitle').value || '').trim(),
+    description:   (bg.querySelector('#bDesc').value || '').trim(),
+    priority:      bg.querySelector('#bPri').value,
+    location:      bg.querySelector('#bLoc').value || '',
+    assignee:      (bg.querySelector('#bAssignee').value || '').trim(),
+    due_date:      bg.querySelector('#bDue').value || '',
+    parts_needed:  (bg.querySelector('#bParts').value || '').trim(),
+    cost_estimate: bg.querySelector('#bCostEst').value || '',
+    cost_actual:   bg.querySelector('#bCostAct').value || '',
+    equipment_id:  card.equipment_id || '',
+  });
+  const _initialScalars = JSON.stringify(readScalars());
+  const closeDetail = () => {
+    if(JSON.stringify(readScalars()) !== _initialScalars){ saveCard(card, bg, true); }
+    else { bg.remove(); }
+  };
+  bg.addEventListener('click', e => { if(e.target===bg) closeDetail(); });
+  bg.querySelector('.b-modal-close').addEventListener('click', closeDetail);
 
   // Equipment embed (async — fetches the equipment row)
   renderEquipmentEmbed(card, bg.querySelector('#bEqEmbed'));
@@ -1725,54 +1890,72 @@ async function openCardDetail(card){
     if(!file) return;
     const url = await uploadPhoto(file, card.id);
     if(url){
-      card.photo_urls = [...(card.photo_urls||[]), url];
-      // Re-open with fresh data
-      await saveCard(card, bg, false);
-      bg.remove();
-      openCardDetail(card);
+      try{
+        await patchCardField(card, 'photo_urls', arr => [...arr, url]);
+        // Live-append the thumbnail before the add button — no teardown, so
+        // unsaved title/description edits in the modal aren't reverted.
+        const wrap = bg.querySelector('#bPhotos');
+        const addBtn = wrap.querySelector('#bPhotoAdd');
+        const img = document.createElement('img');
+        img.className = 'b-photo';
+        img.src = url;
+        img.onerror = function(){ this.style.display = 'none'; };
+        img.addEventListener('click', () => {
+          const fs = document.createElement('div');
+          fs.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.95);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px;cursor:pointer';
+          fs.innerHTML = `<img src="${esc(url)}" style="max-width:100%;max-height:100%;object-fit:contain">`;
+          fs.addEventListener('click', () => fs.remove());
+          document.body.appendChild(fs);
+        });
+        if(addBtn) wrap.insertBefore(img, addBtn); else wrap.appendChild(img);
+      }catch(_){ /* toast already shown */ }
     }
   });
 
-  // Checklist check toggles
-  bg.querySelectorAll('#bChecklist input[type=checkbox]').forEach(cb => {
-    cb.addEventListener('change', () => {
-      const i = +cb.dataset.idx;
-      if(!card.checklist) card.checklist = [];
-      card.checklist[i].done = cb.checked;
+  // Checklist toggle — persists immediately, merging against latest DB
+  // state (matched by item id) so a concurrent add/toggle isn't lost.
+  const toggleCheck = async (id, cb) => {
+    cb.parentElement.classList.toggle('done', cb.checked);
+    try{
+      await patchCardField(card, 'checklist', arr => arr.map(it => (it && it.id === id) ? { ...it, done: cb.checked } : it));
+    }catch(_){
+      cb.checked = !cb.checked;
       cb.parentElement.classList.toggle('done', cb.checked);
-    });
+    }
+  };
+  bg.querySelectorAll('#bChecklist input[type=checkbox]').forEach(cb => {
+    cb.addEventListener('change', () => toggleCheck(cb.dataset.id, cb));
   });
   // Checklist add
-  const addCheck = () => {
+  const addCheck = async () => {
     const inp = bg.querySelector('#bCheckInput');
     const t = inp.value.trim(); if(!t) return;
-    if(!card.checklist) card.checklist = [];
-    card.checklist.push({ text:t, done:false });
-    const cl = bg.querySelector('#bChecklist');
-    const i = card.checklist.length - 1;
-    cl.insertAdjacentHTML('beforeend',
-      `<div class="b-check"><input type="checkbox" data-idx="${i}"><span>${esc(t)}</span></div>`);
-    cl.lastElementChild.querySelector('input').addEventListener('change', e => {
-      card.checklist[i].done = e.target.checked;
-      e.target.parentElement.classList.toggle('done', e.target.checked);
-    });
+    const item = { id: genId(), text: t, done: false };
     inp.value = '';
+    try{
+      await patchCardField(card, 'checklist', arr => [...arr, item]);
+      const cl = bg.querySelector('#bChecklist');
+      cl.insertAdjacentHTML('beforeend',
+        `<div class="b-check"><input type="checkbox" data-id="${item.id}"><span>${esc(t)}</span></div>`);
+      cl.lastElementChild.querySelector('input').addEventListener('change', e => toggleCheck(item.id, e.target));
+    }catch(_){ inp.value = t; }
   };
   bg.querySelector('#bCheckAdd').addEventListener('click', addCheck);
   bg.querySelector('#bCheckInput').addEventListener('keydown', e => {
     if(e.key==='Enter'){ e.preventDefault(); addCheck(); }
   });
 
-  // Comment add
-  const addComment = () => {
+  // Comment add — append-only, persisted immediately against latest DB.
+  const addComment = async () => {
     const inp = bg.querySelector('#bCommentInput');
     const t = inp.value.trim(); if(!t) return;
-    if(!card.comments) card.comments = [];
-    const c = { text:t, by: NX.currentUser?.name || '?', at: new Date().toISOString() };
-    card.comments.push(c);
-    bg.querySelector('#bComments').insertAdjacentHTML('beforeend',
-      `<div class="b-comment"><span class="b-comment-by">${esc(c.by)}</span><span class="b-comment-time">${new Date().toLocaleDateString()}</span><div class="b-comment-text">${esc(c.text)}</div></div>`);
+    const c = { id: genId(), text:t, by: NX.currentUser?.name || '?', at: new Date().toISOString() };
     inp.value = '';
+    try{
+      await patchCardField(card, 'comments', arr => [...arr, c]);
+      bg.querySelector('#bComments').insertAdjacentHTML('beforeend',
+        `<div class="b-comment"><span class="b-comment-by">${esc(c.by)}</span><span class="b-comment-time">${new Date(c.at).toLocaleDateString()}</span><div class="b-comment-text">${esc(c.text)}</div></div>`);
+    }catch(_){ inp.value = t; }
   };
   bg.querySelector('#bCommentAdd').addEventListener('click', addComment);
   bg.querySelector('#bCommentInput').addEventListener('keydown', e => {
@@ -1843,9 +2026,10 @@ async function renderEquipmentEmbed(card, container){
       if(card.equipment_id){
         const eq = equipmentCache.find(e => e.id === card.equipment_id);
         if(eq && eq.location && !card.location){
-          card.location = eq.location;
+          const k = locKey(eq.location) || eq.location;
+          card.location = k;
           const locSel = document.querySelector('#bLoc');
-          if(locSel) locSel.value = eq.location;
+          if(locSel) locSel.value = locKey(eq.location) || '';
         }
         renderEquipmentEmbed(card, container);
         // Refresh the parts BOM picker for the newly-linked equipment
@@ -2060,24 +2244,33 @@ async function saveCard(card, modal, closeAfter){
     const parts_needed = modal.querySelector('#bParts').value.trim() || null;
     const costEstRaw = modal.querySelector('#bCostEst').value;
     const costActRaw = modal.querySelector('#bCostAct').value;
-    const cost_estimate = costEstRaw ? Number(costEstRaw) : null;
-    const cost_actual = costActRaw ? Number(costActRaw) : null;
+    const numOrNull = (v) => (v !== '' && v != null && !isNaN(Number(v))) ? Number(v) : null;
+    const cost_estimate = numOrNull(costEstRaw);
+    const cost_actual = numOrNull(costActRaw);
 
+    // SCALAR fields only. checklist / comments / photo_urls / labels are
+    // persisted atomically via patchCardField as they're edited, so we never
+    // blind-write those arrays from a possibly-stale modal snapshot (that was
+    // the lost-update bug — a concurrent comment would be overwritten).
     const patch = {
       title, description, priority, location,
       assignee, due_date,
       parts_needed, cost_estimate, cost_actual,
       equipment_id: card.equipment_id || null,
-      checklist: card.checklist || [],
-      comments: card.comments || [],
-      labels: card.labels || [],
-      photo_urls: card.photo_urls || [],
     };
 
-    await NX.sb.from('kanban_cards').update(patch).eq('id', card.id);
+    optimisticSet.add(card.id);
+    const { error } = await NX.sb.from('kanban_cards').update(patch).eq('id', card.id);
+    if(error){ optimisticSet.delete(card.id); throw error; }
+    // Keep in-memory state in step so a re-render doesn't flash stale values.
+    Object.assign(card, patch);
+    const idx = cards.findIndex(c => c.id === card.id);
+    if(idx >= 0) Object.assign(cards[idx], patch);
+    setTimeout(() => optimisticSet.delete(card.id), 4000);
+
     if(closeAfter){
       modal.remove();
-      await loadCards(); render();
+      render();
     }
   }catch(e){
     console.error('[board] saveCard:', e);
@@ -2161,24 +2354,21 @@ function startInlineComposer(triggerEl, opts){
   const cancelBtn = composer.querySelector('.b-composer-cancel');
   const locSel = composer.querySelector('.b-composer-loc');
 
-  // Populate the location dropdown from the canonical list (distinct
-  // equipment.location values), defaulting to the last-used location.
+  // Populate the location dropdown from the canonical LOCATIONS list so the
+  // stored value is always a canonical key (suerte/este/toti). Previously this
+  // used raw distinct equipment.location strings ("SUERTE"), which saved a
+  // value that no badge/filter/modal could match — the location vanished from
+  // the card even though it was stored. Default to the last-used location.
   if (locSel) {
-    (async () => {
-      try {
-        await loadEquipmentCache();
-        const locs = [...new Set((equipmentCache || []).map(e => e.location).filter(Boolean))]
-          .sort((a, b) => String(a).localeCompare(String(b)));
-        let last = '';
-        try { last = localStorage.getItem('nexus.board.lastLocation') || ''; } catch (_) {}
-        locs.forEach(l => {
-          const o = document.createElement('option');
-          o.value = l; o.textContent = l;
-          if (l === last) o.selected = true;
-          locSel.appendChild(o);
-        });
-      } catch (_) {}
-    })();
+    let last = '';
+    try { last = localStorage.getItem('nexus.board.lastLocation') || ''; } catch (_) {}
+    last = locKey(last) || '';
+    LOCATIONS.forEach(l => {
+      const o = document.createElement('option');
+      o.value = l.key; o.textContent = l.label;
+      if (l.key === last) o.selected = true;
+      locSel.appendChild(o);
+    });
   }
 
   // Focus immediately. requestAnimationFrame ensures the element is in
@@ -2405,7 +2595,7 @@ async function openStatsModal(){
   const waitingParts = cards.filter(c => (c.status||'').toLowerCase().includes('wait')).length;
   const byLocation = LOCATIONS.map(l => ({
     ...l,
-    count: cards.filter(c => c.location === l.key).length,
+    count: cards.filter(c => locKey(c.location) === l.key).length,
   }));
 
   const avgClose = stats?.avg_close_days_30d != null
