@@ -9324,6 +9324,34 @@ Thanks for your help sorting this out.`;
   }
 
 
+  // ── Shared email engine ─────────────────────────────────────────────
+  // Expose the order-composer's mailto primitives so other modules (e.g.
+  // Vendors dispatching an equipment issue to a contractor) send through
+  // the SAME engine: correct %20 body encoding, per-location CC/BCC from a
+  // vendor's recipient list, and self-CC suppression. openVendorEmail is the
+  // high-level entry point — pass a vendor ({ email, alt_emails }), subject,
+  // body and optional location; it composes and opens the mail draft.
+  window.NXEmail = window.NXEmail || {
+    buildMailtoUrl,
+    parseAltEmails,
+    getSenderEmailFilter,
+    stripSenderFromRecipients,
+    openVendorEmail(vendor, subject, body, location) {
+      const to = vendor && vendor.email;
+      if (!to) return false;
+      let ccList = [], bccList = [];
+      try {
+        const recipients = parseAltEmails(vendor.alt_emails, location || null);
+        ccList  = recipients.filter(r => r.kind === 'cc').map(r => r.email);
+        bccList = recipients.filter(r => r.kind === 'bcc').map(r => r.email);
+        const cleaned = stripSenderFromRecipients(ccList, bccList);
+        ccList = cleaned.ccList; bccList = cleaned.bccList;
+      } catch (_) { /* no recipient list — single-recipient send */ }
+      window.location.href = buildMailtoUrl(to, subject || '', body || '', ccList, bccList);
+      return true;
+    },
+  };
+
   NX.modules.ordering = {
     init, show, setLocation, openVendor, openExistingOrder, closeEntry,
     openVendorEditor,
