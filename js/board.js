@@ -1038,7 +1038,7 @@ function createCardEl(card){
   const badges = [];
   if(card.priority === 'urgent') badges.push(`<span class="b-card-badge pri-urgent">URGENT</span>`);
   else if(card.priority === 'high') badges.push(`<span class="b-card-badge pri-high">HIGH</span>`);
-  if(loc) badges.push(`<span class="b-card-badge loc" style="color:${loc.color}"><i data-lucide="map-pin" class="badge-icon"></i> ${esc(loc.label)}</span>`);
+  if(loc) badges.push(`<span class="b-card-badge loc loc-${loc.key}"><i data-lucide="map-pin" class="badge-icon"></i> ${esc(loc.label)}</span>`);
   if(card.equipment_id) badges.push(`<span class="b-card-badge eq"><i data-lucide="wrench" class="badge-icon"></i> Equipment</span>`);
   if(overdue) badges.push(`<span class="b-card-badge overdue">OVERDUE</span>`);
   if(badges.length) html += `<div class="b-card-badges">${badges.join('')}</div>`;
@@ -2748,7 +2748,7 @@ async function openTriageModal(){
     const badges = [];
     if (c.priority === 'urgent') badges.push('<span class="b-card-badge pri-urgent">URGENT</span>');
     else if (c.priority === 'high') badges.push('<span class="b-card-badge pri-high">HIGH</span>');
-    if (loc) badges.push(`<span class="b-card-badge loc" style="color:${loc.color}"><i data-lucide="map-pin" class="badge-icon"></i> ${esc(loc.label)}</span>`);
+    if (loc) badges.push(`<span class="b-card-badge loc loc-${loc.key}"><i data-lucide="map-pin" class="badge-icon"></i> ${esc(loc.label)}</span>`);
     if (c.equipment_id) badges.push('<span class="b-card-badge eq"><i data-lucide="wrench" class="badge-icon"></i> Equipment</span>');
     if (overdue) badges.push('<span class="b-card-badge overdue">OVERDUE</span>');
     if (stuckDays != null && stuckDays > 30) badges.push(`<span class="b-card-badge overdue">⏳ Stuck ${stuckDays}d</span>`);
