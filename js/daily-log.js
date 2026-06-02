@@ -329,7 +329,7 @@ async function loadEquipmentActivity(logDate) {
   const dayEnd   = `${logDate}T23:59:59.999Z`;
   // Pull both streams in parallel. equipment_issues may not exist
   // (no R&M ecosystem) — that's fine, we just degrade to events-only.
-  const [eventsRes, openedRes, paidRes] = await Promise.all([
+  const [eventsRes, openedRes, paidRes, dispatchRes] = await Promise.all([
     NX.sb.from('equipment_events')
       .select('id, equipment_id, event_type, payload, location, actor_name, occurred_at')
       .gte('occurred_at', dayStart).lte('occurred_at', dayEnd)
@@ -343,6 +343,11 @@ async function loadEquipmentActivity(logDate) {
       .select('id, equipment_id, title, status, invoice_amount, invoice_paid_at, vendor_id')
       .gte('invoice_paid_at', dayStart).lte('invoice_paid_at', dayEnd)
       .order('invoice_paid_at', { ascending: true })
+      .then(r => r, () => ({ data: [], error: null })),
+    NX.sb.from('dispatch_events')
+      .select('id, equipment_id, contractor_name, method, issue_description, dispatched_by, outcome, dispatched_at')
+      .gte('dispatched_at', dayStart).lte('dispatched_at', dayEnd)
+      .order('dispatched_at', { ascending: true })
       .then(r => r, () => ({ data: [], error: null })),
   ]);
   if (eventsRes.error) {
@@ -386,6 +391,24 @@ async function loadEquipmentActivity(logDate) {
       location: null,
       actor_name: null,
       occurred_at: i.invoice_paid_at,
+    });
+  });
+  // Contractor calls/texts/dispatches logged today → surface alongside the
+  // equipment + issue streams so the day's outreach is visible.
+  ((dispatchRes && dispatchRes.data) || []).forEach(d => {
+    issueEvents.push({
+      id: 'dispatch-' + d.id,
+      equipment_id: d.equipment_id,
+      event_type: 'contractor_dispatched',
+      payload: {
+        method: d.method,
+        contractor_name: d.contractor_name,
+        issue_description: d.issue_description,
+        outcome: d.outcome,
+      },
+      location: null,
+      actor_name: d.dispatched_by || null,
+      occurred_at: d.dispatched_at,
     });
   });
 
@@ -1446,6 +1469,14 @@ function renderEquipmentActivitySection(d) {
         : '';
       detail = `Invoice paid: ${esc(String(title).slice(0, 50))}${amtLabel}`;
       pillClass += ' dlog-act-pill-paid';
+    } else if (ev.event_type === 'contractor_dispatched') {
+      const m = ev.payload && ev.payload.method;
+      const verb = m === 'text' ? 'Texted' : m === 'email' ? 'Emailed' : m === 'in_house' ? 'In-house dispatch' : 'Called';
+      const who = (ev.payload && ev.payload.contractor_name) || 'contractor';
+      const reason = (ev.payload && ev.payload.issue_description)
+        ? ` — ${esc(String(ev.payload.issue_description).slice(0, 50))}` : '';
+      detail = `${verb} ${esc(who)}${reason}`;
+      pillClass += ' dlog-act-pill-issue';
     } else {
       // Catch-all for less common types (fields_edited, note_added,
       // photo_replaced, part_replacement, etc.)
