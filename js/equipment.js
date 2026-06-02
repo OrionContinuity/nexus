@@ -7808,19 +7808,14 @@ async function commitEquipment(equipList, context) {
       if (eq.mentioned_issues?.length) {
         try {
           for (const issue of eq.mentioned_issues) {
-            const ticketData = {
+            await NX.work.create({
               title: `[${clean.name}] ${issue}`,
               notes: `Issue mentioned during AI equipment creation:\n${issue}\n\nEquipment: ${clean.name}`,
               priority: 'normal',
               location: clean.location,
-              status: 'open',
-              reported_by: 'AI Create'
-            };
-            await NX.sb.from('tickets').insert(ticketData);
-            // Stage S: push notification. AI-discovered issues are
-            // surfacing problems nobody specifically reported, so
-            // managers should know about them.
-            if (NX.notifyTicketCreated) NX.notifyTicketCreated(ticketData);
+              reportedBy: 'AI Create',
+              aiCreated: true,
+            });
           }
         } catch(e) { console.warn('[AI-Create] Tickets insert error (non-fatal):', e); }
       }
@@ -10012,18 +10007,14 @@ function publicReportIssue(qrCode) {
     if (!eq) return;
 
     try {
-      const ticketData = {
+      await NX.work.create({
         title: `[Equipment] ${eq.name}: ${fd.get('description').slice(0, 60)}`,
         notes: `Reported via QR scan by ${fd.get('reporter')}\n\nEquipment: ${eq.name}\nLocation: ${eq.location}\n\nIssue: ${fd.get('description')}`,
         priority: fd.get('priority'),
         location: eq.location,
-        status: 'open',
-        reported_by: fd.get('reporter') + ' (QR scan)'
-      };
-      await NX.sb.from('tickets').insert(ticketData);
-      // Stage S: push notification to managers — QR reports are
-      // often from staff in the field and managers need them fast
-      if (NX.notifyTicketCreated) NX.notifyTicketCreated(ticketData);
+        equipmentId: eq.id,
+        reportedBy: fd.get('reporter') + ' (QR scan)',
+      });
       await NX.sb.from('daily_logs').insert({
         entry: `[SCAN-REPORT] ${eq.name} at ${eq.location}: ${fd.get('description').slice(0, 120)}`,
         user_name: fd.get('reporter')
@@ -12247,59 +12238,22 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
       } catch (err) { console.warn('[callConfirm] status bump failed:', err); }
     }
 
-    // 4) Create the ticket
+    // 4) Create the work item — one call creates the board card (source of
+    //    truth) + the mirrored ticket and cross-links them. Replaces the old
+    //    insert-ticket-then-mirror-card dual write.
     let ticketId = null;
     try {
-      const ticketData = {
+      const res = await NX.work.create({
         title: `[CALL] ${equipName}: ${issue.slice(0, 80)}`,
         notes: `Internal call. Equipment: ${equipName}\nReporter: ${reporter}\nCalling: ${contactName} (${prettyPhone})\n\nIssue:\n${issue}`,
         priority,
-        status: 'open',
-        reported_by: reporter,
-        equipment_id: equipId,
-        photo_url: photoUrl,
-        prior_eq_status: priorStatus,
-      };
-      const { data: t } = await NX.sb.from('tickets').insert(ticketData).select().single();
-      ticketId = t?.id || null;
-    } catch (err) { console.warn('[callConfirm] ticket create failed:', err); }
-
-    // 5) Create the board card (mirrors ticket onto Operations board)
-    if (ticketId) {
-      try {
-        const { data: boards } = await NX.sb.from('boards')
-          .select('id').eq('archived', false).order('position').limit(1);
-        const boardId = boards?.[0]?.id;
-        if (boardId) {
-          const { data: lists } = await NX.sb.from('board_lists')
-            .select('id').eq('board_id', boardId).order('position').limit(1);
-          const listId = lists?.[0]?.id;
-          if (listId) {
-            const { count } = await NX.sb.from('kanban_cards')
-              .select('id', { count: 'exact', head: true }).eq('list_id', listId);
-            const { data: cardRow } = await NX.sb.from('kanban_cards').insert({
-              title: `[CALL] ${equipName}: ${issue.slice(0, 80)}`,
-              description: `Calling: ${contactName} (${prettyPhone})\n\n${issue}`,
-              board_id: boardId,
-              list_id: listId,
-              column_name: '',
-              position: count || 0,
-              priority,
-              location: null,
-              equipment_id: equipId,
-              reported_by: reporter,
-              checklist: [], comments: [], labels: [],
-              photo_urls: photoUrl ? [photoUrl] : [],
-              archived: false,
-              ticket_id: ticketId,
-            }).select().single();
-            if (cardRow?.id) {
-              await NX.sb.from('tickets').update({ board_card_id: cardRow.id }).eq('id', ticketId);
-            }
-          }
-        }
-      } catch (err) { console.warn('[callConfirm] board card create failed:', err); }
-    }
+        equipmentId: equipId,
+        photoUrl,
+        reportedBy: reporter,
+        priorEqStatus: priorStatus,
+      });
+      ticketId = res.ticket?.id || null;
+    } catch (err) { console.warn('[callConfirm] work item create failed:', err); }
 
     NX.toast?.(`Ticket created — calling ${contactName}…`, 'success', 1800);
 
