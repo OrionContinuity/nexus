@@ -860,20 +860,20 @@
     const { data: eq } = await NX.sb.from('equipment')
       .select('id, name, location')
       .eq('id', equipmentId).maybeSingle();
-    if (!eq) return;
+    if (!eq) return null;
 
-    if (await hasOpenCardWithLabel(equipmentId, `issue:${issueId}`)) return;
+    if (await hasOpenCardWithLabel(equipmentId, `issue:${issueId}`)) return null;
 
     const target = await pickBoardTarget({
       listHints: ['report', 'issue|broken', 'todo|to.do|backlog'],
     });
-    if (!target) return;
+    if (!target) { console.warn('[domain.autoCreateIssueCard] no board/list target — board not initialized?'); return null; }
 
     const desc = (description ? description + '\n\n' : '') +
                  `Equipment issue reported on ${eq.name}.\n` +
                  `When resolved, move this card to Done — the linked issue will be marked repaired automatically.`;
 
-    await NX.sb.from('kanban_cards').insert({
+    const row = {
       title: `⚠️ ${title || 'Issue'} — ${eq.name}`,
       description: desc,
       board_id: target.boardId,
@@ -883,51 +883,90 @@
       priority: priority || 'high',
       location: eq.location || null,
       equipment_id: equipmentId,
-      reported_by: NX.currentUser?.name || 'Issue Tracker',
+      reported_by: (NX.currentUser && NX.currentUser.name) || (NX.user && NX.user.name) || 'Issue Tracker',
       checklist: [], comments: [],
       labels: ['equipment-issue', `issue:${issueId}`],
       photo_urls: [],
       archived: false,
-    });
+    };
+    // Resilient insert: if the schema is missing a column, drop it and retry
+    // rather than failing the whole card silently (the recurring 42703 trap).
+    let payload = Object.assign({}, row);
+    let created = null;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const { data, error } = await NX.sb.from('kanban_cards').insert(payload).select('*').single();
+      if (!error) { created = data; break; }
+      const m = /column "?([a-z0-9_]+)"?.*does not exist/i.exec(error.message || '');
+      if (m && m[1] && Object.prototype.hasOwnProperty.call(payload, m[1])) { delete payload[m[1]]; continue; }
+      throw error;
+    }
+    // If the board is open, refresh it so the new card appears immediately.
+    try { if (created && NX.modules && NX.modules.board && NX.modules.board.reload) NX.modules.board.reload(); } catch (_) {}
+    return created;
   }
+
+  // Backfill: create board cards for OPEN issues that don't have one yet
+  // (e.g. issues created before this orchestration existed, or via paths
+  // that skipped it). Idempotent — autoCreateIssueCard dedupes by the
+  // `issue:<id>` label. Returns the number of cards created.
+  D.backfillIssueCards = async function() {
+    if (!NX.sb) return 0;
+    let created = 0;
+    try {
+      const { data: issues } = await NX.sb.from('equipment_issues').select('*').limit(200);
+      const open = (issues || []).filter(i => i && i.equipment_id &&
+        !/^(repaired|resolved|closed|done|cancelled|canceled)$/i.test(i.status || ''));
+      for (const it of open) {
+        try {
+          const card = await autoCreateIssueCard({
+            issueId: it.id, equipmentId: it.equipment_id,
+            title: it.title, description: it.description,
+            priority: it.priority || 'high',
+          });
+          if (card) created++;
+        } catch (e) { console.warn('[domain.backfillIssueCards] one issue failed:', e?.message || e); }
+      }
+    } catch (e) { console.warn('[domain.backfillIssueCards] failed:', e?.message || e); }
+    return created;
+  };
 
   // ─── Board targeting ────────────────────────────────────────────────
   // Picks (boardId, listId, position) for a new card. Tries to match
   // one of the hint patterns (in order) against list names; falls back
   // to the first list of the first active board.
   async function pickBoardTarget({ listHints }) {
-    const { data: boards } = await NX.sb.from('boards')
-      .select('id, name')
-      .eq('archived', false)
-      .order('position')
-      .limit(20);
-    if (!boards || !boards.length) return null;
+    // Fetch tolerant of a missing/NULL `archived` flag — do NOT use
+    // .eq('archived', false), which silently drops rows where archived
+    // IS NULL (and would leave a real board un-found → no card created).
+    const { data: boardsRaw } = await NX.sb.from('boards').select('*').order('position').limit(20);
+    const boards = (boardsRaw || []).filter(b => b && b.archived !== true);
+    if (!boards.length) return null;
     const board = boards[0];
 
-    const { data: lists } = await NX.sb.from('board_lists')
-      .select('id, name, position')
-      .eq('board_id', board.id)
-      .order('position');
-    if (!lists || !lists.length) return null;
+    const { data: listsRaw } = await NX.sb.from('board_lists')
+      .select('*').eq('board_id', board.id).order('position');
+    const lists = (listsRaw || []).filter(l => l && l.archived !== true);
+    if (!lists.length) return null;
 
     let targetList = null;
     for (const pattern of (listHints || [])) {
       const re = new RegExp(pattern, 'i');
-      const found = lists.find(l => re.test(l.name));
+      const found = lists.find(l => re.test(l.name || ''));
       if (found) { targetList = found; break; }
     }
     if (!targetList) targetList = lists[0];
 
-    const { count: posCount } = await NX.sb.from('kanban_cards')
-      .select('id', { count: 'exact', head: true })
-      .eq('list_id', targetList.id)
-      .eq('archived', false);
+    // Add-to-top to match the board composer (render sorts by position asc).
+    let position = 0;
+    try {
+      const { data: inList } = await NX.sb.from('kanban_cards')
+        .select('position').eq('list_id', targetList.id).eq('archived', false);
+      if (inList && inList.length) {
+        position = Math.min(...inList.map(c => (typeof c.position === 'number' ? c.position : 0))) - 1;
+      }
+    } catch (_) {}
 
-    return {
-      boardId: board.id,
-      listId: targetList.id,
-      position: posCount || 0,
-    };
+    return { boardId: board.id, listId: targetList.id, position };
   }
 
 
