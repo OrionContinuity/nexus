@@ -294,6 +294,7 @@
         (v.phone ? item('Text', 'text') : '') +
         item('Schedule PM', 'pm') +
         item('Log service', 'log') +
+        '<button data-vm="delete" style="display:block;width:100%;text-align:left;padding:15px 18px;border:none;border-top:1px solid var(--nx-line,rgba(255,255,255,.07));background:none;color:var(--nx-red,#a83e3e);font:inherit;font-size:15px;cursor:pointer">Delete vendor</button>' +
         '<button data-vm="cancel" style="display:block;width:100%;text-align:center;padding:15px 18px;border:none;border-top:1px solid var(--nx-line,rgba(255,255,255,.07));background:none;color:var(--nx-faint,#9a9081);font:inherit;font-size:15px;cursor:pointer">Cancel</button>' +
       '</div>';
     const close = () => ov.remove();
@@ -307,8 +308,34 @@
       else if (act === 'text' && v.phone) { stampVendorContact(v.id); window.location.href = 'sms:' + String(v.phone).replace(/[^\d+]/g, ''); }
       else if (act === 'pm') openVendorPmScheduler(v);
       else if (act === 'log') openVendorServiceLogger(v);
+      else if (act === 'delete') deleteVendor(v);
     }));
     document.body.appendChild(ov);
+  }
+
+  // Soft-delete a vendor: the app filters every list on active=true, and
+  // equipment rows hold FK references (service_vendor_id / repair_vendor_id),
+  // so we deactivate rather than hard-delete (a hard delete would orphan
+  // equipment + PM rows or be rejected by the FK constraint). Equipment is
+  // unassigned so detail views don't point at a hidden vendor. Service
+  // history (equipment_maintenance) is matched by name and is left intact.
+  async function deleteVendor(v) {
+    if (!v || !NX?.sb) return;
+    const nm = v.company || v.name || 'this vendor';
+    if (!confirm(`Delete ${nm}?\n\nRemoves them from your vendor list and unassigns them from any equipment. Past service history is kept.`)) return;
+    try {
+      await saveVendorPatch(v.id, { active: false });
+      try { await NX.sb.from('equipment').update({ service_vendor_id: null }).eq('service_vendor_id', v.id); } catch (_) {}
+      try { await NX.sb.from('equipment').update({ repair_vendor_id: null }).eq('repair_vendor_id', v.id); } catch (_) {}
+      if (state.activeVendor && String(state.activeVendor.id) === String(v.id)) {
+        state.activeVendor = null; state._detailCache = null;
+      }
+      NX.toast && NX.toast(`${nm} deleted`, 'success', 1800);
+      await loadVendors();
+    } catch (e) {
+      console.error('[deleteVendor]', e);
+      NX.toast && NX.toast('Delete failed — try again', 'error', 2200);
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -1028,7 +1055,11 @@
       '.nxrm-role-chip.is-pm{background:var(--nx-gold-faint,rgba(212,164,78,.16));color:var(--nx-gold)}' +
       '.nxrm-role-chip.is-repair{background:rgba(108,123,208,.16);color:#6c7bd0}' +
       '.nxrm-eq-sub-title{margin:16px 0 8px;font-size:12px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted)}' +
-      '.vea-row{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:9px;border:1px solid var(--border);background:var(--surface-2,var(--surface));margin-bottom:6px}' +
+      '.vea-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:9px 10px;border-radius:9px;border:1px solid var(--border);background:var(--surface-2,var(--surface));margin-bottom:6px}' +
+      '.vea-pm-detail{flex:0 0 100%;margin-top:2px;padding-top:8px;border-top:1px dashed var(--border)}' +
+      '.vea-pm-detail .nxvf-label{margin-bottom:4px}' +
+      '.vea-pm-detail .nxvf-row{display:flex;gap:8px}' +
+      '.vea-pm-detail .nxvf-input{padding:8px 10px;font-size:13px}' +
       '.vea-row-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}' +
       '.vea-name{font-weight:600;font-size:14px}' +
       '.vea-meta{font-size:11px;color:var(--muted)}' +
@@ -1427,7 +1458,43 @@
     const repairSel = new Set(allEquip.filter(e => String(e.repair_vendor_id  || '') === vid).map(e => e.id));
     const initialPm     = new Set(pmSel);
     const initialRepair = new Set(repairSel);
+    const pmDates     = {};   // equipment_id -> next PM date (optional)
+    const pmIntervals = {};   // equipment_id -> recurrence in days
     let search = '';
+
+    // Shared PM cadence options (mirrors the Schedule-PM sheet).
+    const CADENCE = [[0, 'One-time'], [30, 'Monthly'], [60, 'Every 2 mo'], [90, 'Quarterly'], [182, 'Semi-annual'], [365, 'Annual']];
+    const cadenceOptions = (sel) => CADENCE.map(([v, l]) => `<option value="${v}"${(+sel === v) ? ' selected' : ''}>${l}</option>`).join('');
+
+    // Schedule (or reschedule) a single PM for one unit and sync the equipment
+    // row — same single-source-of-truth pattern as the Schedule-PM sheet.
+    async function schedulePmFor(eqId, dateStr, intervalDays) {
+      const { data: existing } = await NX.sb.from('pm_schedules')
+        .select('id').eq('equipment_id', eqId).eq('status', 'scheduled');
+      const rc = (existing && existing.length) ? 1 : 0;
+      if (existing && existing.length) {
+        await NX.sb.from('pm_schedules').update({ status: 'cancelled', updated_at: new Date().toISOString() })
+          .eq('equipment_id', eqId).eq('status', 'scheduled');
+      }
+      await NX.sb.from('pm_schedules').insert([{
+        equipment_id: eqId, vendor_id: vendor.id, contractor_node_id: null, contractor_name: vName,
+        scheduled_date: dateStr, phase: 1, phase_label: null,
+        title: `PM — ${vName}`, status: 'scheduled', reschedule_count: rc,
+      }]);
+      const eqUpdate = {
+        next_pm_date: dateStr, service_vendor_id: vendor.id,
+        service_contractor_node_id: null, service_contractor_name: vName,
+        service_contractor_phone: vendor.phone || null,
+      };
+      if (intervalDays > 0) eqUpdate.pm_interval_days = intervalDays;
+      await saveEquipPatch(eqId, eqUpdate);
+    }
+    async function cancelScheduledPm(eqId) {
+      try {
+        await NX.sb.from('pm_schedules').update({ status: 'cancelled', updated_at: new Date().toISOString() })
+          .eq('equipment_id', eqId).eq('status', 'scheduled');
+      } catch (_) {}
+    }
 
     const overlay = document.createElement('div');
     overlay.className = 'nxrm-vendor-form-overlay';
@@ -1465,6 +1532,13 @@
             <button type="button" class="vea-toggle ${pmOn ? 'on' : ''}" data-toggle-pm="${esc(e.id)}">PM</button>
             <button type="button" class="vea-toggle ${rpOn ? 'on' : ''}" data-toggle-repair="${esc(e.id)}">Repair</button>
           </div>
+          <div class="vea-pm-detail" data-pm-detail="${esc(e.id)}" style="display:${pmOn ? 'block' : 'none'}">
+            <div class="nxvf-label">Next PM date · cadence <span style="text-transform:none;letter-spacing:0;opacity:.6">— optional, schedules the visit</span></div>
+            <div class="nxvf-row">
+              <input class="nxvf-input" type="date" data-pmdate="${esc(e.id)}" value="${esc(pmDates[e.id] || e.next_pm_date || '')}" style="flex:1">
+              <select class="nxvf-input" data-pmint="${esc(e.id)}" style="flex:1">${cadenceOptions(pmIntervals[e.id] ?? e.pm_interval_days ?? 90)}</select>
+            </div>
+          </div>
         </div>`;
       }).join('') || '<div style="padding:14px;color:var(--muted);font-size:13px">No equipment found.</div>';
 
@@ -1473,7 +1547,7 @@
         <div class="nxvf-sheet" style="position:relative;width:100%;max-width:560px;max-height:92vh;overflow-y:auto;background:var(--surface);border:1px solid var(--nx-gold-line);border-radius:16px 16px 0 0;padding:20px 18px 28px">
           <div style="font-size:18px;font-weight:700;margin-bottom:2px">Assign equipment</div>
           <div style="font-size:13px;color:var(--muted);margin-bottom:4px">to ${esc(vName)}</div>
-          <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Toggle <strong style="color:var(--nx-gold)">PM</strong> and/or <strong style="color:#6c7bd0">Repair</strong> for each unit.</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Turn on <strong style="color:var(--nx-gold)">PM</strong> to make this the service vendor — add a date to schedule the visit. <strong style="color:#6c7bd0">Repair</strong> sets the repair vendor.</div>
           <input class="nxvf-input" id="veaSearch" value="${esc(search)}" placeholder="Search equipment by name, location…" autocomplete="off" style="margin-bottom:8px">
           <div style="max-height:320px;overflow-y:auto;margin-bottom:16px">${eqRows}</div>
           <div style="display:flex;gap:10px">
@@ -1492,7 +1566,15 @@
         const id = b.getAttribute('data-toggle-pm');
         if (pmSel.has(id)) pmSel.delete(id); else pmSel.add(id);
         b.classList.toggle('on', pmSel.has(id));
+        const detail = overlay.querySelector(`[data-pm-detail="${id}"]`);
+        if (detail) detail.style.display = pmSel.has(id) ? 'block' : 'none';
         updateCount();
+      }));
+      overlay.querySelectorAll('[data-pmdate]').forEach(inp => inp.addEventListener('input', e => {
+        pmDates[e.target.dataset.pmdate] = e.target.value;
+      }));
+      overlay.querySelectorAll('[data-pmint]').forEach(sel => sel.addEventListener('change', e => {
+        pmIntervals[e.target.dataset.pmint] = parseInt(e.target.value, 10) || 0;
       }));
       overlay.querySelectorAll('[data-toggle-repair]').forEach(b => b.addEventListener('click', () => {
         const id = b.getAttribute('data-toggle-repair');
@@ -1513,10 +1595,22 @@
       saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
       try {
         for (const id of pmAdd) {
-          await saveEquipPatch(id, { service_vendor_id: vendor.id, service_contractor_name: vName, service_contractor_node_id: null });
+          const date = (pmDates[id] || '').trim();
+          if (date) {
+            await schedulePmFor(id, date, pmIntervals[id] ?? 90);
+          } else {
+            await saveEquipPatch(id, { service_vendor_id: vendor.id, service_contractor_name: vName, service_contractor_node_id: null });
+          }
+        }
+        // Already-assigned units where a date was entered/changed → (re)schedule.
+        for (const id of pmSel) {
+          if (initialPm.has(id) && (pmDates[id] || '').trim()) {
+            await schedulePmFor(id, pmDates[id].trim(), pmIntervals[id] ?? 90);
+          }
         }
         for (const id of pmRemove) {
           await saveEquipPatch(id, { service_vendor_id: null, service_contractor_name: null });
+          await cancelScheduledPm(id);   // don't leave a scheduled PM pointing at an unassigned vendor
         }
         for (const id of rpAdd) {
           await saveEquipPatch(id, { repair_vendor_id: vendor.id, repair_contractor_name: vName, repair_contractor_node_id: null });
@@ -1920,6 +2014,7 @@
 
     let selectedId = null, selectedName = '', search = '';
     let phases = [{ date: '', label: '' }];
+    let intervalDays = 90;   // recurrence cadence; default Quarterly
 
     const overlay = document.createElement('div');
     overlay.className = 'nxrm-vendor-form-overlay';
@@ -1968,6 +2063,17 @@
           ${phaseRows}
           ${phases.length < 3 ? `<button type="button" id="vpmAddPhase" style="width:100%;padding:10px;border-radius:9px;border:1px dashed var(--border);background:none;color:var(--text);font-family:inherit;cursor:pointer;margin-bottom:8px">+ Add phase</button>` : ''}
 
+          <div class="nxvf-label" style="margin-top:6px">Repeat cadence</div>
+          <select class="nxvf-input" id="vpmCadence" style="margin-bottom:4px">
+            <option value="0"${intervalDays === 0 ? ' selected' : ''}>One-time (no repeat)</option>
+            <option value="30"${intervalDays === 30 ? ' selected' : ''}>Monthly</option>
+            <option value="60"${intervalDays === 60 ? ' selected' : ''}>Every 2 months</option>
+            <option value="90"${intervalDays === 90 ? ' selected' : ''}>Quarterly</option>
+            <option value="182"${intervalDays === 182 ? ' selected' : ''}>Semi-annual</option>
+            <option value="365"${intervalDays === 365 ? ' selected' : ''}>Annual</option>
+          </select>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Sets how often this PM recurs, so the next due date is known even for brand-new equipment with no service history.</div>
+
           <div style="display:flex;gap:10px;margin-top:12px">
             <button id="vpmCancel" style="flex:1;padding:13px;border-radius:10px;border:1px solid var(--border);background:none;color:var(--text);font-family:inherit;cursor:pointer">Cancel</button>
             <button id="vpmSave" style="flex:2;padding:13px;border-radius:10px;border:none;background:var(--nx-gold);color:#000;font-weight:700;font-family:inherit;cursor:pointer">Save schedule</button>
@@ -1986,6 +2092,8 @@
       overlay.querySelectorAll('[data-delphase]').forEach(b => b.addEventListener('click', () => { phases.splice(+b.dataset.delphase, 1); draw(); }));
       const addP = overlay.querySelector('#vpmAddPhase');
       if (addP) addP.addEventListener('click', () => { if (phases.length < 3) { phases.push({ date: '', label: '' }); draw(); } });
+      const cad = overlay.querySelector('#vpmCadence');
+      if (cad) cad.addEventListener('change', () => { intervalDays = parseInt(cad.value, 10) || 0; });
       overlay.querySelector('#vpmSave').addEventListener('click', save);
       applyFilter();
     };
@@ -2039,7 +2147,9 @@
             service_contractor_phone: vPhone || null,
           };
           const { data: priorEq } = await NX.sb.from('equipment').select('last_pm_date').eq('id', selectedId).maybeSingle();
-          if (priorEq?.last_pm_date) {
+          if (intervalDays > 0) {
+            eqUpdate.pm_interval_days = intervalDays;          // explicit cadence — works for new equipment
+          } else if (priorEq?.last_pm_date) {
             const days = Math.round((new Date(earliest) - new Date(priorEq.last_pm_date)) / 86400000);
             if (days > 0 && days <= 3650) eqUpdate.pm_interval_days = days;
           }
