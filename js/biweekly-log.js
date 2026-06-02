@@ -162,13 +162,14 @@ async function loadMetrics(windowStartIso, windowEndIso) {
   if (!NX.sb) return null;
   const startTs = `${windowStartIso}T00:00:00.000Z`;
   const endTs   = `${windowEndIso}T23:59:59.999Z`;
-  const [opened, closed, aged, pms, activity, vendors] = await Promise.all([
+  const [opened, closed, aged, pms, activity, vendors, dispatches] = await Promise.all([
     loadTicketsOpened(startTs, endTs),
     loadTicketsClosed(startTs, endTs),
     loadAgedOpenTickets(windowStartIso),
     loadPmsCompleted(startTs, endTs),
     loadEquipmentActivity(startTs, endTs),
     loadVendorPerformance(startTs, endTs),
+    loadContractorDispatches(startTs, endTs),
   ]);
   return {
     tickets_opened: opened,
@@ -177,6 +178,7 @@ async function loadMetrics(windowStartIso, windowEndIso) {
     pms_completed: pms,
     equipment_activity: activity,
     vendor_performance: vendors,
+    contractor_dispatches: dispatches,
   };
 }
 
@@ -462,6 +464,31 @@ async function loadEquipmentActivity(startTs, endTs) {
   } catch (e) {
     console.warn('[biweekly] loadEquipmentActivity:', e.message);
     return { total: 0, by_type: {}, currently_down: 0, items: [] };
+  }
+}
+
+// Contractor outreach in the window — calls/texts/emails/in-house dispatches.
+async function loadContractorDispatches(startTs, endTs) {
+  try {
+    const { data, error } = await NX.sb.from('dispatch_events')
+      .select('id, equipment_id, contractor_name, method, outcome, dispatched_at')
+      .gte('dispatched_at', startTs)
+      .lte('dispatched_at', endTs)
+      .order('dispatched_at', { ascending: false });
+    if (error) throw error;
+    const items = data || [];
+    const by_method = {};
+    const by_outcome = {};
+    items.forEach(d => {
+      const m = d.method || 'call';
+      by_method[m] = (by_method[m] || 0) + 1;
+      const o = d.outcome || 'pending';
+      by_outcome[o] = (by_outcome[o] || 0) + 1;
+    });
+    return { total: items.length, by_method, by_outcome, items };
+  } catch (e) {
+    console.warn('[biweekly] loadContractorDispatches:', e.message);
+    return { total: 0, by_method: {}, by_outcome: {}, items: [] };
   }
 }
 
@@ -806,6 +833,7 @@ function renderRollupCards(metrics) {
   const closed   = (metrics && metrics.tickets_closed)   || { total: 0, by_location: {}, by_priority: {}, items: [], avg_resolution_hours: null };
   const pms      = (metrics && metrics.pms_completed)    || { total: 0, by_location: {}, items: [] };
   const activity = (metrics && metrics.equipment_activity)|| { total: 0, by_type: {}, currently_down: 0, items: [] };
+  const calls    = (metrics && metrics.contractor_dispatches) || { total: 0, by_method: {}, by_outcome: {}, items: [] };
 
   const fmtAvg = (h) => {
     if (h == null) return '—';
@@ -849,6 +877,14 @@ function renderRollupCards(metrics) {
         <div class="bw-card-body">
           <div class="bw-card-row"><span class="bw-card-label">By type</span><div class="bw-bd">${breakdownLine(activity.by_type)}</div></div>
           <div class="bw-card-row"><span class="bw-card-label">Ended period down</span><span class="bw-card-value ${activity.currently_down > 0 ? 'bw-card-value-warn' : ''}">${activity.currently_down}</span></div>
+        </div>
+      </div>
+
+      <div class="bw-card">
+        <div class="bw-card-head"><span class="bw-card-title">Contractor calls</span><span class="bw-card-total">${calls.total}</span></div>
+        <div class="bw-card-body">
+          <div class="bw-card-row"><span class="bw-card-label">By method</span><div class="bw-bd">${breakdownLine(calls.by_method)}</div></div>
+          <div class="bw-card-row"><span class="bw-card-label">By outcome</span><div class="bw-bd">${breakdownLine(calls.by_outcome)}</div></div>
         </div>
       </div>
     </div>`;
