@@ -4435,10 +4435,16 @@ function renderOverview(eq, attachments, customFields) {
   // staff usually scan because something is wrong, not because a PM is due.
   // When no contractor is assigned in either slot, render an empty CTA
   // pointing to Edit Everything → Links so the user knows where to set it up.
-  const renderContractorBlock = (c, role, plainName, plainPhone) => {
+  const renderContractorBlock = (c, role, plainName, plainPhone, vendorId) => {
     // role: 'maintenance' | 'repair'
     const roleLabel = role === 'repair' ? 'Repairs by' : 'Serviced by';
     const roleClass = role === 'repair' ? 'eq-serviced-by-role-repair' : 'eq-serviced-by-role-maint';
+    // When the equipment is linked to a vendor record, offer a jump into the
+    // full vendor profile (cross-module deep-link). Hidden when there's no
+    // vendor id (plain-text-only contact, or pre-migration schema).
+    const viewVendorBtn = vendorId
+      ? `<button type="button" class="eq-serviced-by-viewvendor" onclick="(window.NX&&NX.modules&&NX.modules.vendors&&NX.modules.vendors.openVendor)&&NX.modules.vendors.openVendor('${escAttr(String(vendorId))}')" style="margin-top:8px;display:flex;align-items:center;justify-content:center;gap:6px;width:100%;background:var(--nx-gold-faint,rgba(212,164,78,.14));border:1px solid var(--nx-gold-line,rgba(212,164,78,.4));color:var(--nx-gold,#d4a44e);font:inherit;font-size:12px;font-weight:600;padding:8px 12px;border-radius:8px;cursor:pointer">View vendor profile →</button>`
+      : '';
     if (c) {
       const phone = extractContractorPhone(c) || plainPhone || '';
       const tags  = Array.isArray(c.tags) ? c.tags.filter(Boolean) : [];
@@ -4471,6 +4477,7 @@ function renderOverview(eq, attachments, customFields) {
               ${uiSvg('document', '11px')}<span>${hasTemplate ? 'Template set' : 'Default template'}</span>
             </span>
           </div>
+          ${viewVendorBtn}
         </div>
       `;
     }
@@ -4489,14 +4496,15 @@ function renderOverview(eq, attachments, customFields) {
               </a>
             ` : `<span class="eq-serviced-by-nophone">No phone on file</span>`}
           </div>
+          ${viewVendorBtn}
         </div>
       `;
     }
     return '';
   };
 
-  const maintBlock  = renderContractorBlock(eq._contractor, 'maintenance', eq.service_contractor_name, eq.service_contractor_phone);
-  const repairBlock = renderContractorBlock(eq._repairContractor, 'repair',     eq.repair_contractor_name,  eq.repair_contractor_phone);
+  const maintBlock  = renderContractorBlock(eq._contractor, 'maintenance', eq.service_contractor_name, eq.service_contractor_phone, eq.service_vendor_id);
+  const repairBlock = renderContractorBlock(eq._repairContractor, 'repair',     eq.repair_contractor_name,  eq.repair_contractor_phone, eq.repair_vendor_id);
 
   let servicedByHTML = '';
   if (maintBlock || repairBlock) {
