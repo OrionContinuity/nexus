@@ -3981,6 +3981,25 @@ function buildListRow(e) {
     </div>`;
 }
 
+// Service coverage for a unit, derived from ANY of the three provider
+// mechanisms: current vendor link (service_vendor_id / repair_vendor_id),
+// the retired node (service_contractor_node_id), or a plain typed name.
+// `legacy` = covered, but with no vendor link yet → flag it to migrate.
+function equipmentCoverage(e) {
+  if (!e) return { pm:false, rp:false, label:'Uncovered', cls:'none', legacy:false };
+  const pmVendor = !!e.service_vendor_id;
+  const rpVendor = !!e.repair_vendor_id;
+  const pmLegacy = !pmVendor && !!(e.service_contractor_node_id || e.service_contractor_name);
+  const rpLegacy = !rpVendor && !!(e.repair_contractor_node_id || e.repair_contractor_name);
+  const pm = pmVendor || pmLegacy;
+  const rp = rpVendor || rpLegacy;
+  let label = 'Uncovered', cls = 'none';
+  if (pm && rp) { label = 'PM + Repair'; cls = 'both'; }
+  else if (pm)  { label = 'PM only';     cls = 'pm'; }
+  else if (rp)  { label = 'Repair only'; cls = 'repair'; }
+  return { pm, rp, label, cls, legacy: (pm && pmLegacy) || (rp && rpLegacy) };
+}
+
 function buildGridCard(e) {
   const pm = e.next_pm_date ? new Date(e.next_pm_date) : null;
   const pmStr = pm ? pm.toLocaleDateString([], { month:'short', day:'numeric' }) : 'Not set';
@@ -4005,6 +4024,10 @@ function buildGridCard(e) {
           <span class="eq-health" style="color:${healthColor}">${health}%</span>
         </div>
         <div class="eq-card-pm">Next PM: ${pmStr}</div>
+        ${(() => {
+          const cov = equipmentCoverage(e);
+          return `<div class="eq-card-coverage cov-${cov.cls}">${cov.cls === 'none' ? '○' : '✓'} ${cov.label}${cov.legacy ? '<span class="cov-legacy" title="Legacy contractor — not linked to a vendor yet">⚠</span>' : ''}</div>`;
+        })()}
       </div>
     </div>`;
 }
@@ -4507,8 +4530,11 @@ function renderOverview(eq, attachments, customFields) {
   const repairBlock = renderContractorBlock(eq._repairContractor, 'repair',     eq.repair_contractor_name,  eq.repair_contractor_phone, eq.repair_vendor_id);
 
   let servicedByHTML = '';
+  const _cov = equipmentCoverage(eq);
+  const _covPill = `<div class="eq-coverage-pill cov-${_cov.cls}">${_cov.cls === 'none' ? '○' : '✓'} ${_cov.label}${_cov.legacy ? ' <span class="cov-legacy" title="Covered by a legacy contractor — not linked to a vendor yet">⚠ legacy</span>' : ''}</div>`;
   if (maintBlock || repairBlock) {
     servicedByHTML = `
+      ${_covPill}
       <div class="eq-serviced-by-row">
         ${maintBlock}
         ${repairBlock}
@@ -4516,6 +4542,7 @@ function renderOverview(eq, attachments, customFields) {
     `;
   } else {
     servicedByHTML = `
+      ${_covPill}
       <div class="eq-serviced-by eq-serviced-by-empty">
         <div class="eq-serviced-by-empty-msg">No contractors assigned.</div>
         <div class="eq-serviced-by-empty-hint">Edit Everything → Links → Maintenance / Repair Contractor</div>
