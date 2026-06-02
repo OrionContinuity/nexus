@@ -18251,6 +18251,11 @@ async function handleEquipmentDialAction(action, eq) {
               reported_by_name: NX.user?.name || null,
             }).select('*').single();
             if (error) throw error;
+            // Mirror onto the board (work-order card) just like the tracker
+            // path does — this quick path previously skipped it.
+            if (NX.domain && NX.domain.recordEquipmentIssue) {
+              try { await NX.domain.recordEquipmentIssue({ issueId: data.id, equipmentId: eq.id, title: data.title, description: data.description, priority: 'high' }); } catch (_) {}
+            }
             // Fire the email — it will auto-advance to contractor_called.
             emailContractorAboutIssue(eq, data);
           } catch (err) {
