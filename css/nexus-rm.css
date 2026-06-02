@@ -111,6 +111,14 @@
   transition: all 140ms ease;
 }
 .nxrm-card:hover { transform: translateY(-1px); border-color: var(--nx-gold); }
+/* Flat cards — the gold hairline border carries the separation. Kills a
+   heavy drop shadow that was leaking in from a broader rule and reading badly
+   on the light theme. !important so it wins regardless of the source. */
+.nxrm-card,
+.nxrm-vendor-eq-row,
+.nxrm-vendor-eq-row .nxrm-card,
+.nxrm-vendor-eq-unassign,
+.nxrm-pm-card { box-shadow: none !important; }
 .nxrm-card.tone-critical { border-left: 4px solid #e63858; background: rgba(230,56,88,0.06); }
 .nxrm-card.tone-high     { border-left: 4px solid #d4744e; background: rgba(212,116,78,0.06); }
 .nxrm-card.tone-normal   { border-left: 4px solid var(--nx-gold); }
