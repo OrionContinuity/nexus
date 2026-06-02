@@ -293,21 +293,98 @@
         .order('last_status_change_at', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false })
         .limit(1);
-      if (!cards || !cards.length) return;
-      const card = cards[0];
 
-      const labels = Array.isArray(card.labels) ? [...card.labels] : [];
-      const sentinel = `dispatch:${dispatchEventId}`;
-      if (!labels.includes(sentinel)) labels.push(sentinel);
+      // Prefer attaching the call to an existing open card (the issue/PM
+      // it's about) so we get "we called Joe's HVAC about this on Tuesday."
+      if (cards && cards.length) {
+        const card = cards[0];
+        const labels = Array.isArray(card.labels) ? [...card.labels] : [];
+        const sentinel = `dispatch:${dispatchEventId}`;
+        if (!labels.includes(sentinel)) labels.push(sentinel);
+        await NX.sb.from('kanban_cards').update({
+          dispatch_event_id: dispatchEventId,
+          labels,
+        }).eq('id', card.id);
+        return;
+      }
 
-      await NX.sb.from('kanban_cards').update({
-        dispatch_event_id: dispatchEventId,
-        labels,
-      }).eq('id', card.id);
+      // No open card to attach to → create one so the call is tracked on the
+      // board (a bare "called the vendor" still becomes a work item).
+      await autoCreateDispatchCard({ equipmentId, dispatchEventId });
     } catch (e) {
-      console.warn('[domain.recordDispatch] link failed:', e?.message || e);
+      console.warn('[domain.recordDispatch] failed:', e?.message || e);
     }
   };
+
+  // Create (or fold into) a board card representing an outbound contractor
+  // contact. Mirrors autoCreateIssueCard's resilient-insert pattern. If an
+  // open call-tracking card already exists for this unit, the new dispatch
+  // is appended to it rather than spawning a duplicate.
+  async function autoCreateDispatchCard({ equipmentId, dispatchEventId }) {
+    const { data: eq } = await NX.sb.from('equipment')
+      .select('id, name, location').eq('id', equipmentId).maybeSingle();
+    if (!eq) return null;
+
+    let dispatch = null;
+    try {
+      const { data } = await NX.sb.from('dispatch_events').select('*').eq('id', dispatchEventId).maybeSingle();
+      dispatch = data;
+    } catch (_) {}
+
+    // Fold into an existing open call card if there is one.
+    try {
+      const { data: openCards } = await NX.sb.from('kanban_cards')
+        .select('id, labels').eq('equipment_id', equipmentId).eq('archived', false)
+        .contains('labels', ['dispatch-call']).limit(1);
+      if (openCards && openCards.length) {
+        const c = openCards[0];
+        const labels = Array.isArray(c.labels) ? [...c.labels] : [];
+        const sentinel = `dispatch:${dispatchEventId}`;
+        if (!labels.includes(sentinel)) labels.push(sentinel);
+        await NX.sb.from('kanban_cards').update({ labels, dispatch_event_id: dispatchEventId }).eq('id', c.id);
+        return c;
+      }
+    } catch (_) {}
+
+    const target = await pickBoardTarget({ listHints: ['report', 'issue|broken', 'todo|to.do|backlog'] });
+    if (!target) { console.warn('[domain.autoCreateDispatchCard] no board/list target'); return null; }
+
+    const method = (dispatch && dispatch.method) || 'call';
+    const who = (dispatch && dispatch.contractor_name) || 'contractor';
+    const verb = method === 'text' ? 'Texted' : method === 'email' ? 'Emailed' : method === 'in_house' ? 'Dispatched (in-house)' : 'Called';
+    const desc = `${verb} ${who} about ${eq.name}.` +
+      ((dispatch && dispatch.issue_description) ? `\n\nReason: ${dispatch.issue_description}` : '') +
+      `\n\nMove this card to Done once the visit is resolved.`;
+
+    const row = {
+      title: `📞 ${verb} ${who} — ${eq.name}`,
+      description: desc,
+      board_id: target.boardId,
+      list_id: target.listId,
+      column_name: '',
+      position: target.position,
+      priority: 'normal',
+      location: eq.location || null,
+      equipment_id: equipmentId,
+      reported_by: (dispatch && dispatch.dispatched_by) || 'Dispatch',
+      checklist: [], comments: [],
+      labels: ['dispatch-call', `dispatch:${dispatchEventId}`],
+      dispatch_event_id: dispatchEventId,
+      photo_urls: [],
+      archived: false,
+    };
+    let payload = Object.assign({}, row);
+    let created = null;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const { data, error } = await NX.sb.from('kanban_cards').insert(payload).select('*').single();
+      if (!error) { created = data; break; }
+      const m = /column "?([a-z0-9_]+)"?.*does not exist/i.exec(error.message || '');
+      if (m && m[1] && Object.prototype.hasOwnProperty.call(payload, m[1])) { delete payload[m[1]]; continue; }
+      throw error;
+    }
+    try { if (created && NX.modules && NX.modules.board && NX.modules.board.reload) NX.modules.board.reload(); } catch (_) {}
+    return created;
+  }
 
 
   // ════════════════════════════════════════════════════════════════════
@@ -775,6 +852,148 @@
     }
     return null;
   }
+
+  // ════════════════════════════════════════════════════════════════════
+  // UNIFIED WORK ITEM API  (NX.work)
+  // ════════════════════════════════════════════════════════════════════
+  //
+  // One creation path and one close path for "a thing that needs doing".
+  // A work item is a kanban_card (source of truth: photos, checklist,
+  // comments, progress) MIRRORED to a tickets row (legacy/Duties readers,
+  // home counts, biweekly, calendar, AI). The two are cross-linked
+  // (kanban_cards.ticket_id ↔ tickets.board_card_id) and created/closed
+  // together, so the two surfaces never drift.
+  //
+  // Replaces the scattered dual-writes that used to live in equipment.js,
+  // equipment-public-scan.js, brain-chat.js and ai-writer.js.
+  const W = window.NX.work = window.NX.work || {};
+
+  // Column-tolerant insert: drops any column the schema doesn't have and
+  // retries, so a missing migration degrades instead of losing the row.
+  async function resilientInsert(table, row) {
+    let payload = Object.assign({}, row);
+    for (let i = 0; i < 10; i++) {
+      const { data, error } = await NX.sb.from(table).insert(payload).select('*').single();
+      if (!error) return data;
+      const m = /column "?([a-z0-9_]+)"?.*does not exist/i.exec(error.message || '');
+      if (m && m[1] && Object.prototype.hasOwnProperty.call(payload, m[1])) { delete payload[m[1]]; continue; }
+      throw error;
+    }
+    return null;
+  }
+
+  // Create a work item. Returns { card, ticket }.
+  //   opts: { title, notes|description, priority, location, equipmentId,
+  //           photoUrl|photoUrls, reportedBy, priorEqStatus, aiCreated,
+  //           aiTroubleshoot, labels, listHints }
+  W.create = async function(opts = {}) {
+    const out = { card: null, ticket: null };
+    if (!NX.sb) return out;
+    const title = opts.title || 'Untitled';
+    const notes = (opts.notes != null ? opts.notes : opts.description) || null;
+    const priority = opts.priority || 'normal';
+    const photoUrls = Array.isArray(opts.photoUrls) ? opts.photoUrls
+      : (opts.photoUrl ? [opts.photoUrl] : []);
+    const reportedBy = opts.reportedBy || (NX.currentUser && NX.currentUser.name) || 'Staff';
+    const equipmentId = opts.equipmentId || null;
+    const location = opts.location || null;
+    const priorEqStatus = opts.priorEqStatus || null;
+
+    // 1) Card — source of truth.
+    try {
+      const target = await pickBoardTarget({
+        listHints: opts.listHints || ['report', 'issue|broken', 'todo|to.do|backlog'],
+      });
+      if (target) {
+        const labels = Array.isArray(opts.labels) ? [...opts.labels] : [];
+        if (opts.aiCreated && !labels.includes('ai-created')) labels.push('ai-created');
+        out.card = await resilientInsert('kanban_cards', {
+          title,
+          description: notes,
+          board_id: target.boardId,
+          list_id: target.listId,
+          column_name: '',
+          position: target.position,
+          priority,
+          location,
+          equipment_id: equipmentId,
+          reported_by: reportedBy,
+          prior_eq_status: priorEqStatus,
+          checklist: [], comments: [], labels,
+          photo_urls: photoUrls,
+          archived: false,
+        });
+      } else {
+        console.warn('[NX.work.create] no board/list target — card skipped');
+      }
+    } catch (e) {
+      console.warn('[NX.work.create] card insert failed:', e?.message || e);
+    }
+
+    // 2) Ticket mirror — legacy/Duties/AI/biweekly readers depend on it.
+    try {
+      out.ticket = await resilientInsert('tickets', {
+        title,
+        notes,
+        location,
+        priority,
+        status: 'open',
+        reported_by: reportedBy,
+        equipment_id: equipmentId,
+        photo_url: photoUrls[0] || null,
+        prior_eq_status: priorEqStatus,
+        ai_created: !!opts.aiCreated,
+        ai_troubleshoot: opts.aiTroubleshoot || null,
+        board_card_id: out.card ? out.card.id : null,
+      });
+    } catch (e) {
+      console.warn('[NX.work.create] ticket insert failed:', e?.message || e);
+    }
+
+    // 3) Cross-link card → ticket.
+    if (out.card && out.ticket) {
+      try { await NX.sb.from('kanban_cards').update({ ticket_id: out.ticket.id }).eq('id', out.card.id); } catch (_) {}
+    }
+
+    try { if (out.ticket && NX.notifyTicketCreated) NX.notifyTicketCreated(out.ticket); } catch (_) {}
+    try { if (out.card && NX.modules && NX.modules.board && NX.modules.board.reload) NX.modules.board.reload(); } catch (_) {}
+    return out;
+  };
+
+  // Close a work item from either surface — closes BOTH sides and restores
+  // equipment status if this item had bumped it. Safe to call with whatever
+  // ids you have (cardId and/or ticketId).
+  W.close = async function({ cardId, ticketId, equipmentId, priorEqStatus } = {}) {
+    if (!NX.sb) return;
+    const now = new Date().toISOString();
+    // Resolve the missing side from the cross-link if only one id is known.
+    try {
+      if (cardId && !ticketId) {
+        const { data } = await NX.sb.from('kanban_cards').select('ticket_id').eq('id', cardId).maybeSingle();
+        ticketId = data && data.ticket_id;
+      } else if (ticketId && !cardId) {
+        const { data } = await NX.sb.from('tickets').select('board_card_id').eq('id', ticketId).maybeSingle();
+        cardId = data && data.board_card_id;
+      }
+    } catch (_) {}
+    if (ticketId) { try { await NX.sb.from('tickets').update({ status: 'closed', closed_at: now }).eq('id', ticketId); } catch (_) {} }
+    if (cardId)   { try { await NX.sb.from('kanban_cards').update({ archived: true, closed_at: now }).eq('id', cardId); } catch (_) {} }
+    if (equipmentId && priorEqStatus) {
+      try { await NX.sb.from('equipment').update({ status: priorEqStatus }).eq('id', equipmentId); } catch (_) {}
+    }
+  };
+
+  // Sync a ticket's open/closed state to match a card that moved lanes on
+  // the board (called from board.js moveCard). Keeps Duties in step.
+  W.syncTicketToCard = async function({ ticketId, closed }) {
+    if (!NX.sb || !ticketId) return;
+    try {
+      await NX.sb.from('tickets').update(
+        closed ? { status: 'closed', closed_at: new Date().toISOString() }
+               : { status: 'open',   closed_at: null }
+      ).eq('id', ticketId);
+    } catch (_) {}
+  };
 
   // ─── Card creators ──────────────────────────────────────────────────
 
