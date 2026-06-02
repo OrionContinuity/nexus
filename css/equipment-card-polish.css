@@ -96,3 +96,42 @@
   font-style: italic;
   letter-spacing: 0.3px;
 }
+
+/* ── Service coverage marker (grid card + detail) ───────────────────────
+   PM only / Repair only / PM + Repair / Uncovered. Detects coverage from a
+   vendor link OR a legacy contractor; legacy-only coverage gets a ⚠ flag. */
+.eq-card-coverage {
+  margin-top: 4px;
+  font-family: var(--nx-font-mono, monospace);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.eq-card-coverage.cov-both   { color: var(--nx-label-3, #6e6020); }
+.eq-card-coverage.cov-pm     { color: var(--nx-label-2, #8b6914); }
+.eq-card-coverage.cov-repair { color: #5d6bb0; }
+.eq-card-coverage.cov-none   { color: var(--nx-faint, #857f75); }
+.cov-legacy { color: var(--nx-amber, #b8860b); font-weight: 800; cursor: help; }
+
+/* Detail screen pill */
+.eq-coverage-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--nx-font-mono, monospace);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 999px;
+  margin-bottom: 10px;
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,.3));
+}
+.eq-coverage-pill.cov-both   { color: var(--nx-label-3, #6e6020); background: rgba(110,96,32,0.12); }
+.eq-coverage-pill.cov-pm     { color: var(--nx-label-2, #8b6914); background: var(--nx-gold-soft, rgba(212,164,78,.15)); }
+.eq-coverage-pill.cov-repair { color: #5d6bb0; background: rgba(108,123,208,0.14); }
+.eq-coverage-pill.cov-none   { color: var(--nx-faint, #857f75); background: transparent; }
