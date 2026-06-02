@@ -424,8 +424,8 @@
                 <input type="number" step="0.01" id="pmCost" class="pm-input" placeholder="225.00">
               </div>
               <div class="pm-form-half">
-                <label class="pm-label">Next service due</label>
-                <input type="date" id="pmNext" class="pm-input">
+                <label class="pm-label">Next service due${eq.next_pm_date ? ` <span style="color:var(--muted,#9a9081);font-weight:400">· scheduled ${esc(eq.next_pm_date)}</span>` : ''}</label>
+                <input type="date" id="pmNext" class="pm-input" value="${esc(eq.next_pm_date || '')}">
               </div>
             </div>
           </div>
@@ -1331,6 +1331,56 @@
           });
           // Re-sync brain
           if (NX.eqBrainSync?.syncOne) NX.eqBrainSync.syncOne(log.equipment_id);
+
+          // ── Close the PM loop ───────────────────────────────────────
+          // Approving a contractor's log completes the visit, exactly as
+          // the internal PM logger does (equipment.js): refresh
+          // last_pm_date + next_pm_date so the countdown restarts, and flip
+          // the matching scheduled pm_schedules row to 'completed'. The
+          // contractor's stated "Next service due" wins; otherwise roll
+          // forward by the equipment's pm_interval_days. Only PM and
+          // inspection visits advance the cadence — repairs/emergencies
+          // don't reset the clock.
+          try {
+            const isPm = log.service_type === 'pm' || log.service_type === 'inspection';
+            const svcDate = log.service_date || new Date().toISOString().slice(0, 10);
+            if (isPm) {
+              try {
+                await NX.sb.from('pm_schedules')
+                  .update({ status: 'completed', updated_at: new Date().toISOString() })
+                  .eq('equipment_id', log.equipment_id).eq('status', 'scheduled');
+              } catch (_) {}
+            }
+            let nextDue = log.next_service_date || null;
+            if (!nextDue && isPm) {
+              const { data: eqRow } = await NX.sb.from('equipment')
+                .select('pm_interval_days').eq('id', log.equipment_id).maybeSingle();
+              const iv = eqRow && parseInt(eqRow.pm_interval_days, 10);
+              if (iv && iv > 0) {
+                const d = new Date(svcDate + 'T00:00:00');
+                d.setDate(d.getDate() + iv);
+                nextDue = d.toISOString().slice(0, 10);
+              }
+            }
+            const eqPatch = {};
+            if (isPm) eqPatch.last_pm_date = svcDate;
+            if (nextDue) eqPatch.next_pm_date = nextDue;
+            if (Object.keys(eqPatch).length) {
+              let attempt = { ...eqPatch };
+              let r = await NX.sb.from('equipment').update(attempt).eq('id', log.equipment_id);
+              let guard = 0;
+              while (r.error && guard < 6) {
+                const m = /column "?([a-z_]+)"?.*does not exist/i.exec(r.error.message || '');
+                if (!m || !(m[1] in attempt)) break;
+                delete attempt[m[1]];
+                r = await NX.sb.from('equipment').update(attempt).eq('id', log.equipment_id);
+                guard++;
+              }
+            }
+            try { await NX.sb.rpc('recompute_health_score', { eq_id: log.equipment_id }); } catch (_) {}
+          } catch (e) {
+            console.warn('[pm-review] cadence advance failed', e);
+          }
         }
       }
       
