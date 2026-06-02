@@ -2094,12 +2094,14 @@ function startInlineComposer(triggerEl, opts){
   const buttonLabel = opts?.buttonLabel || 'Add';
   const onSubmit = opts?.onSubmit;
   const minRows = opts?.minRows || 2;
+  const wantLoc = !!(opts && opts.locationPicker);
 
   // Build the composer
   const composer = document.createElement('div');
   composer.className = 'b-composer';
   composer.innerHTML = `
     <textarea class="b-composer-input" rows="${minRows}" placeholder="${esc(placeholder)}"></textarea>
+    ${wantLoc ? `<select class="b-composer-loc" style="width:100%;box-sizing:border-box;margin-top:6px;padding:9px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);background:var(--surface-2,#1b1b1d);color:var(--text);font-family:inherit;font-size:12.5px"><option value="">— Location (required) —</option></select>` : ''}
     <div class="b-composer-actions">
       <button type="button" class="b-composer-submit">${esc(buttonLabel)}</button>
       <button type="button" class="b-composer-cancel" title="Cancel" aria-label="Cancel">✕</button>
@@ -2115,6 +2117,27 @@ function startInlineComposer(triggerEl, opts){
   const ta = composer.querySelector('.b-composer-input');
   const submitBtn = composer.querySelector('.b-composer-submit');
   const cancelBtn = composer.querySelector('.b-composer-cancel');
+  const locSel = composer.querySelector('.b-composer-loc');
+
+  // Populate the location dropdown from the canonical list (distinct
+  // equipment.location values), defaulting to the last-used location.
+  if (locSel) {
+    (async () => {
+      try {
+        await loadEquipmentCache();
+        const locs = [...new Set((equipmentCache || []).map(e => e.location).filter(Boolean))]
+          .sort((a, b) => String(a).localeCompare(String(b)));
+        let last = '';
+        try { last = localStorage.getItem('nexus.board.lastLocation') || ''; } catch (_) {}
+        locs.forEach(l => {
+          const o = document.createElement('option');
+          o.value = l; o.textContent = l;
+          if (l === last) o.selected = true;
+          locSel.appendChild(o);
+        });
+      } catch (_) {}
+    })();
+  }
 
   // Focus immediately. requestAnimationFrame ensures the element is in
   // the layout tree before iOS Safari accepts focus.
@@ -2135,12 +2158,25 @@ function startInlineComposer(triggerEl, opts){
       close();
       return;
     }
+    let location;
+    if (locSel) {
+      location = locSel.value;
+      // Force a choice when locations actually exist.
+      if (locSel.options.length > 1 && !location) {
+        locSel.style.borderColor = 'var(--red,#e5484d)';
+        locSel.focus();
+        NX.toast && NX.toast('Pick a location for this card', 'error', 2000);
+        return;
+      }
+    }
     submitBtn.disabled = true;
     submitBtn.textContent = '…';
     try{
-      await onSubmit?.(text);
+      await onSubmit?.(text, { location });
+      if (location) { try { localStorage.setItem('nexus.board.lastLocation', location); } catch (_) {} }
       // Reset for fast batch entry — Trello keeps the composer open so
-      // users can type a second card without re-clicking Add.
+      // users can type a second card without re-clicking Add. The chosen
+      // location stays selected so a batch shares it.
       ta.value = '';
       submitBtn.disabled = false;
       submitBtn.textContent = buttonLabel;
@@ -2243,14 +2279,16 @@ async function promptNewCard(listId, prefillOrTrigger){
     // shouldn't happen in normal use but keeps the function robust.
     const title = prompt('Card title:');
     if(!title) return;
-    await createCard(listId, { title });
+    let loc = null; try { loc = localStorage.getItem('nexus.board.lastLocation') || null; } catch (_) {}
+    await createCard(listId, { title, location: loc });
     return;
   }
   startInlineComposer(triggerEl, {
     placeholder: 'Enter a title for this card…',
     buttonLabel: 'Add card',
-    onSubmit: async (text) => {
-      await createCard(listId, { title: text });
+    locationPicker: true,
+    onSubmit: async (text, meta) => {
+      await createCard(listId, { title: text, location: (meta && meta.location) || null });
     },
   });
 }
@@ -2599,6 +2637,9 @@ async function init(){
 }
 
 async function show(){
+  // Warm the equipment cache so the manual-card location picker is ready
+  // the instant the composer opens (locations come from equipment).
+  loadEquipmentCache();
   // v18.34 — Home "New card" quick action sets NX.boardComposeIntent.
   // After the board renders, click the first lane's add-card trigger so
   // the composer opens automatically. One-shot — cleared after use.
@@ -2611,6 +2652,16 @@ async function show(){
       if (trigger) trigger.click();
     }, 250);
   };
+
+  // One-time per session: backfill board cards for any OPEN equipment issues
+  // that don't have one yet (reported via paths that skipped the board, or
+  // before this orchestration existed). Idempotent + deduped by issue label.
+  if (NX.domain && typeof NX.domain.backfillIssueCards === 'function' && !window.__nxIssueCardBackfillDone) {
+    window.__nxIssueCardBackfillDone = true;
+    NX.domain.backfillIssueCards().then(n => {
+      if (n) { loadCards().then(() => render()); NX.toast && NX.toast(n + ' work order' + (n > 1 ? 's' : '') + ' added to board', 'info', 2400); }
+    }).catch(() => {});
+  }
 
   // Stale-while-revalidate: if we have a live realtime subscription and
   // data pulled recently, render from memory NOW (instant), then kick
