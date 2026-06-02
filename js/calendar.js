@@ -238,7 +238,7 @@ async function loadBoardCards(firstDay, lastDay) {
 async function loadEquipmentPMs(firstDay, lastDay) {
   try {
     const { data } = await NX.sb.from('equipment')
-      .select('id, name, next_pm_date, location, category, pm_interval_days')
+      .select('*')
       .not('next_pm_date', 'is', null)
       .gte('next_pm_date', firstDay).lte('next_pm_date', lastDay);
     (data || []).forEach(eq => {
@@ -249,6 +249,8 @@ async function loadEquipmentPMs(firstDay, lastDay) {
         detail: [eq.location, eq.category, eq.pm_interval_days ? `every ${eq.pm_interval_days}d` : null]
           .filter(Boolean).join(' · '),
         equipmentId: eq.id,
+        vendorId: eq.service_vendor_id || null,
+        vendorName: eq.service_contractor_name || null,
       });
     });
   } catch(e) { /* silent */ }
@@ -577,6 +579,7 @@ function showDetail(dateStr, dayEvents) {
           '<div class="cal-event-title">' + esc(e.title || '') + '</div>' +
           (meta.length ? '<div class="cal-event-meta">' + esc(meta.join(' · ')) + '</div>' : '') +
           (e.detail ? '<div class="cal-event-detail">' + esc(e.detail) + '</div>' : '') +
+          (e.vendorId && e.vendorName ? '<button class="cal-event-vendor-link" data-vendor-id="' + esc(String(e.vendorId)) + '" style="margin-top:6px;display:inline-flex;align-items:center;gap:5px;font:inherit;font-size:11px;font-weight:600;padding:5px 10px;border-radius:999px;border:1px solid rgba(212,164,78,.4);background:rgba(212,164,78,.12);color:var(--nx-gold,#d4a44e);cursor:pointer">' + esc(e.vendorName) + ' →</button>' : '') +
           recoverBtn +
         '</div>' +
       '</div>';
@@ -591,6 +594,15 @@ function showDetail(dateStr, dayEvents) {
       if (ev.target.closest('.cal-notes-input')) return;
       if (ev.target.closest('.cal-notes-save')) return;
       if (ev.target.closest('.cal-note')) return;
+
+      // Vendor chip on a PM event → open that vendor's profile
+      const vlink = ev.target.closest('.cal-event-vendor-link');
+      if (vlink) {
+        ev.stopPropagation();
+        const vid = vlink.getAttribute('data-vendor-id');
+        if (vid && NX.modules?.vendors?.openVendor) NX.modules.vendors.openVendor(vid);
+        return;
+      }
 
       const e = dayEvents[parseInt(card.dataset.idx)];
       if (!e) return;
