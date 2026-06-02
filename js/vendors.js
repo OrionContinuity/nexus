@@ -55,6 +55,10 @@
     }
     applyFilters();
     render();
+    // Backfill any missing phone/email from contractor nodes + equipment
+    // (Public-PM / Report-Issues already hold this contact). Cheap no-op
+    // once every vendor has contact; re-renders only if it filled something.
+    reconcileVendorContacts().then(n => { if (n) { applyFilters(); render(); } }).catch(() => {});
   }
 
   function mergeData() {
@@ -866,9 +870,16 @@
     if (!vendor?.email) { alert('No email on file for this vendor.'); return; }
     const subject = buildEmailSubject(issue, equipment, vendor);
     const body = buildEmailBody(issue, equipment, vendor, comments);
-    window.location.href = 'mailto:' + vendor.email
-      + '?subject=' + encodeURIComponent(subject)
-      + '&body=' + encodeURIComponent(body);
+    // Send through the shared Ordering email engine (proper %20 body
+    // encoding, vendor CC/BCC recipient list, self-CC suppression). Falls
+    // back to a correctly-encoded mailto if the engine isn't loaded yet.
+    if (window.NXEmail && typeof window.NXEmail.openVendorEmail === 'function') {
+      window.NXEmail.openVendorEmail(vendor, subject, body);
+    } else {
+      const enc = s => encodeURIComponent(s).replace(/\+/g, '%20');
+      window.location.href = 'mailto:' + encodeURIComponent(vendor.email)
+        + '?subject=' + enc(subject) + '&body=' + enc(body);
+    }
     logDispatch(issue, vendor, 'email');
   }
 
@@ -1050,7 +1061,15 @@
       '.nxrm-grade-pill{display:inline-flex;align-items:center;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;background:var(--nx-gold-faint,rgba(212,164,78,.16));color:var(--nx-gold)}' +
       '.nxrm-extra-contacts{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 4px}' +
       '.nxrm-extra-chip{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;padding:5px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface-2,var(--surface));color:var(--text);text-decoration:none}' +
-      '.nxrm-last-contact{font-size:11px;color:var(--muted);margin:2px 0 6px}';
+      '.nxrm-last-contact{font-size:11px;color:var(--muted);margin:2px 0 6px}' +
+      /* List-redesign overflow guard: the shared .ord-vendor-row base sets
+         width:calc(100% - 28px)+margins which, beside the 40px kebab, blew
+         past the viewport and dragged the whole page out of bounds. Pin the
+         row to flex/shrink within the list and clip any residual. */
+      '.nxrm-vendor-list{overflow-x:hidden;max-width:100%}' +
+      '.nxrm-vendor-list .ord-vendor-row-wrap{margin:0;width:100%;box-sizing:border-box}' +
+      '.nxrm-vendor-list .ord-vendor-row{width:auto;margin:0;flex:1 1 auto;min-width:0;box-sizing:border-box}' +
+      '.nxrm-vendor-list .ord-vendor-menu{flex:0 0 40px}';
     document.head.appendChild(st);
   }
 
@@ -1181,11 +1200,8 @@
     if (!toImport.length) { done(); return; }
     let imported = 0;
     for (const n of toImport) {
-      const links = (n.links && typeof n.links === 'object' && !Array.isArray(n.links)) ? n.links : {};
-      let phone = links.phone || null;
-      if (!phone && n.notes) { const m = String(n.notes).match(/(\+?[\d\s().-]{10,})/); if (m) phone = m[1].trim(); }
-      let email = links.email || null;
-      if (!email && n.notes) { const m = String(n.notes).match(/[\w.+-]+@[\w-]+\.[\w.-]+/); if (m) email = m[0]; }
+      const phone = nodeContactPhones(n)[0] || null;
+      const email = nodeContactEmails(n)[0] || null;
       const tags = Array.isArray(n.tags) ? n.tags.filter(t => t && !/^contractors?$/i.test(t)) : [];
       try {
         await saveVendorRow({
@@ -1203,6 +1219,133 @@
       NX.toast && NX.toast(`Imported ${imported} contractor${imported === 1 ? '' : 's'} into Vendors`, 'success', 3200);
       try { await loadVendors(); } catch (_) {}
     }
+  }
+
+  // ─── Contractor-contact extractors ──────────────────────────────────
+  // Contractor phone/email lives on the `nodes` record's `links`, which can
+  // be EITHER an array of {phone}/{email}/string entries (written by the
+  // public-PM QR flow) OR a flat {phone,email} object (written by the
+  // equipment contact editor), with a notes-regex fallback. These mirror
+  // extractFirstPhone/EmailFromNode in equipment-public-pm so Vendors reads
+  // the exact same source of truth as Public PM and Report-Issues.
+  const PHONE_RE = /(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/;
+  const EMAIL_RE = /[\w.+-]+@[\w-]+\.[\w.-]+/;
+  function nodeContactPhones(node) {
+    const out = [];
+    const push = p => { const s = (p == null ? '' : String(p)).trim(); if (s && !out.includes(s)) out.push(s); };
+    if (node) {
+      const links = node.links;
+      if (Array.isArray(links)) {
+        for (const l of links) {
+          if (l && typeof l === 'object' && l.phone) push(l.phone);
+          else if (typeof l === 'string') { const m = l.match(PHONE_RE); if (m) push(m[0]); }
+        }
+      } else if (links && typeof links === 'object' && links.phone) push(links.phone);
+      if (!out.length && node.notes) { const m = String(node.notes).match(PHONE_RE); if (m) push(m[0]); }
+    }
+    return out;
+  }
+  function nodeContactEmails(node) {
+    const out = [];
+    const push = e => { const s = (e == null ? '' : String(e)).trim(); if (s && !out.includes(s)) out.push(s); };
+    if (node) {
+      const links = node.links;
+      if (Array.isArray(links)) {
+        const tos = [], rest = [];
+        for (const l of links) {
+          if (l && typeof l === 'object' && l.email) (l.role === 'to' ? tos : rest).push(l.email);
+          else if (typeof l === 'string') { const m = l.match(EMAIL_RE); if (m) rest.push(m[0]); }
+        }
+        tos.forEach(push); rest.forEach(push);
+      } else if (links && typeof links === 'object' && links.email) push(links.email);
+      if (!out.length && node.notes) { const m = String(node.notes).match(EMAIL_RE); if (m) push(m[0]); }
+    }
+    return out;
+  }
+
+  // Fill in any vendor missing a phone/email from the authoritative sources:
+  // contractor `nodes` (matched by name) and the denormalized equipment
+  // columns (matched by contractor name AND by the service_/repair_vendor_id
+  // FK). Email exists ONLY on the node, so equipment contributes phone while
+  // the node (direct or via *_contractor_node_id) contributes email. Runs on
+  // every load but is cheap (skips entirely once no vendor is missing data)
+  // and NON-DESTRUCTIVE — it never overwrites a contact the vendor already
+  // has. Found values are written back so the data becomes durable.
+  async function reconcileVendorContacts() {
+    if (!NX?.sb || !state.vendors.length) return;
+    const needy = state.vendors.filter(v => !v.phone || !v.email);
+    if (!needy.length) return;
+
+    let nodes = [], equip = [];
+    try {
+      const [n, e] = await Promise.all([
+        NX.sb.from('nodes').select('*').in('category', ['contractor', 'contractors']),
+        NX.sb.from('equipment').select('*'),
+      ]);
+      nodes = n.data || []; equip = e.data || [];
+    } catch (_) {
+      try { const { data } = await NX.sb.from('nodes').select('*').eq('category', 'contractors'); nodes = data || []; } catch (__) {}
+    }
+
+    const norm = s => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const byName = new Map();   // norm(name) -> {phones:[], emails:[]}
+    const byVid  = new Map();   // vendor uuid  -> {phones:[], emails:[]}
+    const bucket = (map, key) => { if (!map.has(key)) map.set(key, { phones: [], emails: [] }); return map.get(key); };
+    const addP = (b, p) => { const s = (p == null ? '' : String(p)).trim(); if (s && !b.phones.includes(s)) b.phones.push(s); };
+    const addE = (b, e) => { const s = (e == null ? '' : String(e)).trim(); if (s && !b.emails.includes(s)) b.emails.push(s); };
+
+    const nodeById = new Map();
+    for (const nd of nodes) {
+      nodeById.set(nd.id, nd);
+      if (!nd.name) continue;
+      const b = bucket(byName, norm(nd.name));
+      nodeContactPhones(nd).forEach(p => addP(b, p));
+      nodeContactEmails(nd).forEach(e => addE(b, e));
+    }
+
+    for (const eq of equip) {
+      const sides = [
+        { name: eq.service_contractor_name, phone: eq.service_contractor_phone, nodeId: eq.service_contractor_node_id, vid: eq.service_vendor_id },
+        { name: eq.repair_contractor_name,  phone: eq.repair_contractor_phone,  nodeId: eq.repair_contractor_node_id,  vid: eq.repair_vendor_id  },
+      ];
+      for (const s of sides) {
+        if (s.name && s.phone) addP(bucket(byName, norm(s.name)), s.phone);
+        const nd = s.nodeId ? nodeById.get(s.nodeId) : null;
+        if (s.vid) {
+          const bv = bucket(byVid, s.vid);
+          if (s.phone) addP(bv, s.phone);
+          if (nd) { nodeContactPhones(nd).forEach(p => addP(bv, p)); nodeContactEmails(nd).forEach(e => addE(bv, e)); }
+        }
+      }
+    }
+
+    let filled = 0;
+    for (const v of needy) {
+      const fn = byName.get(norm(v.company || v.name)) || { phones: [], emails: [] };
+      const fv = byVid.get(v.id) || { phones: [], emails: [] };
+      const phones = [];
+      [v.phone, ...fn.phones, ...fv.phones].forEach(p => { const s = (p == null ? '' : String(p)).trim(); if (s && !phones.includes(s)) phones.push(s); });
+      const emails = [];
+      [v.email, ...fn.emails, ...fv.emails].forEach(e => { const s = (e == null ? '' : String(e)).trim(); if (s && !emails.includes(s)) emails.push(s); });
+
+      const patch = {};
+      if (!v.phone && phones.length) patch.phone = phones[0];
+      if (!v.email && emails.length) patch.email = emails[0];
+      const curPhones = Array.isArray(v.phones) ? v.phones : [];
+      const curEmails = Array.isArray(v.emails) ? v.emails : [];
+      // jsonb method arrays are [{value,label}] with index 0 = primary (the
+      // detail view renders .slice(1) as extra chips). Only write when the
+      // editor hasn't already populated them and we found more than one.
+      if (!curPhones.length && phones.length > 1) patch.phones = phones.map(p => ({ value: p, label: '' }));
+      if (!curEmails.length && emails.length > 1) patch.emails = emails.map(e => ({ value: e, label: '' }));
+
+      if (Object.keys(patch).length) {
+        Object.assign(v, patch);                       // immediate in-memory display
+        saveVendorPatch(v.id, patch).catch(() => {});  // durable, fire-and-forget
+        filled++;
+      }
+    }
+    return filled;
   }
 
   // Generic column-tolerant UPDATE on vendors. If the DB is missing a column
