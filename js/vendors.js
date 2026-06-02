@@ -286,7 +286,7 @@
       `<button data-vm="${act}" style="display:block;width:100%;text-align:left;padding:15px 18px;border:none;border-top:1px solid var(--nx-line,rgba(255,255,255,.07));background:none;color:var(--nx-text,#f3ede1);font:inherit;font-size:15px;cursor:pointer">${label}</button>`;
     ov.innerHTML =
       '<div class="nxrm-vmenu-bd" style="position:absolute;inset:0;background:rgba(0,0,0,.55)"></div>' +
-      '<div style="position:relative;width:100%;max-width:520px;background:var(--nx-surface-1,#16130d);border:1px solid var(--nx-gold-line,rgba(212,164,78,.4));border-bottom:none;border-radius:18px 18px 0 0;overflow:hidden;padding-bottom:env(safe-area-inset-bottom)">' +
+      '<div style="position:relative;width:100%;max-width:520px;background:var(--nx-surface-solid,#1b1b24);border:1px solid var(--nx-gold-line,rgba(212,164,78,.4));border-bottom:none;border-radius:18px 18px 0 0;overflow:hidden;padding-bottom:env(safe-area-inset-bottom)">' +
         `<div style="padding:16px 18px 12px;font-weight:700;font-size:15px;color:var(--nx-text,#f3ede1)">${esc(name)}</div>` +
         item('Open profile', 'open') +
         item('Edit vendor', 'edit') +
