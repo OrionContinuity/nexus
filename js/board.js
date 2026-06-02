@@ -881,6 +881,27 @@ function renderLists(){
 // ─────────────────────────────────────────────────────────────────────────
 // RENDER — single card (Trello-style)
 // ─────────────────────────────────────────────────────────────────────────
+// Labels come in two shapes: rich objects ({name,color}) from manual cards,
+// and bare strings from the domain orchestrator (auto issue/call/PM cards).
+// Map the known string labels to friendly names + colors, hide the internal
+// `kind:uuid` sentinels entirely, and humanize anything unrecognized — so
+// auto-generated cards read as intentional instead of showing blank chips.
+const B_LABEL_META = {
+  'dispatch-call':   { name: 'Call',      color: '#6c7bd0' },
+  'equipment-issue': { name: 'Issue',     color: '#c2553f' },
+  'pm-due':          { name: 'PM Due',    color: '#d4a44e' },
+  'pm-review':       { name: 'PM Review', color: '#6cd09a' },
+};
+function normalizeCardLabel(l){
+  if (l && typeof l === 'object') return { name: l.name || '', color: l.color || 'var(--muted)' };
+  if (typeof l === 'string') {
+    if (l.indexOf(':') !== -1) return null;            // internal sentinel — never shown
+    if (B_LABEL_META[l]) return B_LABEL_META[l];
+    return { name: l.replace(/[-_]/g, ' '), color: 'var(--muted)' };
+  }
+  return null;
+}
+
 function createCardEl(card){
   const el = document.createElement('div');
   el.className = 'b-card';
@@ -911,8 +932,8 @@ function createCardEl(card){
   // columns the way Trello uses label strips. If there's no label and
   // no priority color, fall back to a faint neutral so the strip never
   // vanishes entirely (vanishing strips made cards look broken).
-  const firstLabel = (card.labels || [])[0];
-  const stripColor = firstLabel?.color || pri.color || 'rgba(200,164,78,0.18)';
+  const visibleLabels = (card.labels || []).map(normalizeCardLabel).filter(Boolean);
+  const stripColor = visibleLabels[0]?.color || pri.color || 'rgba(200,164,78,0.18)';
   html += `<div class="b-card-strip" style="background:${stripColor}"></div>`;
 
   // Body (padded content — separate from cover so cover bleeds to edges)
@@ -922,9 +943,9 @@ function createCardEl(card){
   html += `<button class="b-card-move-btn" data-move="${card.id}">→ Move</button>`;
 
   // Labels (small chips, more Trello-ish — already exists, just more compact)
-  if((card.labels||[]).length){
+  if(visibleLabels.length){
     html += `<div class="b-card-labels">${
-      card.labels.map(l => `<span class="b-card-label" style="background:${l.color||'var(--muted)'}">${esc(l.name||'')}</span>`).join('')
+      visibleLabels.map(l => `<span class="b-card-label" style="background:${l.color}">${esc(l.name)}</span>`).join('')
     }</div>`;
   }
 
@@ -1325,6 +1346,15 @@ async function moveCard(card, targetList){
       if ('closed_at' in updatePayload) card.closed_at = updatePayload.closed_at;
     }
     // ── CROSS-SYSTEM CLOSE-OUT ────────────────────────────────────
+    // Keep the mirrored ticket (Duties / home counts / biweekly) in step
+    // with the card's lane so the two surfaces never drift.
+    if (card.ticket_id && NX.work && NX.work.syncTicketToCard) {
+      if (movingToDone && wasNotDone) {
+        NX.work.syncTicketToCard({ ticketId: card.ticket_id, closed: true });
+      } else if (!movingToDone && isDone({ column_name: prev.column_name, list_id: prev.list_id })) {
+        NX.work.syncTicketToCard({ ticketId: card.ticket_id, closed: false });
+      }
+    }
     // If this card just moved to Done and is linked to equipment
     // that isn't currently Operational, offer to mark the equipment
     // repaired. One confirm, one update, one toast — saves switching
@@ -1501,6 +1531,14 @@ async function openCardDetail(card){
         <div id="bEqEmbed"><!-- populated async --></div>
       </div>
 
+      <!-- Unified progress timeline (v19): merges calls/dispatches, PM &
+           service logs (with photos), status changes, and comments into one
+           chronological "full progress" view. Populated by renderProgressTimeline(). -->
+      <div class="b-section" id="bProgressSection" style="display:none">
+        <div class="b-section-label">Progress</div>
+        <div id="bProgress"><!-- populated async --></div>
+      </div>
+
       <!-- ── Issue Lifecycle (v18.5) ────────────────────────────────
            Shown only when the card has an issue:UUID label, i.e.
            it's linked to an equipment_issues row. Surfaces the same
@@ -1655,6 +1693,10 @@ async function openCardDetail(card){
   // Each row shows method, contractor, outcome, notes, photos +
   // per-row "Mark resolved" / "Mark failed" buttons.
   renderRepairAttempts(card, bg);
+
+  // Unified Progress timeline (v19) — the "full progress, pictures along the
+  // way" view. Merges calls, PM/service logs, status changes and comments.
+  renderProgressTimeline(card, bg);
 
   // Parts BOM picker (async — fetches the equipment's bill of
   // materials so the user can quick-pick from real parts instead of
@@ -3134,6 +3176,154 @@ async function renderRepairAttempts(card, bg) {
   // Add-attempt button
   bg.querySelector('#bAddAttempt')?.addEventListener('click', () => openAddAttemptForm(card, attempts, paint));
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// UNIFIED PROGRESS TIMELINE (v19)
+// One chronological feed of everything that happened to this work item:
+// created → calls/dispatches (with photos) → PM & service logs (with photos
+// + cost) → equipment status changes → comments. Read-only; the existing
+// edit affordances (attempts buttons, comment box) stay where they are. This
+// is the "see the full progress, pictures along the way" view.
+// ─────────────────────────────────────────────────────────────────────────
+async function renderProgressTimeline(card, bg) {
+  const sect = bg.querySelector('#bProgressSection');
+  const host = bg.querySelector('#bProgress');
+  if (!sect || !host) return;
+
+  const eqId = card.equipment_id || null;
+  const nodes = [];
+
+  // 0) Created
+  nodes.push({
+    ts: card.created_at || null,
+    icon: 'plus-circle', color: '#9a9081',
+    title: 'Created' + (card.reported_by ? ` · ${card.reported_by}` : ''),
+    text: card.description || '',
+    photos: Array.isArray(card.photo_urls) ? card.photo_urls : [],
+  });
+
+  if (eqId) {
+    // 1) Calls / dispatches
+    try {
+      let q = await NX.sb.from('dispatch_events')
+        .select('id, method, contractor_name, outcome, outcome_notes, issue_description, dispatched_by, dispatched_at, photo_urls')
+        .eq('equipment_id', eqId).order('dispatched_at', { ascending: true }).limit(40);
+      if (q.error && /photo_urls/i.test(q.error.message || '')) {
+        q = await NX.sb.from('dispatch_events')
+          .select('id, method, contractor_name, outcome, outcome_notes, issue_description, dispatched_by, dispatched_at')
+          .eq('equipment_id', eqId).order('dispatched_at', { ascending: true }).limit(40);
+      }
+      (q.data || []).forEach(d => {
+        const verb = d.method === 'text' ? 'Texted' : d.method === 'email' ? 'Emailed' : d.method === 'in_house' ? 'In-house' : 'Called';
+        const parts = [];
+        if (d.issue_description) parts.push(d.issue_description);
+        if (d.outcome && d.outcome !== 'pending') parts.push(`Outcome: ${d.outcome}`);
+        if (d.outcome_notes) parts.push(d.outcome_notes);
+        nodes.push({
+          ts: d.dispatched_at, icon: 'phone', color: '#6c7bd0',
+          title: `${verb} ${d.contractor_name || 'contractor'}` + (d.dispatched_by ? ` · by ${d.dispatched_by}` : ''),
+          text: parts.join(' — '),
+          photos: Array.isArray(d.photo_urls) ? d.photo_urls : [],
+        });
+      });
+    } catch (_) {}
+
+    // 2) Service / PM logs (contractor submissions carry photos + invoice)
+    try {
+      const { data } = await NX.sb.from('pm_logs')
+        .select('id, service_type, service_date, work_performed, parts_replaced, cost_amount, contractor_name, review_status, photo_urls, pdf_url')
+        .eq('equipment_id', eqId).order('service_date', { ascending: true }).limit(40);
+      (data || []).forEach(l => {
+        const type = (l.service_type || 'service').replace(/^./, c => c.toUpperCase());
+        const bits = [];
+        if (l.work_performed) bits.push(l.work_performed);
+        if (l.parts_replaced) bits.push('Parts: ' + l.parts_replaced);
+        if (l.cost_amount != null && !isNaN(l.cost_amount)) bits.push(`$${Math.round(Number(l.cost_amount)).toLocaleString()}`);
+        const status = l.review_status && l.review_status !== 'approved' ? ` · ${l.review_status}` : '';
+        nodes.push({
+          ts: l.service_date, icon: 'wrench', color: '#6cd09a',
+          title: `${type}${l.contractor_name ? ' · ' + l.contractor_name : ''}${status}`,
+          text: bits.join(' — '),
+          photos: Array.isArray(l.photo_urls) ? l.photo_urls : [],
+          invoice: l.pdf_url || null,
+        });
+      });
+    } catch (_) {}
+
+    // 3) Status changes
+    try {
+      const { data } = await NX.sb.from('equipment_events')
+        .select('event_type, payload, occurred_at, actor_name')
+        .eq('equipment_id', eqId).eq('event_type', 'status_change')
+        .order('occurred_at', { ascending: true }).limit(40);
+      (data || []).forEach(ev => {
+        const p = ev.payload || {};
+        nodes.push({
+          ts: ev.occurred_at, icon: 'activity', color: '#d4a44e',
+          title: `Status: ${esc(p.from_label || p.from || '?')} → ${esc(p.to_label || p.to || '?')}` + (ev.actor_name ? ` · ${ev.actor_name}` : ''),
+          text: '', photos: [],
+        });
+      });
+    } catch (_) {}
+  }
+
+  // 4) Comments on the card
+  (card.comments || []).forEach(c => {
+    nodes.push({
+      ts: c.at || null, icon: 'message-square', color: '#9a9081',
+      title: `Comment${c.by ? ' · ' + c.by : ''}`,
+      text: c.text || '', photos: [],
+    });
+  });
+
+  const valid = nodes.filter(n => n.title);
+  if (valid.length <= 1 && !eqId) { sect.style.display = 'none'; return; }
+  sect.style.display = '';
+
+  // Sort oldest→newest; undated created node floats to top.
+  valid.sort((a, b) => {
+    const ta = a.ts ? new Date(a.ts).getTime() : 0;
+    const tb = b.ts ? new Date(b.ts).getTime() : 0;
+    return ta - tb;
+  });
+
+  const fmt = (ts) => ts ? new Date(ts).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+  host.innerHTML = `<div class="b-timeline">${valid.map(n => `
+    <div class="b-tl-node">
+      <div class="b-tl-rail"><span class="b-tl-dot" style="background:${n.color}"><i data-lucide="${n.icon}"></i></span></div>
+      <div class="b-tl-body">
+        <div class="b-tl-title">${esc(n.title)}</div>
+        ${n.ts ? `<div class="b-tl-when">${esc(fmt(n.ts))}</div>` : ''}
+        ${n.text ? `<div class="b-tl-text">${esc(n.text)}</div>` : ''}
+        ${n.invoice ? `<a class="b-tl-invoice" href="${esc(n.invoice)}" target="_blank" rel="noopener"><i data-lucide="file-text"></i> View invoice</a>` : ''}
+        ${n.photos && n.photos.length ? `<div class="b-tl-photos">${n.photos.map(u => `<img class="b-tl-photo" src="${esc(u)}" loading="lazy" onerror="this.style.display='none'" onclick="window.open('${esc(u)}','_blank')">`).join('')}</div>` : ''}
+      </div>
+    </div>`).join('')}</div>`;
+
+  // Inject the small stylesheet once.
+  if (!document.getElementById('b-timeline-style')) {
+    const st = document.createElement('style');
+    st.id = 'b-timeline-style';
+    st.textContent =
+      '.b-timeline{display:flex;flex-direction:column;gap:0}' +
+      '.b-tl-node{display:flex;gap:10px;align-items:flex-start}' +
+      '.b-tl-rail{display:flex;flex-direction:column;align-items:center;align-self:stretch;flex:0 0 auto}' +
+      '.b-tl-dot{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#1a1710;flex:0 0 auto}' +
+      '.b-tl-dot i,.b-tl-dot svg{width:14px;height:14px}' +
+      '.b-tl-node:not(:last-child) .b-tl-rail::after{content:"";flex:1;width:2px;background:var(--nx-gold-line,rgba(212,164,78,.25));margin:2px 0}' +
+      '.b-tl-body{flex:1;min-width:0;padding-bottom:16px}' +
+      '.b-tl-title{font-size:13.5px;font-weight:600;color:var(--nx-text,#f3ede1)}' +
+      '.b-tl-when{font-size:11px;color:var(--nx-faint,#9a9081);margin-top:1px}' +
+      '.b-tl-text{font-size:12.5px;color:var(--nx-muted,#bdb3a2);margin-top:4px;white-space:pre-wrap;word-break:break-word}' +
+      '.b-tl-photos{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}' +
+      '.b-tl-invoice{display:inline-flex;align-items:center;gap:5px;margin-top:6px;font-size:12px;font-weight:600;color:var(--nx-gold,#d4a44e);text-decoration:none}' +
+      '.b-tl-invoice i,.b-tl-invoice svg{width:14px;height:14px}' +
+      '.b-tl-photo{width:62px;height:62px;object-fit:cover;border-radius:8px;border:1px solid var(--nx-gold-line,rgba(212,164,78,.25));cursor:pointer}';
+    document.head.appendChild(st);
+  }
+  if (window.lucide) try { lucide.createIcons(); } catch (_) {}
+}
+
 
 function openAddAttemptForm(card, attempts, repaint) {
   const m = document.createElement('div');
