@@ -1816,7 +1816,7 @@ async function renderEquipmentEmbed(card, container){
   // We have equipment_id — fetch full equipment + render embed
   try{
     const { data: eq } = await NX.sb.from('equipment')
-      .select('id, name, location, category, manufacturer, model, health_score')
+      .select('*')
       .eq('id', card.equipment_id).single();
     if(!eq){
       container.innerHTML = '<div style="font-size:11px;color:var(--text-faint)">Equipment not found</div>';
@@ -1826,6 +1826,14 @@ async function renderEquipmentEmbed(card, container){
     const health = (eq.health_score != null)
       ? `<span style="color:${eq.health_score>=70?'var(--green)':eq.health_score>=40?'var(--accent)':'var(--red)'}">${eq.health_score}%</span>`
       : '—';
+    // Vendor(s) responsible for this equipment — deep-link into the vendor
+    // profile (cross-module). Show repair separately only if it differs.
+    const vlinks = [];
+    if (eq.service_vendor_id) vlinks.push({ id: eq.service_vendor_id, name: eq.service_contractor_name || 'Service vendor', role: 'Serviced by' });
+    if (eq.repair_vendor_id && String(eq.repair_vendor_id) !== String(eq.service_vendor_id)) vlinks.push({ id: eq.repair_vendor_id, name: eq.repair_contractor_name || 'Repair vendor', role: 'Repairs by' });
+    const vlinksHtml = vlinks.map(vl =>
+      `<button class="b-btn b-vendor-go" data-vendor-id="${esc(String(vl.id))}" style="margin-top:6px;font-size:11px;display:flex;align-items:center;gap:6px;width:100%;justify-content:flex-start;text-align:left"><i data-lucide="briefcase" class="b-btn-icon"></i><span style="opacity:.55">${esc(vl.role)}</span>&nbsp;${esc(vl.name)} →</button>`
+    ).join('');
     container.innerHTML = `
       <div class="b-eq-embed" id="bEqGo">
         <div class="b-eq-embed-icon"><i data-lucide="wrench"></i></div>
@@ -1835,6 +1843,7 @@ async function renderEquipmentEmbed(card, container){
         </div>
         <div class="b-eq-embed-chev">›</div>
       </div>
+      ${vlinksHtml}
       <button class="b-btn" id="bEqUnlink" style="margin-top:6px;font-size:11px">Unlink equipment</button>`;
     container.querySelector('#bEqGo').addEventListener('click', () => {
       if(NX.modules?.equipment?.openDetail){
@@ -1850,6 +1859,16 @@ async function renderEquipmentEmbed(card, container){
       // BOM is meaningless without a linked equipment; clear it
       const bom = document.getElementById('bPartsBom');
       if (bom) { bom.innerHTML = ''; bom.style.display = 'none'; }
+    });
+    container.querySelectorAll('.b-vendor-go').forEach(b => {
+      b.addEventListener('click', () => {
+        const vid = b.getAttribute('data-vendor-id');
+        if (vid && NX.modules?.vendors?.openVendor) {
+          NX.modules.vendors.openVendor(vid);
+          const modal = container.closest('.b-modal-bg');
+          if (modal) modal.remove();
+        }
+      });
     });
   }catch(e){
     console.error('[board] equipment embed:', e);
@@ -2681,6 +2700,25 @@ async function getOpenCardsForEquipment(equipmentId){
   }
 }
 
+// Open a specific card's detail by id — lets other modules (e.g. Vendors)
+// deep-link straight into a work order. Loads the board + the card first,
+// switches to the Board view, then opens the detail overlay.
+async function openCard(cardId){
+  if(!cardId) return;
+  try{
+    if(!boards.length) await loadBoards();
+    if((!cards || !cards.length) && typeof loadCards === 'function') await loadCards();
+  }catch(_){}
+  let card = (cards || []).find(c => String(c.id) === String(cardId));
+  if(!card){
+    try{ const { data } = await NX.sb.from('kanban_cards').select('*').eq('id', cardId).single(); if(data) card = data; }catch(_){}
+  }
+  if(!card){ NX.toast && NX.toast('Card not found', 'warn', 1800); return; }
+  document.querySelector('.nav-tab[data-view="board"]')?.click();
+  document.querySelector('.bnav-btn[data-view="board"]')?.click();
+  setTimeout(() => { try{ openCardDetail(card); }catch(e){ console.error('[board] openCard:', e); } }, 60);
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // v18.5 — Issue Lifecycle Timeline + Repair Attempts
 // ═══════════════════════════════════════════════════════════════════════
@@ -3127,6 +3165,7 @@ NX.modules.board = {
   show,
   createFromEquipment,
   getOpenCardsForEquipment,
+  openCard,
   // also expose loadCards so equipment-integration refreshes correctly
   reload: async () => { await loadCards(); render(); },
 };
