@@ -166,7 +166,7 @@
           </div>
         </div>
 
-        <div class="nxrm-vendor-list">${renderCards()}</div>
+        <div class="nxrm-vendor-list" style="padding:0">${renderCards()}</div>
       </div>
     `;
     wire(view);
@@ -183,29 +183,39 @@
           </div>
         </div>`;
     }
+    const DOTS = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>';
     return state.filtered.map(v => {
-      const grade = score.vendorGrade(v);
+      const name = v.company || v.name || 'Unnamed';
+      const jobs = v.total_jobs || 0;
+      let preview;
+      if (jobs > 0) {
+        preview = `${jobs} job${jobs === 1 ? '' : 's'} · ${fmt.money(v.total_spend)}` + (v.last_job_at ? ` · last ${fmt.sinceWords(v.last_job_at)}` : '');
+      } else {
+        preview = v.phone || v.email || 'No contact on file';
+      }
+      const noContact = !v.phone && !v.email;
       return `
-        <button class="nxrm-vendor-card" data-vendor-id="${esc(v.id)}">
-          ${vendorListAvatar(v, grade)}
-          <div class="nxrm-vendor-body">
-            <div class="nxrm-vendor-row1">
-              <span class="nxrm-vendor-name">${esc(v.company || v.name)}</span>
-              ${v.is_preferred ? '<span class="nxrm-vendor-badge is-pref">⭐ Preferred</span>' : ''}
-              ${v.is_emergency ? '<span class="nxrm-vendor-badge is-emerg">24-hr</span>' : ''}
+        <div class="ord-vendor-row-wrap">
+          <button class="ord-vendor-row" data-vendor-id="${esc(v.id)}" data-vendor-name="${esc(name.toLowerCase())}">
+            <div class="ord-vendor-avatar-wrap">
+              ${vendorAvatarCircle(v, '')}
+              ${v.is_preferred ? '<span class="ord-vendor-pin" title="Preferred vendor">★</span>' : ''}
             </div>
-            <div class="nxrm-vendor-row2">
-              ${v.category ? '<span class="nxrm-vendor-cat">' + esc(v.category) + '</span>' : ''}
-              ${v.phone ? '<span class="nxrm-vendor-phone">📞 ' + esc(v.phone) + '</span>' : ''}
+            <div class="ord-vendor-main">
+              <div class="ord-vendor-name-row">
+                <div class="ord-vendor-name">${esc(name)}</div>
+                ${v.category ? `<div class="ord-vendor-when">${esc(v.category)}</div>` : ''}
+              </div>
+              <div class="ord-vendor-meta">
+                ${v.is_emergency ? '<span class="ord-vendor-pill" style="background:rgba(229,72,77,.14);color:#e5707a;border:1px solid rgba(229,72,77,.40)">24-HR</span>' : ''}
+                <span class="ord-vendor-preview">${esc(preview)}</span>
+              </div>
             </div>
-            <div class="nxrm-vendor-stats">
-              <div class="nxrm-vendor-stat"><div class="nxrm-vendor-stat-val">${v.total_jobs}</div><div class="nxrm-vendor-stat-lbl">jobs</div></div>
-              <div class="nxrm-vendor-stat"><div class="nxrm-vendor-stat-val">${fmt.money(v.total_spend)}</div><div class="nxrm-vendor-stat-lbl">spent</div></div>
-              <div class="nxrm-vendor-stat"><div class="nxrm-vendor-stat-val">${fmt.hours(v.avg_response_hours)}</div><div class="nxrm-vendor-stat-lbl">response</div></div>
-              <div class="nxrm-vendor-stat"><div class="nxrm-vendor-stat-val">${fmt.sinceWords(v.last_job_at)}</div><div class="nxrm-vendor-stat-lbl">last job</div></div>
-            </div>
-          </div>
-        </button>`;
+            ${noContact ? '<span class="ord-vendor-warn" title="No phone or email on file">!</span>' : ''}
+            <div class="ord-arrow" aria-hidden="true">›</div>
+          </button>
+          <button class="ord-vendor-menu" data-vendor-menu="${esc(v.id)}" aria-label="More options for ${esc(name)}">${DOTS}</button>
+        </div>`;
     }).join('');
   }
 
@@ -239,15 +249,62 @@
       state.filter.sort = sortSel.value;
       applyFilters(); render();
     });
-    view.querySelectorAll('[data-vendor-id]').forEach(el => {
+    view.querySelectorAll('.ord-vendor-row[data-vendor-id]').forEach(el => {
       el.addEventListener('click', () => {
         const id = el.getAttribute('data-vendor-id');
-        const v = state.filtered.find(x => x.id === id);
-        if (v) { state.activeVendor = v; render(); }
+        const v = state.filtered.find(x => String(x.id) === String(id)) || mergeData().find(x => String(x.id) === String(id));
+        if (v) { state.activeVendor = v; state._detailCache = null; render(); }
+      });
+    });
+    view.querySelectorAll('[data-vendor-menu]').forEach(el => {
+      el.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const id = el.getAttribute('data-vendor-menu');
+        const v = state.filtered.find(x => String(x.id) === String(id)) || mergeData().find(x => String(x.id) === String(id));
+        if (v) openVendorRowMenu(v);
       });
     });
     const newBtn = view.querySelector('[data-act="new-vendor"]');
     if (newBtn) newBtn.addEventListener('click', promptNewVendor);
+  }
+
+  // Compact action sheet opened from a vendor row's ⋮ kebab. Mirrors the
+  // quick actions available inside the detail view so common tasks (call,
+  // schedule a PM, log a service visit) don't require opening the profile.
+  function openVendorRowMenu(v) {
+    if (!v) return;
+    document.querySelectorAll('.nxrm-vmenu-overlay').forEach(n => n.remove());
+    const name = v.company || v.name || 'Vendor';
+    const ov = document.createElement('div');
+    ov.className = 'nxrm-vmenu-overlay';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:9300;display:flex;align-items:flex-end;justify-content:center';
+    const item = (label, act) =>
+      `<button data-vm="${act}" style="display:block;width:100%;text-align:left;padding:15px 18px;border:none;border-top:1px solid var(--nx-line,rgba(255,255,255,.07));background:none;color:var(--nx-text,#f3ede1);font:inherit;font-size:15px;cursor:pointer">${label}</button>`;
+    ov.innerHTML =
+      '<div class="nxrm-vmenu-bd" style="position:absolute;inset:0;background:rgba(0,0,0,.55)"></div>' +
+      '<div style="position:relative;width:100%;max-width:520px;background:var(--nx-surface-1,#16130d);border:1px solid var(--nx-gold-line,rgba(212,164,78,.4));border-bottom:none;border-radius:18px 18px 0 0;overflow:hidden;padding-bottom:env(safe-area-inset-bottom)">' +
+        `<div style="padding:16px 18px 12px;font-weight:700;font-size:15px;color:var(--nx-text,#f3ede1)">${esc(name)}</div>` +
+        item('Open profile', 'open') +
+        item('Edit vendor', 'edit') +
+        (v.phone ? item('Call', 'call') : '') +
+        (v.phone ? item('Text', 'text') : '') +
+        item('Schedule PM', 'pm') +
+        item('Log service', 'log') +
+        '<button data-vm="cancel" style="display:block;width:100%;text-align:center;padding:15px 18px;border:none;border-top:1px solid var(--nx-line,rgba(255,255,255,.07));background:none;color:var(--nx-faint,#9a9081);font:inherit;font-size:15px;cursor:pointer">Cancel</button>' +
+      '</div>';
+    const close = () => ov.remove();
+    ov.querySelector('.nxrm-vmenu-bd').addEventListener('click', close);
+    ov.querySelectorAll('[data-vm]').forEach(b => b.addEventListener('click', () => {
+      const act = b.getAttribute('data-vm');
+      close();
+      if (act === 'open') { state.activeVendor = v; state._detailCache = null; render(); }
+      else if (act === 'edit') promptEditVendor(v);
+      else if (act === 'call' && v.phone) { stampVendorContact(v.id); window.location.href = 'tel:' + String(v.phone).replace(/[^\d+]/g, ''); }
+      else if (act === 'text' && v.phone) { stampVendorContact(v.id); window.location.href = 'sms:' + String(v.phone).replace(/[^\d+]/g, ''); }
+      else if (act === 'pm') openVendorPmScheduler(v);
+      else if (act === 'log') openVendorServiceLogger(v);
+    }));
+    document.body.appendChild(ov);
   }
 
   // ─────────────────────────────────────────────────────────────────────
