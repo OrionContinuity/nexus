@@ -1613,6 +1613,18 @@ async function patchCardField(card, field, mutator){
   return next;
 }
 
+// Filename shown for an attached invoice (best-effort from the storage URL).
+function invoiceFileName(u){
+  try { return decodeURIComponent(String(u).split('/').pop().split('?')[0]) || 'Invoice'; }
+  catch(_) { return 'Invoice'; }
+}
+function invoiceRowHtml(u){
+  return `<div class="b-invoice-row" data-invoice="${esc(u)}">
+    <a class="b-invoice-link" href="${esc(u)}" target="_blank" rel="noopener"><i data-lucide="file-text"></i><span>${esc(invoiceFileName(u))}</span></a>
+    <button type="button" class="b-invoice-del" data-delinvoice="${esc(u)}" aria-label="Remove invoice">×</button>
+  </div>`;
+}
+
 async function openCardDetail(card){
   // Refresh equipment cache in background for the picker
   loadEquipmentCache();
@@ -1710,12 +1722,21 @@ async function openCardDetail(card){
       <div class="b-section">
         <div class="b-section-label">Photos</div>
         <div class="b-photos" id="bPhotos">
-          ${(card.photo_urls||[]).map((u,i) =>
-            `<img class="b-photo" src="${esc(u)}" data-idx="${i}" onerror="this.style.display='none'">`
+          ${(card.photo_urls||[]).map((u) =>
+            `<span class="b-photo-wrap"><img class="b-photo" src="${esc(u)}" data-url="${esc(u)}" onerror="this.style.display='none'"><button type="button" class="b-photo-del" data-delphoto="${esc(u)}" aria-label="Remove photo">×</button></span>`
           ).join('')}
           <button class="b-photo-add" id="bPhotoAdd">+</button>
         </div>
         <input type="file" id="bPhotoInput" accept="image/*" capture="environment" style="display:none">
+      </div>
+
+      <div class="b-section">
+        <div class="b-section-label">Invoices</div>
+        <div class="b-invoices" id="bInvoices">
+          ${(card.invoice_urls||[]).map((u) => invoiceRowHtml(u)).join('')}
+        </div>
+        <button class="b-invoice-add" id="bInvoiceAdd" type="button"><i data-lucide="file-text"></i> Add invoice</button>
+        <input type="file" id="bInvoiceInput" accept="application/pdf,image/*" style="display:none">
       </div>
 
       <div class="b-section">
@@ -1870,46 +1891,69 @@ async function openCardDetail(card){
   // the parts input and adds the price to Est $.)
   renderPartsBomPicker(card, bg);
 
-  // Photo: on click, enlarge
-  bg.querySelectorAll('.b-photo').forEach(img => {
-    img.addEventListener('click', () => {
-      const fs = document.createElement('div');
-      fs.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.95);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px;cursor:pointer';
-      fs.innerHTML = `<img src="${img.src}" style="max-width:100%;max-height:100%;object-fit:contain">`;
-      fs.addEventListener('click', ()=>fs.remove());
-      document.body.appendChild(fs);
+  // ── Photos: fullscreen, add, remove ──
+  const openFullscreen = (url) => {
+    const fs = document.createElement('div');
+    fs.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.95);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px;cursor:pointer';
+    fs.innerHTML = `<img src="${esc(url)}" style="max-width:100%;max-height:100%;object-fit:contain">`;
+    fs.addEventListener('click', () => fs.remove());
+    document.body.appendChild(fs);
+  };
+  const wirePhotoWrap = (wrap) => {
+    const img = wrap.querySelector('.b-photo');
+    const del = wrap.querySelector('.b-photo-del');
+    if(img) img.addEventListener('click', () => openFullscreen(img.dataset.url || img.src));
+    if(del) del.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const url = del.dataset.delphoto;
+      try{ await patchCardField(card, 'photo_urls', arr => arr.filter(x => x !== url)); wrap.remove(); }catch(_){}
     });
-  });
+  };
+  bg.querySelectorAll('#bPhotos .b-photo-wrap').forEach(wirePhotoWrap);
 
   // Photo add
-  bg.querySelector('#bPhotoAdd').addEventListener('click', () => {
-    bg.querySelector('#bPhotoInput').click();
-  });
+  bg.querySelector('#bPhotoAdd').addEventListener('click', () => bg.querySelector('#bPhotoInput').click());
   bg.querySelector('#bPhotoInput').addEventListener('change', async e => {
     const file = e.target.files && e.target.files[0];
     if(!file) return;
     const url = await uploadPhoto(file, card.id);
-    if(url){
-      try{
-        await patchCardField(card, 'photo_urls', arr => [...arr, url]);
-        // Live-append the thumbnail before the add button — no teardown, so
-        // unsaved title/description edits in the modal aren't reverted.
-        const wrap = bg.querySelector('#bPhotos');
-        const addBtn = wrap.querySelector('#bPhotoAdd');
-        const img = document.createElement('img');
-        img.className = 'b-photo';
-        img.src = url;
-        img.onerror = function(){ this.style.display = 'none'; };
-        img.addEventListener('click', () => {
-          const fs = document.createElement('div');
-          fs.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.95);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px;cursor:pointer';
-          fs.innerHTML = `<img src="${esc(url)}" style="max-width:100%;max-height:100%;object-fit:contain">`;
-          fs.addEventListener('click', () => fs.remove());
-          document.body.appendChild(fs);
-        });
-        if(addBtn) wrap.insertBefore(img, addBtn); else wrap.appendChild(img);
-      }catch(_){ /* toast already shown */ }
-    }
+    if(!url) return;
+    try{
+      await patchCardField(card, 'photo_urls', arr => [...arr, url]);
+      // Live-append the thumbnail (no teardown, so unsaved edits aren't lost).
+      const wrap = bg.querySelector('#bPhotos');
+      const addBtn = wrap.querySelector('#bPhotoAdd');
+      const span = document.createElement('span');
+      span.className = 'b-photo-wrap';
+      span.innerHTML = `<img class="b-photo" src="${esc(url)}" data-url="${esc(url)}" onerror="this.style.display='none'"><button type="button" class="b-photo-del" data-delphoto="${esc(url)}" aria-label="Remove photo">×</button>`;
+      if(addBtn) wrap.insertBefore(span, addBtn); else wrap.appendChild(span);
+      wirePhotoWrap(span);
+    }catch(_){ /* toast already shown */ }
+  });
+
+  // ── Invoices: add (PDF/image), view, remove ──
+  const wireInvoiceRow = (row) => {
+    const del = row.querySelector('.b-invoice-del');
+    if(del) del.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const url = del.dataset.delinvoice;
+      try{ await patchCardField(card, 'invoice_urls', arr => arr.filter(x => x !== url)); row.remove(); }catch(_){}
+    });
+  };
+  bg.querySelectorAll('#bInvoices .b-invoice-row').forEach(wireInvoiceRow);
+  bg.querySelector('#bInvoiceAdd').addEventListener('click', () => bg.querySelector('#bInvoiceInput').click());
+  bg.querySelector('#bInvoiceInput').addEventListener('change', async e => {
+    const file = e.target.files && e.target.files[0];
+    if(!file) return;
+    const url = await uploadPhoto(file, card.id);   // generic upload — handles PDFs too
+    if(!url) return;
+    try{
+      await patchCardField(card, 'invoice_urls', arr => [...arr, url]);
+      const wrap = bg.querySelector('#bInvoices');
+      wrap.insertAdjacentHTML('beforeend', invoiceRowHtml(url));
+      wireInvoiceRow(wrap.lastElementChild);
+      if(window.lucide?.createIcons) window.lucide.createIcons();
+    }catch(_){}
   });
 
   // Checklist toggle — persists immediately, merging against latest DB
