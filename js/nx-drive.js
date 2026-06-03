@@ -170,6 +170,15 @@ const esc = (s) => String(s == null ? '' : s)
 
 const nl2br = (s) => esc(s).replace(/\n/g, '<br>');
 
+// Normalize a location value to consistent Title Case for the doc, so the
+// same place doesn't appear as "suerte", "SUERTE", and "Suerte" in one table
+// (legacy rows stored raw casing). Multi-word values are title-cased per word.
+const fmtLoc = (s) => {
+  const v = String(s == null ? '' : s).trim();
+  if (!v) return '—';
+  return esc(v.toLowerCase().replace(/\b\w/g, c => c.toUpperCase()));
+};
+
 const RM_LABELS = {
   hvac: 'HVAC',
   refrigeration: 'Refrigeration',
@@ -381,7 +390,7 @@ function renderEquipmentActivitySection(activity, notes) {
       <tr>
         <td style="width:60px;font-size:9pt;color:#666;">${esc(time)}</td>
         <td><b>${esc(eqName)}</b></td>
-        <td style="font-size:9pt;color:#666;">${esc(loc)}</td>
+        <td style="font-size:9pt;color:#666;">${fmtLoc(loc)}</td>
         <td>${detail}</td>
         <td style="font-size:9pt;color:#666;">${actor}</td>
       </tr>`;
@@ -463,7 +472,7 @@ function renderBiweeklyAgedTickets(aged) {
       <tr>
         <td style="width:80px;font-size:9pt;text-transform:uppercase;color:#555;"><b>${esc(pri)}</b></td>
         <td><b>${esc(t.title || 'Untitled ticket')}</b></td>
-        <td style="font-size:9pt;color:#666;">${esc(t.location || '—')}</td>
+        <td style="font-size:9pt;color:#666;">${fmtLoc(t.location)}</td>
         <td style="width:90px;text-align:right;font-family:monospace;color:#a83e3e;"><b>${t.age_days}d open</b></td>
       </tr>`;
   }).join('');
@@ -687,12 +696,17 @@ function renderDailyTicketsSection(slices, notes) {
   const ticketTable = (items, emptyMsg) => {
     const rows = (items || []).filter(t => t && t.title).map(t => {
       const pri = (t.priority || 'normal').toLowerCase();
+      // Lane: prefer the snapshot's resolved list name (_laneLabel, set from
+      // the card's board list); fall back to a status-derived label. The old
+      // code used only status, which is blank for most cards — hence the
+      // empty Lane column.
+      const lane = t._laneLabel || laneLabel(t.status) || '—';
       return `
         <tr>
           <td style="width:80px;font-size:9pt;text-transform:uppercase;color:#555;"><b>${esc(pri)}</b></td>
           <td><b>${esc(t.title)}</b></td>
-          <td style="width:22%;font-size:9pt;color:#666;">${esc(t.location || '—')}</td>
-          <td style="width:20%;font-size:9pt;color:#666;">${esc(laneLabel(t.status))}</td>
+          <td style="width:22%;font-size:9pt;color:#666;">${fmtLoc(t.location)}</td>
+          <td style="width:20%;font-size:9pt;color:#666;">${esc(lane)}</td>
         </tr>`;
     }).join('');
     if (!rows) return `<p style="font-style:italic;color:#999;">${esc(emptyMsg)}</p>`;
@@ -794,7 +808,7 @@ function renderDailyEquipmentStatus(items) {
     return `
       <tr>
         <td style="width:120px;font-size:9pt;"><b>${esc(statusLabel(eq.status))}</b></td>
-        <td><b>${esc(eq.name || 'Untitled')}</b><br><small style="color:#666;">${esc(eq.location || '')}</small></td>
+        <td><b>${esc(eq.name || 'Untitled')}</b><br><small style="color:#666;">${fmtLoc(eq.location)}</small></td>
         <td>${esc(eq.status_note) || '<span style="color:#999;font-style:italic;">no note</span>'}</td>
       </tr>`;
   }).join('');
