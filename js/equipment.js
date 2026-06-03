@@ -3274,6 +3274,7 @@ function buildUI() {
         <button class="eq-btn eq-btn-secondary eq-zebra-header-btn" id="eqZebraHeaderBtn" title="Print labels on Zebra printer">Zebra</button>
         <button class="eq-btn eq-btn-secondary" id="eqPrintQRs" title="Print QR sticker sheet">${uiSvg('qr', '14px')} QR Sheet</button>
         <button class="eq-btn eq-btn-secondary" id="eqExportResQ" title="Export this location's equipment as a CSV ready for ResQ's bulk import">→ ResQ</button>
+        <button class="eq-btn eq-btn-secondary" id="eqExportResQTemplate" title="TEMP: export ALL equipment (every location) as ResQ's .xlsx import template">→ ResQ XLSX</button>
         <button class="eq-btn eq-btn-secondary" id="eqAddBtn">+ Manual</button>
       </div>
 
@@ -3345,6 +3346,7 @@ function buildUI() {
   document.getElementById('eqAddBtn').addEventListener('click', () => openEditModal(null));
   document.getElementById('eqPrintQRs').addEventListener('click', printQRSheet);
   document.getElementById('eqExportResQ').addEventListener('click', exportToResQ);
+  document.getElementById('eqExportResQTemplate')?.addEventListener('click', exportResQTemplate);
 
   // Wire Tools row — workspaces for fleet-wide management
   document.getElementById('eqToolContractors')?.addEventListener('click', () => {
@@ -9378,6 +9380,91 @@ function exportToResQ() {
     : `Exported ${rows.length} units — ${confidentCount} mapped confidently, ${fallbackCount} fell back to a generic type (review those rows before import)`;
   NX.toast && NX.toast(msg, 'success', 5500);
 }
+
+/* ─────────────────────────────────────────────────────────────────────
+   TEMP — one-shot ResQ bulk-import export, matching the exact 8-column
+   template ResQ provided (Facility, Equipment Name, Equipment Type,
+   Manufacturer, Model Number, Serial Number, Warranty Expiration Date,
+   Warranty Notes). Unlike exportToResQ() this pulls ALL equipment straight
+   from Supabase (every location, not just the current view) and writes a
+   real .xlsx via the already-loaded SheetJS. Delete this function, its
+   window/NX exposure, and the #eqExportResQTemplate button once the ResQ
+   migration is done.
+   ───────────────────────────────────────────────────────────────────── */
+async function exportResQTemplate() {
+  if (!NX || !NX.sb) { NX.toast && NX.toast('Not connected to the database', 'error', 3000); return; }
+  if (typeof XLSX === 'undefined') { NX.toast && NX.toast('Spreadsheet engine not loaded', 'error', 3000); return; }
+  NX.toast && NX.toast('Building ResQ import…', 'info', 1500);
+
+  // ALL equipment, every location. select('*') tolerates schema gaps.
+  let data;
+  try {
+    const res = await NX.sb.from('equipment').select('*');
+    if (res.error) throw res.error;
+    data = res.data || [];
+  } catch (e) {
+    NX.toast && NX.toast('Load failed: ' + (e.message || e), 'error', 4000);
+    return;
+  }
+
+  // Only live assets — drop archived + out-of-service so ResQ doesn't get junk.
+  const SKIP = new Set(['retired', 'missing', 'relocated', 'loaned']);
+  const rows = data.filter(e => !e.archived && !SKIP.has(String(e.status || '').toLowerCase()));
+  if (!rows.length) { NX.toast && NX.toast('No active equipment to export', 'warn', 2500); return; }
+
+  // Facility → clean Title Case so legacy "SUERTE"/"suerte" land identically.
+  // (If ResQ's facility names differ, find/replace in the sheet before upload.)
+  const facility = (l) => String(l || '').trim().toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+
+  // Warranty date → YYYY-MM-DD when parseable, else the raw value.
+  const wDate = (v) => {
+    if (!v) return '';
+    const d = new Date(v);
+    return isNaN(d.getTime()) ? String(v) : d.toISOString().slice(0, 10);
+  };
+
+  // Warranty Notes is the only free-text column, so fold general notes,
+  // install date, and purchase price in there too — nothing is lost.
+  const wNotes = (e) => [
+    e.notes,
+    e.warranty_claim ? `Warranty claim: ${e.warranty_claim}` : '',
+    e.install_date ? `Installed ${wDate(e.install_date)}` : '',
+    (e.purchase_price != null && e.purchase_price !== '') ? `Purchase $${e.purchase_price}` : '',
+  ].filter(Boolean).join(' · ');
+
+  const headers = ['Facility', 'Equipment Name', 'Equipment Type', 'Manufacturer',
+                   'Model Number', 'Serial Number', 'Warranty Expiration Date', 'Warranty Notes'];
+
+  const sorted = rows.slice().sort((a, b) =>
+    facility(a.location).localeCompare(facility(b.location)) ||
+    String(a.name || '').localeCompare(String(b.name || '')));
+
+  const aoa = [headers];
+  for (const e of sorted) {
+    aoa.push([
+      facility(e.location),
+      e.name || '',
+      mapToResQType(e),
+      e.manufacturer || '',
+      e.model || '',
+      e.serial_number || '',
+      wDate(e.warranty_until),
+      wNotes(e),
+    ]);
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{ wch: 12 }, { wch: 30 }, { wch: 22 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 44 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+  XLSX.writeFile(wb, `nexus-resq-import-${new Date().toISOString().slice(0, 10)}.xlsx`);
+
+  const filled = rows.filter(e => e.manufacturer || e.model || e.serial_number).length;
+  NX.toast && NX.toast(`ResQ import built — ${rows.length} units (${filled} with make/model/serial)`, 'success', 5000);
+}
+// TEMP exposure so it can be triggered from anywhere (console or button).
+if (typeof window !== 'undefined') window.exportResQTemplate = exportResQTemplate;
+try { if (NX) NX.exportResQTemplate = exportResQTemplate; } catch (_) {}
 
 /* ─── Zebra ZPL generation ─── */
 
