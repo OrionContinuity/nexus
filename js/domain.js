@@ -843,6 +843,19 @@
     return data.some(c => Array.isArray(c.labels) && c.labels.includes(labelSentinel));
   }
 
+  // Label-only dedup — used for issue cards, which must dedup even when the
+  // issue has no resolvable equipment_id (hasOpenCardWithLabel keys on
+  // equipment_id and would miss those). Scans non-archived cards for the
+  // exact label sentinel.
+  async function hasCardWithLabel(labelSentinel) {
+    const { data } = await NX.sb.from('kanban_cards')
+      .select('id, labels')
+      .eq('archived', false)
+      .limit(500);
+    if (!data) return false;
+    return data.some(c => Array.isArray(c.labels) && c.labels.includes(labelSentinel));
+  }
+
   function extractIssueIdFromLabels(labels) {
     if (!Array.isArray(labels)) return null;
     for (const l of labels) {
@@ -1075,33 +1088,45 @@
     });
   }
 
-  async function autoCreateIssueCard({ issueId, equipmentId, title, description, priority }) {
-    const { data: eq } = await NX.sb.from('equipment')
-      .select('id, name, location')
-      .eq('id', equipmentId).maybeSingle();
-    if (!eq) return null;
+  async function autoCreateIssueCard({ issueId, equipmentId, title, description, priority, location }) {
+    if (!issueId) return null;
+    // Equipment is OPTIONAL. A work order with a null/stale equipment_id used
+    // to get NO card at all (this returned null), leaving it un-openable from
+    // Home and invisible on the board. Now we look equipment up best-effort
+    // and create the card regardless.
+    let eq = null;
+    if (equipmentId) {
+      const { data } = await NX.sb.from('equipment')
+        .select('id, name, location')
+        .eq('id', equipmentId).maybeSingle();
+      eq = data || null;
+    }
 
-    if (await hasOpenCardWithLabel(equipmentId, `issue:${issueId}`)) return null;
+    // Dedup by the issue label (works with or without equipment_id).
+    if (await hasCardWithLabel(`issue:${issueId}`)) return null;
 
     const target = await pickBoardTarget({
       listHints: ['report', 'issue|broken', 'todo|to.do|backlog'],
     });
     if (!target) { console.warn('[domain.autoCreateIssueCard] no board/list target — board not initialized?'); return null; }
 
+    const eqName = (eq && eq.name) || '';
+    const loc = (eq && eq.location) || location || null;
+    const titleText = title || 'Work order';
     const desc = (description ? description + '\n\n' : '') +
-                 `Equipment issue reported on ${eq.name}.\n` +
+                 (eqName ? `Equipment issue reported on ${eqName}.\n` : `Work order.\n`) +
                  `When resolved, move this card to Done — the linked issue will be marked repaired automatically.`;
 
     const row = {
-      title: `⚠️ ${title || 'Issue'} — ${eq.name}`,
+      title: eqName ? `⚠️ ${titleText} — ${eqName}` : `⚠️ ${titleText}`,
       description: desc,
       board_id: target.boardId,
       list_id: target.listId,
       column_name: '',
       position: target.position,
       priority: priority || 'high',
-      location: eq.location || null,
-      equipment_id: equipmentId,
+      location: loc,
+      equipment_id: equipmentId || null,
       reported_by: (NX.currentUser && NX.currentUser.name) || (NX.user && NX.user.name) || 'Issue Tracker',
       checklist: [], comments: [],
       labels: ['equipment-issue', `issue:${issueId}`],
@@ -1133,20 +1158,38 @@
     let created = 0;
     try {
       const { data: issues } = await NX.sb.from('equipment_issues').select('*').limit(200);
-      const open = (issues || []).filter(i => i && i.equipment_id &&
+      // Include issues with NO equipment_id too — they're still work orders
+      // and still need a card (previously they were silently skipped).
+      const open = (issues || []).filter(i => i &&
         !/^(repaired|resolved|closed|done|cancelled|canceled)$/i.test(i.status || ''));
       for (const it of open) {
         try {
           const card = await autoCreateIssueCard({
             issueId: it.id, equipmentId: it.equipment_id,
             title: it.title, description: it.description,
-            priority: it.priority || 'high',
+            priority: it.priority || 'high', location: it.location,
           });
           if (card) created++;
         } catch (e) { console.warn('[domain.backfillIssueCards] one issue failed:', e?.message || e); }
       }
     } catch (e) { console.warn('[domain.backfillIssueCards] failed:', e?.message || e); }
     return created;
+  };
+
+  // Ensure a single issue has a board card — create it on demand (used when
+  // tapping a Home work order whose card is missing). Dedups via the issue
+  // label, so calling it when a card already exists is a no-op.
+  D.ensureIssueCard = async function(issueId) {
+    if (!NX.sb || !issueId) return null;
+    try {
+      const { data: it } = await NX.sb.from('equipment_issues').select('*').eq('id', issueId).maybeSingle();
+      if (!it) return null;
+      return await autoCreateIssueCard({
+        issueId: it.id, equipmentId: it.equipment_id,
+        title: it.title, description: it.description,
+        priority: it.priority || 'high', location: it.location,
+      });
+    } catch (e) { console.warn('[domain.ensureIssueCard] failed:', e?.message || e); return null; }
   };
 
   // ─── Board targeting ────────────────────────────────────────────────
