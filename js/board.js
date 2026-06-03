@@ -1095,70 +1095,101 @@ function createCardEl(card){
     if (titleEl) { try { NX.tr.auto(titleEl); } catch(_) {} }
   }
 
-  // Tap card → detail
-  el.addEventListener('click', e => {
-    if(e.target.dataset.kebab) return; // handled below
-    if(e.target.closest('.nx-tr-btn')) return; // don't open detail on translate tap
-    openCardDetail(card);
-  });
+  // ── Unified pointer interaction ──────────────────────────────────────
+  // HTML5 drag never fires on touch, which is why dragging "didn't work" on
+  // the phone. This uses pointer events: tap → open detail; hold → pick up &
+  // drag (touch); press-move → drag (mouse). Drop on a list to move. The
+  // kebab opens a bottom sheet (the no-drag path, always reliable).
+  el.draggable = false;
+  let P = null;
+  const HOLD_MS = 320, MOVE_THRESH = 8;
+  const clearDropTargets = () => document.querySelectorAll('.b-list.drop-target').forEach(l => l.classList.remove('drop-target'));
 
-  // Kebab → quick-actions sheet
-  el.querySelector('.b-card-kebab').addEventListener('click', e => {
-    e.stopPropagation();
-    openQuickActions(card, el);
-  });
-
-  // Drag — toggle .is-dragging class so CSS can apply tilt + lift +
-  // gold glow shadow consistently across browsers (CSS :active state
-  // is unreliable during HTML5 drag — Firefox drops it, Safari mid-
-  // way through). The class-based approach is deterministic.
-  el.addEventListener('dragstart', () => {
-    dragCard = card;
+  const pickUp = () => {
+    P.dragging = true;
     el.classList.add('is-dragging');
-  });
-  el.addEventListener('dragend', () => {
+    dragCard = card;
+    try { navigator.vibrate?.(6); } catch(_) {}
+    const r = el.getBoundingClientRect();
+    const clone = el.cloneNode(true);
+    clone.classList.add('b-card-dragclone');
+    clone.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width}px;margin:0;pointer-events:none;z-index:3000`;
+    document.body.appendChild(clone);
+    P.clone = clone; P.offX = P.startX - r.left; P.offY = P.startY - r.top;
+  };
+  const dragTo = (x, y) => {
+    if (P.clone) {
+      P.clone.style.left = (x - P.offX) + 'px';
+      P.clone.style.top  = (y - P.offY) + 'px';
+      P.clone.style.visibility = 'hidden';
+    }
+    const under = document.elementFromPoint(x, y);
+    if (P.clone) P.clone.style.visibility = '';
+    const listEl = under && under.closest('.b-list');
+    clearDropTargets();
+    if (listEl) listEl.classList.add('drop-target');
+    P.overListId = listEl ? listEl.dataset.listId : null;
+    // Edge auto-scroll the horizontal lists container so you can drag across
+    // columns even when only one is on screen (mobile snap layout).
+    const sc = el.closest('.b-lists');
+    if (sc) {
+      const m = 52;
+      if (x < m) sc.scrollLeft -= 16;
+      else if (x > window.innerWidth - m) sc.scrollLeft += 16;
+    }
+  };
+  const drop = async () => {
+    const overId = P.overListId;
+    if (P.clone) P.clone.remove();
     el.classList.remove('is-dragging');
-    dragCard = null;   // clear even on an abandoned drag (drop outside a list)
+    clearDropTargets();
+    dragCard = null;
+    if (overId) {
+      const target = lists.find(l => String(l.id) === String(overId));
+      if (target && target.id !== card.list_id) await moveCard(card, target);
+    }
+  };
+
+  el.addEventListener('pointerdown', e => {
+    if (e.target.closest('.b-card-kebab') || e.target.closest('.nx-tr-btn')) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    P = { startX: e.clientX, startY: e.clientY, dragging: false, moved: false, clone: null, overListId: null, type: e.pointerType, ptr: e.pointerId };
+    if (e.pointerType !== 'mouse') {
+      P.holdTimer = setTimeout(() => {
+        if (P && !P.dragging && !P.moved) { pickUp(); try { el.setPointerCapture(P.ptr); } catch(_) {} }
+      }, HOLD_MS);
+    }
+  });
+  el.addEventListener('pointermove', e => {
+    if (!P) return;
+    const dx = Math.abs(e.clientX - P.startX), dy = Math.abs(e.clientY - P.startY);
+    if (!P.dragging && (dx > MOVE_THRESH || dy > MOVE_THRESH)) {
+      P.moved = true;
+      if (P.type === 'mouse') { pickUp(); try { el.setPointerCapture(P.ptr); } catch(_) {} }
+      else { clearTimeout(P.holdTimer); }   // touch move before hold = scroll, not a drag
+    }
+    if (P.dragging) { e.preventDefault(); dragTo(e.clientX, e.clientY); }
+  });
+  el.addEventListener('pointerup', async () => {
+    if (!P) return;
+    clearTimeout(P.holdTimer);
+    const wasDragging = P.dragging, moved = P.moved;
+    if (wasDragging) await drop();
+    P = null;
+    if (!wasDragging && !moved) openCardDetail(card);   // clean tap
+  });
+  el.addEventListener('pointercancel', () => {
+    if (!P) return;
+    clearTimeout(P.holdTimer);
+    if (P.clone) P.clone.remove();
+    el.classList.remove('is-dragging');
+    clearDropTargets();
+    dragCard = null; P = null;
   });
 
-  // Quick-actions menu — long-press on mobile, right-click on desktop.
-  // Lets you set priority, due date, or archive without opening the
-  // full detail modal. The single biggest "weekly grooming" speedup
-  // since you can re-prioritize 30 cards without 30 modal trips.
-  let pressTimer = null;
-  let pressFired = false;
-  const startPress = (e) => {
-    pressFired = false;
-    pressTimer = setTimeout(() => {
-      pressFired = true;
-      // Vibrate confirmation if available — feels native on mobile
-      try{ navigator.vibrate?.(8); }catch(_){}
-      openQuickActions(card, el);
-    }, 700);  // 700ms is the standard mobile long-press threshold —
-              // long enough not to fire on accidental rests while
-              // reading or scrolling, but still distinct from a tap
-  };
-  const endPress = () => {
-    if(pressTimer){ clearTimeout(pressTimer); pressTimer = null; }
-  };
-  el.addEventListener('touchstart', startPress, { passive: true });
-  el.addEventListener('touchend', endPress);
-  el.addEventListener('touchmove', endPress);  // cancel on scroll
-  el.addEventListener('touchcancel', endPress);
-  // Right-click on desktop
-  el.addEventListener('contextmenu', e => {
-    e.preventDefault();
-    openQuickActions(card, el);
-  });
-  // If long-press fired, suppress the click that follows (would open modal)
-  el.addEventListener('click', e => {
-    if(pressFired){
-      e.stopPropagation();
-      e.preventDefault();
-      pressFired = false;
-      return false;
-    }
-  }, true);  // capture so we beat the existing click handler
+  // Kebab + right-click → bottom sheet (reliable no-drag path)
+  el.querySelector('.b-card-kebab').addEventListener('click', e => { e.stopPropagation(); openQuickActions(card, el); });
+  el.addEventListener('contextmenu', e => { e.preventDefault(); openQuickActions(card, el); });
 
   return el;
 }
@@ -1167,61 +1198,61 @@ function createCardEl(card){
 // due-date picker, and Archive. Tap any action → write + render +
 // close. Tap outside → close.
 function openQuickActions(card, anchorEl){
-  // Close any existing menu first (only one open at a time)
-  document.querySelectorAll('.b-qa-menu').forEach(m => m.remove());
+  // Close any existing sheet first (only one open at a time)
+  document.querySelectorAll('.b-qa-sheet-bg').forEach(m => m.remove());
 
-  const menu = document.createElement('div');
-  menu.className = 'b-qa-menu';
-  menu.innerHTML = `
-    <div class="b-qa-section">
-      <div class="b-qa-label">Priority</div>
-      <div class="b-qa-row">
-        <button class="b-qa-pri ${card.priority==='urgent'?'active':''}" data-pri="urgent" style="--c:var(--red)">Urgent</button>
-        <button class="b-qa-pri ${card.priority==='high'?'active':''}"   data-pri="high"   style="--c:var(--accent)">High</button>
-        <button class="b-qa-pri ${(card.priority==='normal'||!card.priority)?'active':''}" data-pri="normal" style="--c:var(--muted)">Normal</button>
-        <button class="b-qa-pri ${card.priority==='low'?'active':''}"    data-pri="low"    style="--c:var(--faint)">Low</button>
+  const moveChips = lists.map(l => {
+    const cur = l.id === card.list_id;
+    return `<button class="b-qa-movechip${cur ? ' current' : ''}" data-move-list="${esc(l.id)}"${cur ? ' disabled' : ''}>${cur ? '✓ ' : ''}${esc(l.name)}</button>`;
+  }).join('');
+
+  const bg = document.createElement('div');
+  bg.className = 'b-qa-sheet-bg';
+  bg.innerHTML = `
+    <div class="b-qa-sheet">
+      <div class="b-qa-grip"></div>
+      <div class="b-qa-cardtitle">${esc(card.title || 'Card')}</div>
+      <div class="b-qa-section">
+        <div class="b-qa-label">Move to</div>
+        <div class="b-qa-moves">${moveChips}</div>
       </div>
-    </div>
-    <div class="b-qa-section">
-      <div class="b-qa-label">Due date</div>
-      <div class="b-qa-row">
-        <input class="b-qa-due" type="date" value="${esc(card.due_date||'')}">
-        ${card.due_date ? '<button class="b-qa-due-clear" title="Clear date">✕</button>' : ''}
+      <div class="b-qa-section">
+        <div class="b-qa-label">Priority</div>
+        <div class="b-qa-row">
+          <button class="b-qa-pri ${card.priority==='urgent'?'active':''}" data-pri="urgent" style="--c:var(--red)">Urgent</button>
+          <button class="b-qa-pri ${card.priority==='high'?'active':''}"   data-pri="high"   style="--c:var(--accent)">High</button>
+          <button class="b-qa-pri ${(card.priority==='normal'||!card.priority)?'active':''}" data-pri="normal" style="--c:var(--muted)">Normal</button>
+          <button class="b-qa-pri ${card.priority==='low'?'active':''}"    data-pri="low"    style="--c:var(--faint)">Low</button>
+        </div>
       </div>
-    </div>
-    <div class="b-qa-section">
-      <button class="b-qa-action b-qa-move">Move to…</button>
-      <button class="b-qa-action b-qa-detail">Open card</button>
-      <button class="b-qa-action b-qa-archive">Archive</button>
-    </div>
-  `;
-  document.body.appendChild(menu);
-
-  // Position the menu relative to the anchor card. Prefer below; if
-  // it would overflow the viewport bottom, flip above.
-  const anchorRect = anchorEl.getBoundingClientRect();
-  const menuRect = menu.getBoundingClientRect();
-  let top = anchorRect.bottom + 6 + window.scrollY;
-  let left = anchorRect.left + window.scrollX;
-  // Flip if it'd go off screen vertically
-  if(top + menuRect.height > window.scrollY + window.innerHeight - 12){
-    top = anchorRect.top - menuRect.height - 6 + window.scrollY;
-  }
-  // Constrain horizontally
-  const maxLeft = window.scrollX + window.innerWidth - menuRect.width - 12;
-  if(left > maxLeft) left = maxLeft;
-  if(left < window.scrollX + 12) left = window.scrollX + 12;
-  menu.style.top = top + 'px';
-  menu.style.left = left + 'px';
-
-  const close = () => {
-    menu.remove();
-    document.removeEventListener('mousedown', onOutside, true);
-  };
-  const onOutside = (e) => {
-    if(!menu.contains(e.target)) close();
-  };
-  setTimeout(() => document.addEventListener('mousedown', onOutside, true), 0);
+      <div class="b-qa-section">
+        <div class="b-qa-label">Due date</div>
+        <div class="b-qa-row">
+          <input class="b-qa-due" type="date" value="${esc(card.due_date||'')}">
+          ${card.due_date ? '<button class="b-qa-due-clear">Clear</button>' : ''}
+        </div>
+      </div>
+      <div class="b-qa-section b-qa-actions">
+        <button class="b-qa-action b-qa-detail">Open card</button>
+        <button class="b-qa-action b-qa-archive">Archive</button>
+      </div>
+      <button class="b-qa-cancel">Cancel</button>
+    </div>`;
+  const menu = bg.querySelector('.b-qa-sheet');   // downstream handlers query within this
+  const close = () => { bg.classList.remove('open'); setTimeout(() => bg.remove(), 180); };
+  bg.addEventListener('click', e => { if(e.target === bg) close(); });
+  bg.querySelector('.b-qa-cancel').addEventListener('click', close);
+  // Move chips → move + close (the primary, reliable move path)
+  bg.querySelectorAll('[data-move-list]').forEach(btn => {
+    if(btn.disabled) return;
+    btn.addEventListener('click', async () => {
+      const target = lists.find(l => String(l.id) === btn.dataset.moveList);
+      close();
+      if(target) await moveCard(card, target);
+    });
+  });
+  document.body.appendChild(bg);
+  requestAnimationFrame(() => bg.classList.add('open'));
 
   // Priority chips
   menu.querySelectorAll('.b-qa-pri').forEach(btn => {
@@ -1285,11 +1316,6 @@ function openQuickActions(card, anchorEl){
   }
 
   // Open detail (modal) — escape hatch when quick actions aren't enough
-  menu.querySelector('.b-qa-move').addEventListener('click', () => {
-    close();
-    openMovePicker(card);
-  });
-
   menu.querySelector('.b-qa-detail').addEventListener('click', () => {
     close();
     openCardDetail(card);
@@ -1329,34 +1355,9 @@ function initials(name){
 // MOVE PICKER — mobile-friendly
 // ─────────────────────────────────────────────────────────────────────────
 function openMovePicker(card){
-  const bg = document.createElement('div');
-  bg.className = 'b-modal-bg';
-  bg.innerHTML = `<div class="b-modal b-move-modal">
-    <div class="b-modal-head"><div style="flex:1;font-size:13px;font-weight:600">Move to…</div>
-      <button class="b-modal-close">✕</button></div>
-    <div class="b-move-list">
-      ${lists.map(l => {
-        const isCurrent = l.id === card.list_id;
-        return `<button class="b-move-item${isCurrent?' current':''}" data-list="${l.id}">
-          ${isCurrent?'✓ ':''}${esc(l.name)}
-        </button>`;
-      }).join('')}
-    </div>
-  </div>`;
-  const close = ()=>{ bg.remove(); };
-  bg.addEventListener('click', e => { if(e.target===bg) close(); });
-  bg.querySelector('.b-modal-close').addEventListener('click', close);
-  bg.querySelectorAll('.b-move-item').forEach(btn => {
-    if(btn.classList.contains('current')) return;
-    btn.addEventListener('click', async () => {
-      const targetList = lists.find(l => l.id == btn.dataset.list);
-      if(targetList){
-        await moveCard(card, targetList);
-        close();
-      }
-    });
-  });
-  document.body.appendChild(bg);
+  // The move targets now live in the bottom sheet alongside priority/due,
+  // so this just opens that — one reliable, big-target surface.
+  openQuickActions(card, null);
 }
 
 async function moveCard(card, targetList){
