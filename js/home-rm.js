@@ -426,6 +426,15 @@
       b.addEventListener('click', () => {
         const eqId = b.getAttribute('data-equipment-id');
         const isId = b.getAttribute('data-issue-id');
+        // A work order IS a board card — open it on the Board. The board's
+        // show() reads this intent, finds the card tagged issue:<id>, and
+        // opens its detail.
+        if (isId) {
+          NX.boardOpenIntent = { issueId: isId };
+          NXRM.view.switchTo('board');
+          return;
+        }
+        // Fallback (no issue id): open the equipment detail as before.
         if (!eqId) return;
         NXRM.view.switchTo('equipment');
         setTimeout(() => {
