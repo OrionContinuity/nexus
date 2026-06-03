@@ -2930,6 +2930,36 @@ async function show(){
     }, 250);
   };
 
+  // Home "Work Orders" tap sets NX.boardOpenIntent = { issueId | cardId }.
+  // After the board renders, locate that card and open its detail. One-shot,
+  // cleared after use. Retries briefly so a card the backfill just created
+  // (below) is still caught.
+  const wantOpen = NX.boardOpenIntent;
+  NX.boardOpenIntent = null;
+  const findIntentCard = (intent) => {
+    if (!intent) return null;
+    if (intent.cardId) {
+      const byId = cards.find(c => String(c.id) === String(intent.cardId));
+      if (byId) return byId;
+    }
+    if (intent.issueId) {
+      const tag = 'issue:' + intent.issueId;
+      return cards.find(c => Array.isArray(c.labels) && c.labels.some(l => String(l) === tag)) || null;
+    }
+    return null;
+  };
+  const openIntentSoon = () => {
+    if (!wantOpen) return;
+    let tries = 0;
+    const tryOpen = () => {
+      const card = findIntentCard(wantOpen);
+      if (card) { openCardDetail(card); return; }
+      if (++tries < 4) setTimeout(tryOpen, 450);   // give backfillIssueCards time
+      else NX.toast && NX.toast('Could not find that work order on the board', 'warn', 2600);
+    };
+    setTimeout(tryOpen, 300);
+  };
+
   // One-time per session: backfill board cards for any OPEN equipment issues
   // that don't have one yet (reported via paths that skipped the board, or
   // before this orchestration existed). Idempotent + deduped by issue label.
@@ -2944,7 +2974,7 @@ async function show(){
   // data pulled recently, render from memory NOW (instant), then kick
   // a silent refresh in the background. Tab switches become snappy.
   const isWarm = rtChannel && rtConnected && (Date.now() - lastFetchAt) < 10000;
-  if(isWarm){
+  if(isWarm && !wantOpen){
     render();
     openComposerSoon();
     // Silent background refresh — only re-renders if anything changed
@@ -2957,6 +2987,7 @@ async function show(){
   loadStats();
   render();
   openComposerSoon();
+  openIntentSoon();
   // (Re)subscribe if we don't have an active channel
   if(!rtChannel) subscribeRealtime();
 }
