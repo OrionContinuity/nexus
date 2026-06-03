@@ -561,8 +561,11 @@ async function loadTicketSlices(logDate) {
   if (!NX.sb || !logDate) {
     return { open: [], working: [], closed: [] };
   }
-  const dayStart = `${logDate}T00:00:00.000Z`;
-  const dayEnd   = `${logDate}T23:59:59.999Z`;
+  // Local day boundaries (NOT UTC). The user's "today" is their local day;
+  // UTC midnight pulled tickets closed late yesterday (local) into today's
+  // window. No `Z` → parsed as local time.
+  const dayStart = `${logDate}T00:00:00`;
+  const dayEnd   = `${logDate}T23:59:59.999`;
 
   // 1. Load the board lists so we can map list_id → bucket. Without
   //    this we can't tell which lane a card is in (status is unreliable).
@@ -616,12 +619,15 @@ async function loadTicketSlices(logDate) {
       else bucket = 'open';
     }
     if (bucket === 'closed') {
-      // Only show cards CLOSED TODAY. Use closed_at if present, else
-      // updated_at as the close-time proxy.
-      const closeMs = c.closed_at ? new Date(c.closed_at).getTime()
-                    : (c.updated_at ? new Date(c.updated_at).getTime() : 0);
+      // Only surface cards CLOSED TODAY, and only when there's a real
+      // closed_at stamp (set by the board when a card enters a done lane).
+      // The old code fell back to updated_at — but updated_at is bumped by
+      // ANY edit, so stale cards closed days ago that got touched today
+      // leaked in as "closed today." A card in a done lane with no/old
+      // closed_at is simply omitted: the log is the live backlog, not a
+      // graveyard of every ticket ever closed.
+      const closeMs = c.closed_at ? new Date(c.closed_at).getTime() : 0;
       if (closeMs >= dayStartMs && closeMs <= dayEndMs) closed.push(c);
-      // closed but not today → omit (keeps "closed today" honest)
     } else if (bucket === 'working') {
       working.push(c);
     } else {
