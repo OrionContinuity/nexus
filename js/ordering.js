@@ -4502,12 +4502,12 @@ Thanks for your help sorting this out.`;
       delivery_date_long: 'Tomorrow',
     };
     const sampleLines =
-      `1cs black trash bags\n` +
-      `1cs steel wool\n` +
-      `2cs large gloves\n` +
-      `5cs sunflower oil\n` +
-      `20lbs garlic\n` +
-      `1bag black beans`;
+      `• 1cs black trash bags\n` +
+      `• 1cs steel wool\n` +
+      `• 2cs large gloves\n` +
+      `• 5cs sunflower oil\n` +
+      `• 20lbs garlic\n` +
+      `• 1bag black beans`;
     return defaultEmailBody(vendor, sampleCtx, sampleLines, '', 6);
   }
 
@@ -4554,16 +4554,15 @@ Thanks for your help sorting this out.`;
       const name = pickHouseName(item, parOverride);
       const qty = l.qty;
       const u = shortUnit(l.unit || (item && item.unit));
-      // v18.32 — plain text format. Previously each line started with
-      // a Unicode bullet "  • " and used double-spaces for visual
-      // hierarchy. Outlook's "Remove extra line breaks in plain text
-      // messages" feature treats those bulleted runs as wrapped
-      // paragraphs and collapses the line breaks — Rene reported the
-      // body arriving as one flowing sentence after the first 5-6
-      // items. Plain "qty unit name #sku" with no bullet matches what
-      // a human would type in an email and Outlook leaves it alone.
+      // v18.x — Bullet prefix re-added by request: matches the cleaner
+      // look (René's bulleted format) over the plain run of lines.
+      // HISTORY: bullets were dropped in v18.32 because Outlook's "remove
+      // extra line breaks in plain text messages" setting collapsed the
+      // bulleted run into one flowing paragraph for one vendor. If that
+      // recurs for a vendor on Outlook, switch that vendor back to plain
+      // (or use "- " which Outlook recognizes as a list marker).
       const sku = l.vendor_sku || (item && item.vendor_sku) || '';
-      linesText += `${qty} ${u} ${name}`;
+      linesText += `• ${qty} ${u} ${name}`;
       if (sku) linesText += ` #${sku}`;
       linesText += `\n`;
       totalItemCount++;
