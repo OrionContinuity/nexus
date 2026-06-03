@@ -34,7 +34,7 @@
 /* ═══ PAGE WRAP ═════════════════════════════════════════════════════ */
 
 #boardWrap {
-  padding: 0 var(--nx-space-3) calc(80px + env(safe-area-inset-bottom)) !important;
+  padding: 0 var(--nx-space-2) 0 !important;   /* near edge-to-edge; .main already clears the bottom nav, so no extra bottom padding (was reserving ~80px of dead space) */
   background: var(--nx-bg) !important;
 }
 
@@ -44,13 +44,13 @@
 .b-summary {
   display: flex !important;
   gap: var(--nx-space-2) !important;
-  padding: var(--nx-space-3) var(--nx-space-2) var(--nx-space-3) !important;
+  padding: var(--nx-space-2) var(--nx-space-2) !important;
   font-family: var(--nx-font-body) !important;
   font-size: var(--nx-text-xs) !important;
   flex-wrap: wrap !important;
   align-items: center !important;
   border-bottom: 1px solid var(--nx-gold-line) !important;
-  margin-bottom: var(--nx-space-3) !important;
+  margin-bottom: var(--nx-space-2) !important;
 }
 .b-summary-chip {
   display: inline-flex !important;
@@ -245,7 +245,7 @@
   display: flex !important;
   gap: var(--nx-space-3) !important;
   overflow-x: auto !important;
-  padding: 0 0 var(--nx-space-5) !important;
+  padding: 0 !important;
   scrollbar-width: thin;
   flex: 1;
   min-height: 0;
@@ -261,9 +261,10 @@
   padding: 12px 8px 8px !important;
   display: flex !important;
   flex-direction: column !important;
-  /* Cap height so internal cards-area scrolls instead of pushing the
-     whole list down. matches Trello's per-column scroll. */
-  max-height: calc(100vh - 220px) !important;
+  /* Fill the available height of the lists area (which already flexes to
+     the screen) instead of a fixed pixel reservation; the cards area
+     scrolls internally. Short columns still stay short (flex-start). */
+  max-height: 100% !important;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.20) !important;
 }
 @media (min-width: 900px) {
@@ -1705,7 +1706,7 @@ textarea.b-field {
     gap: 10px !important;
   }
   .b-list {
-    flex: 0 0 86vw !important;
+    flex: 0 0 92vw !important;
     scroll-snap-align: center;
   }
 }
