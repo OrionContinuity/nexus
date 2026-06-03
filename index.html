@@ -933,9 +933,12 @@
    etc.) — no new values invented. When the design system doc is written,
    this module's surface area will be small to migrate. */
 .dlog-shell {
+  width: 100%;
   max-width: 760px;
+  box-sizing: border-box;
   margin: 0 auto;
   padding: 18px 16px 80px;
+  overflow-x: clip;   /* nothing (wide row, right-aligned action bar) bleeds past the viewport */
 }
 .dlog-header {
   margin-bottom: 10px;
@@ -2033,7 +2036,7 @@
 .dlog-add-row-btn { align-self: flex-start; margin-top: 4px; }
 
 .dlog-actions {
-  display: flex; gap: 10px; justify-content: flex-end;
+  display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap;
   padding: 16px 0;
   border-top: 1px solid var(--nx-border, var(--border));
   margin-top: 8px;
