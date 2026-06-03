@@ -2951,9 +2951,20 @@ async function show(){
   const openIntentSoon = () => {
     if (!wantOpen) return;
     let tries = 0;
-    const tryOpen = () => {
-      const card = findIntentCard(wantOpen);
+    let ensured = false;
+    const tryOpen = async () => {
+      let card = findIntentCard(wantOpen);
       if (card) { openCardDetail(card); return; }
+      // Not found — create the card on demand once (covers work orders that
+      // never got a board card), then reload and retry.
+      if (!ensured && wantOpen.issueId && NX.domain && typeof NX.domain.ensureIssueCard === 'function') {
+        ensured = true;
+        try { await NX.domain.ensureIssueCard(wantOpen.issueId); } catch (_) {}
+        await loadCards();
+        render();
+        card = findIntentCard(wantOpen);
+        if (card) { openCardDetail(card); return; }
+      }
       if (++tries < 4) setTimeout(tryOpen, 450);   // give backfillIssueCards time
       else NX.toast && NX.toast('Could not find that work order on the board', 'warn', 2600);
     };
