@@ -2906,11 +2906,12 @@ async function openTriageModal(){
 async function init(){
   await loadBoards();
   await loadLists();
-  await loadCards();
-  loadStats();
-  render();
-  subscribeRealtime();
   bindVisibilityHandler();
+  // Route first-load through show() so the work-order open-intent, the
+  // "New card" compose-intent, and the missing-card backfill all run on the
+  // very first board open of a session — not just on later re-entries.
+  // (app.js calls init() the first time a lazy module loads, show() after.)
+  await show();
 }
 
 async function show(){
