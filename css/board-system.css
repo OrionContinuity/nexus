@@ -1709,3 +1709,43 @@ textarea.b-field {
     scroll-snap-align: center;
   }
 }
+
+/* ── Photo remove + Invoices (card detail) ──────────────────────────── */
+.b-photo-wrap { position: relative; display: inline-block; }
+.b-photo-del {
+  position: absolute; top: -6px; right: -6px;
+  width: 20px; height: 20px; border-radius: 50%;
+  border: none; background: var(--nx-red, #a83e3e); color: #fff;
+  font-size: 13px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,.4);
+}
+.b-invoices { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.b-invoice-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 9px 11px; border-radius: 9px;
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,.3));
+  background: var(--nx-surface-1);
+}
+.b-invoice-link {
+  display: inline-flex; align-items: center; gap: 8px; min-width: 0;
+  color: var(--nx-gold, #d4a44e); text-decoration: none;
+  font-size: 13px; font-weight: 600;
+}
+.b-invoice-link span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.b-invoice-link i, .b-invoice-link svg { width: 15px; height: 15px; flex: 0 0 auto; }
+.b-invoice-del {
+  flex: 0 0 auto; width: 26px; height: 26px; border-radius: 7px;
+  border: none; background: none; color: var(--nx-faint);
+  font-size: 18px; line-height: 1; cursor: pointer;
+}
+.b-invoice-del:hover { color: var(--nx-red, #a83e3e); }
+.b-invoice-add {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 12px; border-radius: 9px;
+  border: 1px dashed var(--nx-gold-line, rgba(212,164,78,.4));
+  background: none; color: var(--nx-muted);
+  font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.b-invoice-add:hover { border-color: var(--nx-gold); color: var(--nx-gold); }
+.b-invoice-add i, .b-invoice-add svg { width: 15px; height: 15px; }
