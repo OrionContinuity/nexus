@@ -24,6 +24,7 @@
     templates:   [],
     troubleSteps: [],
     equipment:   [],
+    vendors:     [],
     filter:      { urgency: 'all', search: '' },
     loaded:      false,
   };
@@ -90,8 +91,19 @@
     if (!NX?.sb || state.equipment.length) return;
     try {
       const { data } = await NX.sb.from('equipment')
-        .select('id, name, restaurant:location, category').order('name');
+        .select('id, name, restaurant:location, category, service_vendor_id').order('name');
       state.equipment = data || [];
+    } catch (_) {}
+  }
+
+  // Active R&M vendors for the "Assigned to" dropdown. Display name is
+  // company || name (matches vendors.js). Cached after first load.
+  async function loadVendors() {
+    if (!NX?.sb || state.vendors.length) return;
+    try {
+      const { data } = await NX.sb.from('vendors')
+        .select('id, company, name').eq('active', true).order('company');
+      state.vendors = (data || []).map(v => ({ id: v.id, name: v.company || v.name || 'Unnamed' }));
     } catch (_) {}
   }
 
@@ -364,6 +376,7 @@
   async function bulkCreateSchedule() {
     if (!NX?.sb) return;
     await loadEquipment();
+    await loadVendors();
     if (!state.equipment.length) { alert('No equipment found.'); return; }
     injectBulkStyles();
 
@@ -385,7 +398,13 @@
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;z-index:1000;display:flex;align-items:flex-end;justify-content:center';
 
-    const rows = state.equipment.map(e => {
+    // Only offer equipment that isn't already assigned to a service vendor.
+    // Once a unit has a vendor (set when its PM is created here, or via the
+    // vendor "Assign equipment" flow) it drops off this list — no double-
+    // assigning the same unit to two vendors.
+    const available = state.equipment.filter(e => !e.service_vendor_id);
+
+    const rows = available.map(e => {
       const meta = [e.restaurant, e.category].filter(Boolean).join(' · ') || '—';
       const hay = ((e.name || '') + ' ' + meta).toLowerCase();
       return `<button type="button" class="pm-bulk-row" data-pick="${esc(e.id)}" data-hay="${esc(hay)}">
@@ -409,11 +428,14 @@
           <div style="flex:1"><label class="pm-bulk-lbl">First due</label>
             <input id="pmbFirst" type="date" class="pm-bulk-input" value="${plusDays(DEFAULT_CADENCE)}"></div>
         </div>
-        <label class="pm-bulk-lbl">Assigned to <span style="text-transform:none;letter-spacing:0;opacity:.6">— optional</span></label>
-        <input id="pmbAssignee" class="pm-bulk-input" placeholder="Vendor or person" autocomplete="off">
-        <label class="pm-bulk-lbl" style="margin-top:8px">Equipment</label>
+        <label class="pm-bulk-lbl">Vendor <span style="text-transform:none;letter-spacing:0;opacity:.6">— optional</span></label>
+        <select id="pmbVendor" class="pm-bulk-input">
+          <option value="">— No vendor —</option>
+          ${state.vendors.map(v => `<option value="${esc(v.id)}">${esc(v.name)}</option>`).join('')}
+        </select>
+        <label class="pm-bulk-lbl" style="margin-top:8px">Equipment <span style="text-transform:none;letter-spacing:0;opacity:.6">— unassigned only</span></label>
         <input id="pmbSearch" class="pm-bulk-input" placeholder="Search equipment…" autocomplete="off">
-        <div class="pm-bulk-list" style="max-height:300px;overflow-y:auto;margin:8px 0 16px">${rows || '<div style="padding:14px;color:var(--nx-muted);font-size:13px">No equipment found.</div>'}</div>
+        <div class="pm-bulk-list" style="max-height:300px;overflow-y:auto;margin:8px 0 16px">${rows || '<div style="padding:14px;color:var(--nx-muted);font-size:13px">No unassigned equipment — every unit already has a service vendor.</div>'}</div>
         <div style="display:flex;gap:10px">
           <button id="pmbCancel" class="pm-bulk-btn-ghost">Cancel</button>
           <button id="pmbSave" class="pm-bulk-btn-gold" disabled>Create · 0</button>
@@ -455,23 +477,57 @@
       const title = $('#pmbTitle').value.trim();
       const cadence = parseInt($('#pmbCadence').value, 10) || DEFAULT_CADENCE;
       const firstDue = $('#pmbFirst').value || plusDays(cadence);
-      const assignee = $('#pmbAssignee').value.trim() || null;
+      const vendorId = $('#pmbVendor').value || null;
+      const vendorName = vendorId ? (state.vendors.find(v => String(v.id) === String(vendorId))?.name || null) : null;
       if (!title) { $('#pmbTitle').focus(); $('#pmbTitle').style.borderColor = 'var(--nx-red)'; return; }
       if (!sel.size) return;
 
       saveBtn.disabled = true; saveBtn.textContent = 'Creating…';
-      const rowsToInsert = [...sel].map(equipment_id => ({
+      const ids = [...sel];
+      const rowsToInsert = ids.map(equipment_id => ({
         equipment_id, title,
         frequency_days: cadence,
         next_due_at: firstDue,
-        assigned_to: assignee,
+        assigned_to: vendorName,   // human-readable, for the list "→ Vendor" line
+        vendor_id: vendorId,       // FK link to the vendor record
         active: true,
       }));
       const { error } = await NX.sb.from('pm_schedules').insert(rowsToInsert);
       if (error) { alert('Failed: ' + error.message); saveBtn.disabled = false; updateCount(); return; }
 
+      // Communicate the PM to each equipment record so the unit itself reflects
+      // its service vendor + next PM + cadence (mirrors the per-vendor scheduler).
+      // Best-effort, with generic column-missing recovery; never blocks the save.
+      try {
+        const eqUpdate = {
+          next_pm_date: firstDue,
+          pm_interval_days: cadence,
+        };
+        if (vendorId) {
+          eqUpdate.service_vendor_id = vendorId;
+          eqUpdate.service_contractor_node_id = null;
+          eqUpdate.service_contractor_name = vendorName;
+        }
+        let attempt = { ...eqUpdate };
+        let r = await NX.sb.from('equipment').update(attempt).in('id', ids);
+        let guard = 0;
+        while (r.error && guard < 6) {
+          const m = /column "?([a-z_]+)"?.*does not exist/i.exec(r.error.message || '');
+          if (!m || !(m[1] in attempt)) break;
+          delete attempt[m[1]];
+          r = await NX.sb.from('equipment').update(attempt).in('id', ids);
+          guard++;
+        }
+      } catch (e) { console.warn('[pm bulkCreate] equipment sync failed:', e); }
+
+      // Drop the now-assigned units from the in-memory cache so a reopened
+      // modal won't list them again (they're no longer "unassigned").
+      if (vendorId) {
+        state.equipment.forEach(e => { if (sel.has(e.id)) e.service_vendor_id = vendorId; });
+      }
+
       close();
-      NXRM.notify.bubble(`Bzzt — ${rowsToInsert.length} PM schedule${rowsToInsert.length === 1 ? '' : 's'} created. Every ${cadence} days.`,
+      NXRM.notify.bubble(`Bzzt — ${rowsToInsert.length} PM schedule${rowsToInsert.length === 1 ? '' : 's'} created${vendorName ? ' with ' + vendorName : ''}. Every ${cadence} days.`,
         { autoHide: 3500, eyebrow: '✓ SCHEDULED' });
 
       // Materialize any that are already due into board cards (deliberate action).
