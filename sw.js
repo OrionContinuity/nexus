@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v93-masspm-dlog-no24redbadge';
+const CACHE_NAME = 'nexus-v99-board-init-show-fix';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
