@@ -211,7 +211,6 @@
                 ${v.category ? `<div class="ord-vendor-when">${esc(v.category)}</div>` : ''}
               </div>
               <div class="ord-vendor-meta">
-                ${v.is_emergency ? '<span class="ord-vendor-pill" style="background:rgba(229,72,77,.14);color:#e5707a;border:1px solid rgba(229,72,77,.40)">24-HR</span>' : ''}
                 <span class="ord-vendor-preview">${esc(preview)}</span>
               </div>
             </div>
@@ -494,7 +493,6 @@
             <div class="nxrm-vendor-tags">
               <span class="nxrm-grade-pill">${grade.letter}${grade.label ? ' · ' + esc(grade.label) : ''}</span>
               ${vendor.is_preferred ? '<span class="nxrm-vendor-badge is-pref">⭐ Preferred</span>' : ''}
-              ${vendor.is_emergency ? '<span class="nxrm-vendor-badge is-emerg">24-hour</span>' : ''}
             </div>
           </div>
         </div>
@@ -1017,7 +1015,6 @@
         <div class="nxrm-dispatch-name">
           ${esc(v.company || v.name)}
           ${v.is_preferred ? '<span class="nxrm-vendor-badge is-pref">⭐</span>' : ''}
-          ${v.is_emergency ? '<span class="nxrm-vendor-badge is-emerg">24-hr</span>' : ''}
         </div>
         <div class="nxrm-dispatch-actions">
           ${v.phone ? `
@@ -2001,7 +1998,7 @@
         .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
     } catch (_) {}
 
-    let selectedId = null, selectedName = '', search = '';
+    let selectedIds = new Set(), search = '';
     let phases = [{ date: '', label: '' }];
     let intervalDays = 90;   // recurrence cadence; default Quarterly
 
@@ -2020,11 +2017,14 @@
     const draw = () => {
       const eqRows = allEquip.map(e => {
         const meta = [e.location, e.category].filter(Boolean).join(' · ') || '—';
-        const sel = selectedId === e.id;
+        const sel = selectedIds.has(e.id);
         return `<button type="button" class="vpm-eq-row" data-eq="${esc(e.id)}" data-name="${esc(e.name || '')}" data-hay="${esc((e.name || '') + ' ' + meta)}"
-          style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;text-align:left;padding:10px 12px;border-radius:9px;border:1px solid ${sel ? 'var(--nx-gold)' : 'var(--border)'};background:${sel ? 'var(--nx-gold-faint)' : 'var(--surface-2,var(--surface))'};color:var(--text);font-family:inherit;cursor:pointer;margin-bottom:6px">
-          <span style="font-weight:600;font-size:14px">${esc(e.name || 'Unnamed')}</span>
-          <span style="font-size:11px;color:var(--muted)">${esc(meta)}</span>
+          style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 12px;border-radius:9px;border:1px solid ${sel ? 'var(--nx-gold)' : 'var(--border)'};background:${sel ? 'var(--nx-gold-faint)' : 'var(--surface-2,var(--surface))'};color:var(--text);font-family:inherit;cursor:pointer;margin-bottom:6px">
+          <span class="vpm-check" style="flex:0 0 18px;width:18px;height:18px;border-radius:5px;border:1.5px solid ${sel ? 'var(--nx-gold)' : 'var(--border)'};background:${sel ? 'var(--nx-gold)' : 'transparent'};display:flex;align-items:center;justify-content:center;color:#000;font-size:12px;font-weight:800;line-height:1">${sel ? '✓' : ''}</span>
+          <span style="display:flex;flex-direction:column;gap:2px;flex:1;min-width:0">
+            <span style="font-weight:600;font-size:14px">${esc(e.name || 'Unnamed')}</span>
+            <span style="font-size:11px;color:var(--muted)">${esc(meta)}</span>
+          </span>
         </button>`;
       }).join('') || '<div style="padding:14px;color:var(--muted);font-size:13px">No equipment found.</div>';
 
@@ -2044,7 +2044,7 @@
           <div style="font-size:18px;font-weight:700;margin-bottom:2px">Schedule PM</div>
           <div style="font-size:13px;color:var(--muted);margin-bottom:14px">with ${esc(vName)}</div>
 
-          <div class="nxvf-label">Equipment${selectedId ? ' · <span style="color:var(--nx-gold);text-transform:none;letter-spacing:0">' + esc(selectedName) + '</span>' : ''}</div>
+          <div class="nxvf-label">Equipment<span id="vpmEqCount" style="color:var(--nx-gold);text-transform:none;letter-spacing:0">${selectedIds.size ? ' · ' + selectedIds.size + ' selected' : ''}</span></div>
           <input class="nxvf-input" id="vpmSearch" value="${esc(search)}" placeholder="Search equipment by name, location…" autocomplete="off" style="margin-bottom:8px">
           <div style="max-height:240px;overflow-y:auto;margin-bottom:16px">${eqRows}</div>
 
@@ -2073,8 +2073,27 @@
       overlay.querySelector('#vpmCancel').addEventListener('click', () => overlay.remove());
       const si = overlay.querySelector('#vpmSearch');
       si.addEventListener('input', () => { search = si.value; applyFilter(); });
+      const updateSelCount = () => {
+        const lbl = overlay.querySelector('#vpmEqCount');
+        if (lbl) lbl.textContent = selectedIds.size ? ' · ' + selectedIds.size + ' selected' : '';
+        const sb = overlay.querySelector('#vpmSave');
+        if (sb && !sb.disabled) sb.textContent = selectedIds.size > 1 ? `Save for ${selectedIds.size} units` : 'Save schedule';
+      };
       overlay.querySelectorAll('[data-eq]').forEach(b => b.addEventListener('click', () => {
-        selectedId = b.dataset.eq; selectedName = b.dataset.name; draw();
+        const id = b.dataset.eq;
+        if (selectedIds.has(id)) selectedIds.delete(id); else selectedIds.add(id);
+        const sel = selectedIds.has(id);
+        // Toggle visuals in place — a full redraw would reset the list scroll,
+        // which is painful when ticking several units out of a long list.
+        b.style.borderColor = sel ? 'var(--nx-gold)' : 'var(--border)';
+        b.style.background = sel ? 'var(--nx-gold-faint)' : 'var(--surface-2,var(--surface))';
+        const chk = b.querySelector('.vpm-check');
+        if (chk) {
+          chk.style.borderColor = sel ? 'var(--nx-gold)' : 'var(--border)';
+          chk.style.background = sel ? 'var(--nx-gold)' : 'transparent';
+          chk.textContent = sel ? '✓' : '';
+        }
+        updateSelCount();
       }));
       overlay.querySelectorAll('[data-pdate]').forEach(inp => inp.addEventListener('input', e => { phases[+e.target.dataset.pdate].date = e.target.value; }));
       overlay.querySelectorAll('[data-plabel]').forEach(inp => inp.addEventListener('input', e => { phases[+e.target.dataset.plabel].label = e.target.value; }));
@@ -2088,7 +2107,7 @@
     };
 
     async function save() {
-      if (!selectedId) { alert('Pick an equipment first.'); return; }
+      if (!selectedIds.size) { alert('Pick at least one piece of equipment.'); return; }
       const valid = phases.filter(p => p.date && p.date.trim());
       if (!valid.length) { alert('At least one phase date is required.'); return; }
       for (let i = 1; i < valid.length; i++) {
@@ -2099,7 +2118,9 @@
       }
       const saveBtn = overlay.querySelector('#vpmSave');
       saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+      const ids = Array.from(selectedIds);
       try {
+        for (const selectedId of ids) {
         // Cancel this equipment's existing scheduled rows (keep history), then
         // insert fresh — single source of truth per equipment, same as the
         // equipment-side scheduler.
@@ -2152,10 +2173,11 @@
             r = await NX.sb.from('equipment').update(attempt).eq('id', selectedId);
             guard++;
           }
-        } catch (_) {}
+          } catch (_) {}
+        }   // end per-equipment loop
 
         overlay.remove();
-        if (NX.toast) NX.toast(`PM scheduled with ${vName}`, 'success', 2000);
+        if (NX.toast) NX.toast(`PM scheduled with ${vName} for ${ids.length} unit${ids.length > 1 ? 's' : ''}`, 'success', 2000);
         // Refresh the vendor detail so the new PM appears in Scheduled PMs.
         state.activeVendor = vendor;
         state._detailCache = null;
