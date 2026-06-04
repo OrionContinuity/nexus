@@ -60,6 +60,8 @@
     graduation: '<path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/>',
     scroll:   '<path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M15 8h-5"/><path d="M15 12h-5"/><path d="M21 21H8a3 3 0 0 1-3-3V7a3 3 0 0 0-3-3"/>',
     book:     '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
+    maximize: '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
+    minimize: '<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>',
   };
   function svg(key, size = 14, stroke = 2) {
     return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;flex-shrink:0">${ICONS[key] || ''}</svg>`;
@@ -128,6 +130,15 @@
   try {
     educationModeOn = localStorage.getItem('clean_education_mode') === '1';
   } catch (e) {}
+  // ─── V16 state — cleaner profiles + full-screen focus ──────────────────
+  // profilesByUserId[user_id] = { working_days:int[1-7], default_shift,
+  //   allowed_sections:string[] (section_es; empty = all), active }.
+  // Drives soft "mine" highlighting (nothing is hidden) + the admin roster.
+  let profilesByUserId = {};
+  // Full-screen focus mode hides the app masthead so cleaning fills the
+  // screen. Opt-in (default keeps the nav for fast hops). Persisted per device.
+  let focusModeOn = false;
+  try { focusModeOn = localStorage.getItem('clean_focus_mode') === '1'; } catch (e) {}
   // "Coming up" lookahead — populated on render from non-daily tasks
   // whose freshness is heading toward zero in the next 7 days. Renders
   // as a horizontal scroll strip above the section cards.
@@ -139,12 +150,12 @@
   // 'all'   = show every section (daily + bi-weekly + monthly + etc).
   // Persisted per-user in localStorage. Default 'today' so the busy
   // morning open isn't drowned in monthly/quarterly noise.
-  const VIEW_MODES = ['today', 'all'];
+  const VIEW_MODES = ['now', 'today', 'all'];
   let viewMode = (() => {
     try {
       const saved = localStorage.getItem('nexus_clean_view_mode');
-      return VIEW_MODES.includes(saved) ? saved : 'today';
-    } catch (e) { return 'today'; }
+      return VIEW_MODES.includes(saved) ? saved : 'now';
+    } catch (e) { return 'now'; }
   })();
   function setViewMode(m) {
     if (!VIEW_MODES.includes(m)) return;
@@ -363,6 +374,117 @@
     } catch (e) {
       console.warn('[cleaning] loadAssignments ex:', e);
     }
+  }
+
+  // ─── V16: cleaner profiles (who works which days + their allowed work) ──
+  async function loadProfiles() {
+    profilesByUserId = {};
+    if (!NX.sb || NX.paused) return;
+    try {
+      const { data, error } = await NX.sb.from('cleaning_profiles').select('*');
+      if (error) { console.warn('[cleaning] loadProfiles:', error); return; }
+      (data || []).forEach(r => { profilesByUserId[r.user_id] = r; });
+    } catch (e) {
+      console.warn('[cleaning] loadProfiles ex:', e);
+    }
+  }
+
+  // Profile helpers. All are permissive when no profile exists, so the
+  // feature is additive: a person with no profile behaves exactly as before.
+  function profileFor(userId) { return userId ? profilesByUserId[userId] : null; }
+  // Works today? No profile / no days set = available any day.
+  function worksToday(userId) {
+    const p = profileFor(userId);
+    if (!p || !Array.isArray(p.working_days) || !p.working_days.length) return true;
+    return p.working_days.includes(todayDayOfWeek());
+  }
+  // Section allowed for this person? Unscoped profile = every section.
+  function sectionAllowedFor(userId, sectionEs) {
+    const p = profileFor(userId);
+    if (!p || !Array.isArray(p.allowed_sections) || !p.allowed_sections.length) return true;
+    return p.allowed_sections.includes(sectionEs);
+  }
+  // Is this task "mine" (the logged-in cleaner's) right now? SOFT signal —
+  // used only for highlighting; nothing is ever hidden. Logic:
+  //   • explicitly assigned to me today (am or pm) → mine
+  //   • explicitly assigned to someone else today → not mine
+  //   • otherwise → mine if I work today AND the section is in my scope
+  function taskIsMine(task) {
+    const me = getCurrentUserId();
+    if (!me) return false;
+    const { am, pm } = todayAssigneesFor(task);
+    if ((am && am.id === me) || (pm && pm.id === me)) return true;
+    if (am || pm) return false;            // assigned to others → theirs
+    // Profile-scope fallback ONLY when the user has a profile — otherwise a
+    // profile-less admin would light up every unassigned task.
+    const p = profileFor(me);
+    if (!p) return false;
+    return worksToday(me) && sectionAllowedFor(me, task.section_es);
+  }
+
+  // Roster management is admin/owner only (or anyone granted 'admin').
+  function canManageRoster() {
+    const u = (window.NX && NX.currentUser) || null;
+    if (!u) return false;
+    if (u.role === 'admin' || u.role === 'owner') return true;
+    if (NX.app && typeof NX.app.hasPermission === 'function') return NX.app.hasPermission('admin');
+    return false;
+  }
+
+  // ─── V16: full-screen focus mode (hide the masthead) ───────────────────
+  // The body class is scoped in CSS to `body.view-clean.clean-focus`, so it
+  // only hides the nav while the cleaning view is active — leaving the class
+  // on after navigating away is harmless (view-clean is cleared by app.js).
+  function applyFocusMode() {
+    document.body.classList.toggle('clean-focus', !!focusModeOn);
+  }
+  function toggleFocusMode() {
+    focusModeOn = !focusModeOn;
+    try { localStorage.setItem('clean_focus_mode', focusModeOn ? '1' : '0'); } catch (e) {}
+    applyFocusMode();
+    render();
+  }
+
+  // ─── V16: "Now" lens — surface the right task at the right time ─────────
+  // Wall-clock shift bucket: opening (am) before 3pm, closing (pm) after.
+  function nowShift() { return new Date().getHours() < 15 ? 'am' : 'pm'; }
+  function nowShiftLabel() { return nowShift() === 'am' ? 'Opening' : 'Closing'; }
+  // Is this task relevant to the current shift right now? Daily tasks match
+  // on shift_pattern; non-daily tasks count only when actually due (fresh=0).
+  function taskIsNowRelevant(task) {
+    if (!DAILY_TYPES.has(task.frequency_type)) return freshnessForTask(task) === 0;
+    const sp = task.shift_pattern || 'am';
+    return sp === 'both' || sp === nowShift();
+  }
+  // Ordering rank inside "Now": relevant-undone → other-undone → relevant-done → done.
+  function nowTaskRank(task) {
+    const done = getDoneState(task.section_es, task.task_order);
+    const rel = taskIsNowRelevant(task);
+    if (rel && !done) return 0;
+    if (!rel && !done) return 1;
+    if (rel && done) return 2;
+    return 3;
+  }
+
+  // ─── V16: per-task training-button opt-in/out ──────────────────────────
+  // The global "Learn" pill reveals + manages the training button on every
+  // task. Independently, each task can be opted in or out of showing its
+  // training button day-to-day. Stored per device (no migration). Default
+  // (no preference) = show when the task has linked guides, as before.
+  let taskTrainingPref = (() => {
+    try { return JSON.parse(localStorage.getItem('clean_task_training_pref') || '{}') || {}; }
+    catch (e) { return {}; }
+  })();
+  function setTaskTrainingPref(taskId, show) {
+    if (show === null || show === undefined) delete taskTrainingPref[taskId];
+    else taskTrainingPref[taskId] = !!show;
+    try { localStorage.setItem('clean_task_training_pref', JSON.stringify(taskTrainingPref)); } catch (e) {}
+  }
+  function showTrainingFor(task) {
+    const p = taskTrainingPref[task.id];
+    if (p === true) return true;
+    if (p === false) return false;
+    return (guidesLinkedByTaskId[task.id] || []).length > 0;
   }
 
   async function loadGuideLinks() {
@@ -1593,15 +1715,27 @@
           ${usersList.map(u => {
             const isSelected = (viewingUserId === u.id);
             const isMe = (me === u.id);
+            const p = profilesByUserId[u.id];
+            const daysHint = (p && Array.isArray(p.working_days) && p.working_days.length && p.working_days.length < 7)
+              ? p.working_days.slice().sort((a, b) => a - b).map(d => WEEKDAY_LABEL[d - 1]).filter(Boolean).join(' ')
+              : (p && Array.isArray(p.working_days) && p.working_days.length === 7 ? 'Every day' : '');
+            const secHint = (p && Array.isArray(p.allowed_sections) && p.allowed_sections.length)
+              ? `${p.allowed_sections.length} section${p.allowed_sections.length === 1 ? '' : 's'}`
+              : 'All sections';
+            const hint = daysHint ? `${daysHint} · ${secHint}` : `Show ${u.name}'s tasks`;
             return `
               <button class="clean-person-picker-item ${isSelected ? 'is-selected' : ''}" data-user-id="${esc(u.id)}">
                 <span class="clean-person-picker-dot"></span>
                 <span class="clean-person-picker-name">${esc(u.name)}${isMe ? ' <span class="clean-person-picker-me">(me)</span>' : ''}</span>
-                <span class="clean-person-picker-hint">Show ${esc(u.name)}'s tasks</span>
+                <span class="clean-person-picker-hint">${esc(hint)}</span>
               </button>
             `;
           }).join('')}
         </div>
+        ${canManageRoster() ? `
+          <button class="clean-roster-manage-btn" data-manage-roster type="button">
+            ${svg('user', 14)} <span>Manage roster &amp; scope</span>
+          </button>` : ''}
       </div>
     `;
     document.body.appendChild(sheet);
@@ -1615,6 +1749,138 @@
         viewingUserId = v ? (parseInt(v, 10) || v) : null;
         close();
         render();
+      });
+    });
+    const manageBtn = sheet.querySelector('[data-manage-roster]');
+    if (manageBtn) manageBtn.addEventListener('click', () => { close(); openRosterManager(); });
+  }
+
+  // ═══ ROSTER MANAGER (v16) ════════════════════════════════════════════
+  // Admin-only. One row per user → expand to set the days they work, their
+  // default shift, and the SECTIONS they're allowed to clean (their scope).
+  // Saved to cleaning_profiles. The scope is a SOFT limit: it drives "mine"
+  // highlighting + the picker hints, it does not hide anything from anyone.
+  async function openRosterManager() {
+    if (!canManageRoster()) return;
+    document.querySelectorAll('.clean-roster-manager').forEach(m => m.remove());
+
+    // Distinct sections across every location (so scope works cross-site).
+    let sections = [];
+    try {
+      const { data } = await NX.sb.from('cleaning_tasks')
+        .select('section_es, section_en').eq('archived', false);
+      const seen = new Map();
+      (data || []).forEach(r => {
+        if (r.section_es && !seen.has(r.section_es)) seen.set(r.section_es, r.section_en || r.section_es);
+      });
+      sections = [...seen.entries()].map(([es, en]) => ({ es, en }));
+    } catch (e) { console.warn('[cleaning] roster sections:', e); }
+
+    // Make sure we have the freshest profiles before drawing the editor.
+    await loadProfiles();
+
+    const DOW = [
+      { d: 1, label: 'Sun' }, { d: 2, label: 'Mon' }, { d: 3, label: 'Tue' },
+      { d: 4, label: 'Wed' }, { d: 5, label: 'Thu' }, { d: 6, label: 'Fri' },
+      { d: 7, label: 'Sat' },
+    ];
+
+    const sheet = document.createElement('div');
+    sheet.className = 'clean-roster-manager';
+    sheet.innerHTML = `
+      <div class="clean-roster-bg"></div>
+      <div class="clean-roster-card">
+        <div class="clean-roster-head">
+          <div class="clean-roster-title">Roster &amp; scope</div>
+          <button class="clean-roster-close" aria-label="Close">${svg('close', 14)}</button>
+        </div>
+        <div class="clean-roster-sub">Set who works which days and the sections each person is responsible for. Scope highlights a person's work — it never hides tasks.</div>
+        <div class="clean-roster-list">
+          ${usersList.length ? usersList.map(u => {
+            const p = profilesByUserId[u.id] || {};
+            const days = Array.isArray(p.working_days) ? p.working_days : [];
+            const allowed = Array.isArray(p.allowed_sections) ? p.allowed_sections : [];
+            const shift = p.default_shift || 'both';
+            return `
+              <div class="clean-roster-row" data-user-id="${esc(u.id)}">
+                <button class="clean-roster-row-head" data-roster-toggle>
+                  <span class="clean-roster-row-name">${esc(u.name)}</span>
+                  <span class="clean-roster-row-meta">${days.length ? days.length + 'd' : 'any day'} · ${allowed.length ? allowed.length + ' sec' : 'all'}</span>
+                  <span class="clean-roster-row-chev">${svg('chevron', 16)}</span>
+                </button>
+                <div class="clean-roster-row-body" hidden>
+                  <div class="clean-roster-field-label">Working days</div>
+                  <div class="clean-roster-days">
+                    ${DOW.map(x => `<button type="button" class="clean-roster-day ${days.includes(x.d) ? 'on' : ''}" data-day="${x.d}">${x.label}</button>`).join('')}
+                  </div>
+                  <div class="clean-roster-field-label">Default shift</div>
+                  <div class="clean-roster-shifts">
+                    ${['am', 'pm', 'both'].map(s => `<button type="button" class="clean-roster-shift ${shift === s ? 'on' : ''}" data-shift="${s}">${s.toUpperCase()}</button>`).join('')}
+                  </div>
+                  <div class="clean-roster-field-label">Allowed sections <span class="clean-roster-field-note">— none = all</span></div>
+                  <div class="clean-roster-secs">
+                    ${sections.length ? sections.map(sec => `<button type="button" class="clean-roster-sec ${allowed.includes(sec.es) ? 'on' : ''}" data-sec="${esc(sec.es)}">${esc(sec.en)}</button>`).join('') : '<span class="clean-roster-empty">No sections yet.</span>'}
+                  </div>
+                  <button type="button" class="clean-roster-save" data-roster-save>Save ${esc(u.name)}</button>
+                </div>
+              </div>
+            `;
+          }).join('') : '<div class="clean-roster-empty">No users found.</div>'}
+        </div>
+      </div>
+    `;
+    document.body.appendChild(sheet);
+
+    const close = () => sheet.remove();
+    sheet.querySelector('.clean-roster-bg').addEventListener('click', close);
+    sheet.querySelector('.clean-roster-close').addEventListener('click', close);
+
+    // Expand / collapse a row
+    sheet.querySelectorAll('[data-roster-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const body = btn.parentElement.querySelector('.clean-roster-row-body');
+        if (body) body.hidden = !body.hidden;
+        btn.closest('.clean-roster-row').classList.toggle('is-open', body && !body.hidden);
+      });
+    });
+    // Toggle day / shift / section chips
+    sheet.querySelectorAll('[data-day]').forEach(b => b.addEventListener('click', () => b.classList.toggle('on')));
+    sheet.querySelectorAll('[data-sec]').forEach(b => b.addEventListener('click', () => b.classList.toggle('on')));
+    sheet.querySelectorAll('.clean-roster-shifts').forEach(group => {
+      group.querySelectorAll('[data-shift]').forEach(b => b.addEventListener('click', () => {
+        group.querySelectorAll('[data-shift]').forEach(x => x.classList.remove('on'));
+        b.classList.add('on');
+      }));
+    });
+    // Save a row → upsert cleaning_profiles
+    sheet.querySelectorAll('[data-roster-save]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const row = btn.closest('.clean-roster-row');
+        const userId = parseInt(row.dataset.userId, 10) || row.dataset.userId;
+        const working_days = [...row.querySelectorAll('.clean-roster-day.on')]
+          .map(d => parseInt(d.dataset.day, 10)).sort((a, b) => a - b);
+        const shiftBtn = row.querySelector('.clean-roster-shift.on');
+        const default_shift = shiftBtn ? shiftBtn.dataset.shift : 'both';
+        const allowed_sections = [...row.querySelectorAll('.clean-roster-sec.on')].map(s => s.dataset.sec);
+        const orig = btn.textContent;
+        btn.disabled = true; btn.textContent = 'Saving…';
+        try {
+          const { error } = await NX.sb.from('cleaning_profiles').upsert({
+            user_id: userId, working_days, default_shift, allowed_sections, active: true,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'user_id' });
+          if (error) throw error;
+          profilesByUserId[userId] = { user_id: userId, working_days, default_shift, allowed_sections, active: true };
+          btn.textContent = 'Saved ✓';
+          const meta = row.querySelector('.clean-roster-row-meta');
+          if (meta) meta.textContent = `${working_days.length ? working_days.length + 'd' : 'any day'} · ${allowed_sections.length ? allowed_sections.length + ' sec' : 'all'}`;
+          setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1300);
+          render();
+        } catch (e) {
+          console.warn('[cleaning] roster save:', e);
+          btn.textContent = 'Failed — retry'; btn.disabled = false;
+          toast('Save failed: ' + (e.message || e), 'error');
+        }
       });
     });
   }
@@ -1741,14 +2007,18 @@
     viewToggle.className = 'clean-view-toggle-row';
     viewToggle.innerHTML = `
       <div class="clean-view-toggle">
+        <button class="clean-view-toggle-btn ${viewMode === 'now' ? 'is-active' : ''}" data-view="now">Now${viewMode === 'now' ? ` · ${nowShiftLabel()}` : ''}</button>
         <button class="clean-view-toggle-btn ${viewMode === 'today' ? 'is-active' : ''}" data-view="today">Today</button>
         <button class="clean-view-toggle-btn ${viewMode === 'all'   ? 'is-active' : ''}" data-view="all">All</button>
       </div>
       <button class="clean-person-pill ${viewingUserId !== null ? 'is-active' : ''}" data-person-pill title="Whose view to show">
         ${svg('user', 12)} <span>${esc(pillLabel)}</span>
       </button>
-      <button class="clean-person-pill ${educationModeOn ? 'is-active' : ''}" data-edu-pill title="Show learning guide buttons on every task" aria-pressed="${educationModeOn}">
+      <button class="clean-person-pill ${educationModeOn ? 'is-active' : ''}" data-edu-pill title="Show & manage the training button on every task" aria-pressed="${educationModeOn}">
         ${svg('graduation', 12)} <span>Learn</span>
+      </button>
+      <button class="clean-person-pill clean-focus-pill ${focusModeOn ? 'is-active' : ''}" data-focus-pill title="Full screen — hide the masthead" aria-pressed="${focusModeOn}">
+        ${svg(focusModeOn ? 'minimize' : 'maximize', 12)} <span>${focusModeOn ? 'Exit' : 'Focus'}</span>
       </button>
     `;
     viewToggle.querySelectorAll('[data-view]').forEach(btn => {
@@ -1762,6 +2032,8 @@
       try { localStorage.setItem('clean_education_mode', educationModeOn ? '1' : '0'); } catch (e) {}
       render();
     });
+    const focusPill = viewToggle.querySelector('[data-focus-pill]');
+    if (focusPill) focusPill.addEventListener('click', toggleFocusMode);
     list.appendChild(viewToggle);
 
     // ─── COMING UP strip — 7-day forward look ────────────────────
@@ -1813,12 +2085,20 @@
     }
 
     // Render every section card — filter by viewMode, then by person
-    let visibleGroups = viewMode === 'today'
+    let visibleGroups = (viewMode === 'today' || viewMode === 'now')
       ? groups.filter(g => g.tasks.some(t => DAILY_TYPES.has(t.frequency_type)))
       : groups;
 
     // V15: filter to person's view if one is selected. null = Everyone.
     visibleGroups = filterGroupsByUser(visibleGroups, viewingUserId);
+
+    // V16 "Now" lens: float sections that still have current-shift work to do.
+    if (viewMode === 'now') {
+      visibleGroups = visibleGroups.slice().sort((a, b) => {
+        const hot = g => g.tasks.some(t => taskIsNowRelevant(t) && !getDoneState(t.section_es, t.task_order)) ? 1 : 0;
+        return hot(b) - hot(a);
+      });
+    }
 
     if (!visibleGroups.length && groups.length) {
       // Could be empty due to viewMode='today' OR due to person filter.
@@ -1828,7 +2108,7 @@
       hint.innerHTML = `
         <div class="clean-empty-soft-text">
           ${isPersonFiltered
-            ? `No tasks assigned to this person${viewMode === 'today' ? ' today' : ''}. Tap the person pill to switch view.`
+            ? `No tasks assigned to this person${(viewMode === 'today' || viewMode === 'now') ? ' today' : ''}. Tap the person pill to switch view.`
             : `No daily sections at this location. Tap <b>All</b> above to see scheduled tasks.`}
         </div>`;
       list.appendChild(hint);
@@ -1959,8 +2239,12 @@
         body.appendChild(checkAllBtn);
       }
 
-      // Task rows
-      group.tasks.forEach(task => {
+      // Task rows — in "Now" mode, order by current-shift relevance so the
+      // next thing to do sits at the top of each section.
+      const orderedTasks = (viewMode === 'now')
+        ? group.tasks.slice().sort((a, b) => nowTaskRank(a) - nowTaskRank(b))
+        : group.tasks;
+      orderedTasks.forEach(task => {
         if (editingTaskId === task.id) {
           body.appendChild(renderTaskEditForm(task));
         } else {
@@ -2009,7 +2293,9 @@
     const isDaily = DAILY_TYPES.has(task.frequency_type);
 
     const row = document.createElement('div');
-    row.className = 'clean-task' + (done ? ' is-done' : '');
+    const mine = taskIsMine(task);
+    const dimmed = (viewMode === 'now') && !taskIsNowRelevant(task) && !done;
+    row.className = 'clean-task' + (done ? ' is-done' : '') + (mine ? ' is-mine' : '') + (dimmed ? ' is-dimmed' : '');
     row.dataset.taskId = task.id;
 
     // Primary text in active language, secondary in the other
@@ -2164,12 +2450,23 @@
         <button class="clean-task-action-btn" aria-label="${activeNote ? 'Edit note' : 'Add note'}" data-add-note title="${activeNote ? 'Edit note' : 'Note'}">
           ${svg('alert', 14, 2)}
         </button>
-        ${(educationModeOn || (guidesLinkedByTaskId[task.id] || []).length) ? `
-          <button class="clean-task-action-btn clean-guide-btn ${(guidesLinkedByTaskId[task.id] || []).length ? '' : 'is-empty'}" aria-label="${(guidesLinkedByTaskId[task.id] || []).length ? 'Open guide' : 'Link a guide'}" data-open-guide title="${(guidesLinkedByTaskId[task.id] || []).length ? 'Guide' : 'Link guide'}">
+        ${(() => {
+          const guides = guidesLinkedByTaskId[task.id] || [];
+          const hasGuides = guides.length;
+          const effShow = showTrainingFor(task);
+          // Everyday: show only if this task is opted in (or has guides and
+          // isn't opted out). In Learn mode: always show + offer the toggle.
+          if (!educationModeOn && !effShow) return '';
+          const optedOut = taskTrainingPref[task.id] === false;
+          const toggle = educationModeOn
+            ? `<button class="clean-task-action-btn clean-train-toggle ${effShow ? 'is-on' : 'is-off'}" data-train-toggle aria-label="${effShow ? 'Hide training on this task' : 'Show training on this task'}" title="${effShow ? 'Training shown — tap to hide' : 'Training hidden — tap to show'}">${svg(effShow ? 'check' : 'close', 11, 2.4)}</button>`
+            : '';
+          return `
+          <button class="clean-task-action-btn clean-guide-btn ${hasGuides ? '' : 'is-empty'} ${optedOut ? 'is-optedout' : ''}" aria-label="${hasGuides ? 'Open training' : 'Link training'}" data-open-guide title="${hasGuides ? 'Training' : 'Link training'}">
             ${svg('graduation', 14, 2)}
-            ${(guidesLinkedByTaskId[task.id] || []).length > 1 ? `<span class="clean-guide-btn-count">${guidesLinkedByTaskId[task.id].length}</span>` : ''}
-          </button>
-        ` : ''}
+            ${guides.length > 1 ? `<span class="clean-guide-btn-count">${guides.length}</span>` : ''}
+          </button>${toggle}`;
+        })()}
         <button class="clean-task-action-btn" aria-label="Edit task" data-edit-task title="Edit">
           ${svg('pen', 14, 2)}
         </button>
@@ -2230,6 +2527,15 @@
         } else {
           openTaskGuidePicker(task, guides);
         }
+      });
+    }
+    // Per-task training opt in/out (only present in Learn mode).
+    const trainToggle = row.querySelector('[data-train-toggle]');
+    if (trainToggle) {
+      trainToggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setTaskTrainingPref(task.id, !showTrainingFor(task));
+        render();
       });
     }
     // Note action: opens the editor (creates new or edits existing)
@@ -3892,6 +4198,9 @@
     await loadTaskNotes();
     await loadAssignments();
     await loadGuideLinks();
+    await loadProfiles();
+    // Re-apply persisted full-screen focus on every entry to the view.
+    applyFocusMode();
     // Person filter defaults to Everyone — see init() comment above.
     render();
   }
