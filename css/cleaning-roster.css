@@ -502,3 +502,214 @@
   font-size: 13px;
   line-height: 1.5;
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   v16 — CLEANER PROFILES · SOFT "MINE" HIGHLIGHT · FOCUS MODE · ROSTER
+   Layered on top of cleaning-roster.css / cleaning-system.css.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ─── SOFT highlight: the logged-in cleaner's own tasks ─────────────────
+   Nothing is hidden — a person's work is just emphasized with a gold edge
+   and a faint wash so it reads first at a glance. */
+.clean-task.is-mine {
+  position: relative;
+  background: linear-gradient(90deg, rgba(212,164,78,0.10), rgba(212,164,78,0.02) 60%, transparent);
+  border-radius: 10px;
+}
+.clean-task.is-mine::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 8px; bottom: 8px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--accent, #d4a44e);
+}
+.clean-task.is-mine.is-done {
+  background: transparent;     /* once done, drop the emphasis */
+}
+.clean-task.is-mine.is-done::before { opacity: 0.35; }
+
+/* The Focus pill reuses .clean-person-pill; when active it goes solid gold. */
+.clean-focus-pill.is-active {
+  background: var(--accent, #d4a44e);
+  border-color: var(--accent, #d4a44e);
+  color: #1a1407;
+}
+
+/* ─── FULL-SCREEN FOCUS MODE — hide the masthead ───────────────────────
+   Scoped to body.view-clean.clean-focus so it ONLY hides the nav while the
+   cleaning view is active. app.js clears the view-clean class on navigation,
+   so leaving cleaning restores the masthead automatically even if the
+   clean-focus class lingers. */
+body.view-clean.clean-focus .nav,
+body.view-clean.clean-focus .bottom-nav {
+  display: none !important;
+}
+/* With the masthead gone, let the cleaning column fill the whole viewport
+   and clear the iOS status-bar / notch at the top of the in-view header. */
+body.view-clean.clean-focus.is-pane-cleaning #appWrap {
+  height: 100dvh;
+  height: 100vh;
+  height: 100dvh;
+}
+body.view-clean.clean-focus .clean-header.clean-header-takeover {
+  padding-top: max(10px, env(safe-area-inset-top, 0px));
+}
+
+/* ─── "Manage roster & scope" button in the person picker ──────────────── */
+.clean-roster-manage-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: calc(100% - 24px);
+  margin: 4px 12px 14px;
+  padding: 12px;
+  background: rgba(212,164,78,0.10);
+  border: 1px solid var(--nx-highlight-line, rgba(212,164,78,0.20));
+  border-radius: 12px;
+  color: var(--accent, #d4a44e);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.clean-roster-manage-btn:active { transform: scale(0.98); }
+
+/* ─── ROSTER MANAGER SHEET ─────────────────────────────────────────────── */
+.clean-roster-manager {
+  position: fixed; inset: 0; z-index: 1200;
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.clean-roster-bg {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(2px);
+}
+.clean-roster-card {
+  position: relative;
+  width: 100%; max-width: 560px;
+  max-height: 92vh; overflow-y: auto;
+  background: var(--surface, #1a1814);
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,0.22));
+  border-radius: 18px 18px 0 0;
+  padding: 18px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+}
+.clean-roster-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 4px;
+}
+.clean-roster-title {
+  font-family: 'Outfit', sans-serif; font-size: 18px; font-weight: 700;
+  color: var(--text, #f0e9da);
+}
+.clean-roster-close {
+  width: 32px; height: 32px; border-radius: 999px;
+  background: transparent; border: 1px solid var(--nx-highlight-line, rgba(212,164,78,0.18));
+  color: var(--text, #f0e9da); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.clean-roster-sub {
+  font-size: 12.5px; color: var(--nx-muted, #9a9384);
+  line-height: 1.4; margin-bottom: 14px;
+}
+.clean-roster-list { display: flex; flex-direction: column; gap: 8px; }
+.clean-roster-row {
+  border: 1px solid var(--nx-highlight-line, rgba(212,164,78,0.14));
+  border-radius: 12px; overflow: hidden;
+  background: rgba(255,255,255,0.015);
+}
+.clean-roster-row.is-open { border-color: var(--nx-gold-line, rgba(212,164,78,0.3)); }
+.clean-roster-row-head {
+  width: 100%; display: flex; align-items: center; gap: 10px;
+  padding: 13px 14px; background: transparent; border: 0;
+  color: var(--text, #f0e9da); cursor: pointer; text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+.clean-roster-row-name { font-size: 14.5px; font-weight: 600; flex: 1; }
+.clean-roster-row-meta { font-size: 11.5px; color: var(--nx-muted, #9a9384); }
+.clean-roster-row-chev { color: var(--nx-muted, #9a9384); transition: transform 160ms ease; }
+.clean-roster-row.is-open .clean-roster-row-chev { transform: rotate(180deg); }
+.clean-roster-row-body {
+  padding: 4px 14px 16px;
+  border-top: 1px solid var(--nx-highlight-line, rgba(212,164,78,0.10));
+}
+.clean-roster-field-label {
+  font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--nx-muted, #9a9384); margin: 14px 0 7px;
+}
+.clean-roster-field-note { text-transform: none; letter-spacing: 0; opacity: 0.6; }
+.clean-roster-days, .clean-roster-shifts, .clean-roster-secs {
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+.clean-roster-day, .clean-roster-shift, .clean-roster-sec {
+  padding: 7px 12px; border-radius: 999px;
+  background: var(--surface, #1a1814);
+  border: 1px solid var(--nx-highlight-line, rgba(212,164,78,0.18));
+  color: var(--text, #ece6d8);
+  font-family: 'Outfit', sans-serif; font-size: 12.5px; font-weight: 500;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.clean-roster-day.on, .clean-roster-shift.on, .clean-roster-sec.on {
+  background: var(--accent, #d4a44e); border-color: var(--accent, #d4a44e);
+  color: #1a1407; font-weight: 600;
+}
+.clean-roster-save {
+  margin-top: 16px; width: 100%; padding: 12px;
+  background: var(--accent, #d4a44e); border: 0; border-radius: 12px;
+  color: #1a1407; font-family: 'Outfit', sans-serif; font-size: 14px; font-weight: 700;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.clean-roster-save:disabled { opacity: 0.7; }
+.clean-roster-empty {
+  font-size: 13px; color: var(--nx-muted, #9a9384); padding: 14px;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   v16 — "NOW" LENS + PER-TASK TRAINING TOGGLE
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Tasks not relevant to the current shift fade back so the next thing to do
+   reads first. Still fully tappable — this is emphasis, not hiding. */
+.clean-task.is-dimmed {
+  opacity: 0.42;
+  filter: saturate(0.7);
+}
+.clean-task.is-dimmed:active { opacity: 0.7; }
+/* A person's own work still stands out even when dimmed by the Now lens. */
+.clean-task.is-dimmed.is-mine { opacity: 0.6; }
+
+/* The active "Now · Opening/Closing" segment gets the gold treatment so the
+   time context is legible at a glance. */
+.clean-view-toggle-btn[data-view="now"].is-active {
+  background: var(--accent, #d4a44e);
+  color: #1a1407;
+  font-weight: 700;
+}
+
+/* Per-task training opt-in/out toggle — only shown in Learn mode, sits right
+   after the training (graduation) button. */
+.clean-train-toggle {
+  width: 22px !important;
+  min-width: 22px;
+  padding: 0 !important;
+  border-radius: 999px !important;
+  margin-left: -4px;
+}
+.clean-train-toggle.is-on {
+  background: rgba(212,164,78,0.16);
+  border-color: var(--accent, #d4a44e);
+  color: var(--accent, #d4a44e);
+}
+.clean-train-toggle.is-off {
+  opacity: 0.55;
+}
+/* When a task is explicitly opted out, its training button (only visible in
+   Learn mode) reads muted so you can see the state at a glance. */
+.clean-guide-btn.is-optedout {
+  opacity: 0.4;
+  border-style: dashed;
+}
