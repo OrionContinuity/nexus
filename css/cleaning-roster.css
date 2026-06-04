@@ -734,7 +734,7 @@ body.view-clean.clean-focus .clean-header.clean-header-takeover {
 .clean-loc-cards {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   padding: 8px 4px 24px;
 }
 .clean-loc-cards-title {
@@ -745,69 +745,10 @@ body.view-clean.clean-focus .clean-header.clean-header-takeover {
   color: var(--nx-muted, #9a9384);
   margin: 4px 4px 2px;
 }
-
-/* Card mirrors the ordering vendor row: ~88px tall, avatar left, rounded. */
-.clean-loc-card {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  width: 100%;
-  min-height: 88px;
-  padding: 14px 16px;
-  background: var(--surface, #1a1814);
-  border: 1px solid var(--nx-highlight-line, rgba(212,164,78,0.16));
-  border-radius: 16px;
-  cursor: pointer;
-  text-align: left;
-  -webkit-tap-highlight-color: transparent;
-  transition: transform 120ms ease, border-color 120ms ease;
-}
-.clean-loc-card:active { transform: scale(0.985); }
-.clean-loc-card:hover { border-color: var(--nx-gold-line, rgba(212,164,78,0.32)); }
-
-.clean-loc-av {
-  width: 64px; height: 64px;
-  flex: 0 0 auto;
-  border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  font-family: 'Outfit', sans-serif; font-weight: 700; font-size: 20px;
-  color: #1a1407;
-  background-color: hsl(var(--avatar-hue, 40) 52% 62%);
-  background-size: cover; background-position: center;
-  overflow: hidden;
-}
-.clean-loc-av.has-img { color: transparent; }
-
-.clean-loc-card-main { flex: 1; min-width: 0; }
-.clean-loc-card-name {
-  font-family: 'Outfit', sans-serif;
-  font-size: 17px; font-weight: 700;
-  color: var(--text, #f0e9da);
-  margin-bottom: 8px;
-}
-.clean-loc-card-track {
-  height: 6px; border-radius: 999px;
-  background: rgba(212,164,78,0.14);
-  overflow: hidden;
-}
-.clean-loc-card-fill {
-  height: 100%; border-radius: 999px;
-  background: var(--accent, #d4a44e);
-  transition: width 300ms ease;
-}
-.clean-loc-card-pct {
-  font-family: 'Outfit', sans-serif;
-  font-size: 15px; font-weight: 700;
-  color: var(--accent, #d4a44e);
-  flex: 0 0 auto;
-  min-width: 38px; text-align: right;
-}
-.clean-loc-card-chev {
-  flex: 0 0 auto;
-  color: var(--nx-muted, #9a9384);
-  transform: rotate(-90deg);   /* chevron points right */
-  display: inline-flex;
-}
+/* Cards themselves reuse ordering's .ord-vendor-row / .ord-vendor-avatar
+   (ordering-system.css, loaded globally) so they're identical to the vendor
+   cards. The % sits in the .ord-vendor-when slot; "shift progress today" in
+   the preview line. No bespoke card styling needed here. */
 
 /* Back-to-restaurants row inside a location. */
 .clean-loc-back {
