@@ -140,6 +140,7 @@
   //   allowed_sections:string[] (section_es; empty = all), active }.
   // Drives soft "mine" highlighting (nothing is hidden) + the admin roster.
   let profilesByUserId = {};
+  let profileTemplates = [];  // reusable profiles: {id,name,working_days,default_shift,allowed_sections}
   // Full-screen focus mode hides the app masthead so cleaning fills the
   // screen. Opt-in (default keeps the nav for fast hops). Persisted per device.
   let focusModeOn = false;
@@ -1920,11 +1921,49 @@
   // default shift, and the SECTIONS they're allowed to clean (their scope).
   // Saved to cleaning_profiles. The scope is a SOFT limit: it drives "mine"
   // highlighting + the picker hints, it does not hide anything from anyone.
+  // V16: reusable profile templates (preset days + shift + sections).
+  async function loadTemplates() {
+    profileTemplates = [];
+    if (!NX.sb || NX.paused) return;
+    try {
+      const { data, error } = await NX.sb.from('cleaning_profile_templates').select('*').order('name');
+      if (error) { console.warn('[cleaning] loadTemplates:', error); return; }
+      profileTemplates = data || [];
+    } catch (e) { console.warn('[cleaning] loadTemplates ex:', e); }
+  }
+
+  // V16: attaching/saving a profile autofills the person's weekly task
+  // assignments at the CURRENT restaurant — every task in their allowed
+  // sections, on each working day, at their shift. Replaces only the
+  // (task,day) cells the profile covers so other manual assignments survive.
+  // Needs both days and sections to do anything.
+  async function autofillAssignmentsForUser(userId, days, shift, sections) {
+    if (!NX.sb || !userId || !days.length || !sections.length) return { count: 0, skipped: true };
+    const taskIds = (tasksByLoc[activeLoc] || [])
+      .filter(t => sections.includes(t.section_es)).map(t => t.id);
+    if (!taskIds.length) return { count: 0 };
+    const shifts = shift === 'both' ? ['am', 'pm'] : [shift || 'am'];
+    try {
+      await NX.sb.from('cleaning_task_assignments').delete()
+        .eq('user_id', userId).eq('scope', 'weekly')
+        .in('task_id', taskIds).in('day_of_week', days);
+    } catch (e) { console.warn('[cleaning] autofill clear:', e); }
+    const rows = [];
+    taskIds.forEach(tid => days.forEach(d => shifts.forEach(s => {
+      rows.push({ task_id: tid, user_id: userId, scope: 'weekly', day_of_week: d, shift: s, year_month: null });
+    })));
+    for (let i = 0; i < rows.length; i += 500) {
+      const { error } = await NX.sb.from('cleaning_task_assignments').insert(rows.slice(i, i + 500));
+      if (error) { console.warn('[cleaning] autofill insert:', error); return { count: i, error }; }
+    }
+    return { count: rows.length };
+  }
+
   async function openRosterManager() {
     if (!canManageRoster()) return;
     document.querySelectorAll('.clean-roster-manager').forEach(m => m.remove());
 
-    // Distinct sections across every location (so scope works cross-site).
+    // Distinct sections across every location (for the scope/duty chips).
     let sections = [];
     try {
       const { data } = await NX.sb.from('cleaning_tasks')
@@ -1936,14 +1975,86 @@
       sections = [...seen.entries()].map(([es, en]) => ({ es, en }));
     } catch (e) { console.warn('[cleaning] roster sections:', e); }
 
-    // Make sure we have the freshest profiles before drawing the editor.
     await loadProfiles();
+    await loadTemplates();
 
     const DOW = [
       { d: 1, label: 'Sun' }, { d: 2, label: 'Mon' }, { d: 3, label: 'Tue' },
       { d: 4, label: 'Wed' }, { d: 5, label: 'Thu' }, { d: 6, label: 'Fri' },
       { d: 7, label: 'Sat' },
     ];
+    const dayChips = (sel) => DOW.map(x => `<button type="button" class="clean-roster-day ${sel.includes(x.d) ? 'on' : ''}" data-day="${x.d}">${x.label}</button>`).join('');
+    const shiftChips = (sel) => ['am', 'pm', 'both'].map(s => `<button type="button" class="clean-roster-shift ${sel === s ? 'on' : ''}" data-shift="${s}">${s.toUpperCase()}</button>`).join('');
+    const secChips = (sel) => sections.length
+      ? sections.map(sc => `<button type="button" class="clean-roster-sec ${sel.includes(sc.es) ? 'on' : ''}" data-sec="${esc(sc.es)}">${esc(sc.en)}</button>`).join('')
+      : '<span class="clean-roster-empty">No sections yet.</span>';
+    const metaText = (days, secs) => `${days.length ? days.length + 'd' : 'any day'} · ${secs.length ? secs.length + ' sec' : 'all'}`;
+
+    const isRemoved = (u) => (profilesByUserId[u.id] && profilesByUserId[u.id].active === false);
+    const activeUsers  = usersList.filter(u => !isRemoved(u));
+    const removedUsers = usersList.filter(u => isRemoved(u));
+
+    const personRowHTML = (u) => {
+      const p = profilesByUserId[u.id] || {};
+      const days = Array.isArray(p.working_days) ? p.working_days : [];
+      const allowed = Array.isArray(p.allowed_sections) ? p.allowed_sections : [];
+      const shift = p.default_shift || 'both';
+      return `
+        <div class="clean-roster-row" data-user-id="${esc(u.id)}">
+          <button class="clean-roster-row-head" data-roster-toggle>
+            <span class="clean-roster-row-name">${esc(u.name)}</span>
+            <span class="clean-roster-row-meta">${metaText(days, allowed)}</span>
+            <span class="clean-roster-row-chev">${svg('chevron', 16)}</span>
+          </button>
+          <div class="clean-roster-row-body" hidden>
+            ${profileTemplates.length ? `
+              <div class="clean-roster-field-label">Use a profile</div>
+              <select class="clean-roster-apply-tpl" data-apply-tpl>
+                <option value="">— pick a profile —</option>
+                ${profileTemplates.map(t => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('')}
+              </select>` : ''}
+            <div class="clean-roster-field-label">Working days</div>
+            <div class="clean-roster-days">${dayChips(days)}</div>
+            <div class="clean-roster-field-label">Default shift</div>
+            <div class="clean-roster-shifts">${shiftChips(shift)}</div>
+            <div class="clean-roster-field-label">Allowed sections <span class="clean-roster-field-note">— none = all</span></div>
+            <div class="clean-roster-secs">${secChips(allowed)}</div>
+            <div class="clean-roster-row-actions">
+              <button type="button" class="clean-roster-save" data-roster-save>Save ${esc(u.name)}</button>
+              <button type="button" class="clean-roster-del" data-roster-remove>Remove</button>
+            </div>
+          </div>
+        </div>`;
+    };
+
+    const templateRowHTML = (t) => {
+      const days = Array.isArray(t.working_days) ? t.working_days : [];
+      const allowed = Array.isArray(t.allowed_sections) ? t.allowed_sections : [];
+      const shift = t.default_shift || 'both';
+      const isNew = (t.id == null);
+      return `
+        <div class="clean-roster-row clean-roster-trow ${isNew ? 'is-open' : ''}" data-template-id="${esc(isNew ? '' : t.id)}">
+          <button class="clean-roster-row-head" data-roster-toggle>
+            <span class="clean-roster-row-name">${esc(t.name || 'New profile')}</span>
+            <span class="clean-roster-row-meta">${metaText(days, allowed)}</span>
+            <span class="clean-roster-row-chev">${svg('chevron', 16)}</span>
+          </button>
+          <div class="clean-roster-row-body" ${isNew ? '' : 'hidden'}>
+            <div class="clean-roster-field-label">Profile name</div>
+            <input type="text" class="clean-roster-tname" value="${esc(t.name || '')}" placeholder="e.g. PM Kitchen">
+            <div class="clean-roster-field-label">Working days</div>
+            <div class="clean-roster-days">${dayChips(days)}</div>
+            <div class="clean-roster-field-label">Default shift</div>
+            <div class="clean-roster-shifts">${shiftChips(shift)}</div>
+            <div class="clean-roster-field-label">Duties <span class="clean-roster-field-note">— sections</span></div>
+            <div class="clean-roster-secs">${secChips(allowed)}</div>
+            <div class="clean-roster-row-actions">
+              <button type="button" class="clean-roster-save" data-template-save>Save profile</button>
+              ${isNew ? '' : '<button type="button" class="clean-roster-del" data-template-del>Delete</button>'}
+            </div>
+          </div>
+        </div>`;
+    };
 
     const sheet = document.createElement('div');
     sheet.className = 'clean-roster-manager';
@@ -1951,96 +2062,207 @@
       <div class="clean-roster-bg"></div>
       <div class="clean-roster-card">
         <div class="clean-roster-head">
-          <div class="clean-roster-title">Roster &amp; scope</div>
+          <div class="clean-roster-title">Roster &amp; profiles</div>
           <button class="clean-roster-close" aria-label="Close">${svg('close', 14)}</button>
         </div>
-        <div class="clean-roster-sub">Set who works which days and the sections each person is responsible for. Scope highlights a person's work — it never hides tasks.</div>
-        <div class="clean-roster-list">
-          ${usersList.length ? usersList.map(u => {
-            const p = profilesByUserId[u.id] || {};
-            const days = Array.isArray(p.working_days) ? p.working_days : [];
-            const allowed = Array.isArray(p.allowed_sections) ? p.allowed_sections : [];
-            const shift = p.default_shift || 'both';
-            return `
-              <div class="clean-roster-row" data-user-id="${esc(u.id)}">
-                <button class="clean-roster-row-head" data-roster-toggle>
-                  <span class="clean-roster-row-name">${esc(u.name)}</span>
-                  <span class="clean-roster-row-meta">${days.length ? days.length + 'd' : 'any day'} · ${allowed.length ? allowed.length + ' sec' : 'all'}</span>
-                  <span class="clean-roster-row-chev">${svg('chevron', 16)}</span>
-                </button>
-                <div class="clean-roster-row-body" hidden>
-                  <div class="clean-roster-field-label">Working days</div>
-                  <div class="clean-roster-days">
-                    ${DOW.map(x => `<button type="button" class="clean-roster-day ${days.includes(x.d) ? 'on' : ''}" data-day="${x.d}">${x.label}</button>`).join('')}
-                  </div>
-                  <div class="clean-roster-field-label">Default shift</div>
-                  <div class="clean-roster-shifts">
-                    ${['am', 'pm', 'both'].map(s => `<button type="button" class="clean-roster-shift ${shift === s ? 'on' : ''}" data-shift="${s}">${s.toUpperCase()}</button>`).join('')}
-                  </div>
-                  <div class="clean-roster-field-label">Allowed sections <span class="clean-roster-field-note">— none = all</span></div>
-                  <div class="clean-roster-secs">
-                    ${sections.length ? sections.map(sec => `<button type="button" class="clean-roster-sec ${allowed.includes(sec.es) ? 'on' : ''}" data-sec="${esc(sec.es)}">${esc(sec.en)}</button>`).join('') : '<span class="clean-roster-empty">No sections yet.</span>'}
-                  </div>
-                  <button type="button" class="clean-roster-save" data-roster-save>Save ${esc(u.name)}</button>
-                </div>
-              </div>
-            `;
-          }).join('') : '<div class="clean-roster-empty">No users found.</div>'}
+        <div class="clean-roster-sub">Build reusable profiles (days + shift + duties), attach them to people to autofill tasks at <b>${esc(locLabel(activeLoc))}</b>, and remove anyone who doesn't clean.</div>
+
+        <div class="clean-roster-section-label">Profiles</div>
+        <div class="clean-roster-templates" data-templates>
+          ${profileTemplates.length ? profileTemplates.map(templateRowHTML).join('') : '<div class="clean-roster-empty">No profiles yet — create one below.</div>'}
         </div>
+        <button type="button" class="clean-roster-add-template" data-add-template>${svg('plus', 13)} New profile</button>
+
+        <div class="clean-roster-section-label">People</div>
+        <div class="clean-roster-list" data-people>
+          ${activeUsers.length ? activeUsers.map(personRowHTML).join('') : '<div class="clean-roster-empty">No people on the roster.</div>'}
+        </div>
+        ${removedUsers.length ? `
+          <button type="button" class="clean-roster-removed-toggle" data-removed-toggle>Removed · ${removedUsers.length}</button>
+          <div class="clean-roster-removed" hidden>
+            ${removedUsers.map(u => `<div class="clean-roster-removed-row"><span>${esc(u.name)}</span><button type="button" class="clean-roster-readd" data-readd="${esc(u.id)}">Re-add</button></div>`).join('')}
+          </div>` : ''}
       </div>
     `;
     document.body.appendChild(sheet);
 
     const close = () => sheet.remove();
+    const reopen = () => { close(); openRosterManager(); };
     sheet.querySelector('.clean-roster-bg').addEventListener('click', close);
     sheet.querySelector('.clean-roster-close').addEventListener('click', close);
 
-    // Expand / collapse a row
-    sheet.querySelectorAll('[data-roster-toggle]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const body = btn.parentElement.querySelector('.clean-roster-row-body');
-        if (body) body.hidden = !body.hidden;
-        btn.closest('.clean-roster-row').classList.toggle('is-open', body && !body.hidden);
+    const wireChips = (scopeEl) => {
+      scopeEl.querySelectorAll('[data-day]').forEach(b => { if (!b._w) { b._w = 1; b.addEventListener('click', () => b.classList.toggle('on')); } });
+      scopeEl.querySelectorAll('[data-sec]').forEach(b => { if (!b._w) { b._w = 1; b.addEventListener('click', () => b.classList.toggle('on')); } });
+      scopeEl.querySelectorAll('.clean-roster-shifts').forEach(group => {
+        group.querySelectorAll('[data-shift]').forEach(b => { if (!b._w) { b._w = 1; b.addEventListener('click', () => { group.querySelectorAll('[data-shift]').forEach(x => x.classList.remove('on')); b.classList.add('on'); }); } });
       });
+    };
+    const wireToggle = (rowEl) => {
+      const head = rowEl.querySelector('[data-roster-toggle]');
+      if (head && !head._w) {
+        head._w = 1;
+        head.addEventListener('click', () => {
+          const body = rowEl.querySelector('.clean-roster-row-body');
+          if (body) body.hidden = !body.hidden;
+          rowEl.classList.toggle('is-open', body && !body.hidden);
+        });
+      }
+    };
+    const readChips = (rowEl) => {
+      const shiftOn = rowEl.querySelector('.clean-roster-shift.on');
+      return {
+        days: [...rowEl.querySelectorAll('.clean-roster-day.on')].map(d => parseInt(d.dataset.day, 10)).sort((a, b) => a - b),
+        shift: shiftOn ? shiftOn.dataset.shift : 'both',
+        secs: [...rowEl.querySelectorAll('.clean-roster-sec.on')].map(s => s.dataset.sec),
+      };
+    };
+    const setChips = (rowEl, days, shift, secs) => {
+      rowEl.querySelectorAll('.clean-roster-day').forEach(b => b.classList.toggle('on', days.includes(parseInt(b.dataset.day, 10))));
+      rowEl.querySelectorAll('.clean-roster-shift').forEach(b => b.classList.toggle('on', b.dataset.shift === shift));
+      rowEl.querySelectorAll('.clean-roster-sec').forEach(b => b.classList.toggle('on', secs.includes(b.dataset.sec)));
+    };
+
+    const wirePerson = (rowEl) => {
+      wireToggle(rowEl); wireChips(rowEl);
+      const u = usersList.find(x => String(x.id) === String(rowEl.dataset.userId));
+      const applySel = rowEl.querySelector('[data-apply-tpl]');
+      if (applySel && !applySel._w) {
+        applySel._w = 1;
+        applySel.addEventListener('change', () => {
+          const t = profileTemplates.find(x => String(x.id) === applySel.value);
+          if (t) setChips(rowEl, t.working_days || [], t.default_shift || 'both', t.allowed_sections || []);
+        });
+      }
+      const saveBtn = rowEl.querySelector('[data-roster-save]');
+      if (saveBtn && !saveBtn._w) {
+        saveBtn._w = 1;
+        saveBtn.addEventListener('click', async () => {
+          const userId = parseInt(rowEl.dataset.userId, 10) || rowEl.dataset.userId;
+          const { days, shift, secs } = readChips(rowEl);
+          const orig = saveBtn.textContent;
+          saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+          try {
+            const { error } = await NX.sb.from('cleaning_profiles').upsert({
+              user_id: userId, working_days: days, default_shift: shift, allowed_sections: secs,
+              active: true, updated_at: new Date().toISOString(),
+            }, { onConflict: 'user_id' });
+            if (error) throw error;
+            profilesByUserId[userId] = { user_id: userId, working_days: days, default_shift: shift, allowed_sections: secs, active: true };
+            const af = await autofillAssignmentsForUser(userId, days, shift, secs);
+            await loadAssignments();
+            const meta = rowEl.querySelector('.clean-roster-row-meta');
+            if (meta) meta.textContent = metaText(days, secs);
+            saveBtn.textContent = (af && af.count) ? `Saved · ${af.count} tasks` : 'Saved ✓';
+            setTimeout(() => { saveBtn.textContent = orig; saveBtn.disabled = false; }, 1600);
+            render();
+          } catch (e) {
+            console.warn('[cleaning] roster save:', e);
+            saveBtn.textContent = 'Failed — retry'; saveBtn.disabled = false;
+            toast('Save failed: ' + (e.message || e), 'error');
+          }
+        });
+      }
+      const remBtn = rowEl.querySelector('[data-roster-remove]');
+      if (remBtn && !remBtn._w) {
+        remBtn._w = 1;
+        remBtn.addEventListener('click', async () => {
+          const userId = parseInt(rowEl.dataset.userId, 10) || rowEl.dataset.userId;
+          if (!confirm(`Remove ${u ? u.name : 'this person'} from the roster? You can re-add them later.`)) return;
+          const prev = profilesByUserId[userId] || {};
+          try {
+            const { error } = await NX.sb.from('cleaning_profiles').upsert({
+              user_id: userId,
+              working_days: prev.working_days || [], default_shift: prev.default_shift || 'both',
+              allowed_sections: prev.allowed_sections || [], active: false,
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'user_id' });
+            if (error) throw error;
+            profilesByUserId[userId] = Object.assign({}, prev, { user_id: userId, active: false });
+            reopen();
+          } catch (e) { console.warn('[cleaning] roster remove:', e); toast('Remove failed: ' + (e.message || e), 'error'); }
+        });
+      }
+    };
+
+    const wireTemplate = (rowEl) => {
+      wireToggle(rowEl); wireChips(rowEl);
+      const saveBtn = rowEl.querySelector('[data-template-save]');
+      if (saveBtn && !saveBtn._w) {
+        saveBtn._w = 1;
+        saveBtn.addEventListener('click', async () => {
+          const id = rowEl.dataset.templateId || '';
+          const nameEl = rowEl.querySelector('.clean-roster-tname');
+          const name = (nameEl && nameEl.value || '').trim();
+          if (!name) { toast('Give the profile a name', 'error'); return; }
+          const { days, shift, secs } = readChips(rowEl);
+          const orig = saveBtn.textContent;
+          saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+          const payload = { name, working_days: days, default_shift: shift, allowed_sections: secs, updated_at: new Date().toISOString() };
+          try {
+            let error;
+            if (id) ({ error } = await NX.sb.from('cleaning_profile_templates').update(payload).eq('id', id));
+            else ({ error } = await NX.sb.from('cleaning_profile_templates').insert(payload));
+            if (error) throw error;
+            reopen();
+          } catch (e) {
+            console.warn('[cleaning] template save:', e);
+            saveBtn.textContent = 'Failed — retry'; saveBtn.disabled = false;
+            toast('Save failed: ' + (e.message || e), 'error');
+          }
+        });
+      }
+      const delBtn = rowEl.querySelector('[data-template-del]');
+      if (delBtn && !delBtn._w) {
+        delBtn._w = 1;
+        delBtn.addEventListener('click', async () => {
+          const id = rowEl.dataset.templateId;
+          if (!id || !confirm('Delete this profile? People already set up keep their settings.')) return;
+          try {
+            const { error } = await NX.sb.from('cleaning_profile_templates').delete().eq('id', id);
+            if (error) throw error;
+            reopen();
+          } catch (e) { console.warn('[cleaning] template del:', e); toast('Delete failed: ' + (e.message || e), 'error'); }
+        });
+      }
+    };
+
+    sheet.querySelectorAll('[data-people] .clean-roster-row').forEach(wirePerson);
+    sheet.querySelectorAll('[data-templates] .clean-roster-trow').forEach(wireTemplate);
+
+    const addBtn = sheet.querySelector('[data-add-template]');
+    if (addBtn) addBtn.addEventListener('click', () => {
+      const container = sheet.querySelector('[data-templates]');
+      const empty = container.querySelector('.clean-roster-empty');
+      if (empty) empty.remove();
+      const tmp = document.createElement('div');
+      tmp.innerHTML = templateRowHTML({ id: null, name: '', working_days: [], default_shift: 'both', allowed_sections: [] }).trim();
+      const rowEl = tmp.firstChild;
+      container.appendChild(rowEl);
+      wireTemplate(rowEl);
+      rowEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
-    // Toggle day / shift / section chips
-    sheet.querySelectorAll('[data-day]').forEach(b => b.addEventListener('click', () => b.classList.toggle('on')));
-    sheet.querySelectorAll('[data-sec]').forEach(b => b.addEventListener('click', () => b.classList.toggle('on')));
-    sheet.querySelectorAll('.clean-roster-shifts').forEach(group => {
-      group.querySelectorAll('[data-shift]').forEach(b => b.addEventListener('click', () => {
-        group.querySelectorAll('[data-shift]').forEach(x => x.classList.remove('on'));
-        b.classList.add('on');
-      }));
+
+    const remToggle = sheet.querySelector('[data-removed-toggle]');
+    if (remToggle) remToggle.addEventListener('click', () => {
+      const box = sheet.querySelector('.clean-roster-removed');
+      if (box) box.hidden = !box.hidden;
     });
-    // Save a row → upsert cleaning_profiles
-    sheet.querySelectorAll('[data-roster-save]').forEach(btn => {
+    sheet.querySelectorAll('[data-readd]').forEach(btn => {
       btn.addEventListener('click', async () => {
-        const row = btn.closest('.clean-roster-row');
-        const userId = parseInt(row.dataset.userId, 10) || row.dataset.userId;
-        const working_days = [...row.querySelectorAll('.clean-roster-day.on')]
-          .map(d => parseInt(d.dataset.day, 10)).sort((a, b) => a - b);
-        const shiftBtn = row.querySelector('.clean-roster-shift.on');
-        const default_shift = shiftBtn ? shiftBtn.dataset.shift : 'both';
-        const allowed_sections = [...row.querySelectorAll('.clean-roster-sec.on')].map(s => s.dataset.sec);
-        const orig = btn.textContent;
-        btn.disabled = true; btn.textContent = 'Saving…';
+        const userId = parseInt(btn.dataset.readd, 10) || btn.dataset.readd;
+        const prev = profilesByUserId[userId] || {};
         try {
           const { error } = await NX.sb.from('cleaning_profiles').upsert({
-            user_id: userId, working_days, default_shift, allowed_sections, active: true,
+            user_id: userId,
+            working_days: prev.working_days || [], default_shift: prev.default_shift || 'both',
+            allowed_sections: prev.allowed_sections || [], active: true,
             updated_at: new Date().toISOString(),
           }, { onConflict: 'user_id' });
           if (error) throw error;
-          profilesByUserId[userId] = { user_id: userId, working_days, default_shift, allowed_sections, active: true };
-          btn.textContent = 'Saved ✓';
-          const meta = row.querySelector('.clean-roster-row-meta');
-          if (meta) meta.textContent = `${working_days.length ? working_days.length + 'd' : 'any day'} · ${allowed_sections.length ? allowed_sections.length + ' sec' : 'all'}`;
-          setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1300);
-          render();
-        } catch (e) {
-          console.warn('[cleaning] roster save:', e);
-          btn.textContent = 'Failed — retry'; btn.disabled = false;
-          toast('Save failed: ' + (e.message || e), 'error');
-        }
+          profilesByUserId[userId] = Object.assign({}, prev, { user_id: userId, active: true });
+          reopen();
+        } catch (e) { console.warn('[cleaning] re-add:', e); toast('Re-add failed: ' + (e.message || e), 'error'); }
       });
     });
   }
