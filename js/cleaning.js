@@ -544,25 +544,31 @@
     } catch (e) { console.warn('[cleaning] loadAllLocProgress:', e); }
   }
 
-  function locHue(label) {
-    let h = 0;
-    for (let i = 0; i < label.length; i++) h = (h * 31 + label.charCodeAt(i)) >>> 0;
-    return h % 360;
-  }
   function locLabel(loc) {
     const m = locationMeta[loc];
     return (m && m.label) ? m.label : (loc.charAt(0).toUpperCase() + loc.slice(1));
   }
+  // Mirrors ordering's vendorAvatar() exactly (same hue hash, same markup +
+  // classes) so the restaurant cards render identically to the vendor cards.
   function locAvatar(loc) {
     const m = locationMeta[loc];
     const label = locLabel(loc);
-    const hue = (m && m.avatar_hue != null) ? m.avatar_hue : locHue(label);
-    const photo = m && m.photo_url;
-    if (photo) {
-      return `<span class="clean-loc-av has-img" style="background-image:url('${esc(String(photo).replace(/'/g, '%27'))}');--avatar-hue:${hue};" role="img" aria-label="${esc(label)}"></span>`;
+    const safeUrl = ((m && m.photo_url) || '').trim();
+    if (safeUrl) {
+      const safeAttr = safeUrl.replace(/"/g, '%22');
+      return `<div class="ord-vendor-avatar ord-vendor-avatar-img" style="background-image:url(&quot;${safeAttr}&quot;)" role="img" aria-label="${esc(label)}"></div>`;
     }
-    const initials = label.trim().slice(0, 2).toUpperCase();
-    return `<span class="clean-loc-av" style="--avatar-hue:${hue};" aria-hidden="true">${esc(initials)}</span>`;
+    const clean = label.trim();
+    const initial = clean.charAt(0).toUpperCase() || '?';
+    let hue;
+    if (m && typeof m.avatar_hue === 'number' && m.avatar_hue >= 0 && m.avatar_hue < 360) {
+      hue = m.avatar_hue;
+    } else {
+      let hash = 0;
+      for (let i = 0; i < clean.length; i++) hash = ((hash << 5) - hash + clean.charCodeAt(i)) | 0;
+      hue = Math.abs(hash) % 360;
+    }
+    return `<div class="ord-vendor-avatar" style="--avatar-hue:${hue}">${esc(initial)}</div>`;
   }
 
   function applyCardsMode() {
@@ -575,19 +581,28 @@
     wrap.className = 'clean-loc-cards';
     wrap.innerHTML = `
       <div class="clean-loc-cards-title">Restaurants</div>
-      ${LOCATIONS.map(loc => {
-        const pct = progressByLoc[loc] || 0;
-        return `
-          <button class="clean-loc-card" data-enter-loc="${esc(loc)}" type="button">
-            ${locAvatar(loc)}
-            <div class="clean-loc-card-main">
-              <div class="clean-loc-card-name">${esc(locLabel(loc))}</div>
-              <div class="clean-loc-card-track"><div class="clean-loc-card-fill" style="width:${pct}%"></div></div>
-            </div>
-            <div class="clean-loc-card-pct">${pct}%</div>
-            <span class="clean-loc-card-chev">${svg('chevron', 18)}</span>
-          </button>`;
-      }).join('')}
+      <div class="ord-vendors">
+        ${LOCATIONS.map(loc => {
+          const pct = progressByLoc[loc] || 0;
+          const label = locLabel(loc);
+          return `
+            <div class="ord-vendor-row-wrap">
+              <button class="ord-vendor-row" data-enter-loc="${esc(loc)}" data-vendor-name="${esc(label.toLowerCase())}">
+                <div class="ord-vendor-avatar-wrap">${locAvatar(loc)}</div>
+                <div class="ord-vendor-main">
+                  <div class="ord-vendor-name-row">
+                    <div class="ord-vendor-name">${esc(label)}</div>
+                    <div class="ord-vendor-when">${pct}%</div>
+                  </div>
+                  <div class="ord-vendor-meta">
+                    <span class="ord-vendor-preview">shift progress today</span>
+                  </div>
+                </div>
+                <div class="ord-arrow" aria-hidden="true">›</div>
+              </button>
+            </div>`;
+        }).join('')}
+      </div>
     `;
     list.appendChild(wrap);
     wrap.querySelectorAll('[data-enter-loc]').forEach(btn => {
@@ -4302,6 +4317,11 @@
   }
 
   async function show() {
+    // V16: land on the restaurant cards immediately — apply the cards-mode
+    // class synchronously (before any awaits) so the per-location chrome
+    // (progress bar / footer) never flashes while data loads.
+    showingLocationCards = true;
+    applyCardsMode();
     // Edit-past-report banner support (preserved from v11)
     if (window.NX && NX.editingReport) {
       today = NX.editingReport.date;
