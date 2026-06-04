@@ -847,3 +847,70 @@ body.view-clean.clean-focus .clean-header.clean-header-takeover {
   font-family: 'Outfit', sans-serif; font-size: 12.5px; font-weight: 600;
   cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   v16 — DESKTOP: unbundle duties controls so nothing is cramped/hidden
+   ═══════════════════════════════════════════════════════════════════════ */
+@media (min-width: 720px) {
+  /* Restaurant cards: a centered, readable column — full-width rows, not
+     tiny squeezed boxes. */
+  .clean-loc-cards { max-width: 780px; margin: 0 auto; width: 100%; }
+  .clean-loc-cards .ord-vendors { display: flex; flex-direction: column; gap: 10px; }
+  .clean-loc-cards .ord-vendor-row-wrap { margin: 0; width: 100%; }
+  .clean-loc-cards .ord-vendor-row { width: 100%; min-height: 92px; }
+  .clean-loc-cards-title { max-width: 780px; margin-left: auto; margin-right: auto; width: 100%; }
+
+  /* The in-location control row (Now / Today / All · person · Learn · Focus)
+     wraps and spreads instead of overflowing off-screen. */
+  .clean-view-toggle-row { flex-wrap: wrap; gap: 10px; row-gap: 10px; }
+  .clean-view-toggle-row .clean-person-pill { flex: 0 0 auto; }
+
+  /* Roster sheet reads as a centered dialog rather than a full-bleed sheet. */
+  .clean-roster-card { max-width: 640px; border-radius: 18px; }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   v16 — CARD "MORE OPTIONS" (⋮) + PRINT/EXPORT MENU
+   ═══════════════════════════════════════════════════════════════════════ */
+.clean-loc-menu {
+  flex: 0 0 auto;
+  width: 44px;
+  align-self: stretch;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface, #1a1814);
+  border: 1px solid var(--nx-highlight-line, rgba(212,164,78,0.16));
+  border-radius: 16px;
+  color: var(--nx-muted, #9a9384);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+.clean-loc-menu:hover { color: var(--accent, #d4a44e); border-color: var(--nx-gold-line, rgba(212,164,78,0.32)); }
+.clean-loc-menu:active { transform: scale(0.96); }
+
+.clean-card-menu {
+  background: var(--surface, #1a1814);
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,0.3));
+  border-radius: 12px;
+  padding: 6px;
+  min-width: 210px;
+  box-shadow: 0 12px 34px rgba(0,0,0,0.45);
+}
+.clean-card-menu-title {
+  font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--nx-muted, #9a9384); padding: 7px 10px 5px;
+}
+.clean-card-menu-scroll { max-height: 46vh; overflow-y: auto; }
+.clean-card-menu-item {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 11px 12px;
+  background: transparent; border: 0; border-radius: 9px;
+  color: var(--text, #f0e9da);
+  font-family: 'Outfit', sans-serif; font-size: 13.5px; font-weight: 500;
+  text-align: left; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.clean-card-menu-item:hover { background: rgba(212,164,78,0.1); }
+.clean-card-menu-item:active { background: rgba(212,164,78,0.16); }
