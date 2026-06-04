@@ -577,6 +577,145 @@
     if (pane) pane.classList.toggle('is-loc-cards', showingLocationCards);
   }
 
+  // ─── V16: printable Excel export (full schedule or per-person) ─────────
+  function freqLabelFor(t) {
+    const m = { daily: 'Daily', weekly: 'Weekly', biweekly: 'Every 2 weeks', monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Yearly' };
+    return m[t.frequency_type] || (t.frequency_type ? (t.frequency_type[0].toUpperCase() + t.frequency_type.slice(1)) : 'Daily');
+  }
+  // Pull tasks (sorted) + their assignment rows for a location. Assignments
+  // are queried fresh because loadAssignments() only holds the active loc.
+  async function buildAssignmentMap(loc) {
+    const tasks = (tasksByLoc[loc] || []).slice()
+      .sort((a, b) => (a.section_es || '').localeCompare(b.section_es || '') || (a.task_order - b.task_order));
+    const taskIds = tasks.map(t => t.id);
+    const byTask = {};
+    if (taskIds.length && NX.sb) {
+      try {
+        const { data } = await NX.sb.from('cleaning_task_assignments').select('*').in('task_id', taskIds);
+        (data || []).forEach(r => { if (!byTask[r.task_id]) byTask[r.task_id] = []; byTask[r.task_id].push(r); });
+      } catch (e) { console.warn('[cleaning] export assignments:', e); }
+    }
+    return { tasks, byTask };
+  }
+
+  async function exportCleaningExcel(loc, mode, userId) {
+    if (typeof XLSX === 'undefined') { toast('Excel library not loaded — try again', 'error'); return; }
+    const nameById = {}; usersList.forEach(u => { nameById[u.id] = u.name; });
+    const { tasks, byTask } = await buildAssignmentMap(loc);
+    const label = locLabel(loc);
+    let aoa, cols, sheetName, fnameTag;
+
+    if (mode === 'person') {
+      const personName = nameById[userId] || 'Person';
+      sheetName = personName.slice(0, 28);
+      fnameTag = personName.replace(/\s+/g, '-').toLowerCase();
+      aoa = [[`${label} · ${personName} — cleaning tasks`], [], ['Section', 'Task', 'Tarea', 'Frequency', 'Days', 'Shift']];
+      tasks.forEach(t => {
+        const mine = (byTask[t.id] || []).filter(a => String(a.user_id) === String(userId));
+        if (!mine.length) return;
+        const days = [...new Set(mine.map(a => a.day_of_week).filter(Boolean))].sort((a, b) => a - b).map(d => WEEKDAY_LABEL[d - 1]).join(' ');
+        const shift = [...new Set(mine.map(a => a.shift).filter(Boolean))].map(s => s.toUpperCase()).join('/');
+        aoa.push([t.section_en || t.section_es || '', t.name_en || '', t.name_es || '', freqLabelFor(t), days || 'any', shift || '—']);
+      });
+      if (aoa.length === 3) aoa.push(['—', 'No tasks assigned to this person', '', '', '', '']);
+      cols = [22, 30, 30, 14, 16, 10];
+    } else {
+      sheetName = 'Schedule';
+      fnameTag = 'full';
+      aoa = [[`${label} — cleaning schedule (${today})`], [], ['Section', 'Task', 'Tarea', 'Frequency', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']];
+      tasks.forEach(t => {
+        const cells = ['', '', '', '', '', '', ''];
+        (byTask[t.id] || []).forEach(a => {
+          if (!a.day_of_week) return;
+          const nm = nameById[a.user_id] || '';
+          if (!nm) return;
+          const i = a.day_of_week - 1;
+          if (i < 0 || i > 6) return;
+          const tag = a.shift ? `${nm} (${String(a.shift).toUpperCase()})` : nm;
+          cells[i] = cells[i] ? cells[i] + ', ' + tag : tag;
+        });
+        aoa.push([t.section_en || t.section_es || '', t.name_en || '', t.name_es || '', freqLabelFor(t), ...cells]);
+      });
+      cols = [20, 28, 28, 12, 13, 13, 13, 13, 13, 13, 13];
+    }
+
+    try {
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      ws['!cols'] = cols.map(w => ({ wch: w }));
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+      XLSX.writeFile(wb, `cleaning-${loc}-${fnameTag}-${today}.xlsx`);
+      toast('Excel downloaded', 'success');
+    } catch (e) {
+      console.warn('[cleaning] export write:', e);
+      toast('Export failed: ' + (e.message || e), 'error');
+    }
+  }
+
+  // Small "more options" popup anchored to a card's ⋮ button (ordering-style).
+  function openMenuNear(triggerBtn, innerHTML) {
+    document.querySelectorAll('.clean-card-menu').forEach(m => m.remove());
+    const menu = document.createElement('div');
+    menu.className = 'clean-card-menu';
+    menu.innerHTML = innerHTML;
+    document.body.appendChild(menu);
+    const rect = triggerBtn.getBoundingClientRect();
+    menu.style.position = 'fixed';
+    menu.style.top = (rect.bottom + 4) + 'px';
+    menu.style.right = Math.max(8, window.innerWidth - rect.right) + 'px';
+    menu.style.zIndex = '8600';
+    const close = (e) => {
+      if (e && menu.contains(e.target)) return;
+      menu.remove();
+      document.removeEventListener('click', close, true);
+      document.removeEventListener('touchstart', close, true);
+    };
+    setTimeout(() => {
+      document.addEventListener('click', close, true);
+      document.addEventListener('touchstart', close, true);
+    }, 0);
+    return { menu, close };
+  }
+
+  function openCardExportMenu(triggerBtn, loc) {
+    const { menu, close } = openMenuNear(triggerBtn, `
+      <div class="clean-card-menu-title">Print · ${esc(locLabel(loc))}</div>
+      <button class="clean-card-menu-item" data-x="full">${svg('document', 14)} Full schedule (Excel)</button>
+      <button class="clean-card-menu-item" data-x="person">${svg('user', 14)} By person… (Excel)</button>
+    `);
+    menu.querySelectorAll('[data-x]').forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const x = item.dataset.x;
+        close();
+        if (x === 'full') exportCleaningExcel(loc, 'full');
+        else openPersonExportMenu(triggerBtn, loc);
+      });
+    });
+  }
+
+  async function openPersonExportMenu(triggerBtn, loc) {
+    const { byTask } = await buildAssignmentMap(loc);
+    const ids = new Set();
+    Object.values(byTask).forEach(rows => rows.forEach(r => { if (r.user_id != null) ids.add(String(r.user_id)); }));
+    const people = usersList.filter(u => ids.has(String(u.id)));
+    if (!people.length) { toast('No one is assigned here yet', 'info'); return; }
+    const { menu, close } = openMenuNear(triggerBtn, `
+      <div class="clean-card-menu-title">Print for…</div>
+      <div class="clean-card-menu-scroll">
+        ${people.map(u => `<button class="clean-card-menu-item" data-uid="${esc(u.id)}">${esc(u.name)}</button>`).join('')}
+      </div>
+    `);
+    menu.querySelectorAll('[data-uid]').forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const uid = parseInt(item.dataset.uid, 10) || item.dataset.uid;
+        close();
+        exportCleaningExcel(loc, 'person', uid);
+      });
+    });
+  }
+
   function renderLocationCards(list) {
     const wrap = document.createElement('div');
     wrap.className = 'clean-loc-cards';
@@ -601,6 +740,9 @@
                 </div>
                 <div class="ord-arrow" aria-hidden="true">›</div>
               </button>
+              <button class="clean-loc-menu" data-loc-menu="${esc(loc)}" aria-label="Print options for ${esc(label)}">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>
+              </button>
             </div>`;
         }).join('')}
       </div>
@@ -608,6 +750,9 @@
     list.appendChild(wrap);
     wrap.querySelectorAll('[data-enter-loc]').forEach(btn => {
       btn.addEventListener('click', () => enterLocation(btn.dataset.enterLoc));
+    });
+    wrap.querySelectorAll('[data-loc-menu]').forEach(btn => {
+      btn.addEventListener('click', (e) => { e.stopPropagation(); openCardExportMenu(btn, btn.dataset.locMenu); });
     });
   }
 
