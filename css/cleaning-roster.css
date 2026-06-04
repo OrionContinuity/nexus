@@ -770,3 +770,80 @@ body.view-clean.clean-focus .clean-header.clean-header-takeover {
   margin-left: auto;
   font-weight: 700; color: var(--text, #f0e9da);
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   v16 — ROSTER: profiles (templates) · remove/re-add
+   ═══════════════════════════════════════════════════════════════════════ */
+.clean-roster-section-label {
+  font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--accent, #d4a44e); font-weight: 700;
+  margin: 18px 2px 8px;
+}
+.clean-roster-templates { display: flex; flex-direction: column; gap: 8px; }
+.clean-roster-trow { border-color: var(--nx-gold-line, rgba(212,164,78,0.22)); }
+
+.clean-roster-tname {
+  width: 100%; box-sizing: border-box;
+  padding: 10px 12px; margin-bottom: 4px;
+  background: var(--surface, #1a1814);
+  border: 1px solid var(--nx-highlight-line, rgba(212,164,78,0.2));
+  border-radius: 10px;
+  color: var(--text, #f0e9da); font-family: 'Outfit', sans-serif; font-size: 14px;
+}
+.clean-roster-apply-tpl {
+  width: 100%; box-sizing: border-box;
+  padding: 10px 12px; margin-bottom: 4px;
+  background: var(--surface, #1a1814);
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,0.3));
+  border-radius: 10px;
+  color: var(--text, #f0e9da); font-family: 'Outfit', sans-serif; font-size: 13.5px;
+}
+.clean-roster-add-template {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin: 8px 0 4px; padding: 9px 14px;
+  background: rgba(212,164,78,0.1);
+  border: 1px dashed var(--nx-gold-line, rgba(212,164,78,0.4));
+  border-radius: 999px;
+  color: var(--accent, #d4a44e);
+  font-family: 'Outfit', sans-serif; font-size: 13px; font-weight: 600;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+
+.clean-roster-row-actions { display: flex; gap: 8px; margin-top: 16px; }
+.clean-roster-row-actions .clean-roster-save { margin-top: 0; flex: 1; }
+.clean-roster-del {
+  flex: 0 0 auto; padding: 12px 16px;
+  background: transparent;
+  border: 1px solid rgba(200,90,70,0.4);
+  border-radius: 12px;
+  color: #d98b78; font-family: 'Outfit', sans-serif; font-size: 13px; font-weight: 600;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.clean-roster-del:active { transform: scale(0.98); }
+
+.clean-roster-removed-toggle {
+  width: 100%; margin-top: 12px; padding: 10px;
+  background: transparent; border: 0;
+  color: var(--nx-muted, #9a9384);
+  font-family: 'Outfit', sans-serif; font-size: 12.5px; font-weight: 600;
+  letter-spacing: 0.04em; cursor: pointer; text-align: center;
+}
+.clean-roster-removed { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.clean-roster-removed-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px;
+  background: rgba(255,255,255,0.015);
+  border: 1px solid var(--nx-highlight-line, rgba(212,164,78,0.1));
+  border-radius: 10px;
+  color: var(--nx-muted, #b3ab99); font-size: 13.5px;
+}
+.clean-roster-readd {
+  padding: 6px 14px;
+  background: rgba(212,164,78,0.12);
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,0.3));
+  border-radius: 999px;
+  color: var(--accent, #d4a44e);
+  font-family: 'Outfit', sans-serif; font-size: 12.5px; font-weight: 600;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
