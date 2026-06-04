@@ -92,6 +92,11 @@
 
   // ─── STATE ────────────────────────────────────────────────────────────
   let activeLoc = 'suerte';
+  // V16: restaurant-card landing. Cleaning opens on a card grid (one card per
+  // restaurant: logo + name + shift %). Tapping a card enters that location.
+  let showingLocationCards = true;
+  let locationMeta = {};   // { cleaningKey: { label, photo_url, avatar_hue } }
+  let progressByLoc = {};  // { cleaningKey: pct } — today's daily completion
   let tasksByLoc = {};        // { suerte: [tasks], este: [...], toti: [...] }
   let lastDoneByKey = {};     // { 'sectionEs_taskOrder': { date: 'YYYY-MM-DD', by: 'name' } }
   let todayStateByKey = {};   // { 'sectionEs_taskOrder': { done: true, by: 'Orion' } }
@@ -424,11 +429,11 @@
 
   // Roster management is admin/owner only (or anyone granted 'admin').
   function canManageRoster() {
-    const u = (window.NX && NX.currentUser) || null;
-    if (!u) return false;
-    if (u.role === 'admin' || u.role === 'owner') return true;
-    if (NX.app && typeof NX.app.hasPermission === 'function') return NX.app.hasPermission('admin');
-    return false;
+    // The roster lives inside the cleaning view, which is already access-
+    // gated upstream. Keep it open to anyone who can reach cleaning so a
+    // manager isn't locked out by a missing/!admin role tag. Tighten here
+    // later (e.g. role check) if roster editing needs to be restricted.
+    return !!(window.NX && NX.currentUser);
   }
 
   // ─── V16: full-screen focus mode (hide the masthead) ───────────────────
@@ -485,6 +490,146 @@
     if (p === true) return true;
     if (p === false) return false;
     return (guidesLinkedByTaskId[task.id] || []).length > 0;
+  }
+
+  // ─── V16: RESTAURANT CARDS (location landing) ──────────────────────────
+  // Logos live in the shared `locations` table (photo_url / avatar_hue),
+  // keyed by label. Cleaning keys are lowercase (suerte/este/toti); match by
+  // label containing the key (so "Bar Toti" → toti).
+  async function loadLocationMeta() {
+    locationMeta = {};
+    if (!NX.sb || NX.paused) return;
+    try {
+      const { data, error } = await NX.sb.from('locations')
+        .select('label, photo_url, avatar_hue').eq('archived', false);
+      if (error) { console.warn('[cleaning] loadLocationMeta:', error); return; }
+      (data || []).forEach(r => {
+        const lc = (r.label || '').toLowerCase();
+        LOCATIONS.forEach(key => { if (lc.includes(key)) locationMeta[key] = r; });
+      });
+    } catch (e) { console.warn('[cleaning] loadLocationMeta ex:', e); }
+  }
+
+  // Today's daily-task completion % for every location (for the cards).
+  async function loadAllLocProgress() {
+    progressByLoc = {};
+    const dailyKeys = {};
+    LOCATIONS.forEach(loc => {
+      const set = new Set();
+      (tasksByLoc[loc] || []).forEach(t => {
+        if (DAILY_TYPES.has(t.frequency_type)) set.add(t.section_es + '_' + t.task_order);
+      });
+      dailyKeys[loc] = set;
+      progressByLoc[loc] = 0;
+    });
+    if (!NX.sb || NX.paused) return;
+    try {
+      const { data } = await NX.sb.from('cleaning_logs')
+        .select('section, task_index, location').eq('log_date', today).eq('done', true);
+      const doneSets = {};
+      (data || []).forEach(r => {
+        const set = dailyKeys[r.location];
+        if (!set) return;
+        const key = r.section + '_' + r.task_index;
+        if (set.has(key)) {
+          if (!doneSets[r.location]) doneSets[r.location] = new Set();
+          doneSets[r.location].add(key);
+        }
+      });
+      LOCATIONS.forEach(loc => {
+        const total = dailyKeys[loc].size;
+        const done = doneSets[loc] ? doneSets[loc].size : 0;
+        progressByLoc[loc] = total ? Math.round(done / total * 100) : 0;
+      });
+    } catch (e) { console.warn('[cleaning] loadAllLocProgress:', e); }
+  }
+
+  function locHue(label) {
+    let h = 0;
+    for (let i = 0; i < label.length; i++) h = (h * 31 + label.charCodeAt(i)) >>> 0;
+    return h % 360;
+  }
+  function locLabel(loc) {
+    const m = locationMeta[loc];
+    return (m && m.label) ? m.label : (loc.charAt(0).toUpperCase() + loc.slice(1));
+  }
+  function locAvatar(loc) {
+    const m = locationMeta[loc];
+    const label = locLabel(loc);
+    const hue = (m && m.avatar_hue != null) ? m.avatar_hue : locHue(label);
+    const photo = m && m.photo_url;
+    if (photo) {
+      return `<span class="clean-loc-av has-img" style="background-image:url('${esc(String(photo).replace(/'/g, '%27'))}');--avatar-hue:${hue};" role="img" aria-label="${esc(label)}"></span>`;
+    }
+    const initials = label.trim().slice(0, 2).toUpperCase();
+    return `<span class="clean-loc-av" style="--avatar-hue:${hue};" aria-hidden="true">${esc(initials)}</span>`;
+  }
+
+  function applyCardsMode() {
+    const pane = document.getElementById('dutiesCleaningPane');
+    if (pane) pane.classList.toggle('is-loc-cards', showingLocationCards);
+  }
+
+  function renderLocationCards(list) {
+    const wrap = document.createElement('div');
+    wrap.className = 'clean-loc-cards';
+    wrap.innerHTML = `
+      <div class="clean-loc-cards-title">Restaurants</div>
+      ${LOCATIONS.map(loc => {
+        const pct = progressByLoc[loc] || 0;
+        return `
+          <button class="clean-loc-card" data-enter-loc="${esc(loc)}" type="button">
+            ${locAvatar(loc)}
+            <div class="clean-loc-card-main">
+              <div class="clean-loc-card-name">${esc(locLabel(loc))}</div>
+              <div class="clean-loc-card-track"><div class="clean-loc-card-fill" style="width:${pct}%"></div></div>
+            </div>
+            <div class="clean-loc-card-pct">${pct}%</div>
+            <span class="clean-loc-card-chev">${svg('chevron', 18)}</span>
+          </button>`;
+      }).join('')}
+    `;
+    list.appendChild(wrap);
+    wrap.querySelectorAll('[data-enter-loc]').forEach(btn => {
+      btn.addEventListener('click', () => enterLocation(btn.dataset.enterLoc));
+    });
+  }
+
+  function renderLocBackRow() {
+    const row = document.createElement('button');
+    row.className = 'clean-loc-back';
+    row.type = 'button';
+    row.innerHTML = `<span class="clean-loc-back-chev">${svg('chevron', 16)}</span><span class="clean-loc-back-text">Restaurants</span><span class="clean-loc-back-current">${esc(locLabel(activeLoc))}</span>`;
+    row.addEventListener('click', backToCards);
+    return row;
+  }
+
+  async function enterLocation(loc) {
+    if (!LOCATIONS.includes(loc)) return;
+    activeLoc = loc;
+    showingLocationCards = false;
+    editingTaskId = null;
+    addingToSection = null;
+    document.querySelectorAll('.clean-tab').forEach(t => t.classList.toggle('active', t.dataset.cloc === loc));
+    await loadTodayState();
+    await loadHistory();
+    await loadAttachments();
+    await loadCosts();
+    await loadLinkedCards();
+    await loadTrainingData();
+    await loadTaskNotes();
+    applyCardsMode();
+    render();
+    setTimeout(() => { runAutoEscalations().catch(() => {}); }, 800);
+  }
+
+  async function backToCards() {
+    showingLocationCards = true;
+    editingTaskId = null;
+    addingToSection = null;
+    applyCardsMode();
+    await loadAllLocProgress();
+    render();
   }
 
   async function loadGuideLinks() {
@@ -1954,19 +2099,28 @@
     if (!list) return;
     list.innerHTML = '';
 
+    // V16: restaurant-card landing — tap a card to open one restaurant.
+    if (showingLocationCards) {
+      applyCardsMode();
+      renderLocationCards(list);
+      return;
+    }
+    applyCardsMode();
+
+    // Back-to-restaurants row sits at the top whenever inside a location.
+    list.appendChild(renderLocBackRow());
+
     const groups = tasksBySection(activeLoc);
     if (!groups.length) {
-      // Empty state — render title, hint, AND the Add Section button
-      // together as a single centered group. Skip the separate
-      // .clean-footer-toolbar so the button doesn't drift to the
-      // bottom of the list and overlap the Submit Report bar.
-      list.innerHTML = `
-        <div class="clean-empty">
+      // Empty state — appended (not innerHTML) so the back row survives.
+      const empty = document.createElement('div');
+      empty.className = 'clean-empty';
+      empty.innerHTML = `
           <div class="clean-empty-title">No tasks yet</div>
           <div class="clean-empty-hint">Tap the button below to start building this location's checklist.</div>
-          <button class="clean-add-section-btn clean-empty-add-btn" type="button">${svg('plus', 14)} <span>Add section</span></button>
-        </div>`;
-      const btn = list.querySelector('.clean-add-section-btn');
+          <button class="clean-add-section-btn clean-empty-add-btn" type="button">${svg('plus', 14)} <span>Add section</span></button>`;
+      list.appendChild(empty);
+      const btn = empty.querySelector('.clean-add-section-btn');
       if (btn) btn.addEventListener('click', addNewSection);
       return;
     }
@@ -4199,8 +4353,13 @@
     await loadAssignments();
     await loadGuideLinks();
     await loadProfiles();
+    await loadLocationMeta();
+    await loadAllLocProgress();
     // Re-apply persisted full-screen focus on every entry to the view.
     applyFocusMode();
+    // V16: open on the restaurant-card landing each time.
+    showingLocationCards = true;
+    applyCardsMode();
     // Person filter defaults to Everyone — see init() comment above.
     render();
   }
