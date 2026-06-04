@@ -86,10 +86,11 @@
 .eq-header { margin-bottom: 16px; }
 .eq-title-row {
   display: flex; justify-content: space-between; align-items: center;
+  flex-wrap: wrap; gap: 8px;
   margin-bottom: 12px;
 }
 .eq-title { font-size: 18px; font-weight: 600; margin: 0; color: var(--text); }
-.eq-actions { display: flex; gap: 8px; }
+.eq-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 
 .eq-search-row { display: flex; gap: 8px; margin-bottom: 10px; }
 .eq-search {
