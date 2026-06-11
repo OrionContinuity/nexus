@@ -2230,21 +2230,13 @@
   async function createReorderCard(stock, currentCount) {
     if (!NX.sb) return;
     try {
-      const { data: boards } = await NX.sb.from('boards').select('id, name').limit(5);
-      const opsBoard = boards?.find(b => /operation/i.test(b.name)) || boards?.[0];
-      if (!opsBoard) return;
-
-      const { data: cols } = await NX.sb.from('board_columns')
-        .select('id, name, position').eq('board_id', opsBoard.id)
-        .order('position').limit(1);
-      const col = cols?.[0];
-      if (!col) return;
-
-      const cardTitle = `Reorder: ${stock.name}`;
-      const { data: existing } = await NX.sb.from('cards')
-        .select('id, status, title')
-        .ilike('title', cardTitle)
-        .neq('status', 'done')
+      const reorderTag = `reorder:${stock.id}`;
+      // Dedup against the LIVE board (kanban_cards). The reorder tag is a
+      // stable per-item key — more reliable than the old title match.
+      const { data: existing } = await NX.sb.from('kanban_cards')
+        .select('id')
+        .contains('labels', [reorderTag])
+        .eq('archived', false)
         .limit(1);
       if (existing?.length) {
         await NX.sb.from('inventory_stock_events').insert({
@@ -2262,16 +2254,29 @@ ${stock.manufacturer_pn ? 'OEM PN: ' + stock.manufacturer_pn : ''}
 ${stock.primary_supplier ? 'Supplier: ' + stock.primary_supplier : ''}
 Suggested order: ${(stock.par_level - currentCount) * 2} units (rebuild buffer)`;
 
-      const { data: newCard, error } = await NX.sb.from('cards').insert({
-        board_id: opsBoard.id, column_id: col.id,
-        title: cardTitle, description: description,
-        priority: 'high', status: 'todo',
-        location: stock.location, position: 0,
-      }).select().single();
-      if (error) { console.warn('[inventory] reorder card insert failed', error); return; }
+      // Create on the LIVE board via the unified work API (card + ticket
+      // mirror, cross-linked). Replaces the old write to the legacy `cards`
+      // table, which the current board never read — so reorder cards were
+      // invisible. A `reorder:<id>` label keys dedup + future lookups.
+      let newCardId = null;
+      if (NX.work && NX.work.create) {
+        const res = await NX.work.create({
+          title: `Reorder: ${stock.name}`,
+          description,
+          priority: 'high',
+          location: stock.location || null,
+          labels: ['reorder', reorderTag],
+          listHints: ['reorder|restock|order', 'todo|to.do|backlog'],
+        });
+        newCardId = (res && res.card) ? res.card.id : null;
+      }
+      if (!newCardId) {
+        console.warn('[inventory] reorder card not created (NX.work unavailable)');
+        return;
+      }
       await NX.sb.from('inventory_stock_events').insert({
         stock_id: stock.id, event_type: 'reorder_card', delta: 0,
-        count_after: currentCount, related_card_id: newCard?.id,
+        count_after: currentCount, related_card_id: newCardId,
       });
     } catch (e) {
       console.warn('[inventory] createReorderCard', e);
