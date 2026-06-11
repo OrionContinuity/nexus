@@ -698,7 +698,13 @@
         next_service_date: modal.querySelector('#pmNext').value || null,
         submitted_user_agent: navigator.userAgent.slice(0, 500),
         flagged_spam: !!honeypot.trim(),  // Honeypot tripped
-        review_status: 'pending'
+        // Self-approval: contractor submissions mainstream immediately —
+        // maintenance history, PM-cadence advance, health score all run on
+        // submit (see applyApprovalEffects below). Honeypot-flagged
+        // submissions stay 'pending' for human review instead.
+        review_status: honeypot.trim() ? 'pending' : 'approved',
+        reviewed_at: honeypot.trim() ? null : new Date().toISOString(),
+        reviewed_by: honeypot.trim() ? null : 'Auto (self-approved)'
       };
 
       if (!data.contractor_name || !data.work_performed) {
@@ -745,8 +751,31 @@
         batch_id: batchId
       }));
 
-      const { error } = await NX.sb.from('pm_logs').insert(rows);
-      if (error) throw error;
+      // Insert and (best-effort) get the new rows back so approval effects
+      // can link pm_log_id. Anon SELECT on pm_logs is granted by fix-rls;
+      // if the select-return still fails, fall back to a plain insert and
+      // run effects without the link — the work still mainstreams.
+      let savedRows = null;
+      {
+        const { data: ins, error } = await NX.sb.from('pm_logs').insert(rows).select();
+        if (error) {
+          const { error: e2 } = await NX.sb.from('pm_logs').insert(rows);
+          if (e2) throw e2;
+        } else {
+          savedRows = ins;
+        }
+      }
+
+      // Self-approval pipeline — same effects the staff Approve button runs
+      // (maintenance record, PM cadence, health score), so a self-approved
+      // log actually counts instead of just reading "approved".
+      if (!honeypot.trim()) {
+        submitBtn.textContent = 'Filing…';
+        const effectRows = savedRows || rows;
+        for (const r of effectRows) {
+          try { await applyApprovalEffects(r); } catch (e) { console.warn('[pm] self-approval effects', e); }
+        }
+      }
 
       // ─── Auto-create / auto-link the contractor node ──────────────
       // When a technician submits a PM via QR scan, their company name
@@ -1329,6 +1358,81 @@
     }
   }
 
+  // ─── Approval side-effects, shared ──────────────────────────────────
+  // Everything that makes an approved PM log COUNT: the maintenance
+  // history record, brain re-sync, PM-cadence advance (last/next PM date,
+  // pm_schedules completion), and health-score recompute. Factored out of
+  // the staff review handler so contractor SELF-APPROVED submissions run
+  // the exact same pipeline — a self-approved log that skipped these would
+  // read "approved" but never mainstream into history or restart the PM
+  // clock. Takes the full log row; best-effort throughout.
+  async function applyApprovalEffects(log) {
+    if (!log || !log.equipment_id) return;
+    try {
+      await NX.sb.from('equipment_maintenance').insert({
+        equipment_id: log.equipment_id,
+        event_date: log.service_date,
+        event_type: log.service_type,
+        description: log.work_performed + (log.parts_replaced ? '\n\nParts: ' + log.parts_replaced : ''),
+        performed_by: log.contractor_name + (log.contractor_company ? ' (' + log.contractor_company + ')' : ''),
+        cost: log.cost_amount,
+        notes: `Submitted via QR scan. Phone: ${log.contractor_phone || 'n/a'}.`,
+        pm_log_id: log.id || null  // Link so Timeline detail modal can pull photos/PDF/signature
+      });
+    } catch (e) { console.warn('[pm] maintenance record failed', e); }
+    // Re-sync brain
+    try { if (NX.eqBrainSync?.syncOne) NX.eqBrainSync.syncOne(log.equipment_id); } catch (_) {}
+
+    // ── Close the PM loop ───────────────────────────────────────
+    // Completing the visit, exactly as the internal PM logger does
+    // (equipment.js): refresh last_pm_date + next_pm_date so the countdown
+    // restarts, and flip the matching scheduled pm_schedules row to
+    // 'completed'. The contractor's stated "Next service due" wins;
+    // otherwise roll forward by the equipment's pm_interval_days. Only PM
+    // and inspection visits advance the cadence — repairs/emergencies
+    // don't reset the clock.
+    try {
+      const isPm = log.service_type === 'pm' || log.service_type === 'inspection';
+      const svcDate = log.service_date || new Date().toISOString().slice(0, 10);
+      if (isPm) {
+        try {
+          await NX.sb.from('pm_schedules')
+            .update({ status: 'completed', updated_at: new Date().toISOString() })
+            .eq('equipment_id', log.equipment_id).eq('status', 'scheduled');
+        } catch (_) {}
+      }
+      let nextDue = log.next_service_date || null;
+      if (!nextDue && isPm) {
+        const { data: eqRow } = await NX.sb.from('equipment')
+          .select('pm_interval_days').eq('id', log.equipment_id).maybeSingle();
+        const iv = eqRow && parseInt(eqRow.pm_interval_days, 10);
+        if (iv && iv > 0) {
+          const d = new Date(svcDate + 'T00:00:00');
+          d.setDate(d.getDate() + iv);
+          nextDue = d.toISOString().slice(0, 10);
+        }
+      }
+      const eqPatch = {};
+      if (isPm) eqPatch.last_pm_date = svcDate;
+      if (nextDue) eqPatch.next_pm_date = nextDue;
+      if (Object.keys(eqPatch).length) {
+        let attempt = { ...eqPatch };
+        let r = await NX.sb.from('equipment').update(attempt).eq('id', log.equipment_id);
+        let guard = 0;
+        while (r.error && guard < 6) {
+          const m = /column "?([a-z_]+)"?.*does not exist/i.exec(r.error.message || '');
+          if (!m || !(m[1] in attempt)) break;
+          delete attempt[m[1]];
+          r = await NX.sb.from('equipment').update(attempt).eq('id', log.equipment_id);
+          guard++;
+        }
+      }
+      try { await NX.sb.rpc('recompute_health_score', { eq_id: log.equipment_id }); } catch (_) {}
+    } catch (e) {
+      console.warn('[pm] cadence advance failed', e);
+    }
+  }
+
   async function updateReviewStatus(id, status, body) {
     try {
       const { error } = await NX.sb.from('pm_logs').update({
@@ -1340,71 +1444,8 @@
       
       // If approved, also create a maintenance record on the equipment
       if (status === 'approved') {
-        const { data: log } = await NX.sb.from('pm_logs').select('*').eq('id', id).single();
-        if (log) {
-          await NX.sb.from('equipment_maintenance').insert({
-            equipment_id: log.equipment_id,
-            event_date: log.service_date,
-            event_type: log.service_type,
-            description: log.work_performed + (log.parts_replaced ? '\n\nParts: ' + log.parts_replaced : ''),
-            performed_by: log.contractor_name + (log.contractor_company ? ' (' + log.contractor_company + ')' : ''),
-            cost: log.cost_amount,
-            notes: `Submitted via QR scan. Phone: ${log.contractor_phone || 'n/a'}.`,
-            pm_log_id: log.id  // Link so Timeline detail modal can pull photos/PDF/signature
-          });
-          // Re-sync brain
-          if (NX.eqBrainSync?.syncOne) NX.eqBrainSync.syncOne(log.equipment_id);
-
-          // ── Close the PM loop ───────────────────────────────────────
-          // Approving a contractor's log completes the visit, exactly as
-          // the internal PM logger does (equipment.js): refresh
-          // last_pm_date + next_pm_date so the countdown restarts, and flip
-          // the matching scheduled pm_schedules row to 'completed'. The
-          // contractor's stated "Next service due" wins; otherwise roll
-          // forward by the equipment's pm_interval_days. Only PM and
-          // inspection visits advance the cadence — repairs/emergencies
-          // don't reset the clock.
-          try {
-            const isPm = log.service_type === 'pm' || log.service_type === 'inspection';
-            const svcDate = log.service_date || new Date().toISOString().slice(0, 10);
-            if (isPm) {
-              try {
-                await NX.sb.from('pm_schedules')
-                  .update({ status: 'completed', updated_at: new Date().toISOString() })
-                  .eq('equipment_id', log.equipment_id).eq('status', 'scheduled');
-              } catch (_) {}
-            }
-            let nextDue = log.next_service_date || null;
-            if (!nextDue && isPm) {
-              const { data: eqRow } = await NX.sb.from('equipment')
-                .select('pm_interval_days').eq('id', log.equipment_id).maybeSingle();
-              const iv = eqRow && parseInt(eqRow.pm_interval_days, 10);
-              if (iv && iv > 0) {
-                const d = new Date(svcDate + 'T00:00:00');
-                d.setDate(d.getDate() + iv);
-                nextDue = d.toISOString().slice(0, 10);
-              }
-            }
-            const eqPatch = {};
-            if (isPm) eqPatch.last_pm_date = svcDate;
-            if (nextDue) eqPatch.next_pm_date = nextDue;
-            if (Object.keys(eqPatch).length) {
-              let attempt = { ...eqPatch };
-              let r = await NX.sb.from('equipment').update(attempt).eq('id', log.equipment_id);
-              let guard = 0;
-              while (r.error && guard < 6) {
-                const m = /column "?([a-z_]+)"?.*does not exist/i.exec(r.error.message || '');
-                if (!m || !(m[1] in attempt)) break;
-                delete attempt[m[1]];
-                r = await NX.sb.from('equipment').update(attempt).eq('id', log.equipment_id);
-                guard++;
-              }
-            }
-            try { await NX.sb.rpc('recompute_health_score', { eq_id: log.equipment_id }); } catch (_) {}
-          } catch (e) {
-            console.warn('[pm-review] cadence advance failed', e);
-          }
-        }
+        const { data: log } = await NX.sb.from('pm_logs').select('*').eq('id', id).maybeSingle();
+        if (log) await applyApprovalEffects(log);
       }
       
       // Remove the row visually
