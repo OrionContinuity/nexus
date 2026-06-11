@@ -3354,8 +3354,18 @@ function buildUI() {
 
   // Wire Tools row — workspaces for fleet-wide management
   document.getElementById('eqToolWorkOrders')?.addEventListener('click', () => {
-    if (window.NXRM?.view?.switchTo) NXRM.view.switchTo('issues');
-    else NX.toast && NX.toast('Open the Home tab to view work orders', 'info', 2400);
+    // Standalone module (lazy-loaded, like Duties) — no dependency on the
+    // Home dashboard having initialized.
+    const openIt = () => NX.modules?.workOrders?.open
+      ? NX.modules.workOrders.open()
+      : (window.NXRM?.view?.switchTo ? NXRM.view.switchTo('issues')
+         : NX.toast && NX.toast('Could not open Work Orders', 'error', 2400));
+    if (NX.modules?.workOrders) { openIt(); return; }
+    const s = document.createElement('script');
+    s.src = 'js/work-orders.js';
+    s.onload = openIt;
+    s.onerror = openIt;   // falls through to NXRM / toast
+    document.body.appendChild(s);
   });
   document.getElementById('eqToolContractors')?.addEventListener('click', () => {
     if (typeof openContractors === 'function') openContractors();
