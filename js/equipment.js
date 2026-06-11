@@ -3279,6 +3279,10 @@ function buildUI() {
       </div>
 
       <div class="eq-tools-row" id="eqToolsRow">
+        <button class="eq-tool-btn" id="eqToolWorkOrders" title="View all open work orders">
+          <span class="eq-tool-icon">${uiSvg('wrench', '14px')}</span>
+          <span class="eq-tool-label">Work Orders</span>
+        </button>
         <button class="eq-tool-btn" id="eqToolContractors" title="Manage contractors">
           <span class="eq-tool-icon">${uiSvg('user', '14px')}</span>
           <span class="eq-tool-label">Contractors</span>
@@ -3349,6 +3353,10 @@ function buildUI() {
   document.getElementById('eqExportResQTemplate')?.addEventListener('click', exportResQTemplate);
 
   // Wire Tools row — workspaces for fleet-wide management
+  document.getElementById('eqToolWorkOrders')?.addEventListener('click', () => {
+    if (window.NXRM?.view?.switchTo) NXRM.view.switchTo('issues');
+    else NX.toast && NX.toast('Open the Home tab to view work orders', 'info', 2400);
+  });
   document.getElementById('eqToolContractors')?.addEventListener('click', () => {
     if (typeof openContractors === 'function') openContractors();
     else NX.toast && NX.toast('Contractors not loaded yet', 'warn');
@@ -4176,6 +4184,7 @@ async function openDetail(id) {
             <button class="eq-overflow-item eq-overflow-item-primary" onclick="NX.modules.equipment.openPmLogger('${eq.id}')" style="color:var(--nx-gold)">${uiSvg('clipboard', '14px')}<span>Log PM <small style="opacity:0.6">(restarts countdown)</small></span></button>
             <button class="eq-overflow-item" onclick="NX.modules.equipment.logService('${eq.id}')">${uiSvg('pen', '14px')}<span>Log Service / Repair</span></button>
             <button class="eq-overflow-item" onclick="NX.modules.equipment.openIssueTracker('${eq.id}')">${uiSvg('alert', '14px')}<span>Issue Tracker</span></button>
+            <button class="eq-overflow-item" onclick="NX.modules.equipment.completeWorkOrder('${eq.id}')">${uiSvg('wrench', '14px')}<span>Complete Work Order</span></button>
             <button class="eq-overflow-item" onclick="NX.modules.equipment.openPartsForEquipment('${eq.id}')">${uiSvg('settings', '14px')}<span>View Parts</span></button>
             <div class="eq-overflow-divider"></div>
             <div class="eq-overflow-section-label">Manage</div>
@@ -19922,6 +19931,42 @@ async function openDetailByQr(qrCode) {
   NX.toast && NX.toast(`QR code ${qrCode} not recognized`, 'warn', 4000);
 }
 
+// Staff-side one-tap work-order completion — mirror of the contractor's
+// "Complete Work Order" button on the public QR scan. Routes through the
+// same consolidated NX.work.fulfillForEquipment cascade (mark issue
+// repaired → close card + ticket → restore status → log maintenance), so
+// both surfaces behave identically. Smart about empty state: if the unit
+// has nothing open, it says so instead of pretending to close something.
+async function completeWorkOrder(equipmentId) {
+  if (!equipmentId) return;
+  const W = window.NX && NX.work;
+  if (!W || !W.fulfillForEquipment) {
+    NX.toast && NX.toast('Work API not loaded', 'error', 2600);
+    return;
+  }
+  let open = null;
+  try { open = W.findOpenForEquipment ? await W.findOpenForEquipment({ equipmentId }) : { unknown: true }; } catch (_) {}
+  if (open === null) {
+    NX.toast && NX.toast('No open work order for this unit', 'info', 2600);
+    return;
+  }
+  if (!confirm('Mark this work order complete? This closes the board card and logs the service.')) return;
+  try {
+    const who = (NX.currentUser && NX.currentUser.name) || 'Staff';
+    const res = await W.fulfillForEquipment({ equipmentId, performedBy: who });
+    if (res && res.ok) {
+      NX.toast && NX.toast('Work order completed', 'success', 2600);
+      try { closeDetail(); } catch (_) {}
+      try { await loadEquipment(); buildUI(); } catch (_) {}
+    } else {
+      NX.toast && NX.toast('Could not complete the work order', 'error', 3000);
+    }
+  } catch (e) {
+    console.error('[equipment] completeWorkOrder:', e);
+    NX.toast && NX.toast('Could not complete the work order', 'error', 3000);
+  }
+}
+
 const __nxeExports = {
   // Lifecycle
   init,
@@ -19932,6 +19977,7 @@ const __nxeExports = {
   // List/detail
   openDetail,
   openDetailByQr,    // QR deep-link → detail (used by app.js post-login redirect)
+  completeWorkOrder, // staff one-tap WO completion (mirrors public scan)
   closeDetail,
   loadEquipment,
   buildUI,
