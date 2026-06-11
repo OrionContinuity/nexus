@@ -3255,14 +3255,17 @@ td.check{background:#F0EDE6 !important}
   async checkTicketBadge(){
     if(this.paused)return;
     try{
-      // Try unified cards table first
+      // Count urgent open work from the live `tickets` table. The legacy
+      // `cards` table this used to read is dead (nothing writes it), and
+      // since that query succeeds-with-zero rather than erroring, the old
+      // fallback never fired — so the badge was stuck empty. tickets mirror
+      // every board card, so an open urgent ticket == open urgent work.
       let count=0;
-      const{count:c1,error}=await this.sb.from('cards').select('*',{count:'exact',head:true}).eq('status','todo').eq('priority','urgent');
-      if(!error){count=c1||0;}
-      else{
-        const{count:c2}=await this.sb.from('tickets').select('*',{count:'exact',head:true}).eq('status','open');
-        count=c2||0;
-      }
+      const{count:c1}=await this.sb.from('tickets')
+        .select('*',{count:'exact',head:true})
+        .eq('status','open')
+        .in('priority',['urgent','high','critical']);
+      count=c1||0;
       const badge=document.getElementById('ticketBadge');
       if(badge){badge.textContent=count||'';badge.style.display=count?'flex':'none';}
     }catch(e){}
@@ -3306,16 +3309,20 @@ td.check{background:#F0EDE6 !important}
         }
       }
 
-      // Overdue cards — try unified cards table first
+      // Overdue cards — read the LIVE board (kanban_cards). The legacy
+      // `cards` table is dead (nothing writes it), and since querying it
+      // succeeds-with-zero rather than erroring, the old "fallback" to
+      // kanban_cards never fired — so the briefing's overdue list was
+      // permanently empty. Exclude archived + terminal-named columns to
+      // match the board's own done semantics.
       let overdue=[];
-      const{data:oCards,error:oErr}=await this.sb.from('cards').select('title,due_date')
-        .lt('due_date',today).not('status','eq','done').not('status','eq','closed').limit(20);
-      if(!oErr&&oCards){overdue=oCards;}
-      else{
-        const{data:oLegacy}=await this.sb.from('kanban_cards').select('title,due_date')
-          .lt('due_date',today).neq('column_name','done').limit(20);
-        if(oLegacy)overdue=oLegacy;
-      }
+      const{data:oCards}=await this.sb.from('kanban_cards')
+        .select('title,due_date')
+        .lt('due_date',today)
+        .eq('archived',false)
+        .not('column_name','in','(done,closed,resolved,complete,completed)')
+        .limit(20);
+      if(oCards)overdue=oCards;
       briefing.overdue=overdue;
 
       // Show overdue banner
