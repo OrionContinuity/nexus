@@ -3327,11 +3327,22 @@ td.check{background:#F0EDE6 !important}
 
       // Show overdue banner
       if(briefing.overdue.length){
-        const count=briefing.overdue.length>=20?'20+':briefing.overdue.length;
+        const n=briefing.overdue.length;
+        const count=n>=20?'20+':n;
         const banner=document.getElementById('overdueBanner');
-        if(banner&&!banner.dataset.dismissed){
-          banner.innerHTML=`<span class="alert-kicker">${count} OVERDUE</span> ${briefing.overdue.slice(0,3).map(c=>c.title).join(', ')}${briefing.overdue.length>3?' +more':''} <button class="alert-dismiss" onclick="this.parentElement.style.display='none';this.parentElement.dataset.dismissed='1'">✕</button>`;
+        // Dismissal persists for the DAY (localStorage), not just the DOM —
+        // the old ✕ only set a dataset flag, so the banner came back on
+        // every reload and briefing rerun, which is why it felt naggy.
+        // It re-appears only if the overdue count GROWS past what was
+        // dismissed (new problem = worth interrupting again).
+        const today=new Date().toISOString().slice(0,10);
+        let dis=null; try{dis=JSON.parse(localStorage.getItem('nx_overdue_dismissed')||'null');}catch(_){}
+        const dismissed=dis&&dis.date===today&&n<=dis.count;
+        if(banner&&!dismissed){
+          banner.innerHTML=`<span class="alert-kicker">${count} OVERDUE</span> ${briefing.overdue.slice(0,3).map(c=>c.title).join(', ')}${n>3?' +more':''} <button class="alert-dismiss" onclick="this.parentElement.style.display='none';try{localStorage.setItem('nx_overdue_dismissed',JSON.stringify({date:'${today}',count:${n}}))}catch(_){}">✕</button>`;
           banner.style.display='';
+        } else if(banner&&dismissed){
+          banner.style.display='none';
         }
       }
 
@@ -3398,15 +3409,20 @@ td.check{background:#F0EDE6 !important}
     // Store for proactive chat
     this._briefingData=briefing;
 
-    // Quick toast summary
+    // Quick toast summary — calm rules: never repeat a fact that is
+    // already visible on this screen (ticket count = the Home tile,
+    // overdue = the banner above), and nag at most once per session.
     const items=[];
-    if(briefing.tickets.length)items.push(`${briefing.tickets.length} ticket${briefing.tickets.length>1?'s':''}`);
     if(briefing.contractors.length)items.push(`${briefing.contractors.map(e=>e.contractor_name).join(', ')} today`);
-    if(briefing.overdue.length>3)items.push(`${briefing.overdue.length} overdue`);
     if(!briefing.clockedIn){
-      // Only remind during typical operating hours (10am-11pm). No point nagging at 3am.
+      // Operating hours only (10am-11pm), and once per session — not on
+      // every briefing rerun.
       const hour=new Date().getHours();
-      if(hour>=10&&hour<23)items.push(`⏱ Not clocked in`);
+      let nudged=false; try{nudged=sessionStorage.getItem('nx_clock_nudged')==='1';}catch(_){}
+      if(hour>=10&&hour<23&&!nudged){
+        items.push(`⏱ Not clocked in`);
+        try{sessionStorage.setItem('nx_clock_nudged','1');}catch(_){}
+      }
     }
     if(items.length)this.toast(items.join(' · '),'info',5000);
   },
