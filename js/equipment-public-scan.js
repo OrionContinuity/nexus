@@ -1531,10 +1531,10 @@
     // contractor is set on the equipment.
     const preferredContractorNodeId = eq.repair_contractor_node_id || eq.service_contractor_node_id || null;
     const usingRepair = !!eq.repair_contractor_node_id;
-    const [ticketRes, maintRes, contractorRes] = await Promise.all([
+    const [ticketRes, maintRes, contractorRes, issueRes] = await Promise.all([
       sb.from('tickets')
         .select('id, title, created_at, reported_by, priority, status')
-        .ilike('title', `%${eq.name.slice(0, 30)}%`)
+        .eq('equipment_id', eq.id)
         .eq('status', 'open')
         .gte('created_at', thirtyDaysAgo)
         .order('created_at', { ascending: false })
@@ -1546,8 +1546,17 @@
         .limit(4),
       preferredContractorNodeId
         ? sb.from('nodes').select('id, name, notes, tags, links')
-            .eq('id', preferredContractorNodeId).single()
+            .eq('id', preferredContractorNodeId).maybeSingle()
         : Promise.resolve({ data: null }),
+      // Open work order (equipment_issues) for this unit — catches a
+      // staff-raised issue that has no ticket, so "Complete Work Order"
+      // shows whenever there is genuinely open work, not only ticket-backed.
+      sb.from('equipment_issues')
+        .select('id, status')
+        .eq('equipment_id', eq.id)
+        .not('status', 'in', '(repaired,closed,resolved)')
+        .order('reported_at', { ascending: false })
+        .limit(1),
     ]);
 
     // Build contact object — also exposes specialty tags ("duties") so
@@ -1631,13 +1640,14 @@
     return {
       eq,
       activeTicket: (ticketRes.data || [])[0] || null,
+      activeIssue: (issueRes.data || [])[0] || null,
       maint: maintRes.data || [],
       contact,
     };
   }
 
   // ─── 9. RENDER SCAN PAGE ────────────────────────────────────────────
-  function renderScan({ eq, activeTicket, maint, contact }) {
+  function renderScan({ eq, activeTicket, activeIssue, maint, contact }) {
     // Palette-coherent status colors — no greens, no scarlets.
     // Olive-bronze for operational (settled), gold for needs_service
     // (= brand accent, "look at me"), oxblood for down (authoritative,
@@ -1775,6 +1785,15 @@
             ${historyHTML}
             ${servicedByHTML}
             <div class="nx-ps-actions">
+              ${(activeTicket || activeIssue) ? `
+              <button class="nx-ps-btn nx-ps-btn-primary nx-ps-btn-complete" data-action="complete-wo">
+                <div class="nx-ps-btn-icon-wrap"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
+                <div class="nx-ps-btn-label">
+                  <div class="nx-ps-btn-title">Complete Work Order</div>
+                  <div class="nx-ps-btn-sub">Mark this job done — closes the card</div>
+                </div>
+                <div class="nx-ps-btn-arrow">${icon('chevronRight', 16)}</div>
+              </button>` : ''}
               ${callBtnHTML}
               <button class="nx-ps-btn nx-ps-btn-primary" data-action="log-service">
                 <div class="nx-ps-btn-icon-wrap">${icon('wrench')}</div>
@@ -1820,7 +1839,24 @@
       const btn = e.target.closest('[data-action]');
       if (!btn) return;
       const action = btn.dataset.action;
-      if (action === 'log-service') {
+      if (action === 'complete-wo') {
+        if (btn.dataset.busy) return;
+        btn.dataset.busy = '1';
+        const titleEl = btn.querySelector('.nx-ps-btn-title');
+        const prevTitle = titleEl ? titleEl.textContent : '';
+        if (titleEl) titleEl.textContent = 'Completing…';
+        const done = ok => {
+          if (ok) { location.reload(); return; }
+          if (titleEl) titleEl.textContent = prevTitle;
+          delete btn.dataset.busy;
+          alert('Could not complete the work order. Please try again.');
+        };
+        const api = window.NX && NX.work && NX.work.fulfillForEquipment;
+        if (!api) { console.error('[scan] NX.work not loaded'); done(false); return; }
+        Promise.resolve(NX.work.fulfillForEquipment({ equipmentId: eq.id, performedBy: 'QR scan' }))
+          .then(res => done(!!(res && res.ok)))
+          .catch(err => { console.error('[scan] complete-wo failed:', err); done(false); });
+      } else if (action === 'log-service') {
         const fn = window._NX_PUBLIC_PM_OPEN;
         if (fn) fn(eq.qr_code);
         else alert('PM Logger not loaded');
@@ -2307,6 +2343,37 @@
         const { data: ticketRow, error } = await sb.from('tickets').insert(ticketData).select().single();
         if (error) throw error;
 
+        // UNIFY — a reported problem is a WORK ORDER, not just a ticket.
+        // Create the equipment_issues row so the report shows in "Open WO"
+        // and the Work Orders feed (which count equipment_issues), and label
+        // the board card with issue:<id> so the card→done cascade and
+        // NX.work.fulfillForEquipment recognise it — exactly like a
+        // staff-raised issue. Report mode only ([CALL] logs aren't new work
+        // orders). Best-effort: on failure we fall back to ticket-only, the
+        // prior behaviour. Uses the public `sb` client so it works even in
+        // kiosk mode where the full NX app isn't loaded.
+        let issueId = null;
+        if (!isCall) {
+          try {
+            const issuePriority = priority === 'urgent' ? 'critical' : priority === 'low' ? 'low' : 'normal';
+            const issueSeverity = priority === 'urgent' ? 'high'     : priority === 'low' ? 'low' : 'medium';
+            const { data: issueRow, error: issueErr } = await sb.from('equipment_issues').insert({
+              equipment_id: eq.id,
+              title: `${eq.name}: ${problem.slice(0, 80)}`,
+              description: problem,
+              status: 'reported',
+              priority: issuePriority,
+              severity: issueSeverity,
+              reported_by_name: reporter,
+            }).select('id').single();
+            if (issueErr) throw issueErr;
+            issueId = issueRow && issueRow.id;
+          } catch (issueErr) {
+            console.warn('[scan] work-order (equipment_issues) create failed (non-fatal):', issueErr?.message || issueErr);
+          }
+        }
+        const issueLabels = issueId ? [`issue:${issueId}`] : [];
+
         // v18.24 — Mirror the ticket onto the Operations board as a
         // kanban_card. The two surfaces (Duties ticket list + Board)
         // now stay in sync: same priority, same description, same photo.
@@ -2338,7 +2405,7 @@
                 location: eq.location || null,
                 equipment_id: eq.id,
                 reported_by: reporter,
-                checklist: [], comments: [], labels: [],
+                checklist: [], comments: [], labels: issueLabels,
                 photo_urls: photoUrl ? [photoUrl] : [],
                 archived: false,
                 ticket_id: ticketRow?.id || null,
