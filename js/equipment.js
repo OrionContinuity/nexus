@@ -19897,6 +19897,31 @@ async function addNewPart(prefilledEquipId) {
 // Plus the existing window.__nxOpenParts / __nxOpenArchiveWorld that
 // the FAB dial uses as its primary path.
 
+// QR deep-link opener. Resolves a scanned qr_code to its equipment row
+// and opens the detail sheet. Used by the post-login redirect in app.js
+// (scan sticker → PIN → land on the unit). Tries the already-loaded list
+// first (no query); falls back to a direct lookup so it still works
+// before loadEquipment() has populated the list, then surfaces a clear
+// toast if the code genuinely matches nothing.
+async function openDetailByQr(qrCode) {
+  if (!qrCode) return;
+  const local = (equipment || []).find(e => e.qr_code === qrCode);
+  if (local) { openDetail(local.id); return; }
+  try {
+    const { data, error } = await NX.sb.from('equipment')
+      .select('id').eq('qr_code', qrCode).maybeSingle();
+    if (error) {
+      console.error('[equipment] openDetailByQr lookup failed:', error.message);
+      NX.toast && NX.toast('Could not load that unit — check your connection.', 'error', 3000);
+      return;
+    }
+    if (data?.id) { openDetail(data.id); return; }
+  } catch (err) {
+    console.error('[equipment] openDetailByQr threw:', err);
+  }
+  NX.toast && NX.toast(`QR code ${qrCode} not recognized`, 'warn', 4000);
+}
+
 const __nxeExports = {
   // Lifecycle
   init,
@@ -19906,11 +19931,18 @@ const __nxeExports = {
 
   // List/detail
   openDetail,
+  openDetailByQr,    // QR deep-link → detail (used by app.js post-login redirect)
   closeDetail,
   loadEquipment,
   buildUI,
   getFiltered,
   reportIssue,       // Creates a board card prefilled with this equipment
+
+  // Live read-only handle to the loaded equipment array. Exposed as a
+  // getter (not a value) because loadEquipment() REASSIGNS `equipment`,
+  // so a captured value would go stale. equipment-context-menu.js reads
+  // this to resolve a unit's name for soft-delete confirms.
+  get _allEquipment() { return equipment; },
 
   // Activity log (per-location global view)
   openEquipmentActivityLog,
