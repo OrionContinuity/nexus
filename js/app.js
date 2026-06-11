@@ -3828,6 +3828,67 @@ NX.timeClock = {
     return !!this._activeEntry;
   },
 
+  // Dedicated confirm screen — kiosk pattern (Toast/7shifts/Homebase):
+  // the punch is a deliberate two-step. Clock In picks a location here
+  // (defaults to last used / home location); Clock Out confirms intent.
+  // Hours appear only in the private post-action toast, never on screen.
+  openClockConfirm(mode) {
+    document.querySelectorAll('.tc-confirm-bg').forEach(m => m.remove());
+    const user = NX.currentUser || {};
+    const isIn = mode === 'in';
+    // Locations: from the (hidden) dropdown the builders maintain, with a
+    // safe fallback to the three restaurants.
+    let locs = Array.from(document.querySelectorAll('#tcLocation option'))
+      .map(o => o.value).filter(v => v && v !== '__new__');
+    if (!locs.length) locs = ['Suerte', 'Este', 'Bar Toti'];
+    const last = localStorage.getItem('nexus_last_location') || user.location || locs[0];
+    let chosen = locs.includes(last) ? last : locs[0];
+
+    const bg = document.createElement('div');
+    bg.className = 'tc-confirm-bg';
+    bg.style.cssText = 'position:fixed;inset:0;z-index:1600;background:rgba(8,7,5,.96);display:flex;align-items:center;justify-content:center;padding:24px';
+    const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    bg.innerHTML = `
+      <div style="width:100%;max-width:360px;text-align:center;font-family:var(--nx-font-body,'DM Sans',sans-serif)">
+        <div style="font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:${isIn ? 'var(--green,#4caf7d)' : 'var(--red,#e5484d)'};margin-bottom:10px">${isIn ? 'Clock In' : 'Clock Out'}</div>
+        <div style="font-family:var(--nx-font-display,'Outfit',sans-serif);font-size:26px;font-weight:600;color:#f0e9dd;margin-bottom:6px">${esc(user.name || 'Staff')}</div>
+        <div style="font-size:13.5px;color:rgba(240,233,221,.55);margin-bottom:22px">${isIn ? 'Where are you working today?' : 'End your shift now?'}</div>
+        ${isIn ? `<div id="tcLocChips" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-bottom:26px">${locs.map(l =>
+          `<button data-loc="${esc(l)}" style="padding:10px 18px;border-radius:999px;font-size:14px;border:1px solid ${l === chosen ? 'var(--green,#4caf7d)' : 'rgba(212,182,138,.25)'};color:${l === chosen ? 'var(--green,#4caf7d)' : '#e8e0d2'};background:none;font-weight:${l === chosen ? '600' : '400'}">${esc(l)}</button>`).join('')}</div>` : ''}
+        <button id="tcConfirmGo" style="width:100%;padding:16px;border-radius:16px;border:none;font-size:16px;font-weight:700;color:#0c0a08;background:${isIn ? 'var(--green,#4caf7d)' : 'var(--red,#e5484d)'};margin-bottom:12px">${isIn ? 'Confirm Clock In' : 'Confirm Clock Out'}</button>
+        <button id="tcConfirmCancel" style="width:100%;padding:13px;border-radius:16px;font-size:14px;background:none;border:1px solid rgba(212,182,138,.22);color:rgba(240,233,221,.7)">Cancel</button>
+      </div>`;
+    document.body.appendChild(bg);
+    bg.querySelector('#tcLocChips')?.addEventListener('click', e => {
+      const b = e.target.closest('[data-loc]');
+      if (!b) return;
+      chosen = b.dataset.loc;
+      bg.querySelectorAll('[data-loc]').forEach(x => {
+        const on = x.dataset.loc === chosen;
+        x.style.borderColor = on ? 'var(--green,#4caf7d)' : 'rgba(212,182,138,.25)';
+        x.style.color = on ? 'var(--green,#4caf7d)' : '#e8e0d2';
+        x.style.fontWeight = on ? '600' : '400';
+      });
+    });
+    bg.querySelector('#tcConfirmCancel').addEventListener('click', () => bg.remove());
+    bg.addEventListener('click', e => { if (e.target === bg) bg.remove(); });
+    bg.querySelector('#tcConfirmGo').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      if (btn.dataset.busy) return;          // double-tap guard
+      btn.dataset.busy = '1';
+      btn.textContent = isIn ? 'Clocking in…' : 'Clocking out…';
+      if (isIn) {
+        localStorage.setItem('nexus_last_location', chosen);
+        const sel = document.getElementById('tcLocation');
+        if (sel) sel.value = chosen;
+        await this.clockIn(chosen);
+      } else {
+        await this.clockOut();
+      }
+      bg.remove();
+    });
+  },
+
   async clockIn(location) {
     if (!NX.currentUser) return;
     const entry = {
@@ -3905,9 +3966,15 @@ NX.timeClock = {
     // PIN screen
     const tcPanel = document.getElementById('tcPanel');
     if (tcPanel && tcPanel.style.display !== 'none') {
-      document.getElementById('tcStatus').textContent = isIn ? 'CLOCKED IN' : 'NOT CLOCKED IN';
-      document.getElementById('tcStatus').style.color = isIn ? 'var(--green)' : 'rgba(255,255,255,.4)';
-      document.getElementById('tcTime').textContent = isIn ? this.getElapsed() || '0:00:00' : '';
+      const tcS = document.getElementById('tcStatus');
+      if (tcS) {
+        tcS.textContent = isIn ? 'CLOCKED IN' : 'NOT CLOCKED IN';
+        tcS.style.color = isIn ? 'var(--green)' : 'rgba(255,255,255,.4)';
+      }
+      // tcTime intentionally removed from the shared punch screen (times
+      // are private); guard in case of stale markup.
+      const tcT = document.getElementById('tcTime');
+      if (tcT) tcT.textContent = isIn ? this.getElapsed() || '0:00:00' : '';
       document.getElementById('tcClockIn').style.display = isIn ? 'none' : '';
       document.getElementById('tcClockOut').style.display = isIn ? '' : 'none';
     }
@@ -3972,19 +4039,14 @@ NX.timeClock = {
     const [statusOk, _, __] = await Promise.all([
       this.checkStatus(),
       this.buildLocationDropdownFresh(),  // refresh from DB in background
-      this.loadPinLog()
+      Promise.resolve()  // punch log removed from shared screen (times are private)
     ]);
     
     this.updateUI();
     this.startTimer();
 
-    document.getElementById('tcClockIn')?.addEventListener('click', () => {
-      const loc = document.getElementById('tcLocation')?.value || '';
-      if (loc === '__new__') return; // shouldn't happen, handled in change
-      localStorage.setItem('nexus_last_location', loc);
-      this.clockIn(loc);
-    });
-    document.getElementById('tcClockOut')?.addEventListener('click', () => this.clockOut());
+    document.getElementById('tcClockIn')?.addEventListener('click', () => this.openClockConfirm('in'));
+    document.getElementById('tcClockOut')?.addEventListener('click', () => this.openClockConfirm('out'));
     document.getElementById('tcPinDownload')?.addEventListener('click', () => this.exportUserTimesheet());
     document.getElementById('tcEnter')?.addEventListener('click', () => {
       this.stopTimer();
