@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v100-pm-vendor-dropdown-sync';
+const CACHE_NAME = 'nexus-v101-shell-sync';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
@@ -221,6 +221,15 @@ const APP_SHELL = [
   './css/cleaning-roster.css',
   './css/education-system.css',
   './css/clippy.css',
+  './css/training-system.css',
+  './css/interests.css',
+  './css/habits-debug.css',
+  './css/ordering-system.css',
+  './css/public-views.css',
+  './css/preferences.css',
+  // NOTE: css/daily-card.css is referenced by index.html but does not
+  // exist on disk (404). Intentionally NOT precached. Fix the <link>
+  // in index.html (remove it or add the file) — see review notes.
 
   // NEXUS · R&M — single stylesheet for the whole module
   './css/nexus-rm.css',
@@ -258,6 +267,25 @@ const APP_SHELL = [
   './js/native-bridge.js',
   './js/translate.js',
 
+  // Eagerly loaded in index.html but previously absent from the shell
+  './js/domain.js',
+  './js/nx-email.js',
+  './js/nx-archive.js',
+  './js/nx-drive.js',
+  './js/habits.js',
+  './js/interests.js',
+  './js/clippy-games.js',
+  './js/record-editor.js',
+  './js/daily-card.js',
+  './js/daily-log.js',
+  './js/biweekly-log.js',
+
+  // Lazy-loaded on demand via NX.app.loadScript (moduleMap + chains) —
+  // precached so first offline open of these views still works
+  './js/ordering.js',
+  './js/duties.js',
+  './js/inventory.js',
+  './js/preferences.js',
   // NEXUS · R&M — 7 modules, core.js must load first
   './js/core.js',
   './js/inbox.js',
