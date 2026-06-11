@@ -2436,13 +2436,14 @@
           // QR reports STILL notify managers even without NX loaded.
           try {
             const priority_label = (priority || 'normal').toLowerCase();
-            const iconName = priority_label === 'urgent' ? 'alert-octagon' : priority_label === 'high' ? 'alert-triangle' : 'ticket';
-        const icon = `<i data-lucide="${iconName}"></i>`;
+            // No HTML in push titles — phones render notification text as
+            // plain text, so the old <i data-lucide=...> markup appeared
+            // literally on managers' lock screens.
             const locLabel = eq.location ? ` · ${eq.location.toUpperCase()}` : '';
             sb.functions.invoke('predictive-notify', {
               body: {
                 broadcast: {
-                  title: `${icon} New ticket${locLabel}`,
+                  title: `New ticket${locLabel}`,
                   body: `${eq.name}: ${problem.slice(0, 100)} — by ${reporter}`.slice(0, 180),
                   audience: 'managers',
                   priority: (priority_label === 'urgent' || priority_label === 'high') ? 'high' : 'normal',
