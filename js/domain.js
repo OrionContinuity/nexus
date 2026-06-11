@@ -1008,6 +1008,104 @@
     } catch (_) {}
   };
 
+  // Find the open work order for a unit: its board card (source of truth),
+  // the mirrored ticket, and any open equipment_issue. Lets the QR scan
+  // complete the EXISTING work order instead of spawning a parallel one.
+  // Returns { card, ticketId, issueId } | null.
+  W.findOpenForEquipment = async function({ equipmentId } = {}) {
+    if (!NX.sb || !equipmentId) return null;
+    let card = null, ticketId = null, issueId = null;
+    // 1) Newest open (non-archived) board card for this unit.
+    try {
+      const { data } = await NX.sb.from('kanban_cards')
+        .select('id, ticket_id, labels, equipment_id, prior_eq_status, archived, created_at')
+        .eq('equipment_id', equipmentId)
+        .eq('archived', false)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (data && data.length) {
+        card = data[0];
+        ticketId = card.ticket_id || null;
+        issueId = extractIssueIdFromLabels(card.labels);
+      }
+    } catch (_) {}
+    // 2) Fallback: an open equipment_issue even when no card is on the board.
+    if (!issueId) {
+      try {
+        const { data } = await NX.sb.from('equipment_issues')
+          .select('id')
+          .eq('equipment_id', equipmentId)
+          .not('status', 'in', '(repaired,closed,resolved)')
+          .order('reported_at', { ascending: false })
+          .limit(1);
+        if (data && data.length) issueId = data[0].id;
+      } catch (_) {}
+    }
+    if (!card && !issueId) return null;
+    return { card, ticketId, issueId };
+  };
+
+  // Complete a unit's open work order end to end, from either surface
+  // (staff or public QR). Consolidates what used to be scattered dual-writes:
+  //   1. marks the linked equipment_issue repaired   → Home "Open WO" drops
+  //   2. closes card + mirrored ticket via W.close    → board + Duties in step
+  //   3. restores equipment status (operational)
+  //   4. writes an equipment_maintenance audit row
+  // Call with just { equipmentId }. Returns a summary of what closed.
+  W.fulfillForEquipment = async function({ equipmentId, performedBy, notes, restoreStatus } = {}) {
+    if (!NX.sb || !equipmentId) return { ok: false, reason: 'missing-equipment' };
+    const now = new Date().toISOString();
+    const open = await W.findOpenForEquipment({ equipmentId });
+    const issueId = open && open.issueId;
+    const card = open && open.card;
+
+    // 1) Canonical completion — mark the work order (issue) repaired.
+    if (issueId) {
+      try {
+        await NX.sb.from('equipment_issues')
+          .update({ status: 'repaired', repaired_at: now })
+          .eq('id', issueId);
+      } catch (e) { console.warn('[NX.work.fulfillForEquipment] mark repaired failed:', e?.message || e); }
+    }
+
+    // 2) Close the board card + mirrored ticket, restoring the unit to the
+    //    status it held before this work order bumped it.
+    if (card) {
+      try {
+        await W.close({
+          cardId: card.id,
+          ticketId: open.ticketId,
+          equipmentId,
+          priorEqStatus: card.prior_eq_status || restoreStatus || 'operational',
+        });
+      } catch (e) { console.warn('[NX.work.fulfillForEquipment] close failed:', e?.message || e); }
+    } else {
+      // No card on the board — still make sure the unit reads operational.
+      try {
+        await NX.sb.from('equipment')
+          .update({ status: restoreStatus || 'operational' })
+          .eq('id', equipmentId);
+      } catch (_) {}
+    }
+
+    // 3) Auditable trail of the completion.
+    try {
+      await NX.sb.from('equipment_maintenance').insert({
+        equipment_id: equipmentId,
+        event_type: 'service',
+        description: 'Work order completed' + (notes ? ' — ' + String(notes).trim() : ''),
+        performed_by: performedBy || 'QR scan',
+        event_date: now,
+      });
+    } catch (e) { console.warn('[NX.work.fulfillForEquipment] maint log failed:', e?.message || e); }
+
+    // 4) Refresh the equipment brain + board so the change shows immediately.
+    try { if (NX.eqBrainSync?.syncOne) await NX.eqBrainSync.syncOne(equipmentId); } catch (_) {}
+    try { if (NX.modules?.board?.reload) NX.modules.board.reload(); } catch (_) {}
+
+    return { ok: true, closedCard: !!card, closedIssue: !!issueId, equipmentId };
+  };
+
   // ─── Card creators ──────────────────────────────────────────────────
 
   async function autoCreateReviewCard(equipmentId, contractor) {
