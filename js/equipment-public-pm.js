@@ -278,15 +278,38 @@
      ═════════════════════════════════════════════════════════════════════════ */
 
   async function openLoggerForm(qrCode) {
-    // Resolve the equipment from QR code. Also pull the assigned
-    // contractor's record (if any) so we can pre-fill the form with
-    // the contractor we already have on file — saving the tech the
-    // typing on a fresh device.
-    const { data: eq, error } = await NX.sb.from('equipment')
-      .select('id, name, location, area, category, manufacturer, model, status, last_status_change_at, next_pm_date, service_contractor_node_id, service_contractor_name, service_contractor_phone')
-      .eq('qr_code', qrCode)
-      .single();
-    if (error || !eq) { alert('Equipment not found'); return; }
+    // Resolve the equipment. Prefer the record equipment-public-scan.js
+    // already fetched and is displaying — it's the same row, pulled with
+    // a schema-safe column set, so reusing it avoids a second query whose
+    // only effect would be to risk a schema/RLS error surfacing as a
+    // misleading "Equipment not found". (That was the original bug: the
+    // re-query below requested last_status_change_at, which doesn't exist
+    // on the equipment table, so the whole SELECT errored and error||!eq
+    // collapsed it into "not found" even though the unit was on screen.)
+    let eq = null;
+    const cached = window._NX_PUBLIC_SCAN_EQ;
+    if (cached && cached.qr_code === qrCode) {
+      eq = cached;
+    } else {
+      // Fallback path (in-app testing, or cache not yet populated).
+      // maybeSingle() so a genuine no-match returns null instead of an
+      // error; and we omit last_status_change_at (optional — only drives
+      // the "idle Nd" subtitle, and the helper already guards for it).
+      const { data, error } = await NX.sb.from('equipment')
+        .select('id, name, location, area, category, manufacturer, model, status, next_pm_date, service_contractor_node_id, service_contractor_name, service_contractor_phone')
+        .eq('qr_code', qrCode)
+        .maybeSingle();
+      if (error) {
+        // A real query error (schema/RLS/network) — NOT "not found".
+        // Be honest so the contractor knows to retry rather than assume
+        // the sticker is dead.
+        console.error('[pm-logger] equipment lookup failed:', error.message);
+        alert('Could not load equipment right now. Check your connection and try again.');
+        return;
+      }
+      eq = data;
+    }
+    if (!eq) { alert('Equipment not found'); return; }
 
     // Fetch contractor (if assigned). Async but lightweight — we
     // continue even if it fails so the form still opens.
