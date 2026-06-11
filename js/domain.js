@@ -848,12 +848,23 @@
   // equipment_id and would miss those). Scans non-archived cards for the
   // exact label sentinel.
   async function hasCardWithLabel(labelSentinel) {
+    // Server-side containment query — the old version downloaded 500 full
+    // rows and scanned them in JS on EVERY dedup check (issue cards,
+    // reorder cards, QR deep-links). Same answer, one indexed row, and no
+    // false-negative once the board grows past 500 cards.
+    try {
+      const { data, error } = await NX.sb.from('kanban_cards')
+        .select('id')
+        .eq('archived', false)
+        .contains('labels', [labelSentinel])
+        .limit(1);
+      if (!error) return !!(data && data.length);
+    } catch (_) {}
+    // Fallback: legacy scan (e.g. if labels isn't a containment-queryable
+    // column in some deployment).
     const { data } = await NX.sb.from('kanban_cards')
-      .select('id, labels')
-      .eq('archived', false)
-      .limit(500);
-    if (!data) return false;
-    return data.some(c => Array.isArray(c.labels) && c.labels.includes(labelSentinel));
+      .select('id, labels').eq('archived', false).limit(500);
+    return !!(data && data.some(c => Array.isArray(c.labels) && c.labels.includes(labelSentinel)));
   }
 
   function extractIssueIdFromLabels(labels) {
