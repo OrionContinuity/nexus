@@ -301,8 +301,19 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
                 checklist:[], comments:[], labels:[], photo_urls:[],
                 archived:false,
               };
-              await NX.sb.from('kanban_cards').insert(cardRow);
-              if (NX.notifyCardCreated) NX.notifyCardCreated(cardRow);
+              // Unified: card + ticket mirror via NX.work (was a raw
+              // kanban_cards insert with no mirror, invisible to Duties).
+              if (NX.work && NX.work.create) {
+                await NX.work.create({
+                  title: action.title,
+                  description: action.detail || null,
+                  priority: action.urgency,
+                  aiCreated: true,
+                });
+              } else {
+                await NX.sb.from('kanban_cards').insert(cardRow);
+                if (NX.notifyCardCreated) NX.notifyCardCreated(cardRow);
+              }
               chainLog.push({type:'card',title:action.title,result:'created'});
             }else if(action.type==='log'){
               await NX.sb.from('daily_logs').insert({entry:action.title+' — '+action.detail});
@@ -330,8 +341,17 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
                   checklist:[], comments:[], labels:[], photo_urls:[],
                   archived:false,
                 };
-                await NX.sb.from('kanban_cards').insert(schedCard);
-                if (NX.notifyCardCreated) NX.notifyCardCreated(schedCard);
+                // Unified: card + ticket mirror via NX.work.
+                if (NX.work && NX.work.create) {
+                  await NX.work.create({
+                    title: 'Schedule: ' + action.title,
+                    description: action.detail || null,
+                    aiCreated: true,
+                  });
+                } else {
+                  await NX.sb.from('kanban_cards').insert(schedCard);
+                  if (NX.notifyCardCreated) NX.notifyCardCreated(schedCard);
+                }
                 chainLog.push({type:'card',title:'Schedule: '+action.title,result:'card created (no contractor found)'});
               }
             }
@@ -372,6 +392,13 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
         checklist:[], comments:[], labels:[], photo_urls:[],
         archived:false,
       };
+      // Unified: card + ticket mirror via NX.work (was raw kanban_cards
+      // insert with no mirror, invisible to Duties / Open Tickets).
+      if (NX.work && NX.work.create) {
+        const res = await NX.work.create({ title: task.content, aiCreated: true });
+        if (res && res.card) return `Card created: "${task.content}"`;
+        return 'Failed.';
+      }
       const{error}=await NX.sb.from('kanban_cards').insert(cardRow);
       if (!error && NX.notifyCardCreated) NX.notifyCardCreated(cardRow);
       return error?'Failed.':`Card created: "${task.content}"`;
