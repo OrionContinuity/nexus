@@ -183,22 +183,40 @@
     const tv     = state.topVendor;
     const tvName = tv ? (tv.display_name || tv.name || 'vendor') : '';
 
+    // Attention-first render: anything actionable becomes a full-width
+    // hero card in plain language ("3 work orders need attention"), so the
+    // user reads the screen top-down and stops when the urgency stops.
+    // Quiet metrics stay as compact tiles. Same data-go wiring as before.
+    const hero = [];
+    if (openWO > 0) hero.push({ go: 'issues', num: openWO,
+      text: openWO === 1 ? '1 work order needs attention' : `${openWO} work orders need attention` });
+    if (pmDue > 0) hero.push({ go: 'pm', num: pmDue,
+      text: pmDue === 1 ? '1 unit due for maintenance' : `${pmDue} units due for maintenance` });
+    const heroHtml = hero.map(h => `
+      <button class="home-rm-tile is-warn is-hero" data-go="${h.go}"
+        style="grid-column:1/-1;display:flex;align-items:center;gap:16px;text-align:left;min-height:84px">
+        <div class="home-rm-tile-num" style="font-size:46px;line-height:1">${h.num}</div>
+        <div style="flex:1">
+          <div style="font-size:17px;font-weight:650;line-height:1.3">${h.text}</div>
+          <div class="home-rm-tile-lbl" style="margin-top:3px">Tap to open</div>
+        </div>
+        <div style="font-size:20px;opacity:.5">→</div>
+      </button>`).join('');
     el.innerHTML = `
+      ${heroHtml}
+      ${hero.length === 0 ? `
+      <button class="home-rm-tile is-hero" data-go="issues"
+        style="grid-column:1/-1;min-height:72px;display:flex;align-items:center;gap:14px;text-align:left">
+        <div style="font-size:26px">✓</div>
+        <div style="font-size:17px;font-weight:650">All clear — nothing needs you right now</div>
+      </button>` : ''}
       <button class="home-rm-tile" data-go="spend">
         <div class="home-rm-tile-num">${fmt.money(state.spendMTD)}</div>
-        <div class="home-rm-tile-lbl">Spend&nbsp;MTD</div>
-      </button>
-      <button class="home-rm-tile ${openWO > 5 ? 'is-warn' : ''}" data-go="issues">
-        <div class="home-rm-tile-num">${openWO}</div>
-        <div class="home-rm-tile-lbl">Open&nbsp;WO</div>
-      </button>
-      <button class="home-rm-tile ${pmDue > 0 ? 'is-warn' : ''}" data-go="pm">
-        <div class="home-rm-tile-num">${pmDue}</div>
-        <div class="home-rm-tile-lbl">PM&nbsp;Due</div>
+        <div class="home-rm-tile-lbl">Spent this month</div>
       </button>
       <button class="home-rm-tile" data-go="vendors">
         <div class="home-rm-tile-num home-rm-tile-grade ${tv ? tv._g.tone : 'tone-mute'}">${tv ? tv._g.letter : '—'}</div>
-        <div class="home-rm-tile-lbl">${tv ? esc(truncate(tvName, 14)) : 'Top&nbsp;Vendor'}</div>
+        <div class="home-rm-tile-lbl">${tv ? esc(truncate(tvName, 14)) : 'Top vendor'}</div>
       </button>
     `;
     el.querySelectorAll('[data-go]').forEach(b => {
