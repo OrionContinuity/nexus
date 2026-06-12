@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v108-wo-selfload';
+const CACHE_NAME = 'nexus-v110-wo-inline';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
