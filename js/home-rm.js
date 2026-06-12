@@ -225,7 +225,19 @@
         // 'issues' = work orders. The internal NXRM issues view renders
         // blank on some devices (the root cause of dead taps from Home),
         // so route to the standalone module instead.
-        if (go === 'issues' && window.NX && NX.openWorkOrders) { NX.openWorkOrders(); return; }
+        if (go === 'issues') {
+          // Self-contained module loader (no dependency on domain.js
+          // version — a stale copy made these taps die silently).
+          const open = () => NX.modules?.workOrders?.open
+            ? NX.modules.workOrders.open()
+            : NXRM.view.switchTo('issues');
+          if (NX.modules?.workOrders) { open(); return; }
+          const s = document.createElement('script');
+          s.src = 'js/work-orders.js?v=2';
+          s.onload = open; s.onerror = open;
+          document.body.appendChild(s);
+          return;
+        }
         NXRM.view.switchTo(go);
       });
     });
@@ -397,7 +409,19 @@
         // 'issues' = work orders. The internal NXRM issues view renders
         // blank on some devices (the root cause of dead taps from Home),
         // so route to the standalone module instead.
-        if (go === 'issues' && window.NX && NX.openWorkOrders) { NX.openWorkOrders(); return; }
+        if (go === 'issues') {
+          // Self-contained module loader (no dependency on domain.js
+          // version — a stale copy made these taps die silently).
+          const open = () => NX.modules?.workOrders?.open
+            ? NX.modules.workOrders.open()
+            : NXRM.view.switchTo('issues');
+          if (NX.modules?.workOrders) { open(); return; }
+          const s = document.createElement('script');
+          s.src = 'js/work-orders.js?v=2';
+          s.onload = open; s.onerror = open;
+          document.body.appendChild(s);
+          return;
+        }
         NXRM.view.switchTo(go);
       });
     });
