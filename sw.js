@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v102-work-orders';
+const CACHE_NAME = 'nexus-v106-wo-opener';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
@@ -232,6 +232,7 @@ const APP_SHELL = [
   // in index.html (remove it or add the file) — see review notes.
 
   // NEXUS · R&M — single stylesheet for the whole module
+  './css/home-soft.css',
   './css/nexus-rm.css',
 
   // JS — all current modules
