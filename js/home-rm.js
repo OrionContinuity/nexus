@@ -220,7 +220,14 @@
       </button>
     `;
     el.querySelectorAll('[data-go]').forEach(b => {
-      b.addEventListener('click', () => NXRM.view.switchTo(b.getAttribute('data-go')));
+      b.addEventListener('click', () => {
+        const go = b.getAttribute('data-go');
+        // 'issues' = work orders. The internal NXRM issues view renders
+        // blank on some devices (the root cause of dead taps from Home),
+        // so route to the standalone module instead.
+        if (go === 'issues' && window.NX && NX.openWorkOrders) { NX.openWorkOrders(); return; }
+        NXRM.view.switchTo(go);
+      });
     });
   }
 
@@ -385,7 +392,14 @@
     `;
 
     el.querySelectorAll('[data-go]').forEach(b => {
-      b.addEventListener('click', () => NXRM.view.switchTo(b.getAttribute('data-go')));
+      b.addEventListener('click', () => {
+        const go = b.getAttribute('data-go');
+        // 'issues' = work orders. The internal NXRM issues view renders
+        // blank on some devices (the root cause of dead taps from Home),
+        // so route to the standalone module instead.
+        if (go === 'issues' && window.NX && NX.openWorkOrders) { NX.openWorkOrders(); return; }
+        NXRM.view.switchTo(go);
+      });
     });
   }
 
