@@ -1,0 +1,95 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   home-soft.css — Home screen visual overhaul (override layer)
+   Loaded last so it wins without touching render logic. Design language:
+   Apple HIG type scale (bigger, calmer hierarchy), Material 3 shape
+   (large radii, soft tonal surfaces), generous touch targets (≥56px).
+   Remove this one file to revert the entire overhaul.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Sections — bigger, friendlier headers */
+.nx-section { margin-bottom: 28px !important; }
+.nx-section-title {
+  font-size: 24px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  line-height: 1.2 !important;
+}
+
+/* Stat tiles — hero numbers, soft rounded surfaces */
+.home-rm-tile {
+  border-radius: 26px !important;
+  padding: 22px 18px !important;
+  min-height: 112px !important;
+  border-width: 1px !important;
+  border-color: rgba(212, 182, 138, 0.10) !important;
+  box-shadow: 0 1px 2px rgba(0,0,0,.12), 0 6px 18px rgba(0,0,0,.10) !important;
+}
+.home-rm-tile-num {
+  font-size: 44px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.02em !important;
+  line-height: 1.05 !important;
+}
+.home-rm-tile-lbl {
+  font-size: 13.5px !important;
+  letter-spacing: 0.06em !important;
+  opacity: .78;
+  margin-top: 6px !important;
+}
+
+/* Decisions needed — tappable, airy rows */
+.home-rm-decision-row {
+  border-radius: 22px !important;
+  padding: 16px 16px !important;
+  min-height: 64px !important;
+  gap: 14px !important;
+}
+.home-rm-decision-title { font-size: 17px !important; font-weight: 650 !important; line-height: 1.3 !important; }
+.home-rm-decision-meta  { font-size: 14px !important; line-height: 1.45 !important; }
+.home-rm-decision-glyph { transform: scale(1.15); }
+
+/* Work orders feed — same treatment */
+.home-rm-wo-list > * { border-radius: 22px !important; min-height: 60px !important; }
+.home-rm-wo-title   { font-size: 16.5px !important; font-weight: 650 !important; }
+.home-rm-wo-meta, .home-rm-wo-age { font-size: 13.5px !important; }
+.home-rm-wo-viewall {
+  font-size: 15px !important;
+  padding: 12px 20px !important;
+  border-radius: 999px !important;
+  min-height: 48px !important;
+}
+
+/* Wins + pills — rounder, softer */
+.home-rm-wins-pill { border-radius: 999px !important; padding: 10px 16px !important; font-size: 14px !important; }
+
+/* Global softening inside the home view: gentler dividers, more breath */
+#homeFeed, .home-rm-decision-body, .home-rm-wo-body { line-height: 1.5 !important; }
+
+/* Larger base type for any home text that inherits */
+.nx-view-home, #viewHome { font-size: 16.5px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .home-rm-tile, .home-rm-decision-row { transition: transform .15s ease; }
+  .home-rm-tile:active, .home-rm-decision-row:active { transform: scale(.985); }
+}
+
+/* ── Phase 2: the KPI glance grid (tickets/down/overdue/services) ─────── */
+.home-kpi {
+  border-radius: 26px !important;
+  min-height: 108px !important;
+  padding: 20px 14px !important;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  border: 1px solid rgba(212,182,138,0.10) !important;
+  box-shadow: 0 1px 2px rgba(0,0,0,.12), 0 6px 18px rgba(0,0,0,.10) !important;
+}
+.home-kpi-num   { font-size: 42px !important; font-weight: 700 !important; letter-spacing: -0.02em; line-height: 1.05 !important; }
+.home-kpi-label { font-size: 13.5px !important; letter-spacing: 0.05em !important; opacity: .78; text-align: center; }
+.home-kpi.is-warn {
+  border-color: rgba(229,72,77,.45) !important;
+  box-shadow: 0 0 0 1px rgba(229,72,77,.25), 0 6px 20px rgba(229,72,77,.12) !important;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .home-kpi { transition: transform .15s ease; }
+  .home-kpi:active { transform: scale(.985); }
+}
