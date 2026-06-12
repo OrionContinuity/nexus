@@ -3538,7 +3538,18 @@
     if (target === 'workorders') {
       var d = document.getElementById('equipDial');
       if (d) { d.classList.remove('is-open'); d.setAttribute('aria-hidden', 'true'); }
-      if (window.NX && NX.openWorkOrders) NX.openWorkOrders();
+      // SELF-CONTAINED loader — no dependency on any other file's version.
+      // (A stale domain.js left NX.openWorkOrders undefined, so the dial
+      // closed silently and the user just landed back on Equipment.)
+      var go = function () {
+        if (window.NX && NX.modules && NX.modules.workOrders) { NX.modules.workOrders.open(); }
+        else { alert('Work Orders module could not load — check js/work-orders.js is deployed.'); }
+      };
+      if (window.NX && NX.modules && NX.modules.workOrders) { go(); return; }
+      var s = document.createElement('script');
+      s.src = 'js/work-orders.js?v=2';
+      s.onload = go; s.onerror = go;
+      document.body.appendChild(s);
       return;
     }
     handleDialAction(target);
