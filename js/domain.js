@@ -1117,6 +1117,22 @@
     return { ok: true, closedCard: !!card, closedIssue: !!issueId, equipmentId };
   };
 
+  // Global Work Orders opener — bulletproof path used by every surface
+  // (Home hero cards, Equip button, dials). Lives here because domain.js
+  // is EAGER-loaded, so it exists before any lazy module or view system;
+  // it loads the standalone module on demand and opens it. This replaced
+  // three different view-dependent routes that could each silently fail.
+  NX.openWorkOrders = function () {
+    const go = () => NX.modules?.workOrders?.open
+      ? NX.modules.workOrders.open()
+      : NX.toast && NX.toast('Work Orders unavailable — is js/work-orders.js deployed?', 'error', 3500);
+    if (NX.modules?.workOrders) { go(); return; }
+    const s = document.createElement('script');
+    s.src = 'js/work-orders.js?v=1';
+    s.onload = go; s.onerror = go;
+    document.body.appendChild(s);
+  };
+
   // ─── Card creators ──────────────────────────────────────────────────
 
   async function autoCreateReviewCard(equipmentId, contractor) {
