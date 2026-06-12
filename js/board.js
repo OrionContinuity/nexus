@@ -593,7 +593,8 @@ function applyFilters(cardList){
       if(!created || (now - created) < fortnight) return false;
     }
     if(q){
-      const hay = `${c.title || ''} ${c.description || ''}`.toLowerCase();
+      const labelText = Array.isArray(c.labels) ? c.labels.join(' ') : '';
+      const hay = `${c.title || ''} ${c.description || ''} ${labelText} ${c.reported_by || ''} ${c.location || ''}`.toLowerCase();
       if(!hay.includes(q)) return false;
     }
     return true;
@@ -1197,6 +1198,34 @@ function createCardEl(card){
 // Quick-actions menu — anchored to a card, shows priority chips,
 // due-date picker, and Archive. Tap any action → write + render +
 // close. Tap outside → close.
+// Themed confirm sheet — replaces native confirm(), which looked jarringly
+// out-of-place (and on Android shows the "github.io says" chrome) next to
+// the styled quick-action sheets. Reuses the proven b-qa-sheet classes so
+// it inherits the board's look in both themes; awaitable: resolves boolean.
+function nxConfirm(message, opts = {}) {
+  return new Promise(resolve => {
+    document.querySelectorAll('.b-confirm-bg').forEach(m => m.remove());
+    const bg = document.createElement('div');
+    bg.className = 'b-qa-sheet-bg b-confirm-bg';
+    const msgHtml = esc(String(message)).replace(/\n/g, '<br>');
+    bg.innerHTML = `
+      <div class="b-qa-sheet">
+        <div class="b-qa-grip"></div>
+        <div class="b-qa-cardtitle">${esc(opts.title || 'Are you sure?')}</div>
+        <div style="font-size:13.5px;line-height:1.55;color:var(--muted,#9a8f7d);padding:2px 2px 14px">${msgHtml}</div>
+        <div style="display:flex;gap:10px">
+          <button class="b-qa-movechip" data-c="0" style="flex:1;justify-content:center">Cancel</button>
+          <button class="b-qa-movechip" data-c="1" style="flex:1;justify-content:center;font-weight:600;${opts.danger ? 'color:var(--red,#e5484d);border-color:var(--red,#e5484d)' : 'color:var(--accent,#d4a44e);border-color:var(--accent,#d4a44e)'}">${esc(opts.okLabel || 'Confirm')}</button>
+        </div>
+      </div>`;
+    const done = v => { bg.remove(); resolve(v); };
+    bg.addEventListener('click', e => { if (e.target === bg) done(false); });
+    bg.querySelector('[data-c="0"]').addEventListener('click', () => done(false));
+    bg.querySelector('[data-c="1"]').addEventListener('click', () => done(true));
+    document.body.appendChild(bg);
+  });
+}
+
 function openQuickActions(card, anchorEl){
   // Close any existing sheet first (only one open at a time)
   document.querySelectorAll('.b-qa-sheet-bg').forEach(m => m.remove());
@@ -1323,7 +1352,7 @@ function openQuickActions(card, anchorEl){
 
   // Archive
   menu.querySelector('.b-qa-archive').addEventListener('click', async () => {
-    if(!confirm(`Archive "${card.title}"?`)){ return; }
+    if(!(await nxConfirm(`Archive "${card.title}"?`, { title: 'Archive card', okLabel: 'Archive', danger: true }))){ return; }
     close();
     const prev = card.archived;
     card.archived = true;
@@ -1334,6 +1363,7 @@ function openQuickActions(card, anchorEl){
     render();
     try{
       await NX.sb.from('kanban_cards').update({ archived: true }).eq('id', card.id);
+      closeMirrorTicket(card);
       NX.toast && NX.toast('Card archived', 'success');
     }catch(e){
       card.archived = prev;
@@ -1358,6 +1388,21 @@ function openMovePicker(card){
   // The move targets now live in the bottom sheet alongside priority/due,
   // so this just opens that — one reliable, big-target surface.
   openQuickActions(card, null);
+}
+
+// Archiving a card files its mirrored ticket too — otherwise the ticket
+// stays open forever and quietly inflates Duties + the Home "Open Tickets"
+// count (the unified model closes both sides together). Best-effort.
+function closeMirrorTicket(card){
+  const tid = card && card.ticket_id;
+  if (!tid || !NX.sb) return;
+  try {
+    if (NX.work && NX.work.syncTicketToCard) {
+      NX.work.syncTicketToCard({ ticketId: tid, closed: true });
+    } else {
+      NX.sb.from('tickets').update({ status: 'closed', closed_at: new Date().toISOString() }).eq('id', tid).then(() => {});
+    }
+  } catch (_) {}
 }
 
 async function moveCard(card, targetList){
@@ -1555,7 +1600,7 @@ async function offerEquipmentRepaired(card) {
     if (!eq) return;
     if (eq.status === 'operational') return;  // already good, nothing to offer
 
-    if (!confirm(`Mark "${eq.name}" as Operational?\n\nThis card is about that equipment. If it's resolved, the equipment should reflect that too.`)) return;
+    if (!(await nxConfirm(`This card is about ${eq.name}. If it's resolved, the equipment should reflect that too.`, { title: `Mark "${eq.name}" Operational?`, okLabel: 'Mark Operational' }))) return;
 
     const { error } = await NX.sb.from('equipment')
       .update({ status: 'operational' })
@@ -2016,8 +2061,9 @@ async function openCardDetail(card){
     });
   });
   bg.querySelector('#bArchive').addEventListener('click', async () => {
-    if(!confirm('Archive this card?')) return;
+    if(!(await nxConfirm('Archive this card?', { title: 'Archive card', okLabel: 'Archive', danger: true }))) return;
     await NX.sb.from('kanban_cards').update({ archived: true }).eq('id', card.id);
+    closeMirrorTicket(card);
     bg.remove();
     await loadCards(); render();
     NX.toast && NX.toast('Card archived', 'info');
@@ -2518,10 +2564,34 @@ async function createCard(listId, payload){
       location: payload.location || null,
       equipment_id: payload.equipment_id || null,
       reported_by: NX.currentUser?.name || null,
-      checklist: [], comments: [], labels: [],
+      checklist: [], comments: [],
+      labels: Array.isArray(payload.labels) ? payload.labels : [],
       photo_urls: [],
       archived: false,
     }).select().single();
+
+    // Ticket mirror — the unified model (card = source of truth, ticket =
+    // mirror) so board-created work shows in Duties and the Home "Open
+    // Tickets" count like every other creation path. Best-effort: a mirror
+    // failure never blocks the card.
+    if (created) {
+      try {
+        const { data: t } = await NX.sb.from('tickets').insert({
+          title: payload.title,
+          notes: payload.description || null,
+          location: payload.location || null,
+          priority: payload.priority || 'normal',
+          status: 'open',
+          reported_by: NX.currentUser?.name || 'Staff',
+          equipment_id: payload.equipment_id || null,
+          board_card_id: created.id,
+        }).select('id').single();
+        if (t && t.id) {
+          await NX.sb.from('kanban_cards').update({ ticket_id: t.id }).eq('id', created.id);
+          created.ticket_id = t.id;
+        }
+      } catch (e) { console.warn('[board] ticket mirror failed (card kept):', e?.message || e); }
+    }
     await loadCards(); render();
     NX.toast && NX.toast('Card created', 'success');
     // Fire push notification — every new card = every new report = buzzes
@@ -2832,6 +2902,7 @@ async function openTriageModal(){
     try {
       if (action === 'archive') {
         await NX.sb.from('kanban_cards').update({ archived: true }).eq('id', c.id);
+        closeMirrorTicket(c);
         archivedCount++;
       } else if (action === 'close') {
         // v18.33 — stamp closed_at so the daily log "closed today" bucket
@@ -2881,7 +2952,7 @@ async function openTriageModal(){
 
   bg.querySelector('#bTArchiveAll').addEventListener('click', async () => {
     const remaining = allOpen.length - idx;
-    if (!confirm(`Archive ALL ${remaining} remaining cards?\n\nThis bulk-archives everything you haven't triaged yet. The cards aren't deleted — you can find them later by filtering "archived" in the database.\n\nProceed?`)) return;
+    if (!(await nxConfirm(`This bulk-archives all ${remaining} cards you haven't triaged yet. They aren't deleted — you can find them later by filtering "archived".`, { title: `Archive ALL ${remaining} remaining?`, okLabel: 'Archive all', danger: true }))) return;
     const ids = allOpen.slice(idx).map(c => c.id);
     try {
       // Supabase caps batch updates; chunk into groups of 200
@@ -2889,6 +2960,8 @@ async function openTriageModal(){
         const chunk = ids.slice(i, i + 200);
         await NX.sb.from('kanban_cards').update({ archived: true }).in('id', chunk);
       }
+      // File the mirrored tickets for everything just archived.
+      allOpen.slice(idx).forEach(c => closeMirrorTicket(c));
       archivedCount += remaining;
       idx = allOpen.length;
       renderCurrent();
@@ -2953,11 +3026,53 @@ async function show(){
     if (!wantOpen) return;
     let tries = 0;
     let ensured = false;
+    let globalChecked = false;
     const tryOpen = async () => {
       let card = findIntentCard(wantOpen);
       if (card) { openCardDetail(card); return; }
-      // Not found — create the card on demand once (covers work orders that
-      // never got a board card), then reload and retry.
+      // Not found on the ACTIVE board. The dedup that guards card creation
+      // is global (any board), but the search above is active-board only —
+      // so a work-order card on another board was "found" by dedup yet
+      // invisible here, and the old flow gave up with a toast. Look the
+      // card up globally first; if it lives on another board, switch to
+      // that board and open it there.
+      if (!globalChecked && (wantOpen.issueId || wantOpen.cardId)) {
+        globalChecked = true;
+        try {
+          let q = NX.sb.from('kanban_cards').select('*').eq('archived', false);
+          q = wantOpen.cardId
+            ? q.eq('id', wantOpen.cardId)
+            : q.contains('labels', ['issue:' + wantOpen.issueId]);
+          const { data: hits } = await q.limit(1);
+          const hit = hits && hits[0];
+          if (hit && activeBoard && String(hit.board_id) !== String(activeBoard.id)) {
+            const other = boards.find(b => String(b.id) === String(hit.board_id));
+            if (other) {
+              activeBoard = other;
+              await loadCards();
+              render();
+              const found = findIntentCard(wantOpen);
+              if (found) { openCardDetail(found); return; }
+            } else {
+              // Card's board isn't in the picker (hidden/legacy board) —
+              // open the card detail directly from the fetched row.
+              openCardDetail(hit);
+              return;
+            }
+          } else if (hit) {
+            // Same board but missing from the local cache (stale fetch /
+            // realtime race) — refresh and open.
+            await loadCards();
+            render();
+            const found = findIntentCard(wantOpen);
+            if (found) { openCardDetail(found); return; }
+            openCardDetail(hit);
+            return;
+          }
+        } catch (_) {}
+      }
+      // Still nothing — create the card on demand once (covers work orders
+      // that never got a board card), then reload and retry.
       if (!ensured && wantOpen.issueId && NX.domain && typeof NX.domain.ensureIssueCard === 'function') {
         ensured = true;
         try { await NX.domain.ensureIssueCard(wantOpen.issueId); } catch (_) {}
@@ -3220,7 +3335,7 @@ async function renderIssueTimeline(card, bg) {
         const target = stepEl.getAttribute('data-step');
         const targetIdx = ISSUE_LIFECYCLE_STEPS_B.indexOf(target);
         if (targetIdx <= idx) return;                // can't go backward via tap
-        if (!confirm(`Mark issue as "${ISSUE_LIFECYCLE_LABELS_B[target]}"?`)) return;
+        if (!(await nxConfirm(`Mark issue as "${ISSUE_LIFECYCLE_LABELS_B[target]}"?`, { title: 'Update work order', okLabel: 'Update' }))) return;
         stepEl.classList.add('is-loading');
         try {
           const res = await NX.domain.transitionEquipmentIssue({
@@ -3282,7 +3397,7 @@ function openReopenPicker(issue, repaintTimeline) {
     opt.addEventListener('click', async () => {
       const mode = opt.getAttribute('data-mode');
       if (mode === 'continue') {
-        if (!confirm('Continue this ticket and reopen for more work?')) return;
+        if (!(await nxConfirm('Continue this ticket and reopen for more work?', { title: 'Reopen work order', okLabel: 'Reopen' }))) return;
         const res = await NX.domain.reopenEquipmentIssue({ issueId: issue.id, mode: 'continue' });
         if (!res.ok) { NX.toast?.('Could not reopen', 'error'); return; }
         // Update local issue copy to the new state
@@ -3326,10 +3441,9 @@ async function maybeApplyProposal(proposal) {
     needs_service:  'Needs Service',
     down:           'Down',
   };
-  const ok = confirm(
-    `${reason}\n\n` +
-    `Mark ${equipmentName} as ${STATUS_LABEL[suggestedStatus] || suggestedStatus}?\n` +
-    `(currently: ${STATUS_LABEL[currentStatus] || currentStatus})`
+  const ok = await nxConfirm(
+    `${reason}\n\nCurrently: ${STATUS_LABEL[currentStatus] || currentStatus}`,
+    { title: `Mark ${equipmentName} as ${STATUS_LABEL[suggestedStatus] || suggestedStatus}?`, okLabel: 'Update status' }
   );
   if (!ok) return;
   const did = await NX.domain.applyEquipmentStatusChange({
