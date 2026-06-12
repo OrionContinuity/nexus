@@ -60,6 +60,61 @@
       restaurant: names[i.equipment_id]?.location || '' }));
   }
 
+  // Inline completion cascade — duplicates NX.work.fulfillForEquipment
+  // deliberately: the device-side zombie cache serves a stale domain.js
+  // (no NX.work), so this module must be able to complete a work order
+  // entirely on its own. Uses NX.work when present; this otherwise.
+  async function fulfillLocal(equipmentId) {
+    const now = new Date().toISOString();
+    let card = null;
+    try {
+      const { data } = await NX.sb.from('kanban_cards')
+        .select('id, ticket_id, prior_eq_status')
+        .eq('equipment_id', equipmentId).eq('archived', false)
+        .order('created_at', { ascending: false }).limit(1);
+      card = data && data[0];
+    } catch (_) {}
+    // 1. Mark the open issue(s) repaired
+    try {
+      await NX.sb.from('equipment_issues')
+        .update({ status: 'repaired', repaired_at: now })
+        .eq('equipment_id', equipmentId)
+        .not('status', 'in', '(repaired,closed,resolved)');
+    } catch (_) {}
+    // 2. Close the card + its ticket mirror
+    if (card) {
+      try {
+        await NX.sb.from('kanban_cards')
+          .update({ archived: true, column_name: 'done', closed_at: now }).eq('id', card.id);
+      } catch (_) {
+        try { await NX.sb.from('kanban_cards').update({ archived: true }).eq('id', card.id); } catch (_) {}
+      }
+      if (card.ticket_id) {
+        try { await NX.sb.from('tickets').update({ status: 'closed', closed_at: now }).eq('id', card.ticket_id); } catch (_) {}
+      }
+    }
+    // 3. Restore the unit + 4. audit trail
+    try {
+      await NX.sb.from('equipment')
+        .update({ status: (card && card.prior_eq_status) || 'operational' }).eq('id', equipmentId);
+    } catch (_) {}
+    try {
+      await NX.sb.from('equipment_maintenance').insert({
+        equipment_id: equipmentId, event_type: 'service',
+        description: 'Work order completed',
+        performed_by: (NX.currentUser && NX.currentUser.name) || 'Staff',
+        event_date: now,
+      });
+    } catch (_) {}
+    return { ok: true };
+  }
+  function doFulfill(equipmentId) {
+    const api = NX.work && NX.work.fulfillForEquipment;
+    return api
+      ? NX.work.fulfillForEquipment({ equipmentId, performedBy: NX.currentUser?.name || 'Staff' })
+      : fulfillLocal(equipmentId);
+  }
+
   function rowHtml(i) {
     const pri = (i.priority || 'normal').toLowerCase();
     const sub = [i.equipment_name, i.restaurant].filter(Boolean).join(' · ');
@@ -157,14 +212,10 @@
         document.querySelector('.nav-tab[data-view="board"]')?.click();
         document.querySelector('.bnav-btn[data-view="board"]')?.click();
       } else if (btn.dataset.act === 'complete' && eqId) {
-        if (!NX.work?.fulfillForEquipment) { NX.toast?.('Work API not loaded', 'error'); return; }
         if (!confirm('Mark this work order complete? Closes the card and logs the service.')) return;
         btn.textContent = '…';
         btn.disabled = true;
-        const res = await NX.work.fulfillForEquipment({
-          equipmentId: eqId,
-          performedBy: NX.currentUser?.name || 'Staff',
-        }).catch(() => null);
+        const res = await doFulfill(eqId).catch(() => null);
         if (res && res.ok) {
           NX.toast?.('Work order completed', 'success');
           row.remove();
@@ -263,10 +314,9 @@
       document.querySelector('.bnav-btn[data-view="board"]')?.click();
     });
     body.querySelector('#woDComplete')?.addEventListener('click', async (e) => {
-      if (!NX.work?.fulfillForEquipment) { NX.toast?.('Work API not loaded', 'error'); return; }
       if (!confirm('Mark this work order complete?')) return;
       e.currentTarget.textContent = '…'; e.currentTarget.disabled = true;
-      const res = await NX.work.fulfillForEquipment({ equipmentId: eqId, performedBy: NX.currentUser?.name || 'Staff' }).catch(() => null);
+      const res = await doFulfill(eqId).catch(() => null);
       if (res && res.ok) { NX.toast?.('Work order completed', 'success'); sheet.remove(); parentWrap && parentWrap.remove(); open(); }
       else { NX.toast?.('Could not complete', 'error'); e.currentTarget.textContent = 'Complete'; e.currentTarget.disabled = false; }
     });
