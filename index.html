@@ -52,7 +52,7 @@
 <link rel="stylesheet" href="css/chat.css">
 <link rel="stylesheet" href="css/preferences.css">
 <link rel="stylesheet" href="css/daily-card.css">
-<link rel="stylesheet" href="css/home-soft.css">
+<link rel="stylesheet" href="css/home-soft.css?v=2">
 <!-- Editorial palette overrides for public scan + PM views (loaded last
      so it wins over the older equipment-public-* stylesheets without
      editing them). Scoped via body.public-view + the .public-* classes. -->
@@ -3320,6 +3320,16 @@
 <div class="nx-speed-dial" id="equipDial" role="dialog" aria-label="Equip menu" aria-hidden="true">
   <div class="nx-speed-dial-backdrop" data-dial-close></div>
   <div class="nx-speed-dial-stack">
+    <button class="nx-speed-dial-action" data-target="workorders" type="button" aria-label="Open Work Orders" onclick="window.NXEquipDial && window.NXEquipDial('workorders', event)">
+      <span class="nx-speed-dial-label">Work Orders</span>
+      <span class="nx-speed-dial-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="8" y="2" width="8" height="4" rx="1"/>
+          <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+          <path d="m9 14 2 2 4-4"/>
+        </svg>
+      </span>
+    </button>
     <button class="nx-speed-dial-action" data-target="archive" type="button" aria-label="View Archived equipment" onclick="window.NXEquipDial && window.NXEquipDial('archive', event)">
       <span class="nx-speed-dial-label">Archive</span>
       <span class="nx-speed-dial-icon">
@@ -3522,6 +3532,15 @@
   // ─── Mechanism 1: Window function for inline onclick ─────────────
   window.NXEquipDial = function NXEquipDial(target, event) {
     if (event) { try { event.stopPropagation(); } catch (_) {} }
+    // Work Orders: open the standalone module (bulletproof opener in the
+    // eager-loaded domain.js). Handled here so BOTH mechanisms (inline
+    // onclick + capture delegation) route it identically.
+    if (target === 'workorders') {
+      var d = document.getElementById('equipDial');
+      if (d) { d.classList.remove('is-open'); d.setAttribute('aria-hidden', 'true'); }
+      if (window.NX && NX.openWorkOrders) NX.openWorkOrders();
+      return;
+    }
     handleDialAction(target);
   };
 
@@ -3538,7 +3557,7 @@
     const target = action.dataset.target || action.dataset.equipTarget;
     if (!target) return;
     e.preventDefault();
-    handleDialAction(target);
+    window.NXEquipDial(target);
   }, true /* capture phase */);
 
   // ─── Trigger: open dial when Equip nav button is tapped ──────────
