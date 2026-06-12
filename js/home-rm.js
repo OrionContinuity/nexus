@@ -193,7 +193,7 @@
     if (pmDue > 0) hero.push({ go: 'pm', num: pmDue,
       text: pmDue === 1 ? '1 unit due for maintenance' : `${pmDue} units due for maintenance` });
     const heroHtml = hero.map(h => `
-      <button class="home-rm-tile is-warn is-hero" data-go="${h.go}"
+      <button class="home-rm-tile is-warn is-hero" data-go="${h.go}" onclick="event.stopPropagation();NX.openWorkOrders&&NX.openWorkOrders()"
         style="grid-column:1/-1;display:flex;align-items:center;gap:16px;text-align:left;min-height:84px">
         <div class="home-rm-tile-num" style="font-size:46px;line-height:1">${h.num}</div>
         <div style="flex:1">
@@ -205,7 +205,7 @@
     el.innerHTML = `
       ${heroHtml}
       ${hero.length === 0 ? `
-      <button class="home-rm-tile is-hero" data-go="issues"
+      <button class="home-rm-tile is-hero" data-go="issues" onclick="event.stopPropagation();NX.openWorkOrders&&NX.openWorkOrders()"
         style="grid-column:1/-1;min-height:72px;display:flex;align-items:center;gap:14px;text-align:left">
         <div style="font-size:26px">✓</div>
         <div style="font-size:17px;font-weight:650">All clear — nothing needs you right now</div>
