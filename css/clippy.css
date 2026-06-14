@@ -3948,3 +3948,33 @@ body.clippy-game-open .clippy-bubble {
   50%      { opacity: 0.55; transform: scale(1.08); }
 }
 /* Party sparkles — same boost */
+
+/* ═══ v18.x LIVING BREATHING ═══════════════════════════════════════════
+   Constant subtle breath — the strongest aliveness cue in character
+   animation. Applied to the SVG itself so any mood/action animation on
+   the same element naturally REPLACES the breath while it plays (he
+   "holds his breath" during expressions), then breathing resumes.
+   Night hours breathe slower — a circadian body, not a screensaver.  */
+@keyframes clippy-breathe {
+  0%, 100% { transform: scale(1)        translateY(0); }
+  45%      { transform: scale(1.022)    translateY(-0.6px); }
+  60%      { transform: scale(1.024)    translateY(-0.7px); }
+}
+.clippy-svg {
+  animation: clippy-breathe 4.2s ease-in-out infinite;
+  transform-origin: 50% 88%;          /* breathe from the base, like a body */
+  will-change: transform;
+}
+.clippy-night .clippy-svg { animation-duration: 7s; }   /* slow night breathing */
+@media (prefers-reduced-motion: reduce) {
+  .clippy-svg { animation: none; }
+}
+
+/* ═══ v18.x ANXIETY ════════════════════════════════════════════════════
+   Sustained-load response (vision organ computes the load score). Shallow,
+   quick breathing — the universal stress cue. Declared after .clippy-night
+   so anxiety overrides sleepy breathing: a stressed body doesn't doze. */
+.clippy-anxious .clippy-svg { animation-duration: 2.4s; }
+@media (prefers-reduced-motion: reduce) {
+  .clippy-anxious .clippy-svg { animation: none; }
+}
