@@ -201,7 +201,7 @@
   align-items: flex-start;
   padding: 14px 12px;
   border: 1px solid var(--nx-gold-line);
-  border-radius: 12px;
+  border-radius: 16px;
   background: transparent;
   color: var(--fg, #e8e6df);
   cursor: pointer;
@@ -242,7 +242,7 @@
 .prefs-lang-btn {
   padding: 12px 8px;
   border: 1px solid var(--nx-gold-haze);
-  border-radius: 10px;
+  border-radius: 14px;
   background: transparent;
   color: var(--fg, #e8e6df);
   cursor: pointer;
@@ -296,7 +296,7 @@
   width: 100%;
   padding: 12px 14px;
   border: 1px dashed var(--nx-gold-line-2);
-  border-radius: 10px;
+  border-radius: 14px;
   background: transparent;
   color: var(--accent, var(--accent));
   font-family: inherit;
@@ -315,7 +315,7 @@
   margin-top: 8px;
   padding: 14px 16px;
   border: none;
-  border-radius: 10px;
+  border-radius: 14px;
   background: var(--accent, var(--accent));
   color: var(--text);
   font-family: 'Outfit', sans-serif;
