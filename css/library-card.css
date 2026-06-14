@@ -16,7 +16,7 @@
   gap: 10px;
   padding: 18px 18px 14px;
   border: 1px solid var(--nx-gold-line);
-  border-radius: 14px;
+  border-radius: 18px;
   background:
     linear-gradient(180deg,
       color-mix(in oklab, var(--nx-surface-1) 100%, transparent 0%) 0%,
@@ -76,7 +76,7 @@
   height: 32px;
   border: 1px solid var(--nx-gold-line);
   background: transparent;
-  border-radius: 10px;
+  border-radius: 14px;
   color: var(--nx-faint);
   display: inline-flex;
   align-items: center;
@@ -235,7 +235,7 @@
 .lib-skip-back, .lib-skip-fwd, .lib-speed {
   background: transparent;
   border: 1px solid var(--nx-gold-line);
-  border-radius: 8px;
+  border-radius: 12px;
   color: var(--nx-muted);
   padding: 4px 8px;
   font-family: 'JetBrains Mono', 'Courier New', monospace;
@@ -326,7 +326,7 @@
   text-align: left;
   padding: 10px 12px;
   border: 1px solid var(--nx-gold-line);
-  border-radius: 10px;
+  border-radius: 14px;
   background: transparent;
   color: var(--nx-text);
   cursor: pointer;
