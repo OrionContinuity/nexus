@@ -78,7 +78,7 @@
 }
 .b-summary-chip.alert strong { color: var(--nx-red) !important; }
 .b-summary-chip.ok {
-  background: rgba(156, 138, 62, 0.10) !important;
+  background: rgba(63, 160, 143, 0.10) !important;
   color: var(--nx-green) !important;
 }
 .b-summary-chip.ok strong { color: var(--nx-green) !important; }
@@ -118,13 +118,13 @@
      to var(--green)), with palette-coherent glow. Reads as "active, healthy"
      without the saturated medical-app green. */
   background: var(--nx-green) !important;
-  box-shadow: 0 0 8px rgba(156, 138, 62, 0.55) !important;
+  box-shadow: 0 0 8px rgba(63, 160, 143, 0.55) !important;
 }
 
 .b-rt-toast {
   font-family: var(--nx-font-body) !important;
   font-size: var(--nx-text-xs) !important;
-  background: rgba(20, 18, 14, 0.95) !important;
+  background: rgba(24, 34, 54, 0.95) !important;
   border: 1px solid var(--nx-gold-line-2) !important;
   border-left: 3px solid var(--nx-gold) !important;
   color: var(--nx-text) !important;
@@ -257,7 +257,7 @@
   flex: 0 0 290px !important;
   background: var(--nx-surface-1) !important;
   border: 1px solid var(--nx-highlight-tint) !important;
-  border-radius: 14px !important;
+  border-radius: 18px !important;
   padding: 12px 8px 8px !important;
   display: flex !important;
   flex-direction: column !important;
@@ -328,7 +328,7 @@
 /* Drop-zone highlight when dragging over */
 .b-list-cards.drag-over {
   background: var(--nx-gold-faint) !important;
-  border-radius: 10px !important;
+  border-radius: 14px !important;
   outline: 2px dashed var(--nx-gold-line-2) !important;
   outline-offset: -2px !important;
 }
@@ -344,7 +344,7 @@
   font-size: var(--nx-text-xs);
   font-style: italic;
   border: 1.5px dashed var(--nx-highlight-tint);
-  border-radius: 8px;
+  border-radius: 12px;
   margin: 4px 0;
 }
 
@@ -354,7 +354,7 @@
   border: none !important;
   color: var(--nx-faint) !important;
   padding: 10px 12px !important;
-  border-radius: 8px !important;
+  border-radius: 12px !important;
   cursor: pointer !important;
   margin-top: 4px !important;
   width: 100% !important;
@@ -372,7 +372,7 @@
 
 /* Terminal list (Done/Closed) — slightly muted */
 .b-list.is-terminal {
-  background: rgba(20, 18, 14, 0.55) !important;
+  background: rgba(24, 34, 54, 0.55) !important;
   opacity: 0.92 !important;
 }
 .b-list.is-terminal .b-list-head {
@@ -389,7 +389,7 @@
   position: relative !important;
   background: var(--nx-surface-3) !important;
   border: 1px solid transparent !important;
-  border-radius: 10px !important;
+  border-radius: 14px !important;
   margin-bottom: 8px !important;
   cursor: pointer !important;
   overflow: hidden !important;
@@ -605,7 +605,7 @@
   position: absolute !important;
   top: 8px !important;
   right: 8px !important;
-  background: rgba(20, 18, 14, 0.85) !important;
+  background: rgba(24, 34, 54, 0.85) !important;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   border: 1px solid var(--nx-gold-line) !important;
@@ -925,7 +925,7 @@ textarea.b-field {
   padding: 8px !important;
   margin: 4px 0 !important;
   background: var(--nx-surface-3) !important;
-  border-radius: 10px !important;
+  border-radius: 14px !important;
   /* Match the card's tactile shadow so the composer feels like a
      "card-in-progress". When user submits, the resulting card slides
      into the column with the same surface — visual continuity. */
@@ -1106,7 +1106,7 @@ textarea.b-field {
   min-width: 280px !important;
   max-width: 320px !important;
   padding: 10px !important;
-  background: rgba(20, 18, 14, 0.96) !important;
+  background: rgba(24, 34, 54, 0.96) !important;
   backdrop-filter: blur(16px) saturate(140%) !important;
   -webkit-backdrop-filter: blur(16px) saturate(140%) !important;
   border: 1px solid var(--nx-gold-line-2) !important;
@@ -1412,7 +1412,7 @@ textarea.b-field {
   color: var(--nx-text) !important;
   font-size: 12px !important;
   padding: 6px 12px !important;
-  border-radius: 8px !important;
+  border-radius: 12px !important;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1453,7 +1453,7 @@ textarea.b-field {
   text-align: left;
   background: var(--nx-surface-2);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 10px;
+  border-radius: 14px;
   padding: 12px 14px;
   cursor: pointer;
   color: var(--nx-text);
@@ -1490,7 +1490,7 @@ textarea.b-field {
 .b-attempt {
   background: var(--nx-surface-2);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 10px;
+  border-radius: 14px;
   padding: 10px 12px;
   margin-bottom: 8px;
   transition: border-color var(--nx-press, 0.18s);
@@ -1590,7 +1590,7 @@ textarea.b-field {
   width: 56px;
   height: 56px;
   object-fit: cover;
-  border-radius: 6px;
+  border-radius: 10px;
   border: 1px solid var(--nx-gold-line);
   cursor: pointer;
 }
@@ -1602,7 +1602,7 @@ textarea.b-field {
 .b-btn-sm {
   font-size: 11px !important;
   padding: 5px 10px !important;
-  border-radius: 6px !important;
+  border-radius: 10px !important;
 }
 .b-btn-warn {
   border-color: var(--nx-red-line, var(--nx-red)) !important;
@@ -1622,7 +1622,7 @@ textarea.b-field {
   flex: 1 1 auto;
   min-width: 70px;
   padding: 8px 6px;
-  border-radius: 8px;
+  border-radius: 12px;
   border: 1px solid var(--nx-gold-line);
   background: var(--nx-surface-2);
   color: var(--nx-text);
@@ -1656,7 +1656,7 @@ textarea.b-field {
   font-size: var(--nx-text-xs, 12px) !important;
   font-style: italic !important;
   border: 1.5px dashed var(--nx-highlight-tint) !important;
-  border-radius: 8px !important;
+  border-radius: 12px !important;
   margin: 4px 0 !important;
 }
 
@@ -1724,7 +1724,7 @@ textarea.b-field {
 .b-invoices { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
 .b-invoice-row {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  padding: 9px 11px; border-radius: 9px;
+  padding: 9px 11px; border-radius: 13px;
   border: 1px solid var(--nx-gold-line, rgba(212,164,78,.3));
   background: var(--nx-surface-1);
 }
@@ -1736,14 +1736,14 @@ textarea.b-field {
 .b-invoice-link span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .b-invoice-link i, .b-invoice-link svg { width: 15px; height: 15px; flex: 0 0 auto; }
 .b-invoice-del {
-  flex: 0 0 auto; width: 26px; height: 26px; border-radius: 7px;
+  flex: 0 0 auto; width: 26px; height: 26px; border-radius: 11px;
   border: none; background: none; color: var(--nx-faint);
   font-size: 18px; line-height: 1; cursor: pointer;
 }
 .b-invoice-del:hover { color: var(--nx-red, #a83e3e); }
 .b-invoice-add {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 8px 12px; border-radius: 9px;
+  padding: 8px 12px; border-radius: 13px;
   border: 1px dashed var(--nx-gold-line, rgba(212,164,78,.4));
   background: none; color: var(--nx-muted);
   font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
@@ -1779,7 +1779,7 @@ textarea.b-field {
 .b-qa-movechip {
   flex: 1 1 calc(50% - 8px); min-height: 48px;
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  padding: 12px 14px; border-radius: 11px;
+  padding: 12px 14px; border-radius: 15px;
   border: 1px solid var(--nx-gold-line, rgba(212,164,78,.3));
   background: var(--nx-gold-soft, rgba(212,164,78,.14));
   color: var(--nx-text); font-family: inherit; font-size: 14px; font-weight: 700;
@@ -1790,7 +1790,7 @@ textarea.b-field {
 .b-qa-actions { display: flex; gap: 10px; }
 .b-qa-actions .b-qa-action { flex: 1; }
 .b-qa-cancel {
-  width: 100%; margin-top: 12px; padding: 13px; border-radius: 11px;
+  width: 100%; margin-top: 12px; padding: 13px; border-radius: 15px;
   border: 1px solid var(--nx-gold-line, rgba(212,164,78,.3));
   background: none; color: var(--nx-muted);
   font-family: inherit; font-weight: 600; font-size: 14px; cursor: pointer;
@@ -1799,4 +1799,4 @@ textarea.b-field {
 /* Pointer-drag visuals */
 .b-card-dragclone { transform: rotate(2deg); box-shadow: 0 14px 34px rgba(0,0,0,0.45); opacity: 0.95; }
 .b-card.is-dragging { opacity: 0.35; }
-.b-list.drop-target { outline: 2px dashed var(--nx-gold, #d4a44e); outline-offset: -4px; border-radius: 12px; background: var(--nx-gold-soft, rgba(212,164,78,.08)); }
+.b-list.drop-target { outline: 2px dashed var(--nx-gold, #d4a44e); outline-offset: -4px; border-radius: 16px; background: var(--nx-gold-soft, rgba(212,164,78,.08)); }
