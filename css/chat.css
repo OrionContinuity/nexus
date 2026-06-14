@@ -90,7 +90,7 @@ body.chatview-open {
 .cv-icon-btn {
   width: 36px;
   height: 36px;
-  border-radius: 12px;
+  border-radius: 16px;
   border: none;
   background: transparent;
   color: var(--muted);
@@ -315,7 +315,7 @@ body.chatview-open {
 .cv-action-chip.is-primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #1a1408;
+  color: #101626;
   font-weight: 600;
 }
 
@@ -995,7 +995,7 @@ body.chatview-open {
 .cv-persona-voice.is-active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #1a1408;
+  color: #101626;
   font-weight: 600;
 }
 .cv-persona-close {
