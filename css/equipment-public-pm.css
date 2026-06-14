@@ -20,7 +20,7 @@
   align-items: center;
   gap: 14px;
   padding: 16px 18px;
-  border-radius: 14px;
+  border-radius: 18px;
   border: 1.5px solid;
   background: white;
   cursor: pointer;
@@ -99,7 +99,7 @@
 @keyframes pmSlideUp { from { transform: translateY(20px); } to { transform: translateY(0); } }
 @media (min-width: 600px) {
   .pm-logger-modal { align-items: center; }
-  .pm-logger-card { border-radius: 18px; height: 90vh; height: 90dvh; }
+  .pm-logger-card { border-radius: 22px; height: 90vh; height: 90dvh; }
 }
 .pm-logger-header {
   display: flex;
@@ -195,7 +195,7 @@
   border: 1px solid var(--accent);
   color: var(--accent);
   padding: 4px 10px;
-  border-radius: 6px;
+  border-radius: 10px;
   font-size: 11px;
   cursor: pointer;
   font-family: inherit;
@@ -211,7 +211,7 @@
   gap: 12px;
   padding: 10px 12px;
   background: var(--surface);
-  border-radius: 8px;
+  border-radius: 12px;
   cursor: pointer;
   border: 1px solid transparent;
 }
@@ -272,7 +272,7 @@
   width: 100%;
   background: white;
   border: 1.5px solid var(--faint);
-  border-radius: 10px;
+  border-radius: 14px;
   padding: 11px 13px;
   font-family: inherit;
   font-size: 14px;
@@ -306,7 +306,7 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
   width: 64px;
   height: 64px;
   object-fit: cover;
-  border-radius: 6px;
+  border-radius: 10px;
   border: 1px solid var(--faint);
 }
 .pm-pdf-preview {
@@ -317,7 +317,7 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
   padding: 8px 12px;
   background: var(--nx-gold-faint);
   border: 1px solid #f0e6cc;
-  border-radius: 8px;
+  border-radius: 12px;
   font-size: 12px;
   color: var(--nx-gold-on);
 }
@@ -331,7 +331,7 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
   position: relative;
   background: white;
   border: 2px dashed var(--faint);
-  border-radius: 10px;
+  border-radius: 14px;
   overflow: hidden;
 }
 .pm-signature-canvas {
@@ -348,7 +348,7 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
   background: rgba(255, 255, 255, 0.95);
   border: 1px solid var(--faint);
   padding: 4px 10px;
-  border-radius: 6px;
+  border-radius: 10px;
   font-size: 11px;
   cursor: pointer;
   color: var(--faint);
@@ -374,7 +374,7 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
   padding: 14px;
   background: white;
   border: 1.5px solid var(--faint);
-  border-radius: 10px;
+  border-radius: 14px;
   color: var(--muted);
   font-family: inherit;
   font-size: 14px;
@@ -386,7 +386,7 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
   padding: 14px;
   background: linear-gradient(135deg, var(--accent), var(--accent));
   border: none;
-  border-radius: 10px;
+  border-radius: 14px;
   color: var(--nx-gold-on);
   font-family: inherit;
   font-size: 15px;
@@ -402,7 +402,7 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
   margin-top: 14px;
   padding: 12px;
   background: var(--nx-gold-faint);
-  border-radius: 8px;
+  border-radius: 12px;
   font-size: 11.5px;
   color: var(--faint);
   text-align: center;
@@ -434,7 +434,7 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
 }
 .pm-success-summary {
   background: var(--surface);
-  border-radius: 10px;
+  border-radius: 14px;
   padding: 14px;
   margin-bottom: 24px;
   text-align: left;
@@ -452,7 +452,7 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
   padding: 14px;
   background: linear-gradient(135deg, var(--accent), var(--accent));
   border: none;
-  border-radius: 10px;
+  border-radius: 14px;
   color: var(--nx-gold-on);
   font-family: inherit;
   font-size: 15px;
@@ -493,7 +493,7 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
 .pm-review-item {
   background: rgba(20, 18, 26, 0.7);
   border: 1px solid var(--nx-gold-soft);
-  border-radius: 14px;
+  border-radius: 18px;
   padding: 16px;
   margin-bottom: 14px;
 }
@@ -514,7 +514,7 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
   margin-bottom: 4px;
   padding: 6px 10px;
   background: var(--nx-gold-faint);
-  border-radius: 6px;
+  border-radius: 10px;
   display: inline-block;
 }
 .pm-review-spam-flag {
@@ -538,7 +538,7 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
 .pm-review-work {
   background: rgba(0, 0, 0, 0.25);
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: 12px;
   font-size: 13px;
   color: var(--nx-gold-faint);
   line-height: 1.5;
@@ -560,7 +560,7 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
   width: 70px;
   height: 70px;
   object-fit: cover;
-  border-radius: 6px;
+  border-radius: 10px;
   border: 1px solid var(--nx-gold-haze);
   cursor: pointer;
 }
@@ -573,7 +573,7 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
   background: var(--nx-gold-soft);
   color: var(--accent);
   text-decoration: none;
-  border-radius: 8px;
+  border-radius: 12px;
   font-size: 12px;
   border: 1px solid var(--nx-gold-aura);
 }
@@ -582,7 +582,7 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
   margin: 10px 0;
   padding: 8px;
   background: white;
-  border-radius: 6px;
+  border-radius: 10px;
   max-width: 200px;
   max-height: 80px;
 }
@@ -605,7 +605,7 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
   flex: 1;
   padding: 10px;
   border: none;
-  border-radius: 8px;
+  border-radius: 12px;
   font-family: inherit;
   font-size: 12px;
   font-weight: 600;
@@ -655,7 +655,7 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
 }
 @media (min-width: 600px) {
   .badge-choice-popup { align-items: center; }
-  .badge-choice-card { border-radius: 18px; }
+  .badge-choice-card { border-radius: 22px; }
 }
 .badge-choice-title {
   text-align: center;
@@ -680,7 +680,7 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
   padding: 18px 12px;
   background: rgba(20, 18, 26, 0.8);
   border: 1.5px solid var(--nx-gold-line);
-  border-radius: 12px;
+  border-radius: 16px;
   color: var(--text, var(--nx-gold-faint));
   font-family: inherit;
   cursor: pointer;
@@ -699,7 +699,7 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
   padding: 11px;
   background: transparent;
   border: 1px solid var(--nx-gold-haze);
-  border-radius: 10px;
+  border-radius: 14px;
   color: var(--muted, var(--muted));
   font-family: inherit;
   font-size: 13px;
@@ -719,7 +719,7 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
   margin: 0 16px 12px;
   background: var(--nx-surface-1, rgba(255, 255, 255, 0.02));
   border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.15));
-  border-radius: 12px;
+  border-radius: 16px;
   overflow: hidden;
 }
 .pm-status-summary {
@@ -774,7 +774,7 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
   letter-spacing: 1.3px;
   text-transform: uppercase;
   padding: 5px 12px;
-  border-radius: 6px;
+  border-radius: 10px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -826,7 +826,7 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
   gap: 8px;
   padding: 8px 10px;
   background: var(--nx-surface-2, rgba(255, 255, 255, 0.03));
-  border-radius: 8px;
+  border-radius: 12px;
   border-left: 3px solid var(--nx-gold, #d4a44e);
 }
 .pm-status-issue-title {
@@ -853,7 +853,7 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
 .pm-status-attempt {
   padding: 8px 10px;
   background: var(--nx-surface-2, rgba(255, 255, 255, 0.03));
-  border-radius: 8px;
+  border-radius: 12px;
   margin-bottom: 6px;
   border-left: 3px solid var(--nx-gold-line, rgba(212, 164, 78, 0.2));
 }
@@ -941,7 +941,7 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
     rgba(76, 182, 255, 0.08) 0%,
     rgba(76, 182, 255, 0.02) 100%);
   border: 1px solid rgba(76, 182, 255, 0.20);
-  border-radius: 12px;
+  border-radius: 16px;
 }
 .pm-trajan-contractor {
   background: linear-gradient(135deg,
@@ -997,9 +997,9 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
   align-items: center;
   width: min(90vw, 380px);
   padding: 14px 16px;
-  background: var(--nx-surface-1, #1a1814);
+  background: var(--nx-surface-1, #141a2a);
   border: 1px solid rgba(76, 182, 255, 0.30);
-  border-radius: 14px;
+  border-radius: 18px;
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
   opacity: 0;
   transition: transform 0.32s cubic-bezier(0.2, 0.85, 0.3, 1),
