@@ -2542,6 +2542,34 @@
     e[poolName].shown++;
     if (fullyRead) e[poolName].finished++;
     savePreferences();
+
+    // ── DISMISSAL BACKOFF (session-scoped) ────────────────────────────
+    // Being dismissed is the clearest "not now" a user can send. Each
+    // dismissal makes Clippy progressively quieter for the rest of the
+    // session via the existing tuning surface:
+    //   1st-2nd: halve reaction chances, stretch reaction cooldowns
+    //   3rd:     one silent bashful glance (he GETS it), chances near zero
+    //   4th:     stop the random-behavior engine entirely — he stays
+    //            visibly alive (blinks, wanders, reacts to taps) but
+    //            initiates nothing more.
+    // A fully-read bubble forgives one step — engagement is consent.
+    if (!fullyRead) {
+      state.sessionDismissals = (state.sessionDismissals || 0) + 1;
+      const n = state.sessionDismissals;
+      if (n <= 2) {
+        applyTuning({
+          chance:   { react_button: CFG.chance.react_button / 2, react_modal: CFG.chance.react_modal / 2, react_scroll: CFG.chance.react_scroll / 2 },
+          cooldown: { react_button: CFG.cooldown.react_button * 1.5, react_modal: CFG.cooldown.react_modal * 1.5, react_submit: CFG.cooldown.react_submit * 1.5 },
+        });
+      } else if (n === 3) {
+        applyTuning({ chance: { react_button: 0.01, react_modal: 0.02, react_scroll: 0.005 } });
+        mood('bashful', 2200);   // silent acknowledgement — no bubble
+      } else if (n === 4) {
+        try { if (state.randomTimer) { clearInterval(state.randomTimer); state.randomTimer = null; } } catch (_) {}
+      }
+    } else if (state.sessionDismissals > 0) {
+      state.sessionDismissals--;
+    }
   }
   // Returns the user's top-engaged pool (highest finish-rate, min 5 shows)
   function topEngagedPool() {
@@ -6604,7 +6632,16 @@
         state.shell.classList.remove('is-suppressed');
       }
     };
-    const obs = new MutationObserver(checkOverlays);
+    // Debounced (was raw): this observer watches the ENTIRE document
+    // subtree, so checkOverlays — an 8-selector querySelector — ran on
+    // every DOM mutation app-wide: hundreds of times during one board
+    // render. A 150ms trailing debounce keeps hide-on-overlay feeling
+    // instant while cutting the work by orders of magnitude.
+    let coDebounce = null;
+    const obs = new MutationObserver(() => {
+      if (coDebounce) clearTimeout(coDebounce);
+      coDebounce = setTimeout(checkOverlays, 150);
+    });
     obs.observe(document.body, {
       attributes: true, childList: true, subtree: true,
       attributeFilter: ['class','aria-hidden','open','hidden','data-overlay-active']
@@ -8586,18 +8623,126 @@
       afterJoinSchedule();
       // v17.11: stage-aware greeting (formal/casual/inside-joke/old-friend
       // depending on days_known). Falls back to time-aware on first day.
-      if (state.preferences.accepted_at) {
-        bubble(substituteVars(familiarityGreeting()), { autoHide: 4500 });
-        mood('happy', 4000);
+      // v18.x QUIET ENTRY: on the first appearance of each session Clippy
+      // arrives SILENT — he plays the enter animation, smiles, and says
+      // nothing. Real companions don't announce themselves every time
+      // they walk in. He greets only if re-enabled mid-session (an
+      // explicit invitation). Milestone streaks still celebrate — those
+      // are rare and worth the interruption; routine ones stay quiet.
+      const greetedThisSession = (() => { try { return sessionStorage.getItem('nx_clippy_greeted') === '1'; } catch (_) { return false; } })();
+      try { sessionStorage.setItem('nx_clippy_greeted', '1'); } catch (_) {}
+      if (greetedThisSession) {
+        if (state.preferences.accepted_at) {
+          bubble(substituteVars(familiarityGreeting()), { autoHide: 4500 });
+          mood('happy', 4000);
+        } else {
+          timeAwareGreeting();
+        }
       } else {
-        timeAwareGreeting();
+        mood('happy', 2500);   // present and warm — just not talking
       }
-      // v17.6: daily streak + special day celebrations
+      // v17.6: daily streak + special day celebrations (milestones always;
+      // routine celebrations only when not in quiet entry)
       const streakInfo = checkDailyStreak();
-      celebrateStreak(streakInfo.streak, streakInfo.isMilestone, streakInfo.event);
-      celebrateSpecialDay(checkSpecialDay());
+      if (greetedThisSession || streakInfo.isMilestone) {
+        celebrateStreak(streakInfo.streak, streakInfo.isMilestone, streakInfo.event);
+      }
+      if (greetedThisSession) celebrateSpecialDay(checkSpecialDay());
       // v17.9: periodic checks + session-time achievement flags
       const hour = new Date().getHours();
+      // v18.x circadian body: late nights he breathes slower (see
+      // .clippy-night in clippy.css). Re-checked hourly alongside the
+      // existing hourly_check cadence via the mood-weather interval.
+      try {
+        const setNight = () => {
+          const h = new Date().getHours();
+          state.host && state.host.classList.toggle('clippy-night', h >= 22 || h < 6);
+        };
+        setNight();
+        trackInterval(setNight, 15 * 60 * 1000);
+      } catch (_) {}
+
+      // ── v18.x TRUE VISION ──────────────────────────────────────────
+      // He finally SEES the restaurant, not just overlays to hide from.
+      // Every 90s he reads the live KPI numbers the app renders (overdue
+      // PMs, equipment down, open tickets). Reactions are SILENT first —
+      // a worried or pleased face — speech is rare (worsening only,
+      // 25% chance, 10-min cooldown) and concrete. Occasionally he ties
+      // in a deposited memory: vision + memory = an assistant, offline.
+      try {
+        const vis = { last: {}, spokeAt: 0 };
+        const readNum = (sel) => {
+          const el = document.querySelector(sel);
+          if (!el) return null;
+          const n = parseInt(String(el.textContent).replace(/[^0-9]/g, ''), 10);
+          return Number.isFinite(n) ? n : null;
+        };
+        const FACT_LINES = {
+          overdue: (v) => v === 1 ? '1 PM is overdue now.' : v + ' PMs are overdue now.',
+          down:    (v) => v === 1 ? 'A unit just went down.' : v + ' units are down.',
+          tickets: (v) => v + ' tickets open.',
+        };
+        const recallMemory = () => {
+          try {
+            const pool = (state.memories || []).filter(m =>
+              m && m.importance >= 3 && typeof m.label === 'string' &&
+              m.label.length > 3 && m.label.length < 60);
+            if (!pool.length) return '';
+            const m = pool[Math.floor(Math.random() * pool.length)];
+            return ' (I still remember: ' + m.label + '.)';
+          } catch (_) { return ''; }
+        };
+        const lookAround = () => {
+          if (!state.enabled || state.suppressed) return;
+          const snap = {
+            overdue: readNum('.home-kpi[data-stat="overdue"] .home-kpi-num'),
+            down:    readNum('.home-kpi[data-stat="down"] .home-kpi-num'),
+            tickets: readNum('.home-kpi[data-stat="tickets"] .home-kpi-num'),
+          };
+          let worsened = null, improved = false;
+          for (const k of Object.keys(snap)) {
+            const v = snap[k], prev = vis.last[k];
+            if (v == null) continue;
+            if (prev != null && v > prev && (k === 'overdue' || k === 'down')) worsened = worsened || k;
+            if (prev != null && v < prev) improved = true;
+            vis.last[k] = v;
+          }
+          // ── ANXIETY: sustained-load response, pure body language ───
+          // Weighted load: a down unit weighs most, overdue PMs next,
+          // raw ticket count least. Hysteresis (enter ≥8, exit ≤5) so he
+          // doesn't flap at the threshold. Anxious = shallow fast breath
+          // (.clippy-anxious), occasional fidgety worried glances, and
+          // NO bubbles — stress that talks is nagging; stress you can
+          // see is empathy. Relief when it passes: one visible exhale.
+          const load = (snap.down || 0) * 3 + (snap.overdue || 0) * 2 + (snap.tickets || 0) * 0.5;
+          const wasAnxious = !!vis.anxious;
+          if (!wasAnxious && load >= 8) vis.anxious = true;
+          else if (wasAnxious && load <= 5) vis.anxious = false;
+          try { state.host && state.host.classList.toggle('clippy-anxious', !!vis.anxious); } catch (_) {}
+          if (vis.anxious && Math.random() < 0.35) {
+            mood('concerned', 2200); mood('worried', 2200);   // fidgety glance
+          }
+          if (wasAnxious && !vis.anxious) {
+            mood('happy', 3500);                               // visible relief
+            adjustFeeling('happiness', +2);
+          }
+
+          if (worsened) {
+            // Silent worry first; speak only sometimes, never twice in 10 min.
+            mood('concerned', 3000); mood('sad', 3000);
+            const quietLongEnough = Date.now() - vis.spokeAt > 10 * 60 * 1000;
+            if (quietLongEnough && Math.random() < 0.25 && (state.sessionDismissals || 0) < 3) {
+              vis.spokeAt = Date.now();
+              bubble(FACT_LINES[worsened](vis.last[worsened]) + recallMemory(),
+                     { autoHide: 4200, eyebrow: 'NOTICED' });
+            }
+          } else if (improved) {
+            mood('happy', 2500);   // pleased, says nothing — earned trust
+          }
+        };
+        setTimeout(lookAround, 4000);          // first look after settling in
+        trackInterval(lookAround, 90 * 1000);
+      } catch (_) {}
       if (hour >= 0 && hour < 4) state.preferences.midnight_session = true;
       if (hour >= 4 && hour < 6) state.preferences.dawn_session = true;
       savePreferences();
