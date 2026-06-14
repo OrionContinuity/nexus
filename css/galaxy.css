@@ -693,7 +693,7 @@
   gap: 12px;
   padding: 14px 16px;
   border: 1px solid var(--nx-gold-aura);
-  border-radius: 12px;
+  border-radius: 16px;
   background: rgba(14, 13, 18, 0.88);
   backdrop-filter: blur(16px) saturate(140%);
   -webkit-backdrop-filter: blur(16px) saturate(140%);
