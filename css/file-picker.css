@@ -48,7 +48,7 @@
 }
 @media (min-width: 600px) {
   .nx-fp-popup { align-items: center; }
-  .nx-fp-card { border-radius: 20px; }
+  .nx-fp-card { border-radius: 24px; }
 }
 
 .nx-fp-title {
@@ -76,7 +76,7 @@
   padding: 16px 18px;
   background: rgba(20, 18, 26, 0.8);
   border: 1.5px solid var(--nx-gold-line);
-  border-radius: 14px;
+  border-radius: 18px;
   color: var(--text, #e6dccc);
   font-family: inherit;
   cursor: pointer;
@@ -156,7 +156,7 @@
   padding: 13px;
   background: transparent;
   border: 1px solid var(--nx-gold-line);
-  border-radius: 12px;
+  border-radius: 16px;
   color: var(--muted, #8a826f);
   font-family: inherit;
   font-size: 14px;
@@ -250,7 +250,7 @@
 .btn-voice-float.on {
   background: var(--accent, var(--accent)) !important;
   border-color: var(--accent, var(--accent)) !important;
-  color: #1a1408 !important;
+  color: #101626 !important;
   box-shadow:
     0 0 0 3px var(--nx-gold-haze),
     0 2px 12px var(--nx-gold-line-2) !important;
@@ -267,7 +267,7 @@
    disabled when input is empty. */
 .btn-send {
   background: var(--accent, var(--accent)) !important;
-  color: #1a1408 !important;
+  color: #101626 !important;
   border: none !important;
   transition: all 0.18s !important;
 }
