@@ -93,35 +93,35 @@
   --nx-gold-aura:     rgba(212, 164, 78, 0.30);   /* strong glow */
 
   /* ─── Color: text hierarchy ─── */
-  --nx-text:          #ede9e0;
-  --nx-text-strong:   #f5f1e8;
-  --nx-muted:         #a49c94;
-  --nx-faint:         #857f75;
-  --nx-faintest:      #5a554f;
+  --nx-text:          #ece4d4;
+  --nx-text-strong:   #f6f0e2;
+  --nx-muted:         #9aa3b2;
+  --nx-faint:         #6c7585;
+  --nx-faintest:      #4e5666;
 
   /* ─── Color: surface system ─── */
-  --nx-bg:            #111116;
-  --nx-surface-0:     rgba(28, 24, 20, 0.30);
-  --nx-surface-1:     rgba(28, 24, 20, 0.45);
-  --nx-surface-2:     rgba(20, 18, 14, 0.65);
-  --nx-surface-3:     rgba(36, 32, 28, 0.75);
-  --nx-surface-press: rgba(36, 32, 28, 0.6);
+  --nx-bg:            #0e1320;
+  --nx-surface-0:     rgba(34, 46, 70, 0.30);
+  --nx-surface-1:     rgba(34, 46, 70, 0.42);
+  --nx-surface-2:     rgba(24, 34, 54, 0.62);
+  --nx-surface-3:     rgba(42, 56, 84, 0.72);
+  --nx-surface-press: rgba(42, 56, 84, 0.6);
   --nx-surface:       var(--nx-surface-1);  /* v1 alias */
 
   /* ─── Color: solid surfaces (for components that don't want translucency) ─── */
-  --nx-surface-solid: #1b1b24;
-  --nx-elevated:      #24242e;
+  --nx-surface-solid: #161d2e;
+  --nx-elevated:      #1f2940;
 
   /* Bottom nav bar — translucent so the masthead's gold halo bleeds
      through. Dark warm to anchor the editorial × terminal feel. */
-  --nx-bottom-nav-bg: rgba(20, 18, 14, 0.92);
+  --nx-bottom-nav-bg: rgba(16, 22, 36, 0.92);
 
   /* ─── Color: borders ─── */
-  --nx-border:        rgba(212, 182, 138, 0.07);
-  --nx-border-strong: rgba(212, 182, 138, 0.18);
+  --nx-border:        rgba(212, 164, 78, 0.10);
+  --nx-border-strong: rgba(63, 120, 181, 0.28);
 
   /* ─── Color: cool accents (non-status — links, info chips) ─── */
-  --nx-blue:          #6b7a8a;
+  --nx-blue:          #3f78b5;
   --nx-purple:        #8a6c9e;
 
   /* ─── Color: highlight overlays ─────────────────────────────────────
@@ -141,9 +141,9 @@
      custom labels and similar). Each has a dedicated light-mode value
      so labels stay distinguishable on both themes. The dark values
      are saturated; light values are deeper for AA contrast on cream. */
-  --nx-label-1: #a83e3e;   /* oxblood */
+  --nx-label-1: #d24b4b;   /* oxblood */
   --nx-label-2: #d4a44e;   /* brand gold */
-  --nx-label-3: #9c8a3e;   /* olive bronze */
+  --nx-label-3: #3fa08f;   /* verdigris (bronze patina) */
   --nx-label-4: #6b6258;   /* graphite */
   --nx-label-5: #8a6c9e;   /* muted plum */
   --nx-label-6: #d4c8a5;   /* parchment */
@@ -158,19 +158,19 @@
      and oxblood that read naturally against the cream/charcoal
      surfaces NEXUS uses. The :soft and :line variants stay token-
      derived so they automatically follow when the base shifts.   */
-  --nx-red:           #a83e3e;                          /* oxblood */
-  --nx-red-soft:      rgba(168, 62, 62, 0.10);
-  --nx-red-line:      rgba(168, 62, 62, 0.35);
+  --nx-red:           #d24b4b;                          /* oxblood */
+  --nx-red-soft:      rgba(210, 75, 75, 0.12);
+  --nx-red-line:      rgba(210, 75, 75, 0.38);
   /* Additional opacity steps for red — same pattern as gold */
-  --nx-red-tint:      rgba(168, 62, 62, 0.04);
-  --nx-red-faint:     rgba(168, 62, 62, 0.08);
-  --nx-red-mist:      rgba(168, 62, 62, 0.12);
-  --nx-red-haze:      rgba(168, 62, 62, 0.20);
-  --nx-red-aura:      rgba(168, 62, 62, 0.30);
+  --nx-red-tint:      rgba(210, 75, 75, 0.05);
+  --nx-red-faint:     rgba(210, 75, 75, 0.10);
+  --nx-red-mist:      rgba(210, 75, 75, 0.14);
+  --nx-red-haze:      rgba(210, 75, 75, 0.22);
+  --nx-red-aura:      rgba(210, 75, 75, 0.32);
   --nx-amber:         #d4a44e;                          /* same as gold — warning ≈ attention */
-  --nx-green:         #9c8a3e;                          /* olive bronze */
-  --nx-green-soft:    rgba(156, 138, 62, 0.10);
-  --nx-green-line:    rgba(156, 138, 62, 0.35);
+  --nx-green:         #3fa08f;                          /* verdigris (bronze patina) */
+  --nx-green-soft:    rgba(63, 160, 143, 0.14);
+  --nx-green-line:    rgba(63, 160, 143, 0.38);
 
   /* ─── Spacing scale ─── */
   --nx-space-1:       4px;
@@ -192,9 +192,9 @@
 
   /* ─── Radii ─── */
   --nx-radius-pill:   999px;
-  --nx-radius-card:   16px;
-  --nx-radius-tight:  10px;
-  --nx-radius-tighter: 6px;
+  --nx-radius-card:   22px;
+  --nx-radius-tight:  14px;
+  --nx-radius-tighter: 10px;
 
   /* ─── Pill component sizes ─── */
   --nx-pill-pad:      14px 22px;
@@ -262,7 +262,7 @@
    ═════════════════════════════════════════════════════════════════ */
 [data-theme="light"] {
   /* Page + surfaces */
-  --nx-bg:            #F4F1EB;
+  --nx-bg:            #e9e1cf;
   /* Surface translucency tuned for cream backgrounds — barely-tinted
      warm brown on linen reads as depth without becoming muddy. */
   --nx-surface-0:     rgba(100, 85, 55, 0.04);
@@ -273,19 +273,19 @@
   --nx-surface:       var(--nx-surface-1);
 
   /* Solid surfaces (non-translucent variant) */
-  --nx-surface-solid: #FAFAF6;
-  --nx-elevated:      #FFFFFF;
+  --nx-surface-solid: #f3eee1;
+  --nx-elevated:      #f8f4ea;
 
   /* Bottom nav — cream-tinted to match the page so the bar feels
      integrated with the daylit-ledger aesthetic, not pasted on. */
-  --nx-bottom-nav-bg: rgba(244, 241, 235, 0.92);
+  --nx-bottom-nav-bg: rgba(233, 225, 207, 0.92);
 
   /* Borders — warm brown-tinted, visible but gentle on cream */
-  --nx-border:        rgba(100, 85, 55, 0.10);
-  --nx-border-strong: rgba(100, 85, 55, 0.22);
+  --nx-border:        rgba(31, 79, 125, 0.14);
+  --nx-border-strong: rgba(31, 79, 125, 0.30);
 
   /* Cool accents — saturated on light, AA-contrast against cream */
-  --nx-blue:          #3568B8;
+  --nx-blue:          #1f4f7d;
   --nx-purple:        #6D28D9;
 
   /* Highlight overlays — flip white→black so "lifted" reads as darker on cream */
@@ -296,9 +296,9 @@
   --nx-highlight-mid:    rgba(0, 0, 0, 0.12);
 
   /* Label palette — deeper variants for cream-bg AA contrast */
-  --nx-label-1: #7c2d2d;   /* oxblood deeper */
+  --nx-label-1: #b83a2e;   /* oxblood deeper */
   --nx-label-2: #8b6914;   /* brand gold deeper */
-  --nx-label-3: #6e6020;   /* olive deeper */
+  --nx-label-3: #2c7d6c;   /* olive deeper */
   --nx-label-4: #4a4a44;   /* graphite deeper */
   --nx-label-5: #5d4880;   /* plum deeper */
   --nx-label-6: #8b7e58;   /* parchment deeper (visible on cream) */
@@ -306,42 +306,42 @@
   --nx-label-8: #6b6258;   /* taupe deeper */
 
   /* Text scale */
-  --nx-text:          #2A2520;
-  --nx-text-strong:   #1A1612;
-  --nx-muted:         #635B50;
+  --nx-text:          #1e2a3c;
+  --nx-text-strong:   #14202f;
+  --nx-muted:         #5b6573;
   --nx-faint:         #857D72;
   --nx-faintest:      rgba(133, 125, 114, 0.55);
 
   /* Gold tonality — deeper olive-gold for daylight contrast */
-  --nx-gold:          #8b6914;
-  --nx-gold-deep:     #6E5210;
-  --nx-gold-darker:   #533D0C;
+  --nx-gold:          #a8742a;
+  --nx-gold-deep:     #8f5f1f;
+  --nx-gold-darker:   #6f4a18;
   --nx-gold-on:       #FAFAF6;
-  --nx-gold-faint:    rgba(139, 105, 20, 0.06);
-  --nx-gold-soft:     rgba(139, 105, 20, 0.15);
-  --nx-gold-line:     rgba(139, 105, 20, 0.22);
-  --nx-gold-line-2:   rgba(139, 105, 20, 0.40);
-  --nx-gold-line-3:   rgba(139, 105, 20, 0.60);
-  --nx-gold-glow:     rgba(200, 164, 78, 0.22);
+  --nx-gold-faint:    rgba(168, 116, 42, 0.08);
+  --nx-gold-soft:     rgba(168, 116, 42, 0.15);
+  --nx-gold-line:     rgba(168, 116, 42, 0.24);
+  --nx-gold-line-2:   rgba(168, 116, 42, 0.42);
+  --nx-gold-line-3:   rgba(168, 116, 42, 0.60);
+  --nx-gold-glow:     rgba(212, 164, 78, 0.22);
   /* Light-mode counterparts for the new opacity steps */
-  --nx-gold-tint:     rgba(139, 105, 20, 0.03);
-  --nx-gold-mist:     rgba(139, 105, 20, 0.10);
-  --nx-gold-haze:     rgba(139, 105, 20, 0.18);
-  --nx-gold-aura:     rgba(139, 105, 20, 0.25);
+  --nx-gold-tint:     rgba(168, 116, 42, 0.04);
+  --nx-gold-mist:     rgba(168, 116, 42, 0.12);
+  --nx-gold-haze:     rgba(168, 116, 42, 0.20);
+  --nx-gold-aura:     rgba(168, 116, 42, 0.28);
 
   /* Semantic colors — deeper for cream-bg AA contrast */
-  --nx-red:           #7c2d2d;
-  --nx-red-soft:      rgba(124, 45, 45, 0.10);
-  --nx-red-line:      rgba(124, 45, 45, 0.30);
-  --nx-red-tint:      rgba(124, 45, 45, 0.03);
-  --nx-red-faint:     rgba(124, 45, 45, 0.06);
-  --nx-red-mist:      rgba(124, 45, 45, 0.10);
-  --nx-red-haze:      rgba(124, 45, 45, 0.18);
-  --nx-red-aura:      rgba(124, 45, 45, 0.25);
-  --nx-amber:         #8b6914;             /* same as gold — warning ≈ attention */
-  --nx-green:         #7a6a1c;
-  --nx-green-soft:    rgba(122, 106, 28, 0.10);
-  --nx-green-line:    rgba(122, 106, 28, 0.30);
+  --nx-red:           #b83a2e;
+  --nx-red-soft:      rgba(184, 58, 46, 0.12);
+  --nx-red-line:      rgba(184, 58, 46, 0.32);
+  --nx-red-tint:      rgba(184, 58, 46, 0.04);
+  --nx-red-faint:     rgba(184, 58, 46, 0.08);
+  --nx-red-mist:      rgba(184, 58, 46, 0.12);
+  --nx-red-haze:      rgba(184, 58, 46, 0.20);
+  --nx-red-aura:      rgba(184, 58, 46, 0.28);
+  --nx-amber:         #a8742a;             /* same as gold — warning ≈ attention */
+  --nx-green:         #2c7d6c;
+  --nx-green-soft:    rgba(44, 125, 108, 0.12);
+  --nx-green-line:    rgba(44, 125, 108, 0.32);
 
   /* Shadows — softer on linen, less black */
   --nx-shadow-soft:   0 1px 2px rgba(60, 50, 30, 0.08), 0 4px 12px rgba(60, 50, 30, 0.06);
@@ -369,7 +369,7 @@
 :where(button, .btn, input[type="text"], input[type="number"],
        input[type="email"], input[type="password"], input[type="tel"],
        textarea, select) {
-  border-radius: 12px;
+  border-radius: 16px;
 }
 
 /* ─── Tap target minimums for primary interactive surfaces ───
@@ -427,7 +427,7 @@
 :where(button, a, input, textarea, select, [tabindex]):focus-visible {
   outline: 2px solid var(--nx-gold);
   outline-offset: 2px;
-  border-radius: 8px;
+  border-radius: 12px;
 }
 
 /* ─── Selection + caret ───
@@ -476,7 +476,7 @@ input, textarea {
     var(--nx-gold-faint) 100%);
   background-size: 200% 100%;
   animation: nx-skeleton-shimmer 1.6s ease-in-out infinite;
-  border-radius: 12px;
+  border-radius: 16px;
 }
 @keyframes nx-skeleton-shimmer {
   0%   { background-position: 200% 0; }
@@ -1426,7 +1426,7 @@ html {
 @media (min-width: 720px) {
   .nx-sheet-backdrop { align-items: center; }
   .nx-sheet {
-    border-radius: 20px;
+    border-radius: 24px;
     border-bottom: 1px solid var(--nx-border);
     max-width: 600px;
     width: calc(100% - 80px);
@@ -1534,7 +1534,7 @@ html {
   background: var(--nx-surface-solid);
   color: var(--nx-text-strong);
   border: 1px solid var(--nx-border);
-  border-radius: 10px;
+  border-radius: 14px;
   padding: 9px 14px;
   font-family: var(--nx-font-body);
   font-size: 13px;
@@ -1663,7 +1663,7 @@ html {
      those layout properties stay; we override appearance only. */
   background: var(--nx-surface-solid) !important;
   border: 1px solid var(--nx-border) !important;
-  border-radius: 18px !important;
+  border-radius: 22px !important;
   box-shadow: var(--nx-shadow-card) !important;
   overflow: hidden !important;
 }
@@ -2717,7 +2717,7 @@ html {
   flex-shrink: 0;
   width: 42px; height: 24px;
   background: var(--border);
-  border-radius: 12px;
+  border-radius: 16px;
   position: relative;
   transition: background .2s ease;
 }
@@ -2987,7 +2987,7 @@ html {
   background: var(--nx-gold-faint, rgba(212, 164, 78, 0.05));
   border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.18));
   border-left-width: 3px;
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 10px 14px;
   margin-bottom: 16px;
 }
@@ -2997,7 +2997,7 @@ html {
 .rx-form-preview {
   margin-bottom: 16px;
   border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.18));
-  border-radius: 8px;
+  border-radius: 12px;
   overflow: hidden;
   background: var(--nx-bg-soft, rgba(255, 255, 255, 0.02));
 }
@@ -3037,7 +3037,7 @@ html {
   overflow-x: auto;
   max-height: 360px;
   overflow-y: auto;
-  background: var(--nx-bg, #15110a);
+  background: var(--nx-bg, #0e1320);
 }
 
 /* Banner shown when the existing template matches the legacy default.
@@ -3047,7 +3047,7 @@ html {
   align-items: flex-start;
   gap: 10px;
   padding: 12px 14px;
-  border-radius: 8px;
+  border-radius: 12px;
   margin-bottom: 14px;
   font-size: 12.5px;
   line-height: 1.5;
