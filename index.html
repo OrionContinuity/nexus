@@ -52,7 +52,7 @@
 <link rel="stylesheet" href="css/chat.css">
 <link rel="stylesheet" href="css/preferences.css">
 <link rel="stylesheet" href="css/daily-card.css">
-<link rel="stylesheet" href="css/home-soft.css?v=2">
+<link rel="stylesheet" href="css/home-soft.css?v=3">
 <!-- Editorial palette overrides for public scan + PM views (loaded last
      so it wins over the older equipment-public-* stylesheets without
      editing them). Scoped via body.public-view + the .public-* classes. -->
@@ -161,8 +161,8 @@
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  background: var(--nx-surface-2, rgba(20, 18, 14, 0.85));
-  border: 1px solid var(--nx-gold-line-2, rgba(200, 164, 78, 0.4));
+  background: var(--nx-surface-2, rgba(24, 34, 54, 0.85));
+  border: 1px solid var(--nx-gold-line-2, rgba(212, 164, 78, 0.4));
   color: var(--nx-gold);
   font-family: 'Outfit', -apple-system, sans-serif;
   font-size: 13px;
@@ -180,8 +180,8 @@
 }
 .nx-coin-info:hover,
 .nx-coin-info:focus {
-  background: var(--nx-surface-3, rgba(20, 18, 14, 0.95));
-  border-color: var(--nx-gold, rgba(200, 164, 78, 0.8));
+  background: var(--nx-surface-3, rgba(24, 34, 54, 0.95));
+  border-color: var(--nx-gold, rgba(212, 164, 78, 0.8));
   outline: none;
 }
 .nx-coin-info:active {
@@ -226,7 +226,7 @@
   background: linear-gradient(180deg,
     var(--nx-surface-1) 0%,
     var(--nx-surface-2) 100%);
-  border: 1px solid var(--nx-gold-line-2, rgba(200, 164, 78, 0.3));
+  border: 1px solid var(--nx-gold-line-2, rgba(212, 164, 78, 0.3));
   border-radius: 6px;
   padding: 32px 28px 24px;
   box-shadow: var(--nx-shadow-modal, 0 16px 40px rgba(0, 0, 0, 0.6));
@@ -255,7 +255,7 @@
 }
 .nx-coin-info-close:hover {
   color: var(--nx-text);
-  background: var(--nx-gold-soft, rgba(200, 164, 78, 0.1));
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.1));
 }
 
 .nx-coin-info-title {
@@ -287,7 +287,7 @@
   background: linear-gradient(
     90deg,
     transparent 0%,
-    var(--nx-gold-line-2, rgba(200, 164, 78, 0.4)) 50%,
+    var(--nx-gold-line-2, rgba(212, 164, 78, 0.4)) 50%,
     transparent 100%
   );
   margin: 18px 0;
@@ -332,7 +332,7 @@
   list-style: none;
   padding: 0;
   margin: 12px 0 14px;
-  border-left: 1px solid var(--nx-gold-line-2, rgba(200, 164, 78, 0.3));
+  border-left: 1px solid var(--nx-gold-line-2, rgba(212, 164, 78, 0.3));
 }
 .nx-coin-info-list li {
   font-size: 13px;
@@ -527,7 +527,7 @@
   padding: 14px 16px 10px;
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 12px;
+  border-radius: 18px;
   height: 280px;          /* tightened from 360 — see comment above */
   max-height: 50vh;       /* on very small screens, never overflow viewport */
   overflow: hidden;       /* internal scroll only happens in tc-pin-log */
@@ -568,8 +568,8 @@
 }
 #pinScreen .tc-loc-select {
   width: 100%;
-  background: rgba(20, 18, 14, 0.6);
-  border: 1px solid rgba(200, 164, 78, 0.25);
+  background: rgba(24, 34, 54, 0.6);
+  border: 1px solid rgba(212, 164, 78, 0.25);
   border-radius: 8px;
   color: var(--text);
   padding: 11px 14px;
@@ -596,8 +596,8 @@
   flex: 1;
   padding: 12px 18px;
   border-radius: 999px;
-  border: 1px solid rgba(200, 164, 78, 0.35);
-  background: rgba(200, 164, 78, 0.08);
+  border: 1px solid rgba(212, 164, 78, 0.35);
+  background: rgba(212, 164, 78, 0.08);
   color: var(--accent);
   font-family: 'Outfit', -apple-system, sans-serif;
   font-size: 14px;
@@ -608,8 +608,8 @@
   -webkit-tap-highlight-color: transparent;
 }
 #pinScreen .tc-btn:active {
-  background: rgba(200, 164, 78, 0.18);
-  border-color: rgba(200, 164, 78, 0.6);
+  background: rgba(212, 164, 78, 0.18);
+  border-color: rgba(212, 164, 78, 0.6);
   transform: scale(0.97);
 }
 #pinScreen .tc-btn-in {
@@ -625,12 +625,12 @@
 #pinScreen .tc-btn-out {
   /* Was reddish — swapped to oxblood-on-cream / oxblood-on-dark to
      match the palette (no scarlet). Reads as "exit" without panicking. */
-  background: rgba(168, 62, 62, 0.10);
-  border-color: rgba(168, 62, 62, 0.4);
+  background: rgba(210, 75, 75, 0.10);
+  border-color: rgba(210, 75, 75, 0.4);
   color: var(--red);
 }
 #pinScreen .tc-btn-out:active {
-  background: rgba(168, 62, 62, 0.20);
+  background: rgba(210, 75, 75, 0.20);
 }
 
 /* Scrollable log inside the card.
@@ -649,7 +649,7 @@
   -webkit-overflow-scrolling: touch;
   margin: 12px 0 0;
   padding: 4px 0 0;
-  border-top: 1px solid rgba(200, 164, 78, 0.15);
+  border-top: 1px solid rgba(212, 164, 78, 0.15);
 }
 #pinScreen .tc-pin-log:empty {
   /* Even when empty (still loading), keep the slot — the card has a
@@ -663,7 +663,7 @@
   background: transparent;
 }
 #pinScreen .tc-pin-log::-webkit-scrollbar-thumb {
-  background: rgba(200, 164, 78, 0.3);
+  background: rgba(212, 164, 78, 0.3);
   border-radius: 2px;
 }
 /* Each row: date+location on the left, time pair on the right.
@@ -676,7 +676,7 @@
   padding: 6px 4px;
   font-size: 11.5px;
   color: var(--nx-faint);
-  border-bottom: 1px solid rgba(200, 164, 78, 0.08);
+  border-bottom: 1px solid rgba(212, 164, 78, 0.08);
   min-height: 0;
 }
 #pinScreen .tc-pin-log-row:last-child {
@@ -755,6 +755,7 @@
   border: none;
   background: linear-gradient(180deg, var(--accent) 0%, var(--nx-gold-deep) 100%);
   color: var(--nx-bg);
+  margin-bottom: 16px;
   font-family: 'Outfit', -apple-system, sans-serif;
   font-size: 15px;
   font-weight: 700;
@@ -762,7 +763,7 @@
   cursor: pointer;
   transition: background 0.15s, transform 0.15s;
   -webkit-tap-highlight-color: transparent;
-  box-shadow: 0 4px 16px rgba(200, 164, 78, 0.15);
+  box-shadow: 0 4px 16px rgba(212, 164, 78, 0.15);
 }
 #pinScreen .tc-enter:active {
   background: linear-gradient(180deg, var(--nx-gold-deep) 0%, var(--nx-gold-darker) 100%);
@@ -2169,6 +2170,10 @@
              and Clock In/Out open a dedicated confirm screen (location is
              chosen there). The hidden select keeps the existing location
              dropdown builders working; the confirm screen reads it. -->
+        <!-- Primary action FIRST: entering NEXUS is the real point of
+             this screen — clocking in is optional, so the Enter button now
+             leads and the time clock sits beneath it. -->
+        <button class="tc-enter" id="tcEnter" data-i18n="enterNexus">Enter NEXUS →</button>
         <div class="tc-card">
           <div class="tc-status" id="tcStatus"></div>
           <select id="tcLocation" class="tc-loc-select" style="display:none"></select>
@@ -2180,10 +2185,6 @@
             <button class="tc-download" id="tcPinDownload">⬇ My Timesheet</button>
           </div>
         </div>
-        <!-- Primary action: enters the main app. Sits OUTSIDE the time clock
-             card because entering NEXUS is the actual primary action of this
-             screen — clocking in is optional, entering is not. -->
-        <button class="tc-enter" id="tcEnter" data-i18n="enterNexus">Enter NEXUS →</button>
       </div>
     </div>
     <div class="pin-lang-row">
@@ -3644,21 +3645,21 @@
 .at-stat-card .at-stat-icon { font-size:16px; margin-bottom:2px; line-height:1; }
 .at-stat-card .at-stat-num { font-size:18px; font-weight:700; color:var(--text); font-family:'JetBrains Mono',monospace; line-height:1.2; }
 .at-stat-card .at-stat-label { font-size:8.5px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.5px; margin-top:3px; }
-.at-stat-card.alert { background:rgba(168, 62, 62,0.1); border-color:rgba(168, 62, 62,0.3); }
+.at-stat-card.alert { background:rgba(210, 75, 75,0.1); border-color:rgba(210, 75, 75,0.3); }
 .at-stat-card.alert .at-stat-num { color:var(--red); }
 
 /* Overview integrations chips */
 .at-integrations { display:flex; flex-wrap:wrap; gap:5px; margin:6px 0 14px; }
 .at-int-chip { font-size:10.5px; padding:4px 9px; border-radius:12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); }
 .at-int-chip.ok { border-color:rgba(156, 138, 62,0.3); color:var(--green); background:rgba(156, 138, 62,0.08); }
-.at-int-chip.off { border-color:rgba(168, 62, 62,0.3); color:var(--red); background:rgba(168, 62, 62,0.08); }
+.at-int-chip.off { border-color:rgba(210, 75, 75,0.3); color:var(--red); background:rgba(210, 75, 75,0.08); }
 
 /* Overview section headers + attention + activity */
 .at-section-title { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:1.2px; color:var(--text-dim); margin:14px 0 6px; padding-bottom:5px; border-bottom:1px solid rgba(255,255,255,0.05); }
 .at-attention { margin-bottom:14px; }
 .at-attn-item { font-size:11.5px; padding:8px 12px; margin-bottom:4px; border-radius:8px; background:rgba(212, 164, 78,0.1); border:1px solid rgba(212, 164, 78,0.2); color:var(--text); }
 .at-attn-item.ok { background:rgba(156, 138, 62,0.08); border-color:rgba(156, 138, 62,0.2); color:var(--green); }
-.at-attn-item.danger { background:rgba(168, 62, 62,0.1); border-color:rgba(168, 62, 62,0.25); color:var(--red); }
+.at-attn-item.danger { background:rgba(210, 75, 75,0.1); border-color:rgba(210, 75, 75,0.25); color:var(--red); }
 .at-activity { max-height:180px; overflow-y:auto; border-radius:8px; background:rgba(0,0,0,0.18); padding:2px 0; }
 .at-activity-row { display:flex; gap:8px; padding:6px 10px; font-size:10.5px; border-bottom:1px solid rgba(255,255,255,0.03); }
 .at-activity-row:last-child { border-bottom:none; }
