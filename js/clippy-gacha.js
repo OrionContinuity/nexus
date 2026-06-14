@@ -42,7 +42,12 @@
      captures the helpers and wires the public API. */
   function init() {
     if (!window.NX || !NX.clippy || !NX.clippy._internal) {
-      setTimeout(init, 50);
+      // Capped retry (was uncapped): if Clippy is disabled or failed to
+      // boot, _internal never mounts — the old infinite 50ms poll then
+      // burned battery forever. ~15s of patience, then back off to a slow
+      // 5s heartbeat so enabling Clippy later still wires us up.
+      init._n = (init._n || 0) + 1;
+      setTimeout(init, init._n < 300 ? 50 : 5000);
       return;
     }
     const ix = NX.clippy._internal;
