@@ -26,7 +26,7 @@
   display: inline-flex;
   align-self: flex-start;
   margin: 0 0 14px 0;
-  background: var(--surface, #1a1814);
+  background: var(--surface, #141a2a);
   border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.18));
   border-radius: 999px;
   padding: 3px;
@@ -48,7 +48,7 @@
 .train-view-toggle-btn:hover { color: var(--text, #f0e9da); }
 .train-view-toggle-btn.is-active {
   background: var(--accent, #d4a44e);
-  color: var(--bg, #0e0c08);
+  color: var(--bg, #0b0f18);
 }
 
 
@@ -100,9 +100,9 @@
   flex-direction: column;
   align-items: center;
   padding: 10px 6px;
-  background: var(--surface, #1a1814);
+  background: var(--surface, #141a2a);
   border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.10));
-  border-radius: 8px;
+  border-radius: 12px;
   text-align: center;
 }
 .train-summary-num {
@@ -128,7 +128,7 @@
 
 /* ─── Mine view: per-status sections ──────────────────────────────────── */
 .train-section {
-  background: var(--surface, #1a1814);
+  background: var(--surface, #141a2a);
   border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.12));
   border-radius: var(--r, 10px);
   margin-bottom: 12px;
@@ -165,7 +165,7 @@
   color: var(--faint, #7a7167);
   background: rgba(212, 164, 78, 0.08);
   padding: 3px 9px;
-  border-radius: 9px;
+  border-radius: 13px;
 }
 .train-section-body { padding: 4px; }
 
@@ -176,7 +176,7 @@
   align-items: flex-start;
   gap: 10px;
   padding: 12px;
-  border-radius: 8px;
+  border-radius: 12px;
   transition: background 150ms ease;
 }
 .train-row + .train-row { border-top: 1px solid rgba(212, 164, 78, 0.06); }
@@ -221,7 +221,7 @@
   display: inline-flex;
   align-items: center;
   padding: 3px 9px;
-  border-radius: 11px;
+  border-radius: 15px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 10.5px;
   font-weight: 600;
@@ -246,7 +246,7 @@
   align-items: center;
   gap: 4px;
   padding: 2px 7px;
-  border-radius: 9px;
+  border-radius: 13px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 10.5px;
   letter-spacing: 0.04em;
@@ -295,7 +295,7 @@
   padding: 6px 12px;
   background: transparent;
   border: 1px solid rgba(212, 164, 78, 0.30);
-  border-radius: 6px;
+  border-radius: 10px;
   color: var(--accent, #d4a44e);
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
@@ -318,9 +318,9 @@
   gap: 6px;
   padding: 8px 14px;
   background: var(--accent, #d4a44e);
-  color: var(--bg, #0e0c08);
+  color: var(--bg, #0b0f18);
   border: 1px solid var(--accent, #d4a44e);
-  border-radius: 6px;
+  border-radius: 10px;
   font-family: 'Outfit', 'DM Sans', sans-serif;
   font-size: 12.5px;
   font-weight: 600;
@@ -349,7 +349,7 @@
   height: 36px;
   background: transparent;
   border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.20));
-  border-radius: 6px;
+  border-radius: 10px;
   color: var(--faint, #7a7167);
   cursor: pointer;
   transition: all 150ms ease;
@@ -372,8 +372,8 @@
   height: 56px;
   padding: 0;
   border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.20));
-  border-radius: 6px;
-  background: var(--elevated, #211e18);
+  border-radius: 10px;
+  background: var(--elevated, #1a2236);
   overflow: hidden;
   cursor: pointer;
   transition: all 150ms ease;
@@ -435,7 +435,7 @@
 /* ═══ TEAM VIEW ═════════════════════════════════════════════════════════ */
 
 .train-team {
-  background: var(--surface, #1a1814);
+  background: var(--surface, #141a2a);
   border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.12));
   border-radius: var(--r, 10px);
   overflow: hidden;
@@ -502,7 +502,7 @@
   min-width: 22px;
   height: 22px;
   padding: 0 7px;
-  border-radius: 11px;
+  border-radius: 15px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   font-weight: 700;
@@ -568,7 +568,7 @@
   background: var(--accent, #d4a44e);
   border: 1px solid var(--accent, #d4a44e);
   border-radius: 5px;
-  color: var(--bg, #0e0c08);
+  color: var(--bg, #0b0f18);
   font-family: 'JetBrains Mono', monospace;
   font-size: 10.5px;
   font-weight: 600;
@@ -589,7 +589,7 @@
 /* ═══ CATALOG VIEW ═════════════════════════════════════════════════════ */
 
 .train-card {
-  background: var(--surface, #1a1814);
+  background: var(--surface, #141a2a);
   border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.12));
   border-radius: var(--r, 10px);
   margin-bottom: 12px;
@@ -649,7 +649,7 @@
   align-items: flex-start;
   gap: 10px;
   padding: 10px 6px 10px 10px;
-  border-radius: 6px;
+  border-radius: 10px;
 }
 .train-cat-row + .train-cat-row { border-top: 1px solid rgba(212, 164, 78, 0.06); }
 .train-cat-row-body { flex: 1; min-width: 0; }
@@ -698,7 +698,7 @@
   padding: 9px 12px;
   background: transparent;
   border: 1px dashed rgba(212, 164, 78, 0.22);
-  border-radius: 6px;
+  border-radius: 10px;
   color: var(--accent, #d4a44e);
   font-family: 'JetBrains Mono', monospace;
   font-size: 11.5px;
@@ -748,7 +748,7 @@
 .train-edit-form {
   background: rgba(212, 164, 78, 0.04);
   border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.18));
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 14px;
   margin: 8px 0;
 }
@@ -778,9 +778,9 @@
 .train-edit-select,
 .train-edit-textarea {
   width: 100%;
-  background: var(--elevated, #211e18);
+  background: var(--elevated, #1a2236);
   border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.15));
-  border-radius: 6px;
+  border-radius: 10px;
   padding: 10px 12px;
   color: var(--text, #f0e9da);
   font-family: 'Outfit', 'DM Sans', sans-serif;
@@ -801,9 +801,9 @@
   align-items: center;
   gap: 8px;
   padding: 9px 12px;
-  background: var(--elevated, #211e18);
+  background: var(--elevated, #1a2236);
   border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.15));
-  border-radius: 6px;
+  border-radius: 10px;
   color: var(--text, #f0e9da);
   font-size: 13.5px;
   cursor: pointer;
@@ -822,7 +822,7 @@
 .train-edit-archive,
 .train-edit-save {
   padding: 9px 16px;
-  border-radius: 6px;
+  border-radius: 10px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 11.5px;
   font-weight: 500;
@@ -848,7 +848,7 @@
 .train-edit-save {
   background: var(--accent, #d4a44e);
   border-color: var(--accent, #d4a44e);
-  color: var(--bg, #0e0c08);
+  color: var(--bg, #0b0f18);
   font-weight: 600;
 }
 .train-edit-save:hover { background: #e0b462; }
@@ -900,7 +900,7 @@
   border-radius: var(--r, 10px);
   border: none;
   background: var(--accent, #d4a44e);
-  color: var(--bg, #0e0c08);
+  color: var(--bg, #0b0f18);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -969,7 +969,7 @@
   padding: 10px;
   background: rgba(212, 164, 78, 0.04);
   border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.16));
-  border-radius: 8px;
+  border-radius: 12px;
   display: flex;
   flex-direction: column;
   gap: 5px;
@@ -990,9 +990,9 @@
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  background: var(--surface, #1a1814);
+  background: var(--surface, #141a2a);
   border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.12));
-  border-radius: 6px;
+  border-radius: 10px;
   color: var(--text, #f0e9da);
   font-family: 'Outfit', 'DM Sans', sans-serif;
   font-size: 13px;
@@ -1018,16 +1018,16 @@
   padding: 8px;
   background: rgba(212, 164, 78, 0.02);
   border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.10));
-  border-radius: 6px;
+  border-radius: 10px;
 }
 .train-edit-mod-att {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 7px 10px;
-  background: var(--elevated, #211e18);
+  background: var(--elevated, #1a2236);
   border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.12));
-  border-radius: 6px;
+  border-radius: 10px;
 }
 .train-edit-mod-att-icon {
   width: 32px;
@@ -1082,7 +1082,7 @@
   padding: 8px 14px;
   background: transparent;
   border: 1px dashed rgba(212, 164, 78, 0.30);
-  border-radius: 6px;
+  border-radius: 10px;
   color: var(--accent, #d4a44e);
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
@@ -1114,7 +1114,7 @@
   background: var(--accent, #d4a44e);
   border: 1px solid var(--accent, #d4a44e);
   border-radius: 999px;
-  color: var(--bg, #0e0c08);
+  color: var(--bg, #0b0f18);
   font-family: 'JetBrains Mono', monospace;
   font-size: 10.5px;
   font-weight: 600;
@@ -1152,9 +1152,9 @@
   max-width: 480px;
   max-height: 90vh;
   margin: 0 12px 16px;
-  background: var(--surface, #1a1814);
+  background: var(--surface, #141a2a);
   border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.20));
-  border-radius: 14px;
+  border-radius: 18px;
   padding: 18px;
   display: flex;
   flex-direction: column;
@@ -1215,9 +1215,9 @@
 .train-bulk-select {
   width: 100%;
   padding: 10px 12px;
-  background: var(--elevated, #211e18);
+  background: var(--elevated, #1a2236);
   border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.15));
-  border-radius: 6px;
+  border-radius: 10px;
   color: var(--text, #f0e9da);
   font-family: 'Outfit', 'DM Sans', sans-serif;
   font-size: 14.5px;
@@ -1236,9 +1236,9 @@
   -webkit-overflow-scrolling: touch;
   padding: 4px;
   margin: 0 -2px;
-  background: var(--elevated, #211e18);
+  background: var(--elevated, #1a2236);
   border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.10));
-  border-radius: 6px;
+  border-radius: 10px;
 }
 .train-bulk-staff-row {
   display: flex;
@@ -1281,7 +1281,7 @@
 .train-bulk-confirm {
   flex: 1;
   padding: 12px 16px;
-  border-radius: 8px;
+  border-radius: 12px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
   font-weight: 500;
@@ -1300,7 +1300,7 @@
 .train-bulk-confirm {
   background: var(--accent, #d4a44e);
   border-color: var(--accent, #d4a44e);
-  color: var(--bg, #0e0c08);
+  color: var(--bg, #0b0f18);
   font-weight: 600;
 }
 .train-bulk-confirm:hover { background: #e0b462; }
@@ -1338,7 +1338,7 @@
   padding: 0 4px;
   border-radius: 999px;
   background: var(--accent, #d4a44e);
-  color: var(--bg, #0e0c08);
+  color: var(--bg, #0b0f18);
   font-family: 'JetBrains Mono', monospace;
   font-size: 9.5px;
   font-weight: 700;
@@ -1348,7 +1348,7 @@
   justify-content: center;
   line-height: 1;
   pointer-events: none;
-  border: 1px solid var(--bg, #0e0c08);
+  border: 1px solid var(--bg, #0b0f18);
   box-sizing: border-box;
   animation: navBadgeIn 240ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
