@@ -124,7 +124,7 @@
 
 .ord-loc-btn.active {
   background: var(--nx-gold);
-  color: var(--nx-gold-on, #1c1408);
+  color: var(--nx-gold-on, #101626);
   box-shadow: 0 0 0 1px var(--nx-gold), 0 0 14px rgba(212, 164, 78, 0.32);
 }
 
@@ -166,7 +166,7 @@
   padding: 16px 18px;
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 18px;
+  border-radius: 22px;
   text-align: left;
   font-family: 'Outfit', sans-serif;
   color: var(--nx-text);
@@ -236,7 +236,7 @@
   padding: 11px 16px;
   background: transparent;
   border: 1px dashed var(--nx-gold-line);
-  border-radius: 14px;
+  border-radius: 18px;
   color: var(--nx-faint);
   font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
   font-size: 11px;
@@ -344,7 +344,7 @@
 }
 
 .ord-status-sent {
-  background: var(--nx-green-soft, rgba(156, 138, 62, 0.10));
+  background: var(--nx-green-soft, rgba(63, 160, 143, 0.10));
   color: var(--nx-green, var(--green));
 }
 
@@ -460,7 +460,7 @@
   padding: 16px;
   background: var(--nx-surface-1);
   border: 1px dashed var(--nx-gold-line);
-  border-radius: 12px;
+  border-radius: 16px;
   color: var(--nx-faint);
   font-size: 13px;
   text-align: center;
@@ -638,7 +638,7 @@ body.ord-overlay-open .nav {
 .ord-meta-field input[type="date"] {
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 10px;
+  border-radius: 14px;
   padding: 8px 14px;
   color: var(--nx-text);
   font-family: 'Outfit', sans-serif;
@@ -731,7 +731,7 @@ body.ord-overlay-open .nav {
 .ord-entry-section {
   background: var(--nx-surface, var(--surface));
   border: 1px solid var(--nx-gold-line, var(--border));
-  border-radius: 12px;                                          /* matches catalog .ved-section-block */
+  border-radius: 16px;                                          /* matches catalog .ved-section-block */
   margin-bottom: 14px;
   overflow: hidden;
   transition: border-color .15s ease;
@@ -811,7 +811,7 @@ body.ord-overlay-open .nav {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: 10px;
   -webkit-tap-highlight-color: transparent;
   transition: transform .2s ease, color .15s ease, background .15s ease;
 }
@@ -920,18 +920,18 @@ body.ord-overlay-open .nav {
   box-shadow: 0 1px 6px var(--nx-gold-soft, rgba(212, 164, 78, 0.35));
 }
 .ord-item-row.has-qty .ord-qty-btn {
-  color: var(--nx-gold-on, #1c1408);
+  color: var(--nx-gold-on, #101626);
   font-weight: 700;
 }
 .ord-item-row.has-qty .ord-qty-btn:hover {
   background: rgba(28, 20, 8, 0.12);
-  color: var(--nx-gold-on, #1c1408);
+  color: var(--nx-gold-on, #101626);
 }
 .ord-item-row.has-qty .ord-qty-btn:active {
   background: rgba(28, 20, 8, 0.2);
 }
 .ord-item-row.has-qty .ord-qty-input {
-  color: var(--nx-gold-on, #1c1408);
+  color: var(--nx-gold-on, #101626);
   font-weight: 700;
   /* Subtle vertical dividers between button and input — was gold-line
      which disappeared against the gold fill. */
@@ -963,7 +963,7 @@ body.ord-overlay-open .nav {
 }
 .ord-qty-btn:active {
   background: var(--nx-gold);
-  color: var(--nx-gold-on, #1c1408);
+  color: var(--nx-gold-on, #101626);
 }
 .ord-qty-btn[disabled] { opacity: 0.4; cursor: not-allowed; }
 .ord-qty-input {
@@ -1050,7 +1050,7 @@ body.ord-overlay-open .nav {
   border-radius: 999px;
   border: none;
   background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e));
-  color: var(--nx-gold-on, #1c1408);
+  color: var(--nx-gold-on, #101626);
   font-family: 'Outfit', sans-serif;
   font-size: 16px;
   font-weight: 600;
@@ -1151,7 +1151,7 @@ body.ord-overlay-open .nav {
   padding: 12px 14px;
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 12px;
+  border-radius: 16px;
 }
 .ord-recipient-email {
   flex: 1 1 auto;
@@ -1186,7 +1186,7 @@ body.ord-overlay-open .nav {
   padding: 12px;
   background: var(--nx-amber-soft, var(--nx-gold-faint));
   border: 1px solid var(--nx-gold-line);
-  border-radius: 12px;
+  border-radius: 16px;
 }
 .ord-recipient-warn {
   font-size: 12px;
@@ -1198,7 +1198,7 @@ body.ord-overlay-open .nav {
   padding: 9px 12px;
   background: var(--nx-bg);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 8px;
+  border-radius: 12px;
   color: var(--nx-text);
   font-family: 'Outfit', sans-serif;
   font-size: 13px;
@@ -1213,7 +1213,7 @@ body.ord-overlay-open .nav {
   background: var(--nx-gold);
   border: none;
   border-radius: 999px;
-  color: var(--nx-gold-on, #1c1408);
+  color: var(--nx-gold-on, #101626);
   font-family: 'Outfit', sans-serif;
   font-size: 12px;
   font-weight: 600;
@@ -1226,7 +1226,7 @@ body.ord-overlay-open .nav {
   padding: 12px 14px;
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 12px;
+  border-radius: 16px;
   font-family: 'Outfit', sans-serif;
   font-size: 13px;
   color: var(--nx-text);
@@ -1282,7 +1282,7 @@ body.ord-overlay-open .nav {
   padding: 10px 12px;
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 12px;
+  border-radius: 16px;
   color: var(--nx-text);
   font-family: 'Outfit', sans-serif;
   font-size: 13px;
@@ -1376,7 +1376,7 @@ body.ord-overlay-open .nav {
   justify-content: center;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: 16px;
   color: var(--nx-faint);
   cursor: pointer;
   transition: color .15s, border-color .15s, background .15s;
@@ -1496,7 +1496,7 @@ body.ord-overlay-open .nav {
 .ord-veditor-save {
   background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e));
   border: none;
-  color: var(--nx-gold-on, #1c1408);
+  color: var(--nx-gold-on, #101626);
   box-shadow: var(--nx-shadow-pill, 0 2px 10px var(--nx-gold-soft));
 }
 [data-theme="light"] .ord-veditor-save { color: var(--surface); }
@@ -1658,7 +1658,7 @@ body.ord-overlay-open .nav {
   padding: 10px 12px;
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 10px;
+  border-radius: 14px;
   color: var(--nx-text);
   font-family: 'Outfit', sans-serif;
   font-size: 14px;
@@ -1764,7 +1764,7 @@ body.ord-overlay-open .nav {
   padding: 8px 4px;
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 8px;
+  border-radius: 12px;
   color: var(--nx-faint);
   font-family: 'JetBrains Mono', monospace;
   font-size: 10.5px;
@@ -1781,7 +1781,7 @@ body.ord-overlay-open .nav {
 .ord-day-pill.active {
   background: var(--nx-gold);
   border-color: var(--nx-gold);
-  color: var(--nx-gold-on, #1c1408);
+  color: var(--nx-gold-on, #101626);
 }
 [data-theme="light"] .ord-day-pill.active { color: var(--surface); }
 
@@ -1811,7 +1811,7 @@ body.ord-overlay-open .nav {
   text-align: center;
   background: var(--nx-bg);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 6px;
+  border-radius: 10px;
   color: var(--nx-text);
   font-family: 'Outfit', sans-serif;
   font-size: 12px;
@@ -1875,7 +1875,7 @@ body.ord-overlay-open .nav {
   padding: 10px 12px;
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 10px;
+  border-radius: 14px;
   cursor: pointer;
   transition: border-color .15s, background .15s;
   -webkit-tap-highlight-color: transparent;
@@ -1912,7 +1912,7 @@ body.ord-overlay-open .nav {
   justify-content: center;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 12px;
   color: var(--nx-faint);
   cursor: pointer;
   transition: color .15s, border-color .15s, background .15s;
@@ -1977,7 +1977,7 @@ body.ord-overlay-open .nav {
 .ord-vitem-save-btn {
   background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e));
   border: none;
-  color: var(--nx-gold-on, #1c1408);
+  color: var(--nx-gold-on, #101626);
 }
 [data-theme="light"] .ord-vitem-save-btn { color: var(--surface); }
 .ord-vitem-delete-btn {
@@ -2115,7 +2115,7 @@ body.ord-overlay-open .nav {
   padding: 14px 16px;
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 12px;
+  border-radius: 16px;
   color: var(--nx-text);
   font-family: 'Outfit', sans-serif;
   font-size: 14.5px;
@@ -2152,7 +2152,7 @@ body.ord-overlay-open .nav {
   padding: 13px;
   background: transparent;
   border: 1px solid var(--nx-gold-line);
-  border-radius: 12px;
+  border-radius: 16px;
   color: var(--nx-faint);
   font-family: 'Outfit', sans-serif;
   font-size: 14px;
@@ -2250,7 +2250,7 @@ body.ord-overlay-open .nav {
   height: 40px;
   background: var(--nx-gold-soft);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 10px;
+  border-radius: 14px;
   font-family: 'Outfit', sans-serif;
   font-size: 14px;
   font-weight: 600;
@@ -2282,7 +2282,7 @@ body.ord-overlay-open .nav {
   margin: 6px 0 10px;
   background: var(--nx-gold-soft);
   border: 1px dashed var(--nx-gold);
-  border-radius: 12px;
+  border-radius: 16px;
   color: var(--nx-gold);
   font-family: 'Outfit', sans-serif;
   font-size: 13.5px;
@@ -2295,7 +2295,7 @@ body.ord-overlay-open .nav {
 }
 .ord-veditor-add-item-btn:hover {
   background: var(--nx-gold);
-  color: var(--nx-gold-on, #1c1408);
+  color: var(--nx-gold-on, #101626);
   border-style: solid;
 }
 [data-theme="light"] .ord-veditor-add-item-btn:hover { color: var(--surface); }
@@ -2341,7 +2341,7 @@ body.ord-overlay-open .nav {
 .ord-entry-add:hover,
 .ord-entry-add:active {
   background: var(--nx-gold);
-  color: var(--nx-gold-on, #1c1408);
+  color: var(--nx-gold-on, #101626);
   border-color: var(--nx-gold);
 }
 [data-theme="light"] .ord-entry-add:hover,
@@ -2388,7 +2388,7 @@ body.ord-overlay-open .nav {
   max-height: calc(100vh - 100px);
   background: var(--nx-bg);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 16px;
+  border-radius: 20px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2470,7 +2470,7 @@ body.ord-overlay-open .nav {
   padding: 0 7px;
   border-radius: 999px;
   background: var(--nx-gold);
-  color: var(--nx-gold-on, #1c1408);
+  color: var(--nx-gold-on, #101626);
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
   font-weight: 600;
@@ -2488,7 +2488,7 @@ body.ord-overlay-open .nav {
   position: relative;
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 14px;
+  border-radius: 18px;
   padding: 14px 12px 12px;
   display: flex;
   flex-direction: column;
@@ -2515,8 +2515,8 @@ body.ord-overlay-open .nav {
   padding: 14px 16px;
   background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e));
   border: none;
-  border-radius: 11px;
-  color: var(--nx-gold-on, #1c1408);
+  border-radius: 15px;
+  color: var(--nx-gold-on, #101626);
   font-family: 'Outfit', sans-serif;
   font-size: 13.5px;
   font-weight: 600;
@@ -2557,7 +2557,7 @@ body.ord-overlay-open .nav {
   padding: 11px 12px;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: 14px;
   text-align: left;
   cursor: pointer;
   transition: background .14s, border-color .14s, transform .08s;
@@ -2644,7 +2644,7 @@ body.ord-overlay-open .nav {
   justify-content: center;
   background: var(--nx-gold-soft);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 18px;
+  border-radius: 22px;
   color: var(--nx-gold);
   margin-bottom: 4px;
 }
@@ -2677,7 +2677,7 @@ body.ord-overlay-open .nav {
 .ved-items-list .ord-vitem-editing {
   background: var(--nx-bg);
   border: 1px solid var(--nx-gold);
-  border-radius: 12px;
+  border-radius: 16px;
   padding: 14px;
   margin: 4px 0;
   box-shadow: var(--nx-shadow-pill, 0 2px 10px var(--nx-gold-soft));
@@ -2779,7 +2779,7 @@ body.ord-overlay-open .nav {
    secondary blur — the sheet floats as a frosted surface above the
    blurred backdrop. */
 .ord-vmenu-sheet {
-  background: rgba(20, 18, 14, 0.92) !important;
+  background: rgba(24, 34, 54, 0.92) !important;
   -webkit-backdrop-filter: blur(24px) saturate(140%);
   backdrop-filter: blur(24px) saturate(140%);
 }
@@ -2821,12 +2821,12 @@ body.ord-overlay-open .nav {
 .ord-vmenu-item {
   padding: 16px 16px;
   font-size: 15.5px;
-  border-radius: 14px;
+  border-radius: 18px;
 }
 .ord-vmenu-cancel {
   padding: 15px;
   font-size: 15px;
-  border-radius: 14px;
+  border-radius: 18px;
 }
 
 /* ─── Quick-add modal — glass backdrop ──────────────────────────── */
@@ -2843,10 +2843,10 @@ body.ord-overlay-open .nav {
 .ord-qadd-card {
   /* Slightly translucent gold-tinted card surface. Already has its
      own bg, but tweak for the glass aesthetic. */
-  background: rgba(28, 24, 20, 0.96);
+  background: rgba(34, 46, 70, 0.96);
   -webkit-backdrop-filter: blur(24px) saturate(140%);
   backdrop-filter: blur(24px) saturate(140%);
-  border-radius: 20px;
+  border-radius: 24px;
 }
 [data-theme="light"] .ord-qadd-card {
   background: rgba(252, 248, 240, 0.96);
@@ -2865,7 +2865,7 @@ body.ord-overlay-open .nav {
 .ord-form-textarea {
   padding: 12px 14px;       /* up from 10/12 */
   font-size: 15px;          /* up from 14 */
-  border-radius: 12px;      /* up from 10 */
+  border-radius: 16px;      /* up from 10 */
 }
 .ord-form-textarea {
   font-size: 13.5px;        /* up from 12.5 */
@@ -2941,7 +2941,7 @@ body.ord-overlay-open .nav {
 
 .ved-item-row {
   padding: 14px 14px;       /* up from 11/12 */
-  border-radius: 12px;
+  border-radius: 16px;
   gap: 14px;
 }
 .ved-item-name {
@@ -2964,7 +2964,7 @@ body.ord-overlay-open .nav {
 .ved-add-item-primary {
   padding: 16px 16px;       /* up from 14 */
   font-size: 14.5px;        /* up from 13.5 */
-  border-radius: 14px;
+  border-radius: 18px;
 }
 
 /* ─── Row meta — better hierarchy ──────────────────────────────── */
@@ -3332,7 +3332,7 @@ body.ord-overlay-open .nav {
   background: linear-gradient(135deg, var(--nx-gold) 0%, var(--nx-gold-strong, var(--nx-gold)) 100%);
   color: var(--nx-bg);
   border: 1px solid var(--nx-gold-strong, var(--nx-gold));
-  border-radius: 14px;
+  border-radius: 18px;
   font-family: 'Outfit', sans-serif;
   font-size: 15px;
   font-weight: 600;
@@ -3413,7 +3413,7 @@ body.ord-overlay-open .nav {
   gap: 14px;
   cursor: pointer;
   padding: 10px 12px;
-  border-radius: 12px;
+  border-radius: 16px;
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line);
   -webkit-tap-highlight-color: transparent;
@@ -3430,7 +3430,7 @@ body.ord-overlay-open .nav {
   flex-shrink: 0;
   width: 38px;
   height: 22px;
-  border-radius: 11px;
+  border-radius: 15px;
   background: var(--nx-surface-3, var(--nx-surface-2));
   border: 1px solid var(--nx-gold-line);
   transition: background var(--nx-press), border-color var(--nx-press);
@@ -3575,7 +3575,7 @@ body.ord-overlay-open .nav {
   padding: 14px 16px;
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 14px;
+  border-radius: 18px;
   margin-bottom: 10px;
 }
 .ord-odetail-card-faint {
@@ -3647,7 +3647,7 @@ body.ord-overlay-open .nav {
 .ord-odetail-lines {
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 14px;
+  border-radius: 18px;
   overflow: hidden;
 }
 .ord-odetail-line {
@@ -3665,7 +3665,7 @@ body.ord-overlay-open .nav {
   width: 44px;
   height: 36px;
   border: 1px solid var(--nx-gold-line);
-  border-radius: 8px;
+  border-radius: 12px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3730,7 +3730,7 @@ body.ord-overlay-open .nav {
   align-items: center;
   justify-content: center;
   padding: 14px 16px;
-  border-radius: 14px;
+  border-radius: 18px;
   font-family: 'Outfit', sans-serif;
   font-size: 14px;
   font-weight: 600;
@@ -3931,7 +3931,7 @@ body.ord-overlay-open .nav {
   background: var(--nx-gold-soft, var(--nx-gold-mist));
   color: var(--nx-text);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 12px;
+  border-radius: 16px;
   font-family: 'Outfit', sans-serif;
   font-size: 14px;
   font-weight: 600;
@@ -3962,7 +3962,7 @@ body.ord-overlay-open .nav {
   background: rgba(214, 145, 46, 0.08);
   border: 1px solid rgba(214, 145, 46, 0.35);
   border-left: 3px solid #d6912e;
-  border-radius: 12px;
+  border-radius: 16px;
 }
 [data-theme="light"] .ord-odetail-issue-banner {
   background: rgba(196, 129, 31, 0.07);
@@ -4242,7 +4242,7 @@ body.ord-overlay-open .nav {
   flex-shrink: 0;
   width: 52px;
   height: 38px;
-  border-radius: 8px;
+  border-radius: 12px;
   border: 1px solid var(--nx-gold-line);
   font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
   font-size: 10.5px;
@@ -4279,7 +4279,7 @@ body.ord-overlay-open .nav {
   padding: 0 12px;
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 8px;
+  border-radius: 12px;
   color: var(--nx-text);
   font-family: 'Outfit', sans-serif;
   font-size: 13px;
@@ -4323,7 +4323,7 @@ body.ord-overlay-open .nav {
   padding: 11px 16px;
   background: transparent;
   border: 1px dashed var(--nx-gold-line);
-  border-radius: 10px;
+  border-radius: 14px;
   color: var(--nx-gold);
   font-family: 'Outfit', sans-serif;
   font-size: 13px;
@@ -4952,7 +4952,7 @@ body.ord-overlay-open .nav {
 .ord-catalog-overlay .ved-section-block {
   background: var(--surface);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 12px;
+  border-radius: 16px;
   margin: 0 0 14px;
   overflow: hidden;
   box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.05);
@@ -5043,7 +5043,7 @@ body.ord-overlay-open .nav {
   z-index: 11;
   background: var(--nx-gold-mist);
   box-shadow: 0 6px 18px rgba(0,0,0,0.18);
-  border-radius: 8px;
+  border-radius: 12px;
   border: 1px solid var(--accent);
 }
 .ord-catalog-overlay .ved-item-row.is-dragging:hover {
@@ -5278,7 +5278,7 @@ body.ord-overlay-open .nav {
 .ord-veditor-overlay .ved-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 18px;
   /* Margin handled by parent's gap now (.ord-veditor-body gap: 20px),
      so individual margin would double-count. Keep zero here. */
   margin: 0;
@@ -5395,7 +5395,7 @@ body.ord-overlay-open .nav {
   color: var(--bg);
 }
 .ord-veditor-overlay .ved-rec-label-pill-cc {
-  background: rgba(200, 164, 78, 0.15);
+  background: rgba(212, 164, 78, 0.15);
   color: var(--accent);
   border: 1px solid var(--nx-gold-line);
 }
@@ -5444,7 +5444,7 @@ body.ord-overlay-open .nav {
   padding: 5px 4px 5px 10px;
   background: var(--nx-gold-faint);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 16px;
+  border-radius: 20px;
   font-size: 13px;
   color: var(--text);
   max-width: 100%;
@@ -5489,7 +5489,7 @@ body.ord-overlay-open .nav {
   padding: 5px 10px;
   background: transparent;
   border: 1px dashed var(--nx-gold-line);
-  border-radius: 16px;
+  border-radius: 20px;
   color: var(--accent);
   cursor: pointer;
   font-family: inherit;
@@ -5513,7 +5513,7 @@ body.ord-overlay-open .nav {
   flex: 1;
   min-width: 180px;
   padding: 6px 12px;
-  border-radius: 16px;
+  border-radius: 20px;
   border: 1.5px solid var(--accent);
   background: var(--bg);
   color: var(--text);
@@ -5809,7 +5809,7 @@ body.ord-overlay-open .nav {
   justify-content: center;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: 10px;
   color: var(--nx-faint, var(--muted));
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
@@ -5946,7 +5946,7 @@ body.ord-overlay-open .nav {
   min-height: 48px;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: 14px;
   color: var(--text);
   font-family: inherit;
   font-size: 14px;
@@ -6006,7 +6006,7 @@ body.ord-overlay-open .nav {
   min-height: 44px;
   background: transparent;
   border: 1px dashed var(--nx-gold-line, var(--border));
-  border-radius: 10px;
+  border-radius: 14px;
   color: var(--accent);
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 12px;
@@ -6090,7 +6090,7 @@ body.ord-overlay-open .nav {
   max-width: 420px;
   background: var(--nx-surface-solid, var(--surface));
   border: 1px solid rgba(211, 84, 84, 0.32);      /* red border telegraphs danger */
-  border-radius: 16px;
+  border-radius: 20px;
   padding: 22px 22px 18px;
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
   display: flex;
@@ -6146,7 +6146,7 @@ body.ord-overlay-open .nav {
   color: var(--nx-faint, var(--muted));
   padding: 10px 12px;
   background: var(--nx-gold-tint, rgba(0, 0, 0, 0.15));
-  border-radius: 8px;
+  border-radius: 12px;
 }
 .ord-confirm-actions {
   width: 100%;
@@ -6157,7 +6157,7 @@ body.ord-overlay-open .nav {
 .ord-confirm-delete {
   flex: 1;
   height: 46px;
-  border-radius: 10px;
+  border-radius: 14px;
   font-family: inherit;
   font-size: 14px;
   font-weight: 600;
@@ -6222,9 +6222,9 @@ body.ord-overlay-open .nav {
 .ord-recent-search {
   width: 100%;
   padding: 9px 36px 9px 33px;
-  background: var(--nx-bg, #15110a);
+  background: var(--nx-bg, #0e1320);
   border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.18));
-  border-radius: 8px;
+  border-radius: 12px;
   color: var(--nx-text, #ede9e0);
   font-family: inherit;
   font-size: 14px;
@@ -6251,7 +6251,7 @@ body.ord-overlay-open .nav {
   border-radius: 50%;
   border: none;
   background: var(--nx-faint, var(--muted));
-  color: var(--nx-bg, #15110a);
+  color: var(--nx-bg, #0e1320);
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
@@ -6300,7 +6300,7 @@ body.ord-overlay-open .nav {
 .ord-recent-chip.is-active {
   background: var(--nx-gold, #d4a44e);
   border-color: var(--nx-gold, #d4a44e);
-  color: var(--nx-bg, #15110a);
+  color: var(--nx-bg, #0e1320);
   font-weight: 600;
 }
 .ord-recent-chip-count {
@@ -6432,7 +6432,7 @@ body.ord-overlay-open .nav {
   width: 100%;
   max-width: 540px;
   max-height: 90vh;
-  background: var(--nx-surface-solid, var(--surface, #15110a));
+  background: var(--nx-surface-solid, var(--surface, #0e1320));
   border: 1px solid var(--nx-gold-line);
   border-radius: 16px 16px 0 0;
   display: flex;
@@ -6442,7 +6442,7 @@ body.ord-overlay-open .nav {
 }
 @media (min-width: 600px) {
   .ord-cat-import-overlay { align-items: center; padding: 24px; }
-  .ord-cat-import-modal { border-radius: 16px; max-height: 80vh; }
+  .ord-cat-import-modal { border-radius: 20px; max-height: 80vh; }
 }
 @keyframes ordCatImpSlide {
   from { transform: translateY(20px); opacity: 0; }
@@ -6514,7 +6514,7 @@ body.ord-overlay-open .nav {
   padding: 28px 18px;
   background: var(--nx-gold-faint, rgba(212, 164, 78, 0.05));
   border: 2px dashed var(--nx-gold, #d4a44e);
-  border-radius: 14px;
+  border-radius: 18px;
   cursor: pointer;
   font-family: inherit;
   -webkit-tap-highlight-color: transparent;
@@ -6533,7 +6533,7 @@ body.ord-overlay-open .nav {
   height: 56px;
   border-radius: 50%;
   background: var(--nx-gold, #d4a44e);
-  color: var(--nx-bg, #15110a);
+  color: var(--nx-bg, #0e1320);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -6563,7 +6563,7 @@ body.ord-overlay-open .nav {
   padding: 18px;
   background: var(--nx-gold);
   color: var(--nx-bg);
-  border-radius: 12px;
+  border-radius: 16px;
   font-family: 'Outfit', system-ui, sans-serif;
   font-size: 14px;
   font-weight: 600;
@@ -6579,7 +6579,7 @@ body.ord-overlay-open .nav {
   padding: 12px 14px;
   background: var(--nx-gold-faint);
   border: 1px dashed var(--nx-gold-line);
-  border-radius: 10px;
+  border-radius: 14px;
   font-size: 12px;
   line-height: 1.5;
   color: var(--nx-muted, var(--muted));
@@ -6606,7 +6606,7 @@ body.ord-overlay-open .nav {
   padding: 12px 6px;
   background: var(--nx-gold-faint, rgba(212,164,78,0.06));
   border: 1px solid var(--nx-gold-line);
-  border-radius: 10px;
+  border-radius: 14px;
   text-align: center;
 }
 .ord-cat-import-stat-num {
@@ -6643,7 +6643,7 @@ body.ord-overlay-open .nav {
 .ord-cat-import-group {
   margin-top: 12px;
   border: 1px solid var(--nx-gold-line);
-  border-radius: 10px;
+  border-radius: 14px;
   overflow: hidden;
 }
 .ord-cat-import-group summary {
@@ -6718,7 +6718,7 @@ body.ord-overlay-open .nav {
 .ord-cat-import-confirm {
   flex: 1;
   height: 46px;
-  border-radius: 10px;
+  border-radius: 14px;
   font-family: inherit;
   font-size: 14px;
   font-weight: 600;
@@ -6770,7 +6770,7 @@ body.ord-overlay-open .nav {
   padding: 8px 16px;
   background: transparent;
   border: 1px solid var(--nx-gold);
-  border-radius: 8px;
+  border-radius: 12px;
   color: var(--nx-gold);
   font-size: 13px;
   cursor: pointer;
@@ -6835,7 +6835,7 @@ body.ord-overlay-open .nav {
   gap: 10px;
   background: var(--nx-gold-faint);
   border: 1px dashed var(--nx-gold-line);
-  border-radius: 14px;
+  border-radius: 18px;
   margin: 20px 16px;
 }
 .ved-items-empty-cta .ved-items-empty-icon {
@@ -6872,7 +6872,7 @@ body.ord-overlay-open .nav {
   gap: 8px;
   height: 44px;
   padding: 0 16px;
-  border-radius: 10px;
+  border-radius: 14px;
   font-family: inherit;
   font-size: 14px;
   font-weight: 500;
@@ -6950,7 +6950,7 @@ body.ord-overlay-open .nav {
   padding: 7px 12px;
   background: transparent;
   border: none;
-  border-radius: 6px;
+  border-radius: 10px;
   font-family: inherit;
   font-size: 13px;
   color: var(--nx-gold, #d4a44e);
@@ -6983,7 +6983,7 @@ body.ord-overlay-open .nav {
   padding: 0 16px;
   background: transparent;
   border: 1px solid var(--nx-gold-line);
-  border-radius: 10px;
+  border-radius: 14px;
   font-family: inherit;
   font-size: 13px;
   color: var(--nx-text);
@@ -7020,7 +7020,7 @@ body.ord-overlay-open .nav {
   padding: 12px 14px;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: 16px;
   text-align: left;
   font-family: inherit;
   cursor: pointer;
@@ -7104,7 +7104,7 @@ body.ord-overlay-open .nav {
   padding: 10px 14px;
   background: transparent;
   border: 1px solid var(--nx-gold-line);
-  border-radius: 10px;
+  border-radius: 14px;
   cursor: pointer;
   font-family: inherit;
   font-size: 12.5px;
@@ -7304,7 +7304,7 @@ body.ord-overlay-open .nav {
   padding: 10px 12px;
   background: var(--nx-bg);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 8px;
+  border-radius: 12px;
   color: var(--nx-text);
   font-family: inherit;
   font-size: 13.5px;
@@ -7339,7 +7339,7 @@ body.ord-overlay-open .nav {
 .ord-odetail-tl-step[data-revert-status] {
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  border-radius: 8px;
+  border-radius: 12px;
   transition: background 120ms ease;
 }
 .ord-odetail-tl-step[data-revert-status]:hover {
@@ -7433,7 +7433,7 @@ body.ord-overlay-open .nav {
   padding: 8px 4px;
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 8px;
+  border-radius: 12px;
   color: var(--nx-faint);
   font-family: 'JetBrains Mono', monospace;
   font-size: 10.5px;
@@ -7450,7 +7450,7 @@ body.ord-overlay-open .nav {
 .rx-day-pill.active {
   background: var(--nx-gold);
   border-color: var(--nx-gold);
-  color: var(--nx-gold-on, #1c1408);
+  color: var(--nx-gold-on, #101626);
 }
 [data-theme="light"] .rx-day-pill.active { color: var(--surface); }
 
@@ -7537,7 +7537,7 @@ body.ord-overlay-open .nav {
 .ord-vmenu-item.ord-vmenu-item-primary {
   background: var(--nx-gold-faint, rgba(212, 164, 78, 0.08));
   border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.3));
-  border-radius: 10px;
+  border-radius: 14px;
   margin: 0 4px 6px;
   align-items: flex-start;
 }
@@ -7725,7 +7725,7 @@ body.ord-overlay-open .nav {
   margin: 0 0 14px;
   background: var(--nx-gold-faint, rgba(212, 164, 78, 0.08));
   border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.3));
-  border-radius: 10px;
+  border-radius: 14px;
   font-size: 12.5px;
   line-height: 1.4;
   color: var(--nx-text);
@@ -7787,7 +7787,7 @@ body.ord-overlay-open .nav {
 }
 .rx-sched-toggle-btn.is-active {
   background: var(--nx-gold);
-  color: var(--nx-gold-on, #1c1408);
+  color: var(--nx-gold-on, #101626);
   border-color: var(--nx-gold);
 }
 .rx-sched-reset-btn {
@@ -7816,7 +7816,7 @@ body.ord-overlay-open .nav {
 .rx-sched-default-summary {
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.16));
-  border-radius: 10px;
+  border-radius: 14px;
   padding: 10px 12px;
   margin: 0 0 14px;
   display: flex;
@@ -7901,7 +7901,7 @@ body.ord-overlay-open .nav {
 }
 .rx-loc-availability-pill.active {
   background: var(--nx-gold);
-  color: var(--nx-gold-on, #1c1408);
+  color: var(--nx-gold-on, #101626);
   border-color: var(--nx-gold);
   box-shadow: 0 0 14px rgba(212, 164, 78, 0.25);
 }
@@ -7927,7 +7927,7 @@ body.ord-overlay-open .nav {
   padding: 14px 18px;
   background: transparent;
   border: 1px dashed var(--nx-gold-line, rgba(212, 164, 78, 0.3));
-  border-radius: 12px;
+  border-radius: 16px;
   color: var(--nx-faint);
   font-family: 'Outfit', sans-serif;
   font-size: 13px;
@@ -8074,7 +8074,7 @@ body.ord-overlay-open .nav {
 }
 .ord-tx-pill.active {
   background: var(--nx-gold);
-  color: var(--nx-gold-on, #1c1408);
+  color: var(--nx-gold-on, #101626);
   border-color: var(--nx-gold);
 }
 [data-theme="light"] .ord-tx-pill.active { color: var(--surface); }
@@ -8095,7 +8095,7 @@ body.ord-overlay-open .nav {
 }
 .ord-tx-pill.active .ord-tx-pill-count {
   background: rgba(28, 20, 8, 0.18);
-  color: var(--nx-gold-on, #1c1408);
+  color: var(--nx-gold-on, #101626);
 }
 
 /* Search bar */
@@ -8108,7 +8108,7 @@ body.ord-overlay-open .nav {
   padding: 10px 14px;
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.18));
-  border-radius: 10px;
+  border-radius: 14px;
   color: var(--nx-text);
   font-family: 'Outfit', sans-serif;
   font-size: 13.5px;
@@ -8174,7 +8174,7 @@ body.ord-overlay-open .nav {
   margin: 0 0 6px;
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.16));
-  border-radius: 12px;
+  border-radius: 16px;
   cursor: pointer;
   text-align: left;
   -webkit-tap-highlight-color: transparent;
@@ -8258,7 +8258,7 @@ body.ord-overlay-open .nav {
   padding: 12px;
   background: transparent;
   border: 1px dashed var(--nx-gold-line, rgba(212, 164, 78, 0.3));
-  border-radius: 10px;
+  border-radius: 14px;
   color: var(--nx-faint);
   font-family: 'Outfit', sans-serif;
   font-size: 13px;
@@ -8399,7 +8399,7 @@ body.ord-overlay-open .nav {
   width: 100%;
   background: rgba(255,255,255,0.03);
   border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 6px;
+  border-radius: 10px;
   padding: 4px 6px;
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 11px;
@@ -8497,7 +8497,7 @@ body.ord-overlay-open .nav {
   color: var(--nx-muted, var(--nx-faint)) !important;
   border: 1px solid var(--nx-gold-line) !important;
   background: var(--nx-surface-1) !important;
-  border-radius: 12px !important;
+  border-radius: 16px !important;
   z-index: 2;
 }
 .ord-vendor-menu:hover,
@@ -9193,7 +9193,7 @@ body.ord-overlay-open .nav {
 }
 .ord-cat-filter-row .ord-entry-filter-pill.is-active .ord-pill-count {
   background: rgba(28, 20, 8, 0.2);
-  color: var(--nx-gold-on, #1c1408);
+  color: var(--nx-gold-on, #101626);
 }
 
 /* ── Floating CTA (Add item) ──────────────────────────────────────── */
@@ -9231,7 +9231,7 @@ body.ord-overlay-open .nav {
   justify-content: center;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: 10px;
   color: var(--nx-faint);
   cursor: pointer;
   transition: color .12s, background .12s, border-color .12s;
@@ -9244,7 +9244,7 @@ body.ord-overlay-open .nav {
   background: var(--nx-gold-soft, rgba(212, 164, 78, 0.08));
 }
 .ved-section-bulk-btn.is-active {
-  color: var(--nx-gold-on, #1c1408);
+  color: var(--nx-gold-on, #101626);
   background: var(--nx-gold);
   border-color: var(--nx-gold);
 }
@@ -9300,7 +9300,7 @@ body.ord-overlay-open .nav {
   padding: 0 10px;
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 8px;
+  border-radius: 12px;
   font-family: 'Outfit', sans-serif;
   font-size: 14px;
   color: var(--nx-text);
@@ -9344,7 +9344,7 @@ body.ord-overlay-open .nav {
 .ved-bulk-cancel:hover { background: var(--nx-surface-1); }
 .ved-bulk-apply {
   background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e));
-  color: var(--nx-gold-on, #1c1408);
+  color: var(--nx-gold-on, #101626);
   border-color: var(--nx-gold);
   box-shadow: 0 1px 6px var(--nx-gold-soft, rgba(212, 164, 78, 0.35));
 }
