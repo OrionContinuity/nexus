@@ -164,7 +164,7 @@
 }
 .clean-sec.complete {
   border-left: 3px solid var(--nx-green) !important;
-  background: rgba(156, 138, 62, 0.03) !important;
+  background: rgba(63, 160, 143, 0.03) !important;
 }
 .clean-sec-head {
   display: flex !important;
@@ -244,12 +244,12 @@
 }
 .clean-link-board.is-on-board {
   background: transparent !important;
-  border-color: rgba(156, 138, 62, 0.30) !important;
+  border-color: rgba(63, 160, 143, 0.30) !important;
   color: var(--nx-green) !important;
 }
 .clean-link-board.is-on-board:hover {
-  background: rgba(156, 138, 62, 0.08) !important;
-  border-color: rgba(156, 138, 62, 0.45) !important;
+  background: rgba(63, 160, 143, 0.08) !important;
+  border-color: rgba(63, 160, 143, 0.45) !important;
 }
 /* On phone-narrow screens, the section header gets crowded — hide
    the long status text and just keep the badge + count. The status
@@ -281,7 +281,7 @@
   width: 26px !important;
   height: 26px !important;
   border: 1.5px solid var(--nx-gold-line) !important;
-  border-radius: 7px !important;
+  border-radius: 11px !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
@@ -292,7 +292,7 @@
 }
 .clean-item.done .ci-box {
   border-color: var(--nx-green) !important;
-  background: rgba(156, 138, 62, 0.1) !important;
+  background: rgba(63, 160, 143, 0.1) !important;
 }
 .ci-primary {
   font-family: var(--nx-font-body) !important;
@@ -343,7 +343,7 @@
 }
 .clean-overdue { color: var(--nx-red) !important; background: var(--nx-red-soft) !important; }
 .clean-due-soon { color: var(--nx-amber) !important; background: var(--nx-gold-mist) !important; }
-.clean-on-track { color: var(--nx-green) !important; background: rgba(156, 138, 62, 0.10) !important; }
+.clean-on-track { color: var(--nx-green) !important; background: rgba(63, 160, 143, 0.10) !important; }
 
 /* Footer (Scan / Print / Submit) — v3 composition.
 
@@ -531,7 +531,7 @@
 @keyframes clean-spin { to { transform: rotate(360deg); } }
 
 /* Success — check mark in olive-bronze (success without scarlet/screaming green) */
-.clean-cam[data-state="ok"] { color: var(--nx-green, var(--green)); opacity: 1; border-color: currentColor !important; background: rgba(156,138,62,0.08) !important; }
+.clean-cam[data-state="ok"] { color: var(--nx-green, var(--green)); opacity: 1; border-color: currentColor !important; background: rgba(63,160,143,0.08) !important; }
 .clean-cam[data-state="ok"]::before {
   -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'/></svg>") no-repeat center / 14px 14px;
   mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'/></svg>") no-repeat center / 14px 14px;
@@ -727,7 +727,7 @@
 }
 .cal-status-done,
 .cal-status-closed {
-  background: rgba(156, 138, 62, 0.12) !important;
+  background: rgba(63, 160, 143, 0.12) !important;
   color: var(--nx-green) !important;
 }
 .cal-status-noted {
@@ -1219,7 +1219,7 @@
   font-size: var(--nx-text-sm) !important;
   border-radius: var(--nx-radius-pill) !important;
   border: 1px solid var(--nx-gold-line-2) !important;
-  background: rgba(28, 24, 20, 0.92) !important;
+  background: rgba(34, 46, 70, 0.92) !important;
   backdrop-filter: blur(20px) saturate(1.4) !important;
   -webkit-backdrop-filter: blur(20px) saturate(1.4) !important;
   color: var(--nx-text) !important;
@@ -1239,7 +1239,7 @@
 
 .eq-part-vendor-stock.in {
   color: var(--nx-green, var(--green)) !important;       /* olive bronze */
-  background: rgba(156, 138, 62, 0.10) !important;
+  background: rgba(63, 160, 143, 0.10) !important;
 }
 .eq-part-vendor-stock.in::before {
   color: var(--nx-green, var(--green)) !important;
@@ -1297,7 +1297,7 @@
 .eq-part-vendor-btn.order {
   background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e)) !important;
   border-color: var(--nx-gold) !important;
-  color: var(--nx-gold-on, #1c1408) !important;
+  color: var(--nx-gold-on, #101626) !important;
   font-family: 'Outfit', sans-serif !important;
   font-size: 12px !important;
   font-weight: 600;
@@ -1313,7 +1313,7 @@
   background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e)) !important;
   border: 1px solid var(--nx-gold) !important;
   box-shadow: none !important;            /* kill the bright glow */
-  color: var(--nx-gold-on, #1c1408) !important;
+  color: var(--nx-gold-on, #101626) !important;
   font-weight: 600 !important;
   letter-spacing: 0.2px;
 }
@@ -1530,7 +1530,7 @@
   border-radius: 999px !important;
   background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e)) !important;
   border: 1px solid var(--nx-gold) !important;
-  color: var(--nx-gold-on, #1c1408) !important;
+  color: var(--nx-gold-on, #101626) !important;
   font-family: 'Outfit', sans-serif !important;
   font-size: 15px !important;
   font-weight: 600 !important;
@@ -1614,7 +1614,7 @@
   min-width: 220px;
   background: var(--nx-bg) !important;
   border: 1px solid var(--nx-gold-line) !important;
-  border-radius: 14px !important;
+  border-radius: 18px !important;
   padding: 6px !important;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
   z-index: 100;
@@ -1651,7 +1651,7 @@
   padding: 11px 14px !important;
   background: transparent !important;
   border: none !important;
-  border-radius: 8px !important;
+  border-radius: 12px !important;
   color: var(--nx-text) !important;
   font-family: 'Outfit', sans-serif !important;
   font-size: 14px !important;
@@ -1727,9 +1727,9 @@
 .eq-overflow-menu.active {
   display: flex !important;
   flex-direction: column;
-  background: var(--nx-bg, #1a1814) !important;
+  background: var(--nx-bg, #141a2a) !important;
   border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.22)) !important;
-  border-radius: 12px !important;
+  border-radius: 16px !important;
   padding: 6px !important;
   min-width: 220px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
@@ -1756,7 +1756,7 @@
   padding: 10px 12px;
   background: var(--nx-gold-soft, var(--nx-gold-tint));
   border: 1px solid var(--nx-gold-line);
-  border-radius: 10px;
+  border-radius: 14px;
 }
 .b-parts-bom-label {
   font-family: 'JetBrains Mono', monospace;
@@ -1795,7 +1795,7 @@
 .b-parts-bom-chip.is-selected {
   background: var(--nx-gold);
   border-color: var(--nx-gold);
-  color: var(--nx-gold-on, #1c1408);
+  color: var(--nx-gold-on, #101626);
 }
 [data-theme="light"] .b-parts-bom-chip.is-selected { color: var(--surface); }
 
@@ -1885,7 +1885,7 @@
     rgba(122, 113, 103, 0.18) 0%,
     rgba(122, 113, 103, 0.06) 100%);
   border: 1px solid rgba(122, 113, 103, 0.32);
-  border-radius: 10px;
+  border-radius: 14px;
   position: sticky;
   top: 0;
   z-index: 10;
@@ -1937,7 +1937,7 @@ body.is-equipment-archive-world #equipmentView {
     radial-gradient(ellipse at top,
       rgba(122, 113, 103, 0.08) 0%,
       transparent 60%),
-    var(--bg, #0e0c08);
+    var(--bg, #0b0f18);
 }
 body.is-equipment-archive-world .eq-card,
 body.is-equipment-archive-world .eq-row {
@@ -1994,7 +1994,7 @@ body.is-equipment-archive-world .eq-row:hover {
   color: var(--text, #f0e9da);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: 10px;
   padding: 4px 6px;
   margin: -4px -6px 0;
   line-height: 1.4;
@@ -2469,7 +2469,7 @@ body.is-equipment-archive-world .eq-row:hover {
   padding: 8px 12px;
   background: rgba(212, 164, 78, 0.04);
   border: 1px solid rgba(212, 164, 78, 0.14);
-  border-radius: 8px;
+  border-radius: 12px;
 }
 .rx-cc-phone-name-num {
   font-family: 'JetBrains Mono', monospace;
@@ -2586,7 +2586,7 @@ input.rx-cc-phone-name-num {
   font-size: 12.5px !important;
   background: transparent !important;
   border: 1px solid transparent !important;
-  border-radius: 6px;
+  border-radius: 10px;
   color: var(--nx-text-secondary, #b9b3a5);
   transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
 }
@@ -2606,7 +2606,7 @@ input.rx-cc-phone-name-num.rx-input-error {
 }
 [data-theme="light"] input.rx-cc-phone-name-num:focus,
 [data-theme="light"] input.rx-cc-phone-name-num:hover {
-  color: #1a1408;
+  color: #101626;
   background: rgba(139, 105, 20, 0.06) !important;
   border-color: rgba(139, 105, 20, 0.30) !important;
 }
