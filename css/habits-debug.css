@@ -17,9 +17,9 @@
 }
 
 .habits-debug-card {
-  background: var(--nx-surface-1, #1a1814);
+  background: var(--nx-surface-1, #141a2a);
   border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.20));
-  border-radius: 16px;
+  border-radius: 20px;
   width: 100%;
   max-width: 640px;
   max-height: 90vh;
@@ -52,7 +52,7 @@
   font-size: 20px;
   cursor: pointer;
   padding: 4px 10px;
-  border-radius: 8px;
+  border-radius: 12px;
   transition: background 0.18s, color 0.18s;
 }
 .habits-debug-close:hover {
@@ -89,7 +89,7 @@
   margin-top: 14px;
   background: var(--nx-surface-2, rgba(255, 255, 255, 0.025));
   border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.12));
-  border-radius: 10px;
+  border-radius: 14px;
   overflow: hidden;
 }
 .habits-debug-section > summary {
@@ -165,7 +165,7 @@
   padding: 11px 14px;
   background: var(--nx-surface-2, rgba(255, 255, 255, 0.04));
   border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.20));
-  border-radius: 10px;
+  border-radius: 14px;
   color: var(--nx-text, #fff);
   font-family: 'Outfit', sans-serif;
   font-size: 13px;
