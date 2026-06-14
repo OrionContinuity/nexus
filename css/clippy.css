@@ -1071,7 +1071,7 @@ body.clippy-game-open .clippy-bubble {
 
 /* Trajan-mode bubble — black/gold mono */
 .clippy-bubble.is-trajan {
-  background: #0c0a08;
+  background: #0a0e16;
   color: #d4a44e;
   border-color: #d4a44e;
   font-family: 'JetBrains Mono', monospace;
@@ -1081,12 +1081,12 @@ body.clippy-game-open .clippy-bubble {
   box-shadow: 4px 4px 0 #d4a44e, 0 8px 24px rgba(212,164,78,0.35);
 }
 .clippy-bubble.is-trajan .clippy-bubble-close {
-  background: #0c0a08; border-color: #d4a44e; color: #d4a44e;
+  background: #0a0e16; border-color: #d4a44e; color: #d4a44e;
 }
 .clippy-bubble.is-trajan.tail-right::before { border-color: #d4a44e transparent transparent transparent; }
-.clippy-bubble.is-trajan.tail-right::after  { border-color: #0c0a08 transparent transparent transparent; }
+.clippy-bubble.is-trajan.tail-right::after  { border-color: #0a0e16 transparent transparent transparent; }
 .clippy-bubble.is-trajan.tail-left::before  { border-color: #d4a44e transparent transparent transparent; }
-.clippy-bubble.is-trajan.tail-left::after   { border-color: #0c0a08 transparent transparent transparent; }
+.clippy-bubble.is-trajan.tail-left::after   { border-color: #0a0e16 transparent transparent transparent; }
 .clippy-bubble-trajan-eyebrow {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
@@ -1121,7 +1121,7 @@ body.clippy-game-open .clippy-bubble {
   width: 100%;
   max-width: 520px;
   max-height: 78vh;
-  background: var(--surface, #1a1814);
+  background: var(--surface, #141a2a);
   border: 1px solid var(--nx-highlight-line, rgba(212,164,78,0.22));
   border-radius: 16px 16px 0 0;
   display: flex;
@@ -1153,7 +1153,7 @@ body.clippy-game-open .clippy-bubble {
 .clippy-palette-search {
   margin: 12px 14px 8px;
   padding: 11px 14px;
-  background: var(--bg, #0c0a08);
+  background: var(--bg, #0a0e16);
   border: 1px solid rgba(212,164,78,0.18);
   border-radius: 10px;
   color: var(--text, #ece6d8);
@@ -1397,7 +1397,7 @@ body.clippy-game-open .clippy-bubble {
 .clippy-bubble-btn.is-primary {
   background: linear-gradient(135deg, #d4a44e, #8b6914) !important;
   border-color: transparent !important;
-  color: #1a1408 !important;
+  color: #101626 !important;
 }
 
 /* Close button — softer, more tactile */
