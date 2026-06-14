@@ -19,7 +19,7 @@
   padding: 2px 7px;
   background: rgba(212, 164, 78, 0.10);
   border: 1px solid rgba(212, 164, 78, 0.25);
-  border-radius: 10px;
+  border-radius: 14px;
   font-family: 'Outfit', sans-serif;
   font-size: 10.5px;
   color: var(--nx-text, #fff);
@@ -40,7 +40,7 @@
   font-size: 14px;
   width: 26px;
   height: 26px;
-  border-radius: 6px;
+  border-radius: 10px;
   cursor: pointer;
   margin-left: 4px;
   display: inline-flex;
@@ -69,9 +69,9 @@
 }
 
 .admin-interest-editor-card {
-  background: var(--nx-surface-1, #1a1814);
+  background: var(--nx-surface-1, #141a2a);
   border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.20));
-  border-radius: 16px;
+  border-radius: 20px;
   width: 100%;
   max-width: 640px;
   max-height: 88vh;
@@ -104,7 +104,7 @@
   font-size: 20px;
   cursor: pointer;
   padding: 4px 10px;
-  border-radius: 8px;
+  border-radius: 12px;
   transition: background 0.18s, color 0.18s;
 }
 .admin-interest-editor-close:hover {
@@ -152,7 +152,7 @@
   padding: 7px 12px;
   background: var(--nx-surface-2, rgba(255, 255, 255, 0.03));
   border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.18));
-  border-radius: 18px;
+  border-radius: 22px;
   color: var(--nx-faint, rgba(255, 255, 255, 0.55));
   font-family: 'Outfit', sans-serif;
   font-size: 12.5px;
@@ -189,7 +189,7 @@
 .admin-interest-cancel {
   flex: 1 1 auto;
   padding: 11px 20px;
-  border-radius: 10px;
+  border-radius: 14px;
   font-family: 'Outfit', sans-serif;
   font-size: 14px;
   font-weight: 500;
