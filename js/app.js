@@ -1115,6 +1115,11 @@ td.check{background:#F0EDE6 !important}
     // is special-cased below to open the speed-dial instead of navigating.
     bnavBtns.forEach(btn => {
       if (btn.dataset.view === 'clean') return;     // skip — wired below
+      if (btn.dataset.equipDial) return;            // skip — opens the Equip speed-dial
+                                                    // (wired in index.html). Must NOT also
+                                                    // switchTo('equipment'), or the view loads
+                                                    // in the background behind the dial and the
+                                                    // dial's own "Equipment" item then no-ops.
       btn.addEventListener('click', () => switchTo(btn.dataset.view));
     });
     // Wire NEXUS wordmark → go to brain
@@ -3870,9 +3875,9 @@ NX.timeClock = {
         <div style="font-family:var(--nx-font-display,'Outfit',sans-serif);font-size:26px;font-weight:600;color:#f0e9dd;margin-bottom:6px">${esc(user.name || 'Staff')}</div>
         <div style="font-size:13.5px;color:rgba(240,233,221,.55);margin-bottom:22px">${isIn ? 'Where are you working today?' : 'End your shift now?'}</div>
         ${isIn ? `<div id="tcLocChips" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-bottom:26px">${locs.map(l =>
-          `<button data-loc="${esc(l)}" style="padding:10px 18px;border-radius:999px;font-size:14px;border:1px solid ${l === chosen ? 'var(--green,#4caf7d)' : 'rgba(212,182,138,.25)'};color:${l === chosen ? 'var(--green,#4caf7d)' : '#e8e0d2'};background:none;font-weight:${l === chosen ? '600' : '400'}">${esc(l)}</button>`).join('')}</div>` : ''}
+          `<button data-loc="${esc(l)}" style="padding:10px 18px;border-radius:999px;font-size:14px;border:1px solid ${l === chosen ? 'var(--green,#4caf7d)' : 'rgba(212,164,78,.25)'};color:${l === chosen ? 'var(--green,#4caf7d)' : '#e8e0d2'};background:none;font-weight:${l === chosen ? '600' : '400'}">${esc(l)}</button>`).join('')}</div>` : ''}
         <button id="tcConfirmGo" style="width:100%;padding:16px;border-radius:16px;border:none;font-size:16px;font-weight:700;color:#0c0a08;background:${isIn ? 'var(--green,#4caf7d)' : 'var(--red,#e5484d)'};margin-bottom:12px">${isIn ? 'Confirm Clock In' : 'Confirm Clock Out'}</button>
-        <button id="tcConfirmCancel" style="width:100%;padding:13px;border-radius:16px;font-size:14px;background:none;border:1px solid rgba(212,182,138,.22);color:rgba(240,233,221,.7)">Cancel</button>
+        <button id="tcConfirmCancel" style="width:100%;padding:13px;border-radius:16px;font-size:14px;background:none;border:1px solid rgba(212,164,78,.22);color:rgba(240,233,221,.7)">Cancel</button>
       </div>`;
     document.body.appendChild(bg);
     bg.querySelector('#tcLocChips')?.addEventListener('click', e => {
@@ -3881,7 +3886,7 @@ NX.timeClock = {
       chosen = b.dataset.loc;
       bg.querySelectorAll('[data-loc]').forEach(x => {
         const on = x.dataset.loc === chosen;
-        x.style.borderColor = on ? 'var(--green,#4caf7d)' : 'rgba(212,182,138,.25)';
+        x.style.borderColor = on ? 'var(--green,#4caf7d)' : 'rgba(212,164,78,.25)';
         x.style.color = on ? 'var(--green,#4caf7d)' : '#e8e0d2';
         x.style.fontWeight = on ? '600' : '400';
       });
