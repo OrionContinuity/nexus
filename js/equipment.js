@@ -3882,9 +3882,16 @@ function renderList() {
   `);
   list.querySelector('#eqActLink')?.addEventListener('click', () => openEquipmentActivityLog());
 
-  // Wire rows → detail
-  list.querySelectorAll('[data-eq-id]').forEach(el => {
-    el.addEventListener('click', (ev) => {
+  // Wire rows → detail (DELEGATED, bound once). The container #eqList is
+  // stable across renders; only its innerHTML changes. Per-row binding
+  // silently lost its handlers on every re-render/async populate, so direct
+  // taps stopped opening the detail while other entry points (which call
+  // openDetail directly) still worked. Delegation survives all re-renders.
+  if (!list.__rowClickBound) {
+    list.__rowClickBound = true;
+    list.addEventListener('click', (ev) => {
+      const el = ev.target.closest('[data-eq-id]');
+      if (!el || !list.contains(el)) return;
       // Beacon tap → quick status menu. Intercept BEFORE the generic
       // row-click that would open the detail view. The beacon is the
       // most-frequent action target in the list — tapping it cycles
@@ -3917,7 +3924,7 @@ function renderList() {
       }
       openDetail(el.dataset.eqId);
     });
-  });
+  }
 
   // Inject per-row/card Zebra quick-print buttons (was equipment-ux.js)
   injectRowPrintButtons();
@@ -4342,10 +4349,10 @@ function ensureBoardStyles() {
   const s = document.createElement('style');
   s.id = 'eq-board-bridge-styles';
   s.textContent = `
-    .eq-open-cards{background:rgba(200,164,78,0.05);border-top:1px solid rgba(200,164,78,0.12);border-bottom:1px solid rgba(200,164,78,0.12);padding:8px 14px;margin:0;display:flex;flex-direction:column;gap:6px}
+    .eq-open-cards{background:rgba(212,164,78,0.05);border-top:1px solid rgba(212,164,78,0.12);border-bottom:1px solid rgba(212,164,78,0.12);padding:8px 14px;margin:0;display:flex;flex-direction:column;gap:6px}
     .eq-open-cards-head{font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--accent);display:flex;align-items:center;gap:6px}
-    .eq-open-card{background:rgba(20,18,14,0.6);border:1px solid rgba(255,255,255,0.06);border-left:3px solid var(--c);border-radius:6px;padding:7px 10px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:8px}
-    .eq-open-card:active{background:rgba(20,18,14,0.85)}
+    .eq-open-card{background:rgba(24,34,54,0.6);border:1px solid rgba(255,255,255,0.06);border-left:3px solid var(--c);border-radius:6px;padding:7px 10px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:8px}
+    .eq-open-card:active{background:rgba(24,34,54,0.85)}
     .eq-open-card-title{flex:1;color:var(--text);font-weight:500}
     .eq-open-card-meta{font-size:10px;color:var(--text-dim)}
     .eq-open-card-overdue{color:var(--red);font-weight:600;font-size:10px}
@@ -8150,7 +8157,7 @@ function printStickers(equipList, opts = {}) {
     /* Subtle paper-grain feel via two layered radial gradients —
        prints faithfully on both inkjet and offset. */
     background-image:
-      radial-gradient(1200px 600px at 30% -10%, rgba(200, 164, 78, 0.06) 0%, transparent 60%),
+      radial-gradient(1200px 600px at 30% -10%, rgba(212, 164, 78, 0.06) 0%, transparent 60%),
       radial-gradient(800px 400px at 80% 110%, rgba(139, 105, 20, 0.05) 0%, transparent 60%);
   }
 
@@ -8568,7 +8575,7 @@ async function printServiceLog(id) {
     padding: 0;
     /* Subtle paper grain — same as sticker */
     background-image:
-      radial-gradient(1200px 600px at 30% -10%, rgba(200, 164, 78, 0.05) 0%, transparent 60%),
+      radial-gradient(1200px 600px at 30% -10%, rgba(212, 164, 78, 0.05) 0%, transparent 60%),
       radial-gradient(800px 400px at 80% 110%, rgba(139, 105, 20, 0.04) 0%, transparent 60%);
   }
 
