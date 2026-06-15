@@ -262,26 +262,26 @@
    ═════════════════════════════════════════════════════════════════ */
 [data-theme="light"] {
   /* Page + surfaces */
-  --nx-bg:            #e9e1cf;
+  --nx-bg:            #e3d9c4;
   /* Surface translucency tuned for cream backgrounds — barely-tinted
      warm brown on linen reads as depth without becoming muddy. */
-  --nx-surface-0:     rgba(100, 85, 55, 0.04);
-  --nx-surface-1:     rgba(100, 85, 55, 0.06);
-  --nx-surface-2:     rgba(100, 85, 55, 0.10);
-  --nx-surface-3:     rgba(100, 85, 55, 0.14);
-  --nx-surface-press: rgba(100, 85, 55, 0.18);
+  --nx-surface-0:     rgba(255, 255, 252, 0.45);
+  --nx-surface-1:     rgba(255, 255, 252, 0.62);
+  --nx-surface-2:     rgba(255, 255, 252, 0.80);
+  --nx-surface-3:     rgba(255, 255, 252, 0.92);
+  --nx-surface-press: rgba(120, 100, 70, 0.12);
   --nx-surface:       var(--nx-surface-1);
 
   /* Solid surfaces (non-translucent variant) */
-  --nx-surface-solid: #f3eee1;
-  --nx-elevated:      #f8f4ea;
+  --nx-surface-solid: #fbf8f1;
+  --nx-elevated:      #fffefb;
 
   /* Bottom nav — cream-tinted to match the page so the bar feels
      integrated with the daylit-ledger aesthetic, not pasted on. */
   --nx-bottom-nav-bg: rgba(233, 225, 207, 0.92);
 
   /* Borders — warm brown-tinted, visible but gentle on cream */
-  --nx-border:        rgba(31, 79, 125, 0.14);
+  --nx-border:        rgba(31, 79, 125, 0.16);
   --nx-border-strong: rgba(31, 79, 125, 0.30);
 
   /* Cool accents — saturated on light, AA-contrast against cream */
