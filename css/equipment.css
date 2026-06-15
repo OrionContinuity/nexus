@@ -7347,7 +7347,7 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
   transition: color var(--nx-press), border-color var(--nx-press), background var(--nx-press);
 }
 .eq-brand-lib-remove-btn:hover:not(:disabled) {
-  color: var(--nx-red, #b43c3c);
+  color: var(--nx-red, var(--nx-red));
   border-color: var(--nx-red-soft, rgba(180, 60, 60, 0.4));
   background: var(--nx-red-soft, rgba(180, 60, 60, 0.08));
 }
@@ -7493,7 +7493,7 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
   margin: 0 auto;
   line-height: 1.55;
 }
-.eq-analytics-error { color: var(--nx-red, #b43c3c); }
+.eq-analytics-error { color: var(--nx-red, var(--nx-red)); }
 
 .eq-analytics-intro {
   font-family: 'Outfit', sans-serif;
@@ -7517,7 +7517,7 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
   color: var(--nx-faint);
   margin: 18px 4px 10px;
 }
-.eq-analytics-section-label-expired   { color: var(--nx-red, #b43c3c); }
+.eq-analytics-section-label-expired   { color: var(--nx-red, var(--nx-red)); }
 .eq-analytics-section-label-urgent    { color: #d6912e; }
 .eq-analytics-section-label-upcoming  { color: var(--nx-gold); }
 .eq-analytics-section-label-watching  { color: var(--nx-faint); }
@@ -7640,7 +7640,7 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
 }
 .eq-brand-health-pct.is-good    { color: #5b8a4c; }
 .eq-brand-health-pct.is-caution { color: #d6912e; }
-.eq-brand-health-pct.is-bad     { color: var(--nx-red, #b43c3c); }
+.eq-brand-health-pct.is-bad     { color: var(--nx-red, var(--nx-red)); }
 [data-theme="light"] .eq-brand-health-pct.is-good    { color: #4b7838; }
 [data-theme="light"] .eq-brand-health-pct.is-caution { color: #c4811f; }
 
@@ -7657,7 +7657,7 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
 }
 .eq-brand-health-bar-fill.is-good    { background: #5b8a4c; }
 .eq-brand-health-bar-fill.is-caution { background: #d6912e; }
-.eq-brand-health-bar-fill.is-bad     { background: var(--nx-red, #b43c3c); }
+.eq-brand-health-bar-fill.is-bad     { background: var(--nx-red, var(--nx-red)); }
 
 
 /* ═══ TAB 2: PATTERNS ══════════════════════════════════════════════ */
@@ -7727,7 +7727,7 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
 .eq-pattern-pct-fill {
   height: 100%;
   border-radius: 3px;
-  background: linear-gradient(90deg, #d6912e, var(--nx-red, #b43c3c));
+  background: linear-gradient(90deg, #d6912e, var(--nx-red, var(--nx-red)));
   transition: width 400ms ease-out;
 }
 .eq-pattern-pct-label {
@@ -7815,7 +7815,7 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
 }
 .eq-warranty-card:active { transform: scale(0.99); }
 
-.eq-warranty-card-expired { border-left: 3px solid var(--nx-red, #b43c3c); }
+.eq-warranty-card-expired { border-left: 3px solid var(--nx-red, var(--nx-red)); }
 .eq-warranty-card-urgent  { border-left: 3px solid #d6912e; }
 .eq-warranty-card-upcoming{ border-left: 3px solid var(--nx-gold); }
 .eq-warranty-card-watching{ border-left: 3px solid var(--nx-gold-line); }
@@ -7867,7 +7867,7 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
   color: var(--nx-text);
   white-space: nowrap;
 }
-.eq-warranty-card-expired .eq-warranty-card-days-num { color: var(--nx-red, #b43c3c); }
+.eq-warranty-card-expired .eq-warranty-card-days-num { color: var(--nx-red, var(--nx-red)); }
 .eq-warranty-card-urgent  .eq-warranty-card-days-num { color: #d6912e; }
 .eq-warranty-card-days-date {
   font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
@@ -8436,7 +8436,7 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
   margin: 0 auto;
   line-height: 1.55;
 }
-.eq-contractors-error { color: var(--nx-red, #b43c3c); }
+.eq-contractors-error { color: var(--nx-red, var(--nx-red)); }
 
 
 /* ─── Avatar ─────────────────────────────────────────────────────── */
@@ -8839,7 +8839,7 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
   border-color: var(--nx-gold-line);
 }
 .eq-contractor-edit-btn-danger:hover {
-  color: var(--nx-red, #b43c3c);
+  color: var(--nx-red, var(--nx-red));
   border-color: var(--nx-red-soft, rgba(180, 60, 60, 0.4));
   background: var(--nx-red-soft, rgba(180, 60, 60, 0.06));
 }
@@ -9343,7 +9343,7 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
   line-height: 1.55;
 }
 .eq-parts-empty-msg strong { color: var(--nx-text); }
-.eq-parts-error { color: var(--nx-red, #b43c3c); }
+.eq-parts-error { color: var(--nx-red, var(--nx-red)); }
 
 .eq-parts-intro {
   font-family: 'Outfit', sans-serif;
@@ -9524,7 +9524,7 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
 }
 [data-theme="light"] .eq-part-card-badge-overdue {
   background: rgba(180, 60, 60, 0.1);
-  color: #b43c3c;
+  color: var(--nx-red);
 }
 .eq-part-card-badge-soon {
   background: rgba(214, 145, 46, 0.16);
@@ -9703,7 +9703,7 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
   transition: color var(--nx-press), border-color var(--nx-press), background var(--nx-press);
 }
 .eq-part-form-delete:hover {
-  color: var(--nx-red, #b43c3c);
+  color: var(--nx-red, var(--nx-red));
   border-color: var(--nx-red-soft, rgba(180, 60, 60, 0.4));
   background: var(--nx-red-soft, rgba(180, 60, 60, 0.06));
 }
@@ -9730,7 +9730,7 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
   background: rgba(180, 60, 60, 0.1);
   border-color: rgba(180, 60, 60, 0.4);
 }
-.eq-part-due-banner.is-overdue svg { color: var(--nx-red, #b43c3c); }
+.eq-part-due-banner.is-overdue svg { color: var(--nx-red, var(--nx-red)); }
 
 
 /* ─── History tab ────────────────────────────────────────────────── */
@@ -9867,7 +9867,7 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
   transition: color var(--nx-press), background var(--nx-press), border-color var(--nx-press);
 }
 .eq-part-compat-remove:hover {
-  color: var(--nx-red, #b43c3c);
+  color: var(--nx-red, var(--nx-red));
   background: var(--nx-red-soft, rgba(180, 60, 60, 0.08));
   border-color: var(--nx-red-soft, rgba(180, 60, 60, 0.4));
 }
@@ -10264,7 +10264,7 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
 .eq-contractor-multi-remove:hover {
   background: rgba(180, 60, 60, 0.10);
   border-color: rgba(180, 60, 60, 0.4);
-  color: var(--nx-red, #b43c3c);
+  color: var(--nx-red, var(--nx-red));
 }
 .eq-contractor-multi-add {
   display: inline-flex;
@@ -10891,7 +10891,7 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
 }
 .eq-quick-status-pop-btn.is-operational   .eq-quick-status-pop-dot { background: var(--nx-green, #6a9b5e); box-shadow: 0 0 6px rgba(106,155,94,0.55); }
 .eq-quick-status-pop-btn.is-needs-service .eq-quick-status-pop-dot { background: var(--nx-amber, #d4a44e); box-shadow: 0 0 6px rgba(212,164,78,0.55); }
-.eq-quick-status-pop-btn.is-down          .eq-quick-status-pop-dot { background: var(--nx-red,   #b43c3c); box-shadow: 0 0 6px rgba(180,60,60,0.55); }
+.eq-quick-status-pop-btn.is-down          .eq-quick-status-pop-dot { background: var(--nx-red,   var(--nx-red)); box-shadow: 0 0 6px rgba(180,60,60,0.55); }
 .eq-quick-status-pop-btn.is-retired       .eq-quick-status-pop-dot { background: var(--nx-faint); opacity: 0.5; }
 .eq-quick-status-pop-label { flex: 1 1 auto; }
 .eq-quick-status-pop-check {
@@ -11163,7 +11163,7 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
 [data-theme="light"] .eq-dedupe-card-keep { color: #fff; }
 .eq-dedupe-card-merge {
   background: rgba(180, 60, 60, 0.18);
-  color: var(--nx-red, #b43c3c);
+  color: var(--nx-red, var(--nx-red));
   border: 1px solid rgba(180, 60, 60, 0.3);
 }
 .eq-dedupe-card-stats {
