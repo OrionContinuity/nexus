@@ -22,7 +22,7 @@
   padding: 16px 14px !important;
   min-height: 86px !important;
   border-width: 1px !important;
-  border-color: rgba(212, 182, 138, 0.10) !important;
+  border-color: var(--nx-border) !important;
   box-shadow: 0 1px 2px rgba(0,0,0,.12), 0 6px 18px rgba(0,0,0,.10) !important;
 }
 .home-rm-tile-num {
@@ -80,14 +80,14 @@
   min-height: 86px !important;
   padding: 14px 12px !important;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
-  border: 1px solid rgba(212,182,138,0.10) !important;
+  border: 1px solid var(--nx-border) !important;
   box-shadow: 0 1px 2px rgba(0,0,0,.12), 0 6px 18px rgba(0,0,0,.10) !important;
 }
 .home-kpi-num   { font-size: 32px !important; font-weight: 700 !important; letter-spacing: -0.02em; line-height: 1.05 !important; }
 .home-kpi-label { font-size: 11.5px !important; letter-spacing: 0.05em !important; opacity: .78; text-align: center; }
 .home-kpi.is-warn {
-  border-color: rgba(229,72,77,.45) !important;
-  box-shadow: 0 0 0 1px rgba(229,72,77,.25), 0 6px 20px rgba(229,72,77,.12) !important;
+  border-color: var(--nx-red) !important;
+  box-shadow: 0 0 0 1px var(--nx-red-line), 0 6px 20px var(--nx-red-soft) !important;
 }
 @media (prefers-reduced-motion: no-preference) {
   .home-kpi { transition: transform .15s ease; }
@@ -100,13 +100,64 @@
 #overdueBanner {
   position: static !important;
   margin: 0 0 14px !important;
-  border-radius: 16px !important;
+  border-radius: 20px !important;
   padding: 10px 14px !important;
   backdrop-filter: none !important;
-  background: rgba(229,72,77,.10) !important;
-  border: 1px solid rgba(229,72,77,.35) !important;
+  background: var(--nx-red-soft) !important;
+  border: 1px solid var(--nx-red-line) !important;
   font-size: 13px !important;
   line-height: 1.45 !important;
   box-shadow: none !important;
 }
 #overdueBanner .alert-kicker { font-size: 11px !important; }
+
+/* ═══ Chrome polish — masthead (bulkhead) + bottom nav buttons ══════════
+   Additive layer. Dark mode gets the "floating marble shelf" treatment
+   (lapis frost, gold hairline, soft lift); light keeps its own bars via
+   higher-specificity [data-theme] rules. The active bottom-nav button
+   becomes a rounded gold lozenge (Material-3 style) instead of a thin
+   underline — rounder, friendlier, reads instantly. Home keeps its ring. */
+
+.nx-mast {
+  background: var(--nx-bottom-nav-bg) !important;
+  border-bottom: 1px solid var(--nx-gold-line) !important;
+  box-shadow: 0 2px 18px rgba(0,0,0,.20) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.bottom-nav {
+  background: var(--nx-bottom-nav-bg) !important;
+  border-top: 1px solid var(--nx-gold-line) !important;
+  box-shadow: 0 -2px 18px rgba(0,0,0,.20) !important;
+}
+
+/* Rounded active lozenge (both themes). */
+.bnav-btn {
+  border-radius: 18px;
+  margin: 5px 3px;
+  transition: color .2s, background .2s, transform .1s;
+}
+.bnav-btn.active:not(.bnav-btn-home) {
+  background: var(--nx-gold-soft);
+}
+.bnav-btn.active:not(.bnav-btn-home)::after { display: none !important; }
+
+/* ═══ Light-mode lift — cards float on stone ════════════════════════════
+   With warm-white surfaces over deeper limestone, a soft shadow + the
+   masthead/nav getting their own light surface completes the separation. */
+[data-theme="light"] .home-rm-tile,
+[data-theme="light"] .home-kpi,
+[data-theme="light"] .home-rm-decision-row {
+  box-shadow: 0 1px 2px rgba(120,100,70,.08), 0 6px 16px rgba(120,100,70,.07) !important;
+}
+[data-theme="light"] .nx-mast {
+  background: var(--nx-surface-solid) !important;
+  border-bottom: 1px solid var(--nx-gold-line) !important;
+  box-shadow: 0 2px 14px rgba(120,100,70,.10) !important;
+}
+[data-theme="light"] .bottom-nav {
+  background: var(--nx-surface-solid) !important;
+  border-top: 1px solid var(--nx-gold-line) !important;
+  box-shadow: 0 -2px 14px rgba(120,100,70,.10) !important;
+}
