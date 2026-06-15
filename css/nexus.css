@@ -29,7 +29,7 @@
   --amber:     var(--nx-amber);
   --blue:      var(--nx-blue);
   --purple:    var(--nx-purple);
-  --r:8px;--rs:6px;--rp:20px;
+  --r:14px;--rs:10px;--rp:22px;
 }
 [data-theme="light"]{
   /* Aliases inherit the new --nx-* values automatically because
