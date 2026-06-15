@@ -2613,7 +2613,7 @@ html {
 .rx-avatar-preview {
   width: 64px; height: 64px;
   border-radius: 50%;
-  background: hsl(var(--avatar-hue, 35), 50%, 32%);
+  background: hsl(var(--avatar-hue, 35), 34%, 36%);
   background-size: cover;
   background-position: center;
   border: 2px solid var(--border);
@@ -2684,7 +2684,7 @@ html {
 .rx-hue-swatch {
   width: 28px; height: 28px;
   border-radius: 50%;
-  background: hsl(var(--avatar-hue, 35), 50%, 38%);
+  background: hsl(var(--avatar-hue, 35), 34%, 40%);
   border: 2px solid transparent;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
