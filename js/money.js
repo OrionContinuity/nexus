@@ -347,27 +347,27 @@
     if (!NX?.sb) return;
     const { data: equipment } = await NX.sb.from('equipment').select('restaurant:location');
     const restaurants = [...new Set((equipment || []).map(e => e.restaurant).filter(Boolean))];
-    if (!restaurants.length) { alert('No restaurants found. Add equipment first.'); return; }
+    if (!restaurants.length) { await NX.alert('No restaurants found. Add equipment first.'); return; }
 
     const list = restaurants.map((r, i) => `${i + 1}. ${r}`).join('\n');
-    const pick = prompt('Which restaurant?\n\n' + list);
+    const pick = await NX.prompt('Which restaurant?\n\n' + list);
     if (pick === null) return;
     const idx = parseInt(pick, 10) - 1;
-    if (isNaN(idx) || !restaurants[idx]) { alert('Invalid pick.'); return; }
+    if (isNaN(idx) || !restaurants[idx]) { await NX.alert('Invalid pick.'); return; }
     const restaurant = restaurants[idx];
 
-    const amount = prompt(`Annual R&M budget for ${restaurant} ($):`);
+    const amount = await NX.prompt(`Annual R&M budget for ${restaurant} ($):`);
     if (amount === null) return;
     const num = parseFloat(amount.replace(/[$,]/g, ''));
-    if (isNaN(num) || num <= 0) { alert('Invalid amount.'); return; }
+    if (isNaN(num) || num <= 0) { await NX.alert('Invalid amount.'); return; }
 
-    const notes = prompt('Notes (optional):') || null;
+    const notes = await NX.prompt('Notes (optional):') || null;
     const year = new Date().getFullYear();
     const { error } = await NX.sb.from('budgets').upsert({
       restaurant, fiscal_year: year, annual_amount: num, notes,
       updated_at: new Date().toISOString(),
     });
-    if (error) { alert('Failed: ' + error.message); return; }
+    if (error) { await NX.alert('Failed: ' + error.message); return; }
     NXRM.notify.bubble(`Bzzt — budget set: ${restaurant} ${fmt.money(num)} for ${year}`,
       { autoHide: 4000, eyebrow: '✓ BUDGET' });
     await loadBudgets();
@@ -375,16 +375,16 @@
   }
 
   async function promptEditBudget(row) {
-    const action = prompt(
+    const action = await NX.prompt(
       `${row.restaurant} · FY ${row.fiscal_year}\n\n` +
       `Budget: ${fmt.money(row.annual_amount)}\n` +
       `Spent: ${fmt.money(row.spent_to_date)} (${row.pct_used}%)\n\n` +
       `1 = change budget amount\n2 = delete budget\n(cancel = nothing)`);
     if (action === '1') {
-      const newAmount = prompt('New annual budget ($):', row.annual_amount);
+      const newAmount = await NX.prompt('New annual budget ($):', { title: 'Edit budget', value: String(row.annual_amount) });
       if (newAmount === null) return;
       const num = parseFloat(newAmount.replace(/[$,]/g, ''));
-      if (isNaN(num) || num <= 0) { alert('Invalid amount.'); return; }
+      if (isNaN(num) || num <= 0) { await NX.alert('Invalid amount.'); return; }
       await NX.sb.from('budgets').update({
         annual_amount: num,
         updated_at: new Date().toISOString(),
@@ -392,7 +392,7 @@
       await loadBudgets();
       refresh();
     } else if (action === '2') {
-      if (confirm(`Delete the ${row.restaurant} FY ${row.fiscal_year} budget?`)) {
+      if (await NX.confirm(`Delete the ${row.restaurant} FY ${row.fiscal_year} budget?`, { danger: true, okLabel: 'Delete' })) {
         await NX.sb.from('budgets').delete()
           .eq('restaurant', row.restaurant).eq('fiscal_year', row.fiscal_year);
         await loadBudgets();
