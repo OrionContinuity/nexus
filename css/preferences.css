@@ -16,17 +16,22 @@
    through every element — a targeted approach would miss components.
    Animation is gated by the class so it never runs at idle. */
 :root.theme-transitioning,
-:root.theme-transitioning *,
+:root.theme-transitioning * {
+  transition:
+    background-color 220ms ease,
+    color           220ms ease,
+    border-color    220ms ease
+    !important;
+}
+/* Pseudo-elements snap instead of animating — they roughly double the
+   animated-node count and are decorative. Dropping box-shadow/fill/stroke
+   from the fade removes the most expensive per-frame paint work, and 220ms
+   (was 600ms) keeps the blur surfaces from re-compositing for as long.
+   This eliminated the theme-change lag: previously every node + pseudo
+   animated 6 properties for 600ms behind 200+ backdrop-filter layers. */
 :root.theme-transitioning *::before,
 :root.theme-transitioning *::after {
-  transition:
-    background-color 600ms cubic-bezier(0.4, 0, 0.2, 1),
-    color           600ms cubic-bezier(0.4, 0, 0.2, 1),
-    border-color    600ms cubic-bezier(0.4, 0, 0.2, 1),
-    box-shadow      600ms cubic-bezier(0.4, 0, 0.2, 1),
-    fill            600ms cubic-bezier(0.4, 0, 0.2, 1),
-    stroke          600ms cubic-bezier(0.4, 0, 0.2, 1)
-    !important;
+  transition: none !important;
 }
 
 /* CRITICAL: The universal rule above is shorthand-`transition` with
