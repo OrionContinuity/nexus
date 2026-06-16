@@ -3607,7 +3607,25 @@ document.addEventListener('DOMContentLoaded', () => NX.init());
 
 // Register service worker for offline support
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').then(reg => {
+  // updateViaCache:'none' forces the browser to re-fetch sw.js from the
+  // network on every load. By default it may serve a cached sw.js for up to
+  // 24h — which is exactly why fresh deploys looked "stale" until a manual
+  // Chrome → Clear & reset. Combined with reg.update() on load and the
+  // controllerchange auto-reload below, this ends that cycle.
+  //
+  // controllerchange = a NEW worker has taken control → reload once to pick
+  // up the fresh shell. Guarded against loops, and only armed when a worker
+  // already controlled the page, so a first install doesn't trigger a reload.
+  let __nxSwReloading = false;
+  if (navigator.serviceWorker.controller) {
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (__nxSwReloading) return;
+      __nxSwReloading = true;
+      window.location.reload();
+    });
+  }
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
+    try { reg.update(); } catch (_) {}
     // ═══ PUSH NOTIFICATION SUBSCRIPTION ═══════════════════════════
     // Three-part system that finally wires push end-to-end:
     //
