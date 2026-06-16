@@ -738,3 +738,144 @@
 
   console.log('[NEXUS·R&M] core ready · v' + NXRM.version);
 })();
+
+/* ═══ THEMED DIALOGS — NX.confirm / NX.prompt / NX.alert ═══════════════
+   Promise-based, themed replacements for the native confirm()/prompt()/
+   alert(), which render unstyled gray browser popups that shatter the
+   Venice aesthetic on mobile. Self-contained: own injected styles (Venice
+   tokens w/ fallbacks), keyboard (Enter=confirm, Escape=cancel), focus
+   management, backdrop dismiss, bottom-sheet animation, reduced-motion,
+   XSS-safe. Only one dialog at a time.
+
+   IMPORTANT: these are ASYNC (native dialogs were synchronous). Call sites
+   must `await` them inside an async function:
+       if (!(await NX.confirm('Delete this?', { danger:true }))) return;
+       const name = await NX.prompt('Name?', { value: cur });
+       await NX.alert('Saved.');
+
+   APIs:
+     NX.confirm(message, opts) -> Promise<boolean>
+        opts: { title, okLabel, cancelLabel, danger }
+     NX.prompt(message, opts)  -> Promise<string|null>   (null = cancelled)
+        opts: { title, okLabel, cancelLabel, placeholder, value, multiline }
+     NX.alert(message, opts)   -> Promise<void>
+        opts: { title, okLabel }
+
+   Attaches to the LEXICAL NX (app.js's `const NX`, the object every module
+   sees as bare `NX`) — NOT window.NX, which is a different object. core.js
+   loads after app.js so the lexical NX exists here. */
+(function () {
+  var T = (typeof NX !== 'undefined' && NX) ? NX : (window.NX = window.NX || {});
+  if (T.confirm && T.confirm.__nx) return;   // idempotent
+
+  function escHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function ensureStyle() {
+    if (document.getElementById('nx-dialog-style')) return;
+    var st = document.createElement('style');
+    st.id = 'nx-dialog-style';
+    st.textContent =
+      '.nx-dlg-bg{position:fixed;inset:0;z-index:10000;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.5);opacity:0;transition:opacity .18s ease}' +
+      '.nx-dlg-bg.open{opacity:1}' +
+      '.nx-dlg{position:relative;width:100%;max-width:480px;background:var(--nx-surface-solid,#161d2e);border:1px solid var(--nx-gold-line,rgba(212,164,78,.24));border-bottom:none;border-radius:22px 22px 0 0;padding:22px 20px calc(20px + env(safe-area-inset-bottom));box-shadow:0 -8px 40px rgba(0,0,0,.35);transform:translateY(18px);transition:transform .2s cubic-bezier(.4,0,.2,1);font-family:inherit}' +
+      '.nx-dlg-bg.open .nx-dlg{transform:translateY(0)}' +
+      '.nx-dlg-grip{width:36px;height:4px;border-radius:999px;background:var(--nx-border-strong,rgba(255,255,255,.15));margin:0 auto 16px}' +
+      '.nx-dlg-title{font-family:var(--nx-font-display,"Outfit",sans-serif);font-weight:700;font-size:18px;color:var(--nx-text-strong,#f6f0e2);margin-bottom:6px}' +
+      '.nx-dlg-msg{font-size:14px;line-height:1.55;color:var(--nx-muted,#9aa3b2);margin-bottom:18px;white-space:pre-wrap;word-break:break-word}' +
+      '.nx-dlg-input{width:100%;box-sizing:border-box;padding:12px 14px;border-radius:14px;border:1px solid var(--nx-border,rgba(212,164,78,.16));background:var(--nx-bg,#0e1320);color:var(--nx-text,#ece4d4);font-family:inherit;font-size:16px;margin-bottom:18px}' +
+      '.nx-dlg-input:focus{outline:none;border-color:var(--nx-gold,#d4a44e)}' +
+      'textarea.nx-dlg-input{min-height:96px;resize:vertical;line-height:1.5}' +
+      '.nx-dlg-btns{display:flex;gap:10px}' +
+      '.nx-dlg-btn{flex:1;padding:14px;border-radius:14px;font-family:inherit;font-size:15px;font-weight:600;cursor:pointer;border:1px solid var(--nx-border-strong,rgba(255,255,255,.18));background:transparent;color:var(--nx-text,#ece4d4);transition:background .15s,border-color .15s}' +
+      '.nx-dlg-btn-primary{border-color:var(--nx-gold,#d4a44e);color:var(--nx-gold,#d4a44e);background:var(--nx-gold-faint,rgba(212,164,78,.08))}' +
+      '.nx-dlg-btn-danger{border-color:var(--nx-red,#d24b4b);color:var(--nx-red,#d24b4b);background:var(--nx-red-soft,rgba(210,75,75,.12))}' +
+      '@media (prefers-reduced-motion:reduce){.nx-dlg-bg,.nx-dlg{transition:none}}';
+    document.head.appendChild(st);
+  }
+
+  function openDialog(kind, message, opts) {
+    opts = opts || {};
+    ensureStyle();
+    return new Promise(function (resolve) {
+      document.querySelectorAll('.nx-dlg-bg').forEach(function (n) { n.remove(); });
+      var bg = document.createElement('div');
+      bg.className = 'nx-dlg-bg';
+      bg.setAttribute('role', 'dialog');
+      bg.setAttribute('aria-modal', 'true');
+
+      var isPrompt = kind === 'prompt', isAlert = kind === 'alert';
+      var danger = !!opts.danger;
+      var okLabel = opts.okLabel || (isAlert ? 'OK' : isPrompt ? 'Save' : 'Confirm');
+      var cancelLabel = opts.cancelLabel || 'Cancel';
+      var title = opts.title != null ? opts.title : (isAlert ? 'Notice' : isPrompt ? '' : 'Are you sure?');
+
+      var inputHtml = isPrompt
+        ? (opts.multiline
+            ? '<textarea class="nx-dlg-input" placeholder="' + escHtml(opts.placeholder || '') + '">' + escHtml(opts.value || '') + '</textarea>'
+            : '<input class="nx-dlg-input" type="text" placeholder="' + escHtml(opts.placeholder || '') + '" value="' + escHtml(opts.value || '') + '">')
+        : '';
+      var btns = isAlert
+        ? '<button class="nx-dlg-btn nx-dlg-btn-primary" data-ok>' + escHtml(okLabel) + '</button>'
+        : '<button class="nx-dlg-btn" data-cancel>' + escHtml(cancelLabel) + '</button>' +
+          '<button class="nx-dlg-btn ' + (danger ? 'nx-dlg-btn-danger' : 'nx-dlg-btn-primary') + '" data-ok>' + escHtml(okLabel) + '</button>';
+
+      bg.innerHTML =
+        '<div class="nx-dlg">' +
+          '<div class="nx-dlg-grip"></div>' +
+          (title ? '<div class="nx-dlg-title">' + escHtml(title) + '</div>' : '') +
+          (message ? '<div class="nx-dlg-msg">' + escHtml(message) + '</div>' : '') +
+          inputHtml +
+          '<div class="nx-dlg-btns">' + btns + '</div>' +
+        '</div>';
+
+      var input = bg.querySelector('.nx-dlg-input');
+      var settled = false;
+      function finish(val) {
+        if (settled) return; settled = true;
+        bg.classList.remove('open');
+        document.removeEventListener('keydown', onKey, true);
+        setTimeout(function () { bg.remove(); }, 200);
+        resolve(val);
+      }
+      function onCancel() { finish(isPrompt ? null : false); }
+      function onOk() { finish(isPrompt ? (input ? input.value : '') : (isAlert ? undefined : true)); }
+      function onKey(e) {
+        if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
+        else if (e.key === 'Enter' && (!isPrompt || !opts.multiline)) { e.preventDefault(); onOk(); }
+      }
+
+      bg.addEventListener('click', function (e) { if (e.target === bg) onCancel(); });
+      bg.querySelector('[data-ok]').addEventListener('click', onOk);
+      var cancelBtn = bg.querySelector('[data-cancel]');
+      if (cancelBtn) cancelBtn.addEventListener('click', onCancel);
+      document.addEventListener('keydown', onKey, true);
+
+      document.body.appendChild(bg);
+      requestAnimationFrame(function () { bg.classList.add('open'); });
+      if (input) setTimeout(function () { input.focus(); if (input.select) input.select(); }, 60);
+      else setTimeout(function () { var ok = bg.querySelector('[data-ok]'); if (ok) ok.focus(); }, 60);
+    });
+  }
+
+  T.confirm = function (message, opts) { return openDialog('confirm', message, opts); };
+  T.confirm.__nx = true;
+  T.prompt = function (message, opts) { return openDialog('prompt', message, opts); };
+  T.alert = function (message, opts) { return openDialog('alert', message, opts); };
+
+  // Mirror onto window.NX too. The early public pages (equipment-public-*.js)
+  // load before app.js's lexical `const NX` exists, so they create and use
+  // their OWN window.NX — a different object from the lexical binding the
+  // main app uses. Keep both pointing at the same dialog functions.
+  if (typeof window !== 'undefined') {
+    window.NX = window.NX || {};
+    if (window.NX !== T) {
+      window.NX.confirm = T.confirm;
+      window.NX.prompt = T.prompt;
+      window.NX.alert = T.alert;
+    }
+  }
+})();
