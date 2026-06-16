@@ -1991,10 +1991,15 @@
     // Equipment for the picker. select('*') tolerates schema gaps; filter
     // archived client-side (bulletproof pattern).
     let allEquip = [];
+    const vid = String(vendor.id || '');
     try {
       const { data } = await NX.sb.from('equipment').select('*');
       allEquip = (data || [])
         .filter(e => e.archived !== true)
+        // Only equipment ASSIGNED to this vendor — same definition used
+        // across vendors.js (service OR repair vendor FK). Previously this
+        // listed EVERY piece of equipment regardless of vendor.
+        .filter(e => String(e.service_vendor_id || '') === vid || String(e.repair_vendor_id || '') === vid)
         .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
     } catch (_) {}
 
