@@ -1095,6 +1095,7 @@ function render() {
         ${renderCleaningSection(d)}
 
         <div class="dlog-actions">
+          <button type="button" class="eq-btn eq-btn-secondary" id="dlogEmailBtn" title="Compose a clean email of this log">✉ Email</button>
           <button type="button" class="eq-btn eq-btn-secondary" id="dlogSaveDraftBtn">Save</button>
           <button type="button" class="eq-btn eq-btn-primary"   id="dlogSubmitBtn">${esc(uploadBtnLabel)}</button>
         </div>
@@ -1773,7 +1774,7 @@ function wireForm() {
   // stopPropagation is critical — otherwise the click also toggles the
   // <details> open/closed since the × button sits inside <summary>.
   view.querySelectorAll('[data-remove-loc]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
+    btn.addEventListener('click', async (e) => {
       e.preventDefault();
       e.stopPropagation();
       const idx = parseInt(btn.dataset.removeLoc, 10);
@@ -1784,7 +1785,7 @@ function wireForm() {
       // fields + vendor calls, hard to recreate accidentally.
       const filledFields = Object.values(loc.rm || {}).filter(v => v && v.trim()).length
         + (loc.vendor_calls || []).length;
-      if (filledFields > 0 && !confirm(`Remove "${loc.label}" and all its data (${filledFields} fields)? This can't be undone.`)) {
+      if (filledFields > 0 && !(await NX.confirm(`Remove "${loc.label}" and all its data (${filledFields} fields)? This can't be undone.`, { danger: true, okLabel: 'Remove' }))) {
         return;
       }
       log.data.locations.splice(idx, 1);
@@ -1868,6 +1869,122 @@ function wireForm() {
   if (saveDraft) saveDraft.addEventListener('click', () => commitSave({ submit: false }));
   const submitBtn = view.querySelector('#dlogSubmitBtn');
   if (submitBtn) submitBtn.addEventListener('click', () => commitSave({ submit: true }));
+  const emailBtn = view.querySelector('#dlogEmailBtn');
+  if (emailBtn) emailBtn.addEventListener('click', () => openDailyLogEmail());
+}
+
+// ── Email composer ────────────────────────────────────────────────────────
+// Folds the day's log into a clean, digestible plain-text recap and hands it
+// to the device mail composer. Uses the same shared NX.email formatting
+// language as the vendor + ordering emails (uppercase section headers,
+// 45-char rules, middle-dot bullets) so everything NEXUS emails reads alike.
+// Empty fields are skipped so the recap stays scannable.
+function fmtLogDateLong(dateStr) {
+  try {
+    return new Date((dateStr || todayISO()) + 'T00:00:00')
+      .toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  } catch (_) { return dateStr || ''; }
+}
+
+function buildDailyLogEmailBody(d, dateStr) {
+  const SH = (l, s) => (window.NX && NX.email) ? NX.email.sectionHeader(l, s) : ('--- ' + String(l).toUpperCase() + ' ---');
+  const RULE = () => (window.NX && NX.email) ? NX.email.rule() : '-----------------------------------';
+  const clean = s => String(s == null ? '' : s).trim();
+  const out = [];
+
+  out.push('Daily Log \u2014 ' + fmtLogDateLong(dateStr));
+  if (clean(d.header && d.header.weather)) out.push('Weather: ' + clean(d.header.weather));
+  out.push('');
+
+  if (clean(d.header && d.header.significant_events)) {
+    out.push(SH('Significant events'));
+    out.push(clean(d.header.significant_events));
+    out.push('');
+  }
+
+  const plan = [];
+  if (d.planning) {
+    if (clean(d.planning.tomorrow_plan)) plan.push(['Tomorrow', d.planning.tomorrow_plan]);
+    if (clean(d.planning.this_week))     plan.push(['This week', d.planning.this_week]);
+    if (clean(d.planning.side_notes))    plan.push(['Side notes', d.planning.side_notes]);
+  }
+  if (plan.length) {
+    out.push(SH('Planning'));
+    plan.forEach(p => out.push(p[0] + ': ' + clean(p[1])));
+    out.push('');
+  }
+
+  (d.locations || []).forEach(loc => {
+    const rmLines = [];
+    RM_CATEGORIES.forEach(cat => {
+      const v = clean(loc.rm && loc.rm[cat.key]);
+      if (v) rmLines.push('\u00b7 ' + cat.label + ': ' + v);
+    });
+    const calls = (loc.vendor_calls || []).filter(c => clean(c.vendor) || clean(c.issue) || clean(c.status) || clean(c.equipment));
+    if (!rmLines.length && !calls.length) return;     // skip empty location
+    out.push(SH(loc.label || 'Location'));
+    rmLines.forEach(l => out.push(l));
+    if (calls.length) {
+      if (rmLines.length) out.push('');
+      out.push('Vendor / service calls:');
+      calls.forEach(c => {
+        const head = [clean(c.vendor), clean(c.equipment)].filter(Boolean).join(' \u2014 ');
+        out.push('\u00b7 ' + (head || 'Call') + (clean(c.date) ? ' (' + clean(c.date) + ')' : ''));
+        if (clean(c.issue))  out.push('    Issue: ' + clean(c.issue));
+        if (clean(c.status)) out.push('    Status: ' + clean(c.status));
+      });
+    }
+    out.push('');
+  });
+
+  if (clean(d.vendor_activity_notes)) {
+    out.push(SH('Vendor activity'));
+    out.push(clean(d.vendor_activity_notes));
+    out.push('');
+  }
+
+  const clLines = [];
+  if (d.cleaning) CLEANING_FIELDS.forEach(f => {
+    const v = clean(d.cleaning[f.key]);
+    if (v) clLines.push('\u00b7 ' + f.label + ': ' + v);
+  });
+  if (clLines.length) { out.push(SH('Cleaning')); clLines.forEach(l => out.push(l)); out.push(''); }
+
+  const others = (d.other_properties || []).filter(o => clean(o.property_name) || clean(o.notes));
+  if (others.length) {
+    out.push(SH('Other properties'));
+    others.forEach(o => out.push('\u00b7 ' + (clean(o.property_name) || 'Property') + (clean(o.notes) ? ': ' + clean(o.notes) : '')));
+    out.push('');
+  }
+
+  out.push(RULE());
+  const me = (window.NX && (NX.user || NX.currentUser)) ? ((NX.user && NX.user.name) || (NX.currentUser && NX.currentUser.name) || '') : '';
+  if (me) out.push(me);
+
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+async function openDailyLogEmail() {
+  const log = state.currentLog;
+  const d = hydrateData(log && log.data);
+  const dateStr = (log && log.log_date) || (d.header && d.header.date) || todayISO();
+  const subject = 'Daily Log \u2014 ' + fmtLogDateLong(dateStr);
+  const body = buildDailyLogEmailBody(d, dateStr);
+
+  if (!body || body.split('\n').filter(l => l.trim()).length < 2) {
+    if (window.NX && NX.alert) await NX.alert('This log is empty \u2014 add some notes first.', { title: 'Nothing to send' });
+    return;
+  }
+  // Some mail apps trim very long bodies; warn like the order engine does.
+  const WARN = (window.NX && NX.email && NX.email.BODY_WARN_LEN) ? NX.email.BODY_WARN_LEN : 1900;
+  if (body.length > WARN && window.NX && NX.confirm) {
+    const ok = await NX.confirm('This recap is long (' + body.length + ' characters) and some mail apps may trim it. Compose anyway?', { okLabel: 'Compose' });
+    if (!ok) return;
+  }
+  const url = (window.NX && NX.email && NX.email.buildMailtoUrl)
+    ? NX.email.buildMailtoUrl('', subject, body)
+    : 'mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body).replace(/\+/g, '%20');
+  window.location.href = url;
 }
 
 function ensureCurrentLog() {
