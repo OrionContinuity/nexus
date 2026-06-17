@@ -1939,7 +1939,7 @@ td.check{background:#F0EDE6 !important}
     // AI Activity — open panel + kill-switch toggle
     document.getElementById('aiActivityOpen')?.addEventListener('click',()=>{
       if(NX.aiWriter){ NX.aiWriter.openActivityPanel(); document.getElementById('adminModal')?.classList.remove('open'); }
-      else alert('AI Writer not loaded');
+      else NX.alert('AI Writer not loaded');
     });
     document.getElementById('aiWritesToggle')?.addEventListener('click',async()=>{
       try{
@@ -1961,7 +1961,7 @@ td.check{background:#F0EDE6 !important}
     }
     document.getElementById('chatLogRefresh')?.addEventListener('click', () => this.loadChatLog());
     document.getElementById('chatLogClear')?.addEventListener('click', async () => {
-      if (!confirm('Delete ALL chat history? This cannot be undone.')) return;
+      if (!(await NX.confirm('Delete ALL chat history? This cannot be undone.', { danger: true, okLabel: 'Delete all' }))) return;
       try { await this.sb.from('chat_history').delete().neq('id', 0); this.loadChatLog(); this.toast('Chat history cleared', 'info'); } catch (e) {}
     });
     document.getElementById('adminSaveKeys').addEventListener('click', async () => {
@@ -2029,7 +2029,7 @@ td.check{background:#F0EDE6 !important}
         if (window.NX?.pmLogger?.reviewPendingLogs) {
           NX.pmLogger.reviewPendingLogs();
         } else {
-          alert('PM logger not loaded yet — try again in a moment');
+          NX.alert('PM logger not loaded yet — try again in a moment');
         }
       });
     }
@@ -2087,8 +2087,8 @@ td.check{background:#F0EDE6 !important}
       });
       if (error) {
         if (error.code === '23505' || /duplicate|unique/i.test(error.message)) {
-          alert('That PIN is already taken. Pick a different one.');
-        } else { alert('Error: ' + error.message); }
+          await NX.alert('That PIN is already taken. Pick a different one.');
+        } else { await NX.alert('Error: ' + error.message); }
         btn.disabled = false; btn.textContent = '+ Add'; return;
       }
       document.getElementById('newUserName').value = '';
@@ -2553,7 +2553,7 @@ td.check{background:#F0EDE6 !important}
       }).join('');
       el.querySelectorAll('.admin-user-del').forEach(btn => {
         btn.addEventListener('click', async () => {
-          if (!confirm('Remove this user?')) return;
+          if (!(await NX.confirm('Remove this user?', { danger: true, okLabel: 'Remove' }))) return;
           // Phase B: direct delete locked down. delete_user RPC runs
           // SECURITY DEFINER and returns true if a row was removed.
           await this.sb.rpc('delete_user', { p_id: btn.dataset.id });
@@ -2584,7 +2584,7 @@ td.check{background:#F0EDE6 !important}
   // through the set_user_interests RPC.
   openInterestEditor(user) {
     if (!window.NX || !NX.interests) {
-      alert('Interest catalog not loaded.');
+      NX.alert('Interest catalog not loaded.');
       return;
     }
     document.querySelectorAll('.admin-interest-editor-bg').forEach(m => m.remove());
@@ -2931,7 +2931,7 @@ td.check{background:#F0EDE6 !important}
 
   driveConnect() {
     const clientId = this.getGoogleClientId();
-    if (!clientId) { alert('No Google Client ID'); return; }
+    if (!clientId) { NX.alert('No Google Client ID'); return; }
     const doConnect = () => {
       const tc = google.accounts.oauth2.initTokenClient({
         client_id: clientId, scope: 'https://www.googleapis.com/auth/drive.appdata',
@@ -3122,7 +3122,7 @@ td.check{background:#F0EDE6 !important}
 
       // Confirm
       const tableList = Object.entries(tables).filter(([k,v]) => v.length > 0).map(([k,v]) => `${v.length} ${k}`).join(', ');
-      if (!confirm(`Import: ${tableList}\n\nThis will ADD data (not replace). Duplicates will be skipped. Continue?`)) {
+      if (!(await NX.confirm(`Import: ${tableList}\n\nThis will ADD data (not replace). Duplicates will be skipped. Continue?`, { okLabel: 'Import' }))) {
         status.textContent = 'Cancelled.'; return;
       }
 
@@ -4134,9 +4134,9 @@ NX.timeClock = {
     if (sorted.includes(defaultLoc)) sel.value = defaultLoc;
     
     // Handle "new location" selection
-    sel.addEventListener('change', () => {
+    sel.addEventListener('change', async () => {
       if (sel.value === '__new__') {
-        const name = prompt('Enter new location name:');
+        const name = await NX.prompt('Enter new location name:', { title: 'New location' });
         if (name && name.trim().length > 1) {
           const clean = name.trim().toLowerCase();
           const opt = document.createElement('option');
