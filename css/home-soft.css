@@ -16,14 +16,15 @@
   line-height: 1.2 !important;
 }
 
-/* Stat tiles — hero numbers, soft rounded surfaces */
+/* Stat tiles — calm instrument readout (flat, gold hairline). These are
+   STATUS, not actions, so they sit quiet and let the action rows lead. */
 .home-rm-tile {
-  border-radius: 26px !important;
+  border-radius: 20px !important;
   padding: 16px 14px !important;
   min-height: 86px !important;
-  border-width: 1px !important;
-  border-color: var(--nx-border) !important;
-  box-shadow: 0 1px 2px rgba(0,0,0,.12), 0 6px 18px rgba(0,0,0,.10) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  background: var(--nx-elevated) !important;
+  box-shadow: none !important;
 }
 .home-rm-tile-num {
   font-size: 34px !important;
@@ -38,12 +39,17 @@
   margin-top: 6px !important;
 }
 
-/* Decisions needed — tappable, airy rows */
+/* Decisions needed — THE focal element. These float and carry a gold
+   imperial edge so the eye lands on what needs action, not on the stats. */
 .home-rm-decision-row {
-  border-radius: 22px !important;
+  border-radius: 20px !important;
   padding: 16px 16px !important;
   min-height: 64px !important;
   gap: 14px !important;
+  background: var(--nx-surface-solid) !important;
+  border: 1px solid var(--nx-border) !important;
+  border-left: 3px solid var(--nx-gold) !important;
+  box-shadow: 0 1px 2px rgba(0,0,0,.18), 0 8px 22px rgba(6,10,20,.34) !important;
 }
 .home-rm-decision-title { font-size: 17px !important; font-weight: 650 !important; line-height: 1.3 !important; }
 .home-rm-decision-meta  { font-size: 14px !important; line-height: 1.45 !important; }
@@ -76,12 +82,13 @@
 
 /* ── Phase 2: the KPI glance grid (tickets/down/overdue/services) ─────── */
 .home-kpi {
-  border-radius: 26px !important;
+  border-radius: 20px !important;
   min-height: 86px !important;
   padding: 14px 12px !important;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
-  border: 1px solid var(--nx-border) !important;
-  box-shadow: 0 1px 2px rgba(0,0,0,.12), 0 6px 18px rgba(0,0,0,.10) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  background: var(--nx-elevated) !important;
+  box-shadow: none !important;
 }
 .home-kpi-num   { font-size: 32px !important; font-weight: 700 !important; letter-spacing: -0.02em; line-height: 1.05 !important; }
 .home-kpi-label { font-size: 11.5px !important; letter-spacing: 0.05em !important; opacity: .78; text-align: center; }
@@ -147,9 +154,11 @@
    With warm-white surfaces over deeper limestone, a soft shadow + the
    masthead/nav getting their own light surface completes the separation. */
 [data-theme="light"] .home-rm-tile,
-[data-theme="light"] .home-kpi,
+[data-theme="light"] .home-kpi {
+  box-shadow: none !important;
+}
 [data-theme="light"] .home-rm-decision-row {
-  box-shadow: 0 1px 2px rgba(120,100,70,.08), 0 6px 16px rgba(120,100,70,.07) !important;
+  box-shadow: 0 1px 2px rgba(120,100,70,.10), 0 8px 20px rgba(120,100,70,.12) !important;
 }
 [data-theme="light"] .nx-mast {
   background: var(--nx-surface-solid) !important;
