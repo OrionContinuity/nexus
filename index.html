@@ -52,7 +52,7 @@
 <link rel="stylesheet" href="css/chat.css">
 <link rel="stylesheet" href="css/preferences.css">
 <link rel="stylesheet" href="css/daily-card.css">
-<link rel="stylesheet" href="css/home-soft.css?v=3">
+<link rel="stylesheet" href="css/home-soft.css?v=5">
 <!-- Editorial palette overrides for public scan + PM views (loaded last
      so it wins over the older equipment-public-* stylesheets without
      editing them). Scoped via body.public-view + the .public-* classes. -->
@@ -2674,6 +2674,7 @@
     <button class="nav-tab" data-view="vendors" data-perm="equipment" title="Vendors"><i data-lucide="hard-hat"             class="nav-icon"></i> <span>Vendors</span></button>
     <button class="nav-tab" data-view="pm"      data-perm="equipment" title="PM Schedules"><i data-lucide="calendar-clock"  class="nav-icon"></i> <span>PM</span></button>
   </div>
+  <button class="nav-bell" id="navBell" title="Notifications" aria-label="Notifications"><i data-lucide="bell" class="nav-icon"></i><span class="nav-bell-count" id="navBellCount" hidden>0</span></button>
   <button class="nav-more" id="navMore" title="More"><i data-lucide="menu" class="nav-icon"></i></button>
 </nav>
 
@@ -4619,6 +4620,7 @@
 <script defer src="js/brief.js"></script>
 <!-- home extension — mounts Trajan's read, R&M tiles, decisions card, work orders, wins onto Home -->
 <script defer src="js/home-rm.js"></script>
+<script defer src="js/notifications-bell.js"></script>
 <script>
 // ─── Theme bootstrap ───────────────────────────────────────────────
 // Sets the initial [data-theme] BEFORE any CSS paints, to avoid a
