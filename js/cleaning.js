@@ -1259,7 +1259,7 @@
   }
 
   async function deletePhoto(attachmentId, fileUrl) {
-    if (!confirm('Delete this photo?')) return;
+    if (!(await NX.confirm('Delete this photo?', { danger: true, okLabel: 'Delete' }))) return;
     if (!NX.sb) return;
     try {
       // Strip bucket prefix from URL to get the storage path
@@ -1301,9 +1301,9 @@
   // Opens a tiny modal to record the cost of completing this task today.
   // Used for pressure washing, deep cleans, contractor work — anything
   // where money was spent. Stores on cleaning_logs.completion_cost.
-  function openCostEntry(task) {
+  async function openCostEntry(task) {
     if (!NX.composer?.modal) {
-      const v = prompt('Cost for this task ($):');
+      const v = await NX.prompt('Cost for this task ($):', { title: 'Task cost', placeholder: '0.00' });
       if (v === null) return;
       const cost = parseFloat(v);
       if (isNaN(cost) || cost < 0) return;
@@ -1461,7 +1461,7 @@
   // Quick contextual notes that surface on the task row and persist
   // across shifts. Open the editor via the note icon (existing notes)
   // or via a long-press anywhere on the task body (new notes).
-  function openNoteEditor(task) {
+  async function openNoteEditor(task) {
     const existing = notesByTaskId[task.id];
     if (NX.composer?.modal) {
       NX.composer.modal({
@@ -1489,7 +1489,7 @@
         },
       });
     } else {
-      const v = prompt('Note:', existing ? existing.note : '');
+      const v = await NX.prompt('Note:', { title: 'Note', value: existing ? existing.note : '', multiline: true });
       if (v === null) return;
       if (!v.trim() && existing) {
         dismissTaskNote(existing.id);
@@ -2313,7 +2313,7 @@
         remBtn._w = 1;
         remBtn.addEventListener('click', async () => {
           const userId = parseInt(rowEl.dataset.userId, 10) || rowEl.dataset.userId;
-          if (!confirm(`Remove ${u ? u.name : 'this person'} from the roster? You can re-add them later.`)) return;
+          if (!(await NX.confirm(`Remove ${u ? u.name : 'this person'} from the roster? You can re-add them later.`, { danger: true, okLabel: 'Remove' }))) return;
           const prev = profilesByUserId[userId] || {};
           try {
             const { error } = await NX.sb.from('cleaning_profiles').upsert({
@@ -2362,7 +2362,7 @@
         delBtn._w = 1;
         delBtn.addEventListener('click', async () => {
           const id = rowEl.dataset.templateId;
-          if (!id || !confirm('Delete this profile? People already set up keep their settings.')) return;
+          if (!id || !(await NX.confirm('Delete this profile? People already set up keep their settings.', { danger: true, okLabel: 'Delete' }))) return;
           try {
             const { error } = await NX.sb.from('cleaning_profile_templates').delete().eq('id', id);
             if (error) throw error;
@@ -3812,12 +3812,12 @@
   // New sections are created by inserting a placeholder task — there's
   // no separate sections table. Once one task exists, the section card
   // appears in the list and tasks can be added to it normally.
-  function addNewSection() {
+  async function addNewSection() {
     if (!NX.composer?.modal) {
       // Fallback to native prompts if composer isn't loaded
-      const sec_es = prompt('Section name (Spanish):');
+      const sec_es = await NX.prompt('Section name (Spanish):', { title: 'New section' });
       if (!sec_es) return;
-      const sec_en = prompt('Section name (English):') || sec_es;
+      const sec_en = await NX.prompt('Section name (English):', { title: 'New section' }) || sec_es;
       createSectionWithFirstTask(sec_es, sec_en);
       return;
     }
@@ -4346,7 +4346,7 @@
       const E = (window.NX && NX.email) || null;
       const warnLen = E ? E.BODY_WARN_LEN : 1900;
       if (body.length > warnLen) {
-        const ok = confirm(`This email is long (${body.length} chars). Some mail apps may truncate. Send anyway?`);
+        const ok = await NX.confirm(`This email is long (${body.length} chars). Some mail apps may truncate. Send anyway?`);
         if (!ok) return;
       }
 
