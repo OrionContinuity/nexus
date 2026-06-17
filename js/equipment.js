@@ -3916,7 +3916,10 @@ function renderList() {
       }
       // Skip the click if a long-press just fired (touch ends fire a synthetic
       // click on some browsers right after the dial opened).
-      if (longpressState && longpressState.fired) return;
+      // Suppress only the synthetic click that fires right after a long-press
+      // opened the dial (within a short window). Using a timestamp instead of a
+      // persistent flag means a tap can NEVER get permanently blocked.
+      if (Date.now() - lastLongPressFireAt < 700) return;
       // Skip if in bulk mode — clicks toggle selection there instead.
       if (bulkSelectionState && bulkSelectionState.active) {
         toggleBulkSelection(el.dataset.eqId);
@@ -4057,7 +4060,16 @@ function buildGridCard(e) {
    ════════════════════════════════════════════════════════════════════════════ */
 
 async function openDetail(id) {
-  const eq = equipment.find(e => e.id === id);
+  let eq = equipment.find(e => e.id === id);
+  if (!eq) {
+    // Resilience: the in-memory list can be stale or mid-populate. Rather
+    // than silently doing nothing (a card that won't open), fetch the row
+    // directly and fold it in.
+    try {
+      const { data } = await NX.sb.from('equipment').select('*').eq('id', id).single();
+      if (data) { eq = data; equipment.push(data); }
+    } catch (_) {}
+  }
   if (!eq) return;
   currentEquipId = id;
 
@@ -17968,6 +17980,7 @@ async function addNewContractor() {
 const LONGPRESS_DURATION_MS = 1000;          // 1.0s hold to trigger
 const LONGPRESS_MOVE_TOLERANCE = 10;         // pixels of movement that cancels
 let longpressState = null;
+let lastLongPressFireAt = 0;   // ms timestamp of the most recent long-press fire
 
 /**
  * Wire long-press handlers onto the equipment list container. Called
@@ -18064,7 +18077,8 @@ function onLongPressEnd(e) {
   // If the timer already fired and opened the dial, don't cancel.
   if (longpressState.fired) {
     cleanupLongPressVisual();
-    return;
+    longpressState = null;   // never leave a stuck fired-state that would
+    return;                  // swallow every subsequent row tap
   }
   cancelLongPress();
 }
@@ -18101,6 +18115,7 @@ function cleanupLongPressVisual() {
 function onLongPressFire() {
   if (!longpressState || !longpressState.active) return;
   longpressState.fired = true;
+  lastLongPressFireAt = Date.now();
 
   // Haptic feedback if available.
   if (navigator.vibrate) {
