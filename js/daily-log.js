@@ -1987,6 +1987,67 @@ async function openDailyLogEmail() {
   window.location.href = url;
 }
 
+// ── Weather auto-populate ─────────────────────────────────────────────────
+// Once a day, when today's log opens with an empty Weather field, fetch the
+// day's weather for the venues' city (Austin) from Open-Meteo — free, no API
+// key — and fill a one-line summary with the day's average temp. Never
+// overwrites anything you typed; a per-date localStorage flag keeps it to one
+// network call a day. Change WEATHER_COORDS to move the location.
+const WEATHER_COORDS = { lat: 30.2672, lon: -97.7431 };   // Austin, TX
+
+function wmoText(code) {
+  const m = {
+    0: 'Clear', 1: 'Mainly clear', 2: 'Partly cloudy', 3: 'Overcast',
+    45: 'Fog', 48: 'Fog', 51: 'Light drizzle', 53: 'Drizzle', 55: 'Heavy drizzle',
+    56: 'Freezing drizzle', 57: 'Freezing drizzle',
+    61: 'Light rain', 63: 'Rain', 65: 'Heavy rain', 66: 'Freezing rain', 67: 'Freezing rain',
+    71: 'Light snow', 73: 'Snow', 75: 'Heavy snow', 77: 'Snow grains',
+    80: 'Rain showers', 81: 'Rain showers', 82: 'Heavy rain showers',
+    85: 'Snow showers', 86: 'Snow showers',
+    95: 'Thunderstorms', 96: 'Thunderstorms with hail', 99: 'Thunderstorms with hail',
+  };
+  return m[code] || 'Mixed conditions';
+}
+
+async function maybeAutoWeather() {
+  try {
+    const log = state.currentLog;
+    if (!log) return;
+    const dateStr = log.log_date || todayISO();
+    if (dateStr !== todayISO()) return;                       // today's log only
+    if (!log.data) log.data = hydrateData(null);
+    if (!log.data.header) log.data.header = {};
+    if (String(log.data.header.weather || '').trim()) return; // never overwrite a manual entry
+    const guardKey = 'nexus_weather_done_' + dateStr;
+    try { if (localStorage.getItem(guardKey)) return; } catch (_) {}
+
+    const url = 'https://api.open-meteo.com/v1/forecast'
+      + '?latitude=' + WEATHER_COORDS.lat + '&longitude=' + WEATHER_COORDS.lon
+      + '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum'
+      + '&temperature_unit=fahrenheit&precipitation_unit=inch&timezone=auto&forecast_days=1';
+    const res = await fetch(url);
+    if (!res.ok) return;
+    const j = await res.json();
+    const dy = j && j.daily;
+    if (!dy || !dy.temperature_2m_max) return;
+    const hi = dy.temperature_2m_max[0];
+    const lo = dy.temperature_2m_min[0];
+    if (hi == null || lo == null) return;
+    const code = dy.weather_code ? dy.weather_code[0] : null;
+    const precip = (dy.precipitation_sum && dy.precipitation_sum[0]) || 0;
+    const avg = Math.round((hi + lo) / 2);
+    let str = (code != null ? wmoText(code) + ', ' : '')
+      + 'avg ' + avg + '\u00b0F (H ' + Math.round(hi) + ' / L ' + Math.round(lo) + ')';
+    if (precip > 0.01) str += ' \u00b7 ' + precip.toFixed(2) + '" precip';
+
+    try { localStorage.setItem(guardKey, '1'); } catch (_) {}
+    log.data.header.weather = str;
+    const input = document.querySelector('[data-path="header.weather"]');
+    if (input && !input.value.trim()) input.value = str;
+    markDirty();   // quiet autosave so it persists with the rest of the log
+  } catch (_) { /* offline or API hiccup — skip silently; the field stays editable */ }
+}
+
 function ensureCurrentLog() {
   if (!state.currentLog) {
     state.currentLog = {
@@ -2220,6 +2281,7 @@ async function init() {
     state.currentLog.data.header.date = today;
   }
   render();
+  maybeAutoWeather();
 }
 
 async function show() {
@@ -2253,6 +2315,7 @@ async function show() {
     state.currentLog.data.header.date = date;
   }
   render();
+  maybeAutoWeather();
 }
 
 if (!NX.modules) NX.modules = {};
