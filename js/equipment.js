@@ -17971,8 +17971,11 @@ let lastTapHandledAt = 0;      // ms timestamp a tap was activated via pointerup
  * sub-target detection).
  */
 function activateEquipmentRow(target) {
-  if (!target || !target.closest) return;
+  const DBG = !!(window.NX && (NX.debugEnabled || /[?&]debug\b/.test(location.search) ||
+    (function () { try { return localStorage.getItem('nx_debug') === '1'; } catch (_) { return false; } })()));
+  if (!target || !target.closest) { if (DBG && window.NX && NX.toast) NX.toast('activate: no target', 'error', 2000); return; }
   const el = target.closest('[data-eq-id]');
+  if (DBG && window.NX && NX.toast) NX.toast('activate el=' + (el ? el.dataset.eqId : 'NONE') + ' · tgt=' + (target.className || target.tagName || '?'), 'info', 2600);
   if (!el) return;
   // Beacon tap → quick status menu (cycles status in one tap).
   const beaconTarget = target.closest('.eq-lc-pill, .eq-row-beacon');
@@ -17992,7 +17995,21 @@ function activateEquipmentRow(target) {
     toggleBulkSelection(el.dataset.eqId);
     return;
   }
-  openDetail(el.dataset.eqId);
+  // Open the detail. With ?debug on, drop a visible on-device breadcrumb so
+  // tap delivery can be confirmed without DevTools. ALWAYS surface a thrown
+  // error as a toast — openDetail is async, so a silent rejection would look
+  // exactly like "nothing happened".
+  if (DBG && window.NX && NX.toast) NX.toast('tap → openDetail ' + el.dataset.eqId, 'info', 1600);
+  const fail = (err) => {
+    if (window.NX && NX.debug) NX.debug('openDetail.error', err);
+    if (window.NX && NX.toast) NX.toast('Open failed: ' + (err && err.message ? err.message : err), 'error', 6000);
+  };
+  try {
+    const r = openDetail(el.dataset.eqId);
+    if (r && typeof r.then === 'function') {
+      r.then(() => { if (DBG && window.NX && NX.toast) NX.toast('openDetail resolved', 'success', 1400); }).catch(fail);
+    }
+  } catch (err) { fail(err); }
 }
 
 /**
