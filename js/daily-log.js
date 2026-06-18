@@ -244,12 +244,14 @@ function hydrateData(saved) {
         // persists it. Stops the "stuck Untitled" loop.
         loc.label = label;
       }
-      return {
+      // Spread the saved location first so the free-text note survives
+      // re-hydration; then normalize the known structural fields.
+      return Object.assign({}, loc, {
         id: loc.id || locationIdFromLabel(label),
         label,
         rm: Object.assign({}, makeEmptyRm(), loc.rm || {}),
         vendor_calls: Array.isArray(loc.vendor_calls) ? loc.vendor_calls : [],
-      };
+      });
     });
   } else if (saved.este || saved.suerte) {
     // Old shape — migrate. Pull vendor_calls out, treat the rest as rm fields.
@@ -1262,7 +1264,7 @@ function renderLocationSection(loc, idx) {
       <div class="dlog-section-body">
         <label class="dlog-field">
           <span class="dlog-field-label">Notes &amp; observations</span>
-          <textarea data-path="locations.${idx}.notes" rows="3" placeholder="Anything noteworthy at ${esc(loc.label)} today...">${esc(loc.notes || '')}</textarea>
+          <textarea data-path="locations.${idx}.notes" rows="4" placeholder="The shift recap for ${esc(loc.label)} — service, guests, 86s, anything noteworthy…">${esc(loc.notes || '')}</textarea>
         </label>
         <h3 class="dlog-subsection-title">Repairs &amp; Maintenance</h3>
         <div class="dlog-rm-grid">${rmFields}</div>
@@ -1972,27 +1974,10 @@ function buildDailyLogEmailBody(d, dateStr) {
   }
 
   (d.locations || []).forEach(loc => {
-    const rmLines = [];
-    RM_CATEGORIES.forEach(cat => {
-      const v = clean(loc.rm && loc.rm[cat.key]);
-      if (v) rmLines.push('\u00b7 ' + cat.label + ': ' + v);
-    });
-    const calls = (loc.vendor_calls || []).filter(c => clean(c.vendor) || clean(c.issue) || clean(c.status) || clean(c.equipment));
-    const note = clean(loc.notes);
-    if (!rmLines.length && !calls.length && !note) return;     // skip empty location
+    const lines = dlogLocationReportLines(loc);
+    if (!lines.length) return;     // skip empty location
     out.push(SH(loc.label || 'Location'));
-    if (note) { out.push(note); if (rmLines.length || calls.length) out.push(''); }
-    rmLines.forEach(l => out.push(l));
-    if (calls.length) {
-      if (rmLines.length) out.push('');
-      out.push('Vendor / service calls:');
-      calls.forEach(c => {
-        const head = [clean(c.vendor), clean(c.equipment)].filter(Boolean).join(' \u2014 ');
-        out.push('\u00b7 ' + (head || 'Call') + (clean(c.date) ? ' (' + clean(c.date) + ')' : ''));
-        if (clean(c.issue))  out.push('    Issue: ' + clean(c.issue));
-        if (clean(c.status)) out.push('    Status: ' + clean(c.status));
-      });
-    }
+    lines.forEach(l => out.push(l));
     out.push('');
   });
 
@@ -2026,24 +2011,55 @@ function buildDailyLogEmailBody(d, dateStr) {
 // Builds a recap that pertains to ONE location only — its notes, R&M, and
 // vendor/service calls. Used when a location pill is selected so you can send
 // a venue manager just their venue, split out from the rest of the day.
-function buildLocationEmailBody(loc, dateStr) {
-  const SH = (l, s) => (window.NX && NX.email) ? NX.email.sectionHeader(l, s) : ('--- ' + String(l).toUpperCase() + ' ---');
-  const RULE = () => (window.NX && NX.email) ? NX.email.rule() : '-----------------------------------';
+// Render ONE location's report as digestible email lines: service report,
+// R&M, vendor calls, next service, other notes — each section skipped when
+// empty. Shared by the per-location email and the full-day digest.
+function dlogLocationReportLines(loc) {
   const clean = s => String(s == null ? '' : s).trim();
+  const SH = l => (window.NX && NX.email) ? NX.email.sectionHeader(l) : ('--- ' + String(l).toUpperCase() + ' ---');
   const out = [];
+  const locKey = normLocKey(loc.label);
 
-  out.push('Daily Log \u2014 ' + (loc.label || 'Location') + ' \u2014 ' + fmtLogDateLong(dateStr));
-  out.push('');
+  // Notes — the shift recap the manager types into this location's note.
+  if (clean(loc.notes)) { out.push(SH('Notes')); out.push(clean(loc.notes)); out.push(''); }
 
-  if (clean(loc.notes)) { out.push(SH('Notes & observations')); out.push(clean(loc.notes)); out.push(''); }
+  // Equipment status — pulled live from NEXUS: anything non-operational at
+  // this location, with its status note. No manual entry.
+  const down = (state.equipmentDown || []).filter(eq => normLocKey(eq.location) === locKey && eq.archived !== true);
+  if (down.length) {
+    out.push(SH('Equipment status'));
+    down.forEach(eq => {
+      const st = (eq.status || '').replace(/_/g, ' ').trim();
+      out.push('\u00b7 ' + (eq.name || 'Equipment') + (st ? ' \u2014 ' + st : ''));
+      if (clean(eq.status_note)) out.push('    ' + clean(eq.status_note));
+    });
+    out.push('');
+  }
 
+  // Board / work orders — open + in-progress cards on the Board for this
+  // location (the live backlog), pulled straight from kanban_cards.
+  const slices = state.ticketSlices || {};
+  const eqNameById = state._cardEquipmentNames || {};
+  const cards = [].concat(slices.open || [], slices.working || [])
+    .filter(c => normLocKey(c.location) === locKey);
+  if (cards.length) {
+    out.push(SH('Board / work orders'));
+    cards.forEach(c => {
+      const bits = [];
+      const eqName = c.equipment_id ? eqNameById[c.equipment_id] : '';
+      if (eqName) bits.push('\ud83d\udd27 ' + eqName);
+      if (c._laneLabel) bits.push(c._laneLabel);
+      out.push('\u00b7 ' + (c.title || 'Untitled card') + (bits.length ? ' (' + bits.join(', ') + ')' : ''));
+    });
+    out.push('');
+  }
+
+  // Repairs & maintenance — from this location's note.
   const rmLines = [];
-  RM_CATEGORIES.forEach(cat => {
-    const v = clean(loc.rm && loc.rm[cat.key]);
-    if (v) rmLines.push('\u00b7 ' + cat.label + ': ' + v);
-  });
+  RM_CATEGORIES.forEach(cat => { const v = clean(loc.rm && loc.rm[cat.key]); if (v) rmLines.push('\u00b7 ' + cat.label + ': ' + v); });
   if (rmLines.length) { out.push(SH('Repairs & maintenance')); rmLines.forEach(l => out.push(l)); out.push(''); }
 
+  // Vendor / service calls — from this location's note.
   const calls = (loc.vendor_calls || []).filter(c => clean(c.vendor) || clean(c.issue) || clean(c.status) || clean(c.equipment));
   if (calls.length) {
     out.push(SH('Vendor / service calls'));
@@ -2055,6 +2071,28 @@ function buildLocationEmailBody(loc, dateStr) {
     });
     out.push('');
   }
+
+  return out;
+}
+
+function buildLocationEmailBody(loc, dateStr, d) {
+  const clean = s => String(s == null ? '' : s).trim();
+  const SH = l => (window.NX && NX.email) ? NX.email.sectionHeader(l) : ('--- ' + String(l).toUpperCase() + ' ---');
+  const RULE = () => (window.NX && NX.email) ? NX.email.rule() : '-----------------------------------';
+  const out = [];
+
+  out.push('Daily Log \u2014 ' + (loc.label || 'Location') + ' \u2014 ' + fmtLogDateLong(dateStr));
+  if (d && clean(d.header && d.header.weather)) out.push('Weather: ' + clean(d.header.weather));
+  out.push('');
+
+  if (d && clean(d.header && d.header.significant_events)) {
+    out.push(SH('Significant events'));
+    out.push(clean(d.header.significant_events));
+    out.push('');
+  }
+
+  const lines = dlogLocationReportLines(loc);
+  lines.forEach(l => out.push(l));
 
   out.push(RULE());
   const me = (window.NX && (NX.user || NX.currentUser)) ? ((NX.user && NX.user.name) || (NX.currentUser && NX.currentUser.name) || '') : '';
@@ -2069,7 +2107,7 @@ async function openDailyLogEmail() {
   const dateStr = (log && log.log_date) || (d.header && d.header.date) || todayISO();
   // Split option: a selected location pill sends ONLY that location's notes;
   // Overview sends the full day.
-  let subject, body;
+  let subject, body, recipientsKey, title;
   const locKey = state.activeLoc;
   if (locKey && locKey !== 'all') {
     const loc = (d.locations || []).find(l => normLocKey(l.label) === locKey);
@@ -2078,22 +2116,28 @@ async function openDailyLogEmail() {
       return;
     }
     subject = 'Daily Log \u2014 ' + (loc.label || 'Location') + ' \u2014 ' + fmtLogDateLong(dateStr);
-    body = buildLocationEmailBody(loc, dateStr);
+    body = buildLocationEmailBody(loc, dateStr, d);
+    recipientsKey = 'dlog:' + locKey;
+    title = 'Email \u2014 ' + (loc.label || 'Location');
   } else {
     subject = 'Daily Log \u2014 ' + fmtLogDateLong(dateStr);
     body = buildDailyLogEmailBody(d, dateStr);
+    recipientsKey = 'dlog:all';
+    title = 'Email daily log';
   }
 
   if (!body || body.split('\n').filter(l => l.trim()).length < 2) {
     if (window.NX && NX.alert) await NX.alert('This log is empty \u2014 add some notes first.', { title: 'Nothing to send' });
     return;
   }
-  // Some mail apps trim very long bodies; warn like the order engine does.
-  const WARN = (window.NX && NX.email && NX.email.BODY_WARN_LEN) ? NX.email.BODY_WARN_LEN : 1900;
-  if (body.length > WARN && window.NX && NX.confirm) {
-    const ok = await NX.confirm('This recap is long (' + body.length + ' characters) and some mail apps may trim it. Compose anyway?', { okLabel: 'Compose' });
-    if (!ok) return;
+
+  // Open the full composer (editable To/CC/BCC + body), exactly like ordering.
+  // Each location remembers its own recipients between sends.
+  if (window.NX && typeof NX.composeEmail === 'function') {
+    NX.composeEmail({ recipientsKey, subject, body, title });
+    return;
   }
+  // Fallback if the composer module isn't loaded: a plain mail draft.
   const url = (window.NX && NX.email && NX.email.buildMailtoUrl)
     ? NX.email.buildMailtoUrl('', subject, body)
     : 'mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body).replace(/\+/g, '%20');
