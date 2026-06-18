@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v147-eq-tap-diag';
+const CACHE_NAME = 'nexus-v148-eq-fmtdate-fix';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
