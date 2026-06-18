@@ -110,6 +110,7 @@ let state = {
   // time the user opens the picker so newly-added equipment locations
   // appear without a page refresh.
   equipmentLocations: [],
+  activeLoc: 'all',          // location pill selection: 'all' (Overview) or a location key
   // v18.32 Phase 3b — live equipment activity feed for the current log.
   // Re-queried whenever the log date changes (openLogForDate) so users
   // always see today's-state-of-the-world. Frozen at upload time by
@@ -1023,12 +1024,50 @@ async function saveLog(logData, options) {
 }
 
 // ─── Render ─────────────────────────────────────────────────────────
+// Ensure every distinct equipment location has its own note slot in this log.
+// Equipment is the canonical source of which venues/areas exist, so the daily
+// notes' location list is populated from it. Additive only — never removes a
+// location you added manually, and never disturbs existing notes.
+function syncLocationsFromEquipment(d) {
+  const eqLocs = state.equipmentLocations || [];
+  if (!d) return;
+  if (!Array.isArray(d.locations)) d.locations = [];
+  const have = new Set(d.locations.map(l => normLocKey(l.label)));
+  eqLocs.forEach(loc => {
+    const key = normLocKey(loc);
+    if (!key || have.has(key)) return;
+    have.add(key);
+    d.locations.push({ id: key, label: loc, rm: makeEmptyRm(), vendor_calls: [], notes: '' });
+  });
+}
+
+// One location's self-contained note (Repairs & Maintenance, vendor/service
+// calls, and free observations). Shown when its pill is selected.
+function renderLocationPills(d) {
+  const cur = state.activeLoc || 'all';
+  const pills = ['<button type="button" class="dlog-loc-pill ' + (cur === 'all' ? 'is-active' : '') + '" data-loc-pill="all">Overview</button>'];
+  (d.locations || []).forEach(loc => {
+    const key = normLocKey(loc.label);
+    pills.push('<button type="button" class="dlog-loc-pill ' + (cur === key ? 'is-active' : '') + '" data-loc-pill="' + esc(key) + '">' + esc(loc.label) + '</button>');
+  });
+  return '<div class="dlog-loc-pills" role="tablist">' + pills.join('') + '</div>';
+}
+
+function renderActiveLocation(d) {
+  const key = state.activeLoc;
+  const idx = (d.locations || []).findIndex(l => normLocKey(l.label) === key);
+  if (idx < 0) return '<p class="dlog-empty-hint">This location has no notes yet.</p>';
+  return renderLocationSection(d.locations[idx], idx);
+}
+
 function render() {
   const view = document.getElementById('dailylogView');
   if (!view) return;
 
   const log = state.currentLog;
   const d = hydrateData(log && log.data);
+  syncLocationsFromEquipment(d);     // populate location list from equipment
+  if (log) log.data = d;             // keep the merged shape on the live log
   const driveStatus = log && log.drive_upload_status;
   const hasDriveFile = !!(log && log.drive_file_id);
   const lastUploadedAt = log && log.drive_uploaded_at;
@@ -1056,6 +1095,14 @@ function render() {
   }
   const uploadBtnLabel = hasDriveFile ? 'Update Drive doc' : 'Upload to Drive';
 
+  const emailLocLabel = (state.activeLoc && state.activeLoc !== 'all')
+    ? (((d.locations || []).find(l => normLocKey(l.label) === state.activeLoc) || {}).label || '')
+    : '';
+  const emailBtnLabel = emailLocLabel ? ('✉ Email ' + emailLocLabel) : '✉ Email day';
+  const emailBtnTitle = emailLocLabel
+    ? ('Compose an email of just ' + emailLocLabel + '\u2019s notes')
+    : 'Compose an email of the full day';
+
   view.innerHTML = `
     <div class="dlog-shell">
       <header class="dlog-header">
@@ -1079,23 +1126,23 @@ function render() {
 
       <form class="dlog-form" id="dlogForm" autocomplete="off">
         ${renderVendorDatalist()}
-        ${renderHeaderSection(d)}
-        ${renderPlanningSection(d)}
-
-        <div class="dlog-locations-wrap">
-          ${d.locations.map((loc, idx) => renderLocationSection(loc, idx)).join('')}
-          ${renderAddLocationControl(d)}
-        </div>
-
-        ${renderEquipmentStatusSection(d)}
-        ${renderEquipmentActivitySection(d)}
-        ${renderVendorActivitySection(d)}
-        ${renderTicketsSection(d)}
-        ${renderOtherPropertiesSection(d)}
-        ${renderCleaningSection(d)}
+        ${renderLocationPills(d)}
+        ${(state.activeLoc && state.activeLoc !== 'all')
+          ? renderActiveLocation(d)
+          : `
+            ${renderHeaderSection(d)}
+            ${renderPlanningSection(d)}
+            ${renderEquipmentStatusSection(d)}
+            ${renderEquipmentActivitySection(d)}
+            ${renderVendorActivitySection(d)}
+            ${renderTicketsSection(d)}
+            ${renderOtherPropertiesSection(d)}
+            ${renderCleaningSection(d)}
+            ${renderAddLocationControl(d)}
+          `}
 
         <div class="dlog-actions">
-          <button type="button" class="eq-btn eq-btn-secondary" id="dlogEmailBtn" title="Compose a clean email of this log">✉ Email</button>
+          <button type="button" class="eq-btn eq-btn-secondary" id="dlogEmailBtn" title="${esc(emailBtnTitle)}">${esc(emailBtnLabel)}</button>
           <button type="button" class="eq-btn eq-btn-secondary" id="dlogSaveDraftBtn">Save</button>
           <button type="button" class="eq-btn eq-btn-primary"   id="dlogSubmitBtn">${esc(uploadBtnLabel)}</button>
         </div>
@@ -1207,12 +1254,16 @@ function renderLocationSection(loc, idx) {
   `).join('');
 
   return `
-    <details class="dlog-section dlog-section-location" data-loc-idx="${idx}">
+    <details class="dlog-section dlog-section-location" data-loc-idx="${idx}" open>
       <summary class="dlog-section-header">
         <span class="dlog-section-title">${esc(loc.label)}</span>
         <button type="button" class="dlog-loc-remove" data-remove-loc="${idx}" title="Remove this location" aria-label="Remove location ${esc(loc.label)}">×</button>
       </summary>
       <div class="dlog-section-body">
+        <label class="dlog-field">
+          <span class="dlog-field-label">Notes &amp; observations</span>
+          <textarea data-path="locations.${idx}.notes" rows="3" placeholder="Anything noteworthy at ${esc(loc.label)} today...">${esc(loc.notes || '')}</textarea>
+        </label>
         <h3 class="dlog-subsection-title">Repairs &amp; Maintenance</h3>
         <div class="dlog-rm-grid">${rmFields}</div>
 
@@ -1704,6 +1755,12 @@ function wireForm() {
   if (newBtn) newBtn.addEventListener('click', () => openLogForDate(todayISO()));
 
   // ── Recent log chips
+  view.querySelectorAll('[data-loc-pill]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.activeLoc = btn.getAttribute('data-loc-pill') || 'all';
+      render();
+    });
+  });
   view.querySelectorAll('[data-log-date]').forEach(btn => {
     btn.addEventListener('click', () => openLogForDate(btn.dataset.logDate));
   });
@@ -1921,8 +1978,10 @@ function buildDailyLogEmailBody(d, dateStr) {
       if (v) rmLines.push('\u00b7 ' + cat.label + ': ' + v);
     });
     const calls = (loc.vendor_calls || []).filter(c => clean(c.vendor) || clean(c.issue) || clean(c.status) || clean(c.equipment));
-    if (!rmLines.length && !calls.length) return;     // skip empty location
+    const note = clean(loc.notes);
+    if (!rmLines.length && !calls.length && !note) return;     // skip empty location
     out.push(SH(loc.label || 'Location'));
+    if (note) { out.push(note); if (rmLines.length || calls.length) out.push(''); }
     rmLines.forEach(l => out.push(l));
     if (calls.length) {
       if (rmLines.length) out.push('');
@@ -1964,12 +2023,66 @@ function buildDailyLogEmailBody(d, dateStr) {
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+// Builds a recap that pertains to ONE location only — its notes, R&M, and
+// vendor/service calls. Used when a location pill is selected so you can send
+// a venue manager just their venue, split out from the rest of the day.
+function buildLocationEmailBody(loc, dateStr) {
+  const SH = (l, s) => (window.NX && NX.email) ? NX.email.sectionHeader(l, s) : ('--- ' + String(l).toUpperCase() + ' ---');
+  const RULE = () => (window.NX && NX.email) ? NX.email.rule() : '-----------------------------------';
+  const clean = s => String(s == null ? '' : s).trim();
+  const out = [];
+
+  out.push('Daily Log \u2014 ' + (loc.label || 'Location') + ' \u2014 ' + fmtLogDateLong(dateStr));
+  out.push('');
+
+  if (clean(loc.notes)) { out.push(SH('Notes & observations')); out.push(clean(loc.notes)); out.push(''); }
+
+  const rmLines = [];
+  RM_CATEGORIES.forEach(cat => {
+    const v = clean(loc.rm && loc.rm[cat.key]);
+    if (v) rmLines.push('\u00b7 ' + cat.label + ': ' + v);
+  });
+  if (rmLines.length) { out.push(SH('Repairs & maintenance')); rmLines.forEach(l => out.push(l)); out.push(''); }
+
+  const calls = (loc.vendor_calls || []).filter(c => clean(c.vendor) || clean(c.issue) || clean(c.status) || clean(c.equipment));
+  if (calls.length) {
+    out.push(SH('Vendor / service calls'));
+    calls.forEach(c => {
+      const head = [clean(c.vendor), clean(c.equipment)].filter(Boolean).join(' \u2014 ');
+      out.push('\u00b7 ' + (head || 'Call') + (clean(c.date) ? ' (' + clean(c.date) + ')' : ''));
+      if (clean(c.issue))  out.push('    Issue: ' + clean(c.issue));
+      if (clean(c.status)) out.push('    Status: ' + clean(c.status));
+    });
+    out.push('');
+  }
+
+  out.push(RULE());
+  const me = (window.NX && (NX.user || NX.currentUser)) ? ((NX.user && NX.user.name) || (NX.currentUser && NX.currentUser.name) || '') : '';
+  if (me) out.push(me);
+
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 async function openDailyLogEmail() {
   const log = state.currentLog;
   const d = hydrateData(log && log.data);
   const dateStr = (log && log.log_date) || (d.header && d.header.date) || todayISO();
-  const subject = 'Daily Log \u2014 ' + fmtLogDateLong(dateStr);
-  const body = buildDailyLogEmailBody(d, dateStr);
+  // Split option: a selected location pill sends ONLY that location's notes;
+  // Overview sends the full day.
+  let subject, body;
+  const locKey = state.activeLoc;
+  if (locKey && locKey !== 'all') {
+    const loc = (d.locations || []).find(l => normLocKey(l.label) === locKey);
+    if (!loc) {
+      if (window.NX && NX.alert) await NX.alert('That location has no notes yet.', { title: 'Nothing to send' });
+      return;
+    }
+    subject = 'Daily Log \u2014 ' + (loc.label || 'Location') + ' \u2014 ' + fmtLogDateLong(dateStr);
+    body = buildLocationEmailBody(loc, dateStr);
+  } else {
+    subject = 'Daily Log \u2014 ' + fmtLogDateLong(dateStr);
+    body = buildDailyLogEmailBody(d, dateStr);
+  }
 
   if (!body || body.split('\n').filter(l => l.trim()).length < 2) {
     if (window.NX && NX.alert) await NX.alert('This log is empty \u2014 add some notes first.', { title: 'Nothing to send' });
@@ -2045,7 +2158,7 @@ async function maybeAutoWeather() {
     const input = document.querySelector('[data-path="header.weather"]');
     if (input && !input.value.trim()) input.value = str;
     markDirty();   // quiet autosave so it persists with the rest of the log
-  } catch (_) { /* offline or API hiccup — skip silently; the field stays editable */ }
+  } catch (e) { if (window.NX && NX.debug) NX.debug('dlog.weather', e); /* offline/API hiccup — field stays editable */ }
 }
 
 function ensureCurrentLog() {
@@ -2208,6 +2321,7 @@ async function driveUploadAndUpdateRow(logRow) {
 
 async function openLogForDate(iso) {
   state.isLoading = true;
+  state.activeLoc = 'all';   // start a freshly-opened day on the Overview
   // Load the log + the day's equipment activity in parallel. The activity
   // feed is live (re-queried every time) — the snapshot only gets frozen
   // into data.equipment_activity at upload time.
