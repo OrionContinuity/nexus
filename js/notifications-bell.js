@@ -68,7 +68,7 @@
     var sb = T.sb, t = today();
     async function cnt(fn) {
       try { var r = await fn(); return (r && typeof r.count === 'number') ? r.count : 0; }
-      catch (_) { return 0; }
+      catch (e) { if (T.debug) T.debug('bell.count', e); return 0; }
     }
     var urgent = await cnt(function () {
       return sb.from('tickets').select('*', { count: 'exact', head: true })
@@ -82,10 +82,22 @@
       return sb.from('pm_logs').select('*', { count: 'exact', head: true })
         .eq('review_status', 'pending').eq('is_deleted', false);
     });
+    var down = await cnt(function () {
+      return sb.from('equipment').select('*', { count: 'exact', head: true }).eq('status', 'down');
+    });
+    var quotes = await cnt(function () {
+      return sb.from('equipment_issues').select('*', { count: 'exact', head: true }).eq('awaiting_quote_approval', true);
+    });
+    var unpaid = await cnt(function () {
+      return sb.from('equipment_issues').select('*', { count: 'exact', head: true }).eq('awaiting_invoice_payment', true);
+    });
     var rows = [];
     if (urgent > 0)  rows.push({ label: urgent + ' urgent work order' + (urgent > 1 ? 's' : '') + ' open', view: 'issues', cls: 'danger' });
+    if (down > 0)    rows.push({ label: down + ' unit' + (down > 1 ? 's' : '') + ' down', view: 'equipment', cls: 'danger' });
     if (overdue > 0) rows.push({ label: overdue + ' card' + (overdue > 1 ? 's' : '') + ' overdue', view: 'board', cls: overdue >= 50 ? 'danger' : 'warn' });
     if (pmPend > 0)  rows.push({ label: pmPend + ' PM log' + (pmPend > 1 ? 's' : '') + ' pending review', view: 'pm', cls: 'warn' });
+    if (quotes > 0)  rows.push({ label: quotes + ' quote' + (quotes > 1 ? 's' : '') + ' awaiting approval', view: 'issues', cls: 'warn' });
+    if (unpaid > 0)  rows.push({ label: unpaid + ' invoice' + (unpaid > 1 ? 's' : '') + ' unpaid', view: 'issues', cls: 'warn' });
     return rows;
   }
 
