@@ -2175,6 +2175,17 @@ async function openScheduleEditor(equipId) {
    1. Nothing scheduled → "Not scheduled" (tap to schedule)
    2. Phases scheduled, none missed → "Tyler · Jun 18" or multi-line
    3. Any phase missed (scheduled_date passed) → red flashing pill */
+// Module-level date formatter. renderPmScheduledValue (and any other
+// module-scope caller) needs this; previously `fmtDate` only existed as a
+// local const inside two render functions, so calls from here threw
+// "fmtDate is not defined" — which silently rejected openDetail and made
+// equipment cards appear un-tappable. Function declaration hoists, so this
+// is in scope regardless of position. The two local `const fmtDate` inside
+// other functions still shadow this within their own scopes (intentional).
+function fmtDate(iso) {
+  return iso ? new Date(iso).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
+}
+
 function renderPmScheduledValue(equipId) {
   const phases = getScheduledPhases(equipId);
   if (phases.length === 0) {
