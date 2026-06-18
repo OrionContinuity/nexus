@@ -4068,7 +4068,7 @@ async function openDetail(id) {
     try {
       const { data } = await NX.sb.from('equipment').select('*').eq('id', id).single();
       if (data) { eq = data; equipment.push(data); }
-    } catch (_) {}
+    } catch (e) { if (NX.debug) NX.debug('eq.openDetail.fetch', e); }
   }
   if (!eq) return;
   currentEquipId = id;
