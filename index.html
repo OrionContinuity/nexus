@@ -2720,6 +2720,9 @@
   <button class="util-btn" id="themeToggle" title="Toggle theme · Auto / Dark / Light"><i data-lucide="monitor" class="util-icon" id="themeIcon"></i><span>Theme</span></button>
   <button class="util-btn" id="prefsBtn" title="Preferences"><i data-lucide="sliders-horizontal" class="util-icon"></i><span>Prefs</span></button>
   <button class="util-btn" id="adminBtn"><i data-lucide="settings" class="util-icon"></i><span>Settings</span><span class="ticket-badge" id="ticketBadge" style="display:none"></span></button>
+  <button class="util-btn" id="utilBuild" title="Running build (read live from the cache). Tap to force an update." style="opacity:.6;font-size:11px">
+    <i data-lucide="git-commit" class="util-icon"></i><span id="utilBuildLabel">build…</span>
+  </button>
 </div>
 
 <div class="offline-banner" id="offlineBanner" style="display:none" data-i18n="noConnection">No connection — check WiFi</div>
@@ -4747,6 +4750,35 @@
         if (btn.id !== 'navClock') setTimeout(() => tray.classList.remove('open'), 150);
       });
     });
+
+    // Build badge — reads the ACTUAL running build straight from the cache
+    // (the name the service worker stored), so what you see is what's live
+    // on this device. Tap to force the newest worker to take over.
+    (function wireBuildBadge() {
+      const label = document.getElementById('utilBuildLabel');
+      const btn = document.getElementById('utilBuild');
+      if (!label) return;
+      const readBuild = () => {
+        if (!('caches' in window)) { label.textContent = 'no SW'; return; }
+        caches.keys().then(keys => {
+          const hit = keys.find(k => /^nexus-v/.test(k));
+          // Show just the version token, e.g. "nexus-v146-foo" → "v146".
+          const m = hit && hit.match(/nexus-(v\d+)/);
+          label.textContent = m ? m[1] : (hit || 'unknown');
+        }).catch(() => { label.textContent = 'err'; });
+      };
+      readBuild();
+      btn?.addEventListener('click', async () => {
+        label.textContent = 'updating…';
+        try {
+          const reg = await navigator.serviceWorker?.getRegistration();
+          if (reg) { await reg.update(); }
+        } catch (_) {}
+        // Give the new worker a beat to install, then hard-reload so it
+        // takes control and the fresh files load.
+        setTimeout(() => location.reload(), 800);
+      });
+    })();
   });
 })();
 </script>
