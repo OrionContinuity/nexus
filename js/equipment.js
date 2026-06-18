@@ -3892,42 +3892,17 @@ function renderList() {
     list.addEventListener('click', (ev) => {
       const el = ev.target.closest('[data-eq-id]');
       if (!el || !list.contains(el)) return;
-      // Beacon tap → quick status menu. Intercept BEFORE the generic
-      // row-click that would open the detail view. The beacon is the
-      // most-frequent action target in the list — tapping it cycles
-      // status with one tap instead of three (row → edit → status).
-      // Match either form: .eq-lc-pill (legacy detail-style pill that
-      // may appear in compact rows) OR .eq-row-beacon (the standard
-      // small dot wrapper used in the equipment list).
-      const beaconTarget = ev.target.closest('.eq-lc-pill, .eq-row-beacon');
-      if (beaconTarget && el.contains(beaconTarget)) {
-        ev.stopPropagation();
-        openQuickStatusMenuForRow(el.dataset.eqId, beaconTarget);
-        return;
-      }
-      // Avatar tap → quick photo replace flow. Intercept BEFORE the
-      // generic row-click that would open the detail view.
-      const photoTarget = ev.target.closest('[data-action="quick-photo"]');
-      if (photoTarget && el.contains(photoTarget)) {
-        ev.stopPropagation();
-        const id = photoTarget.dataset.eqId || el.dataset.eqId;
-        if (id) quickReplacePhoto(id);
-        return;
-      }
-      // Skip the click if a long-press just fired (touch ends fire a synthetic
-      // click on some browsers right after the dial opened).
-      // Suppress only the synthetic click that fires right after a long-press
-      // opened the dial (within a short window). Using a timestamp instead of a
-      // persistent flag means a tap can NEVER get permanently blocked.
+      // Suppress the synthetic click that fires right after a long-press
+      // opened the dial (timestamp window — a tap can never be permanently
+      // blocked).
       if (Date.now() - lastLongPressFireAt < 700) return;
-      // Skip if in bulk mode — clicks toggle selection there instead.
-      if (bulkSelectionState && bulkSelectionState.active) {
-        toggleBulkSelection(el.dataset.eqId);
-        return;
-      }
-      openDetail(el.dataset.eqId);
+      // If a tap was already handled on pointerup (see onLongPressEnd), the
+      // browser's trailing synthetic click would double-fire — skip it.
+      if (Date.now() - lastTapHandledAt < 700) return;
+      activateEquipmentRow(ev.target);
     });
   }
+
 
   // Inject per-row/card Zebra quick-print buttons (was equipment-ux.js)
   injectRowPrintButtons();
@@ -17981,6 +17956,44 @@ const LONGPRESS_DURATION_MS = 1000;          // 1.0s hold to trigger
 const LONGPRESS_MOVE_TOLERANCE = 10;         // pixels of movement that cancels
 let longpressState = null;
 let lastLongPressFireAt = 0;   // ms timestamp of the most recent long-press fire
+let lastTapHandledAt = 0;      // ms timestamp a tap was activated via pointerup
+
+/**
+ * Shared row/card activation. Used by BOTH the delegated click handler and
+ * the pointer-up tap path (onLongPressEnd). On touch, the synthetic click
+ * that should follow a tap has proven unreliable on some devices — it can
+ * land outside the delegated container and never open the detail. The
+ * long-press machinery already owns the pointer stream on these rows (and
+ * long-press works), so a clean tap is activated straight from pointerup,
+ * with the trailing click suppressed via lastTapHandledAt.
+ *
+ * `target` is the element actually under the pointer (for beacon/avatar
+ * sub-target detection).
+ */
+function activateEquipmentRow(target) {
+  if (!target || !target.closest) return;
+  const el = target.closest('[data-eq-id]');
+  if (!el) return;
+  // Beacon tap → quick status menu (cycles status in one tap).
+  const beaconTarget = target.closest('.eq-lc-pill, .eq-row-beacon');
+  if (beaconTarget && el.contains(beaconTarget)) {
+    openQuickStatusMenuForRow(el.dataset.eqId, beaconTarget);
+    return;
+  }
+  // Avatar tap → quick photo replace flow.
+  const photoTarget = target.closest('[data-action="quick-photo"]');
+  if (photoTarget && el.contains(photoTarget)) {
+    const id = photoTarget.dataset.eqId || el.dataset.eqId;
+    if (id) quickReplacePhoto(id);
+    return;
+  }
+  // Bulk mode → toggle selection instead of opening.
+  if (bulkSelectionState && bulkSelectionState.active) {
+    toggleBulkSelection(el.dataset.eqId);
+    return;
+  }
+  openDetail(el.dataset.eqId);
+}
 
 /**
  * Wire long-press handlers onto the equipment list container. Called
@@ -18080,7 +18093,18 @@ function onLongPressEnd(e) {
     longpressState = null;   // never leave a stuck fired-state that would
     return;                  // swallow every subsequent row tap
   }
+  // Not fired and the gesture is still alive at pointerup → this was a clean
+  // TAP. (A scroll/drag would have nulled longpressState in onLongPressMove,
+  // so we wouldn't reach here.) Activate directly from the pointer stream
+  // rather than waiting on the unreliable synthetic click. Guard the trailing
+  // click so it doesn't double-open.
+  const row = longpressState.row;
+  const target = (e && e.target && e.target.closest) ? e.target : row;
   cancelLongPress();
+  if (row && document.contains(row)) {
+    lastTapHandledAt = Date.now();
+    activateEquipmentRow(target || row);
+  }
 }
 
 function onLongPressCancel() {
