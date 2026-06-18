@@ -879,3 +879,35 @@
     }
   }
 })();
+
+/* ═══ NX.debug — discoverable silent failures ════════════════════════════
+   Silent in production. Turns on when the URL has ?debug, or localStorage
+   nx_debug='1', or you call NX.debugOn() from the console. Empty catch
+   blocks can route through this so a swallowed error becomes visible the
+   moment you go looking — without any console noise the rest of the time.
+       try { ... } catch (e) { NX.debug('eq.openDetail', e); }
+   Attaches to the lexical NX (and mirrors to window.NX) like the dialogs. */
+(function () {
+  var T = (typeof NX !== 'undefined' && NX) ? NX : (window.NX = window.NX || {});
+  if (T.debug) return;
+  var on = null;
+  function enabled() {
+    if (on === null) {
+      try { on = /[?&]debug\b/.test(location.search) || localStorage.getItem('nx_debug') === '1'; }
+      catch (_) { on = false; }
+    }
+    return on;
+  }
+  T.debug = function (context, err) {
+    try {
+      if (!enabled()) return;
+      var msg = (err && (err.message || (err.toString && err.toString()))) || err;
+      console.warn('[NX:' + (context || '?') + ']', msg, err || '');
+    } catch (_) {}
+  };
+  T.debugOn  = function () { try { localStorage.setItem('nx_debug', '1'); } catch (_) {} on = true;  if (console.info) console.info('[NX] debug logging ON'); };
+  T.debugOff = function () { try { localStorage.removeItem('nx_debug'); } catch (_) {} on = false; if (console.info) console.info('[NX] debug logging OFF'); };
+  if (typeof window !== 'undefined' && window.NX && window.NX !== T) {
+    window.NX.debug = T.debug; window.NX.debugOn = T.debugOn; window.NX.debugOff = T.debugOff;
+  }
+})();
