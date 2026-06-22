@@ -448,7 +448,7 @@
               </div>
               <div class="pm-form-half">
                 <label class="pm-label">Next service due${eq.next_pm_date ? ` <span style="color:var(--muted,#9a9081);font-weight:400">· scheduled ${esc(eq.next_pm_date)}</span>` : ''}</label>
-                <input type="date" id="pmNext" class="pm-input" value="${esc(eq.next_pm_date || '')}">
+                <input type="date" id="pmNext" class="pm-input" value="${esc(eq.next_pm_date && eq.next_pm_date > today ? eq.next_pm_date : '')}">
               </div>
             </div>
           </div>
@@ -1401,20 +1401,47 @@
             .eq('equipment_id', log.equipment_id).eq('status', 'scheduled');
         } catch (_) {}
       }
-      let nextDue = log.next_service_date || null;
-      if (!nextDue && isPm) {
+      // ── Establish / advance the PM cadence ──────────────────────────
+      // The PM Health bar (computePmCountdown) needs BOTH last_pm_date AND
+      // pm_interval_days. Most equipment have no interval configured, so a
+      // logged PM would reset last_pm_date but the bar still couldn't render
+      // or "restart". So we LEARN the interval from the contractor's stated
+      // next-service date when the unit has none yet.
+      let curInterval = null;
+      if (isPm) {
         const { data: eqRow } = await NX.sb.from('equipment')
           .select('pm_interval_days').eq('id', log.equipment_id).maybeSingle();
         const iv = eqRow && parseInt(eqRow.pm_interval_days, 10);
-        if (iv && iv > 0) {
-          const d = new Date(svcDate + 'T00:00:00');
-          d.setDate(d.getDate() + iv);
-          nextDue = d.toISOString().slice(0, 10);
-        }
+        if (iv && iv > 0) curInterval = iv;
       }
+      // Only honor a contractor "next service due" that is strictly AFTER the
+      // service date. A same-day or past value is the stale form default, not
+      // a real cadence — accepting it is what pinned next_pm_date to "today".
+      const explicitNext = (isPm && log.next_service_date && log.next_service_date > svcDate)
+        ? log.next_service_date : null;
+
+      let interval = curInterval;
+      let learnedInterval = false;
+      if (isPm && !interval && explicitNext) {
+        const days = Math.round(
+          (new Date(explicitNext + 'T00:00:00') - new Date(svcDate + 'T00:00:00')) / 86400000);
+        if (days > 0) { interval = days; learnedInterval = true; }
+      }
+
+      let nextDue = explicitNext;
+      if (!nextDue && isPm && interval) {
+        const d = new Date(svcDate + 'T00:00:00');
+        d.setDate(d.getDate() + interval);
+        nextDue = d.toISOString().slice(0, 10);
+      }
+
       const eqPatch = {};
       if (isPm) eqPatch.last_pm_date = svcDate;
       if (nextDue) eqPatch.next_pm_date = nextDue;
+      // Persist a newly-learned cadence so the health bar appears and resets
+      // on every future visit. Never overwrite an interval the unit already
+      // has — that's an explicit config decision owned by the operator.
+      if (isPm && learnedInterval && interval > 0) eqPatch.pm_interval_days = interval;
       if (Object.keys(eqPatch).length) {
         let attempt = { ...eqPatch };
         let r = await NX.sb.from('equipment').update(attempt).eq('id', log.equipment_id);
