@@ -1,0 +1,258 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   refresh-2026.css — bolder visual refresh (additive override layer)
+   ───────────────────────────────────────────────────────────────────────
+   A single, REVERSIBLE layer loaded last in index.html so it wins on the
+   cascade without editing the established design system. Delete the one
+   <link> in index.html to revert the entire refresh.
+
+   Design intent (keeps the NEXUS identity — Roman gold, editorial, dark):
+     1. Ambient depth   — the flat near-black backdrop becomes a layered
+                          radial field with a warm gold bloom + vignette.
+     2. Login showcase  — the coin gets a real halo + aura ring; the
+                          wordmark and keypad gain depth and tactility.
+     3. Chrome lift     — top nav + bottom nav read as floating frosted
+                          shelves with a gold underglow.
+     4. Desktop frame   — on wide screens the mobile column is centered
+                          inside a floating "device" panel instead of being
+                          pinned to the top-left of an empty page.
+
+   Scope is guarded by [data-theme] so light mode keeps its own treatment.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ─── 1. AMBIENT DEPTH ──────────────────────────────────────────────────
+   body had a single flat fill (--nx-bg #0e1320). We paint a fixed,
+   layered field behind everything: a gold bloom from the top (echoing the
+   coin), a cool deep pool at the bottom, over an ink vertical gradient.
+   background-attachment: fixed keeps it still while panels scroll. */
+[data-theme="dark"] body {
+  background:
+    radial-gradient(125% 70% at 50% -8%,  rgba(212, 164, 78, 0.11), rgba(212,164,78,0) 58%),
+    radial-gradient(120% 85% at 50% 112%, rgba(28, 40, 68, 0.55),   rgba(28,40,68,0)  55%),
+    linear-gradient(180deg, #0c111d 0%, #0e1320 46%, #090d16 100%) !important;
+  background-attachment: fixed !important;
+}
+
+/* Light mode — warm limestone field instead of a flat cream. */
+[data-theme="light"] body {
+  background:
+    radial-gradient(125% 70% at 50% -8%, rgba(184, 136, 48, 0.10), rgba(184,136,48,0) 58%),
+    linear-gradient(180deg, #f3ecdd 0%, #efe7d6 60%, #e9e0cc 100%) !important;
+  background-attachment: fixed !important;
+}
+
+/* The PIN screen paints its own opaque --bg, which would cover the field.
+   Make it transparent so the ambient backdrop shows through the login. */
+.pin-screen { background: transparent !important; }
+
+
+/* ─── 2. LOGIN SHOWCASE ─────────────────────────────────────────────────
+   The login is the first impression. Give the coin a layered halo + a
+   faint concentric aura ring so it reads as the hero, not a flat image. */
+
+/* Coin size — ~15% smaller, both the login hero and the masthead mini coin.
+   The inline coin <style> in index.html loads AFTER this file, so the
+   login-coin dimensions need !important to win. The coin stays centered:
+   stage 210 − coin 170 = 40 → the inline top/left:20px still centers it. */
+.nx-coin-stage { width: 210px !important; height: 210px !important; }
+.nx-coin {
+  width: 170px !important; height: 170px !important;
+  /* Center within the stage regardless of the inline top/left offset, so the
+     coin stays concentric with the halo + aura ring. transform (the 3D flip)
+     is unaffected by margin-auto centering. */
+  inset: 0 !important;
+  margin: auto !important;
+}
+.nx-mast-coin  { width: 29px  !important; height: 29px  !important; }
+
+.nx-coin-stage::before {
+  content: "";
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 272px; height: 272px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(circle,
+    rgba(212, 164, 78, 0.22) 0%,
+    rgba(212, 164, 78, 0.08) 38%,
+    rgba(212, 164, 78, 0) 70%);
+  animation: nx26-halo 6s ease-in-out infinite;
+}
+.nx-coin-stage::after {
+  content: "";
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 214px; height: 214px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+  border: 1px solid var(--nx-gold-line-2);
+  box-shadow: 0 0 0 1px rgba(212,164,78,0.04) inset;
+}
+/* Keep the coin itself above the halo layers. */
+.nx-coin, .nx-coin-stage .nx-info-btn { position: relative; z-index: 2; }
+
+@keyframes nx26-halo {
+  0%, 100% { opacity: 0.75; transform: translate(-50%, -50%) scale(1); }
+  50%      { opacity: 1;    transform: translate(-50%, -50%) scale(1.05); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nx-coin-stage::before { animation: none; }
+}
+
+/* Wordmark — add a soft gold aura so NEXUS feels lit, not printed. */
+.pin-title {
+  text-shadow: 0 0 22px rgba(212, 164, 78, 0.35), 0 1px 0 rgba(0,0,0,0.4) !important;
+}
+
+/* Keypad — give each key real material: a subtle top-lit gradient, a
+   gold hairline, and a deeper, glowier press. */
+.pin-key {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0) 60%),
+    var(--nx-surface-2) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.04) inset,
+    0 6px 16px rgba(6, 10, 20, 0.35) !important;
+  transition: transform .12s ease, box-shadow .15s ease, background .15s ease, border-color .15s ease !important;
+}
+.pin-key:hover {
+  border-color: var(--nx-gold-line-2) !important;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0) 60%),
+    var(--nx-surface-3) !important;
+}
+.pin-key:active {
+  transform: scale(0.95) !important;
+  background:
+    radial-gradient(circle at 50% 40%, var(--nx-gold), var(--nx-gold-deep)) !important;
+  border-color: var(--nx-gold) !important;
+  color: var(--nx-gold-on) !important;
+  box-shadow: 0 0 22px var(--nx-gold-glow), 0 2px 8px rgba(0,0,0,0.4) !important;
+}
+
+/* PIN progress dots — when filled, glow like the brand dot. */
+.pin-circle.filled {
+  box-shadow: 0 0 12px var(--nx-gold-glow), 0 0 2px var(--nx-gold) !important;
+}
+
+
+/* ─── 3. CHROME LIFT (top nav + bottom nav) ─────────────────────────────
+   The top .nav becomes a frosted shelf with a gold underglow hairline and
+   a soft drop so content scrolls "under glass". */
+[data-theme="dark"] .nav {
+  background: rgba(14, 19, 32, 0.72) !important;
+  backdrop-filter: blur(18px) saturate(1.3) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(1.3) !important;
+  border-bottom: 1px solid var(--nx-gold-line) !important;
+  box-shadow: 0 6px 22px rgba(4, 8, 16, 0.45) !important;
+}
+[data-theme="light"] .nav {
+  background: rgba(243, 236, 221, 0.78) !important;
+  backdrop-filter: blur(18px) saturate(1.2) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(1.2) !important;
+  border-bottom: 1px solid var(--nx-gold-line) !important;
+  box-shadow: 0 6px 18px rgba(120, 100, 70, 0.12) !important;
+}
+
+/* Bottom nav — deepen the floating-shelf read with a soft top shadow and
+   a hair more glass. (home-soft.css already gives it the gold top border.) */
+[data-theme="dark"] .bottom-nav {
+  box-shadow: 0 -6px 24px rgba(4, 8, 16, 0.5) !important;
+}
+/* Active lozenge gets a faint glow so the current tab pops. */
+.bnav-btn.active::before {
+  box-shadow: 0 0 16px var(--nx-gold-glow);
+}
+
+
+/* ─── 4. DESKTOP FRAME ──────────────────────────────────────────────────
+   The app is mobile-first: on a wide screen the chrome stretches and the
+   narrow content pins to the top-left, which reads as broken. On large
+   screens we present the app as a centered, floating "device" panel over
+   the ambient field — intentional and premium — without restructuring any
+   view markup. The post-auth shell is #appWrap; the fixed bottom nav and
+   floating controls are re-centered to the same column.                    */
+@media (min-width: 900px) {
+  /* A focused, centered app-shell column (the pattern Linear / Claude use)
+     rather than a stretched mobile page. The single-column views were built
+     for a phone width; a 600px shell keeps them at their intended width with
+     no per-view hacks, framed by gold hairlines over the ambient field. */
+  #appWrap {
+    max-width: 600px;
+    margin: 0 auto;
+    min-height: 100dvh;
+    border-left: 1px solid var(--nx-gold-line);
+    border-right: 1px solid var(--nx-gold-line);
+    box-shadow: 0 0 90px rgba(0, 0, 0, 0.5);
+    background: rgba(255, 255, 255, 0.014);
+  }
+
+  /* Re-center the fixed bottom nav onto the panel. */
+  .bottom-nav {
+    left: 50% !important;
+    right: auto !important;
+    transform: translateX(-50%) !important;
+    width: 100% !important;
+    max-width: 600px !important;
+    border-left: 1px solid var(--nx-gold-line) !important;
+    border-right: 1px solid var(--nx-gold-line) !important;
+  }
+
+  /* Keep the translate FAB tucked against the panel's left edge. */
+  .nx-tr-fab { left: calc(50% - 300px + 14px) !important; }
+}
+
+
+/* ─── 5. PRIMITIVE LIFT (cascades into every view) ──────────────────────
+   The shared surfaces — cards, stat tiles, decision/work-order rows — get
+   a top-lit edge and a real hover lift so the whole app feels physical and
+   responsive on pointer devices. Hover is guarded so touch never sticks. */
+@media (hover: hover) and (pointer: fine) {
+  .nx-card,
+  .nx-card--elevated,
+  .home-rm-tile,
+  .home-kpi,
+  .home-rm-decision-row,
+  .home-rm-wo-item {
+    transition:
+      transform .16s ease,
+      box-shadow .2s ease,
+      border-color .2s ease !important;
+  }
+  .nx-card:hover,
+  .nx-card--elevated:hover,
+  .home-rm-tile:hover,
+  .home-kpi:hover,
+  .home-rm-decision-row:hover,
+  .home-rm-wo-item:hover {
+    transform: translateY(-2px);
+    border-color: var(--nx-gold-line-2) !important;
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.05) inset,
+      0 10px 30px rgba(4, 8, 16, 0.45) !important;
+  }
+
+  /* Primary action — lift + gold glow on hover (it only had :active). */
+  .nx-pill--primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 22px var(--nx-gold-aura), 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+  .nx-pill--secondary:hover {
+    border-color: var(--nx-gold) !important;
+    background: var(--nx-gold-faint) !important;
+  }
+}
+
+/* Top-lit edge on the primary stat tiles — a hair of dimensional polish
+   that applies on every device (not just hover). Additive over the gold
+   hairline home-soft.css already gives them. */
+[data-theme="dark"] .home-rm-tile,
+[data-theme="dark"] .home-kpi {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0) 42%),
+    var(--nx-elevated) !important;
+}
