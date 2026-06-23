@@ -79,7 +79,7 @@
   // FIRED BY:  equipment-public-pm.js → submitPmLog() after pm_logs INSERT
   // EFFECTS:   stamp equipment, create review board card, brain sync
   //
-  D.recordPMScan = async function({ equipmentIds, pmLogIds, contractor }) {
+  D.recordPMScan = async function({ equipmentIds, pmLogIds, contractor, needsReview = true }) {
     if (!Array.isArray(equipmentIds) || !equipmentIds.length) return;
     if (!NX.sb) return;
 
@@ -90,10 +90,16 @@
           .eq('id', eqId);
       } catch (_) { /* column may not exist — pm_logs.submitted_at is still authoritative */ }
 
-      try {
-        await autoCreateReviewCard(eqId, contractor);
-      } catch (e) {
-        console.warn('[domain.recordPMScan] card create skipped:', e?.message || e);
+      // Only surface a "Review PM" board card when the log actually needs
+      // staff review. Self-approved (honeypot-clean) QR submissions are
+      // already approved, so a review card would just linger forever with
+      // nothing to review (it's never archived by approvePM/rejectPM).
+      if (needsReview) {
+        try {
+          await autoCreateReviewCard(eqId, contractor);
+        } catch (e) {
+          console.warn('[domain.recordPMScan] card create skipped:', e?.message || e);
+        }
       }
 
       try {
@@ -126,6 +132,81 @@
     if (!NX.sb || !equipmentId) return;
     try { await archiveCardsByLabel(equipmentId, 'pm-review'); }
     catch (e) { console.warn('[domain.rejectPM] card archive skipped:', e?.message || e); }
+  };
+
+
+  // ════════════════════════════════════════════════════════════════════
+  // EVENT: a recurring PM schedule was completed
+  // ════════════════════════════════════════════════════════════════════
+  //
+  // FIRED BY:  pm.js → markScheduleDone()  (the /pm "Done" button)
+  //            board.js → moveCard()       (a 'pm-due'/'sched:<id>' card → Done)
+  //
+  // The SINGLE place that closes the loop for a scheduled PM, so both entry
+  // points behave identically. Previously /pm "Done" advanced the equipment
+  // but left the schedule's next_due_at + its board card stale, while the
+  // board's drag-to-Done did neither — each did half the job.
+  //
+  // EFFECTS:
+  //   1. roll the schedule forward    (last_run_at = now, next_due_at += freq)
+  //   2. log the PM                   (pm_logs row, approved)
+  //   3. advance the equipment cadence (NX.pm.advance → health bar restarts)
+  //   4. archive the 'sched:<id>' board card so it doesn't linger
+  //
+  D.completePMSchedule = async function({ scheduleId, equipmentId }) {
+    if (!NX.sb || !scheduleId) return;
+
+    // Load the schedule for frequency + equipment (board.js only has the card).
+    let s = null;
+    try {
+      const { data } = await NX.sb.from('pm_schedules')
+        .select('id, equipment_id, frequency_days, title')
+        .eq('id', scheduleId).maybeSingle();
+      s = data;
+    } catch (_) {}
+    const eqId = equipmentId || (s && s.equipment_id) || null;
+    const freq = s ? parseInt(s.frequency_days, 10) : 0;
+    const now  = new Date().toISOString();
+    const svc  = now.slice(0, 10);
+
+    // 1. Roll the schedule forward so checkPMsDue stops re-flagging it.
+    const upd = { last_run_at: now, updated_at: now };
+    if (freq > 0) upd.next_due_at = new Date(Date.now() + freq * 86400000).toISOString();
+    try {
+      let { error } = await NX.sb.from('pm_schedules').update(upd).eq('id', scheduleId);
+      if (error && /next_due_at/i.test(error.message || '')) {
+        await NX.sb.from('pm_schedules').update({ last_run_at: now, updated_at: now }).eq('id', scheduleId);
+      }
+    } catch (_) {}
+
+    if (eqId) {
+      // 2. Record the PM so it shows in history.
+      try {
+        await NX.sb.from('pm_logs').insert({
+          equipment_id: eqId,
+          service_type: 'pm',
+          work_performed: 'Completed via PM Schedule' + (s && s.title ? ': ' + s.title : ''),
+          service_date: svc,
+          contractor_name: (NX.currentUser && NX.currentUser.name) || 'Staff',
+          review_status: 'approved',
+          submitted_at: now,
+        });
+      } catch (_) {}
+
+      // 3. Advance the equipment's PM cadence (restarts the health bar).
+      try {
+        if (NX.pm && NX.pm.advance) {
+          await NX.pm.advance(eqId, {
+            serviceDate: svc, isPm: true,
+            nextServiceDate: freq > 0 ? NX.pm.addDays(svc, freq) : null,
+            completeSchedules: false,   // recurring — handled above
+          });
+        }
+      } catch (_) {}
+
+      // 4. Archive the auto-created 'PM Due' card for this schedule.
+      try { await archiveCardsByLabel(eqId, 'sched:' + scheduleId); } catch (_) {}
+    }
   };
 
 

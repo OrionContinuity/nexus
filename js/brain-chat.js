@@ -316,7 +316,8 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
               }
               chainLog.push({type:'card',title:action.title,result:'created'});
             }else if(action.type==='log'){
-              await NX.sb.from('daily_logs').insert({entry:action.title+' — '+action.detail});
+              if(NX.log&&NX.log.write)await NX.log.write({type:'user',text:action.title+' — '+action.detail});
+              else await NX.sb.from('daily_logs').insert({entry:action.title+' — '+action.detail});
               chainLog.push({type:'log',title:action.title,result:'logged'});
             }else if(action.type==='schedule'){
               // Look up contractor from brain
@@ -378,7 +379,7 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
     }catch(e){console.log('Compound action detection failed:',e);}
   }
   async function handleTask(task){
-    if(task.type==='log'){const{error}=await NX.sb.from('daily_logs').insert({entry:task.content});return error?'Failed to log.':`Logged: "${task.content}"`;}
+    if(task.type==='log'){const r=(NX.log&&NX.log.write)?await NX.log.write({type:'user',text:task.content}):await NX.sb.from('daily_logs').insert({entry:task.content});return (r&&r.error)?'Failed to log.':`Logged: "${task.content}"`;}
     if(task.type==='card'){
       const target=await resolveBoardAndList();
       if(!target) return 'Could not find a board to add this card to.';
@@ -410,7 +411,7 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
 
   async function handleResearch(topic){
     const status=addB(tt('researchingWeb')+' "'+topic+'"...','ai thinking');
-    let dots=0;const dotTimer=setInterval(()=>{dots=(dots+1)%4;status.textContent=tt('researchingWeb')+' "'+topic+'"'+'.'.repeat(dots);},500);
+    let dots=0;let extractDots=null;const dotTimer=setInterval(()=>{dots=(dots+1)%4;status.textContent=tt('researchingWeb')+' "'+topic+'"'+'.'.repeat(dots);},500);
     try{
       const webResult=await NX.askClaude('You are a research assistant for restaurant operations (Suerte, Este, Bar Toti — Austin TX). Search the web and provide detailed, factual information. Include specs, model numbers, pricing, warranty, dealer contacts.',[{role:'user',content:`Research: ${topic}`}],2000,true);
       clearInterval(dotTimer);
@@ -420,7 +421,7 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
       const isVague=!webResult||webResult.length<100||/could you|please specify|what would you like|need more|which specific/i.test(webResult);
       if(!isVague){
         const extractStatus=addB(tt('extractingKnowledge')+'...','ai thinking');
-        const extractDots=setInterval(()=>{dots=(dots+1)%4;extractStatus.textContent=tt('extractingKnowledge')+'.'.repeat(dots);},500);
+        extractDots=setInterval(()=>{dots=(dots+1)%4;extractStatus.textContent=tt('extractingKnowledge')+'.'.repeat(dots);},500);
       const extraction=await NX.askClaude('Extract ALL knowledge as nodes. RESPOND ONLY RAW JSON: {"nodes":[{"name":"...","category":"equipment|contractors|vendors|procedure|projects|people|systems|parts|location","tags":["..."],"notes":"..."}]}',[{role:'user',content:webResult}],2000);
       let json=extraction.replace(/```json\s*/gi,'').replace(/```\s*/g,'');
       const s=json.indexOf('{'),e=json.lastIndexOf('}');
@@ -435,10 +436,10 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
           clearInterval(extractDots);
           await NX.loadNodes();if(NX.brain)NX.brain.init();
         }else{clearInterval(extractDots);addB('No new nodes to extract.','ai');}
-      }
+      }else{clearInterval(extractDots);}
       }else{addB(tt('tooVague'),'ai');}
       try{await NX.sb.from('chat_history').insert({question:'research: '+topic,answer:webResult,session_id:SESSION_ID,user_name:(NX.currentUser?NX.currentUser.name:'Unknown')});}catch(e){}
-    }catch(e){clearInterval(dotTimer);addB(tt('researchFailed')+': '+(e.message||'error'),'ai');}
+    }catch(e){clearInterval(dotTimer);clearInterval(extractDots);addB(tt('researchFailed')+': '+(e.message||'error'),'ai');}
   }
 
   // ═══ DIRECT NODE CREATION from chat ═══

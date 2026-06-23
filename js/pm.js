@@ -279,23 +279,17 @@
     if (!confirm(`Mark "${s.title}" complete?\n\nThis creates a pm_log entry and advances the next due date by ${s.frequency_days} days.`)) return;
     if (!NX?.sb) return;
 
-    const now = new Date().toISOString();
-    const { error } = await NX.sb.from('pm_schedules').update({
-      last_run_at: now, updated_at: now,
-    }).eq('id', scheduleId);
-    if (error) { alert('Failed: ' + error.message); return; }
-
-    try {
-      await NX.sb.from('pm_logs').insert({
-        equipment_id: s.equipment_id,
-        service_type: s.title || 'Scheduled PM',
-        work_performed: 'Completed via NEXUS PM Schedule: ' + s.title,
-        service_date: now.slice(0, 10),
-        contractor_name: s.assigned_to || NX.user?.name || NX.currentUser?.name || 'Staff',
-        review_status: 'approved',
-        submitted_at: now,
-      });
-    } catch (_) {}
+    // Single completion path — shared with the board's drag-to-Done
+    // (NX.domain.completePMSchedule). Rolls the schedule's next_due_at
+    // forward, logs the PM, advances the equipment's health cadence, AND
+    // archives the 'PM Due' board card so it stops lingering.
+    if (NX.domain && NX.domain.completePMSchedule) {
+      await NX.domain.completePMSchedule({ scheduleId, equipmentId: s.equipment_id });
+    } else if (NX.sb) {
+      // Fallback only if a stale domain.js is cached: at least record the run.
+      const now = new Date().toISOString();
+      await NX.sb.from('pm_schedules').update({ last_run_at: now, updated_at: now }).eq('id', scheduleId);
+    }
 
     NXRM.notify.bubble(`Bzzt — ${s.title} done. Next due in ${s.frequency_days} days.`,
       { autoHide: 3500, eyebrow: '✓ PM' });

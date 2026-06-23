@@ -1519,6 +1519,20 @@ async function moveCard(card, targetList){
         console.warn('[board] resolveEquipmentIssue hook failed:', e);
       });
     }
+    // If this is a 'PM Due' card (label `sched:<uuid>`), completing it on the
+    // board now completes the SCHEDULE — same path as the /pm "Done" button:
+    // roll next_due_at forward, log the PM, restart the equipment health bar,
+    // and archive the card. Previously dragging a PM-due card to Done just
+    // archived it and did nothing to the schedule or equipment.
+    if (movingToDone && wasNotDone && NX.domain?.completePMSchedule) {
+      const schedId = (Array.isArray(card.labels) ? card.labels : [])
+        .map(l => (typeof l === 'string' && l.startsWith('sched:')) ? l.slice(6) : null)
+        .find(Boolean);
+      if (schedId) {
+        NX.domain.completePMSchedule({ scheduleId: schedId, equipmentId: card.equipment_id })
+          .catch(e => console.warn('[board] completePMSchedule hook failed:', e));
+      }
+    }
     // Safety net: clear the optimistic guard even if the realtime echo never
     // arrives, so a later genuine remote move isn't silently swallowed.
     setTimeout(() => optimisticSet.delete(card.id), 4000);

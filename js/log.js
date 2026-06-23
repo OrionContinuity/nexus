@@ -94,10 +94,15 @@ async function loadFeed() {
   (logsRes.data || []).forEach(r => {
     const entry = r.entry || '';
     const isClean = entry.startsWith('Cleaning Report') || entry.startsWith('[AUTO');
-    // Legacy daily_logs may have entries that start with an emoji prefix
-    // (from the pre-Lucide ICONS map). Match any non-word-leading entry that
-    // looks like a system event (event keyword in the body).
-    const isSys = entry.startsWith('[SYS]') || (/^[^\w\s]/.test(entry) && /(login|logout|clock|card|ticket|clean|chat|batch|notify|privacy|node|gmail|email|equipment|maintenance|call|dispatch|push|broadcast|pattern|capture|subscribed)/i.test(entry));
+    // System events: the canonical '[SYS]' prefix (NX.syslog), OR a legacy
+    // emoji-prefixed syslog line. The legacy heuristic now requires the event
+    // keyword to sit right after the emoji AND be followed by ':' (the
+    // "emoji event_name: detail" shape). The old version matched ANY emoji-led
+    // entry that merely *contained* a common word (email/equipment/call/…), so
+    // ordinary voice/SMS/user logs led by an emoji got mis-filed as system.
+    const isSys = entry.startsWith('[SYS]') ||
+      (/^[^\w\s]/.test(entry) &&
+       /^[^\w\s]+\s*(login|logout|clock|card|ticket|clean|chat|batch|notify|privacy|node|gmail|email|equipment|maintenance|call|dispatch|push|broadcast|pattern|capture|subscribed)\w*\s*:/i.test(entry));
     const type = isClean ? 'clean' : isSys ? 'system' : 'log';
     feed.push({ type, ts: r.created_at, id: 'dl-' + r.id, data: r, src: 'daily_logs' });
   });
@@ -297,8 +302,13 @@ function baseCard(type, html, ts) {
 function buildLogCard(r) {
   const entry = r.entry || '';
   const isTicket = entry.includes('TICKET');
+  // ai_created was written by ai-writer.js but never surfaced — badge it so
+  // AI-generated entries are distinguishable from human ones in the feed.
+  const aiBadge = r.ai_created
+    ? '<span style="font-size:9px;font-weight:600;letter-spacing:.5px;color:var(--nx-gold,#d4a44e);border:1px solid var(--nx-gold,#d4a44e);border-radius:4px;padding:0 4px;margin-right:6px;vertical-align:1px">AI</span>'
+    : '';
   const el = baseCard('log',
-    '<div class="feed-text' + (isTicket ? ' feed-text-tk' : '') + '">' + escHTML(entry) + '</div>' +
+    '<div class="feed-text' + (isTicket ? ' feed-text-tk' : '') + '">' + aiBadge + escHTML(entry) + '</div>' +
     (r.user_name ? '<div class="feed-who">' + escHTML(r.user_name) + '</div>' : ''),
     r.created_at);
   addDeleteBtn(el, r.id, 'daily_logs');
@@ -692,7 +702,9 @@ async function addLog() {
   const text = input?.value.trim();
   if (!text) return;
   try {
-    await NX.sb.from('daily_logs').insert({ entry: text, user_name: NX.currentUser?.name || '' });
+    // Shared writer (js/core.js) — stamps user_name + canonical prefix.
+    if (NX.log && NX.log.write) await NX.log.write({ type: 'user', text });
+    else await NX.sb.from('daily_logs').insert({ entry: text, user_name: NX.currentUser?.name || '' });
     if (NX.toast) NX.toast('Logged ✓', 'success');
     input.value = '';
     loadFeed();

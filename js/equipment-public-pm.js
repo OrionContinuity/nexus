@@ -745,6 +745,11 @@
       const rows = equipIds.map(id => ({
         ...data,
         equipment_id: id,
+        // The contractor's "next service due" applies only to the unit they
+        // actually scanned. In a mass log, copying it to every selected unit
+        // mis-sets (and, via interval-learning, mis-teaches) the others'
+        // cadence — they roll forward by their own interval in NX.pm.advance.
+        next_service_date: id === eq.id ? data.next_service_date : null,
         photo_urls: photoUrls,
         pdf_url: pdfUrl,
         signature_data: signatureData,
@@ -888,6 +893,10 @@
         try {
           await NX.domain.recordPMScan({
             equipmentIds: equipIds,
+            // Only raise a "Review PM" board card when the log is actually
+            // pending staff review. Self-approved (honeypot-clean) submissions
+            // are already approved, so a review card would just orphan.
+            needsReview: data.review_status === 'pending',
             contractor: {
               name:    data.contractor_name,
               company: data.contractor_company,
@@ -1384,79 +1393,19 @@
     try { if (NX.eqBrainSync?.syncOne) NX.eqBrainSync.syncOne(log.equipment_id); } catch (_) {}
 
     // ── Close the PM loop ───────────────────────────────────────
-    // Completing the visit, exactly as the internal PM logger does
-    // (equipment.js): refresh last_pm_date + next_pm_date so the countdown
-    // restarts, and flip the matching scheduled pm_schedules row to
-    // 'completed'. The contractor's stated "Next service due" wins;
-    // otherwise roll forward by the equipment's pm_interval_days. Only PM
-    // and inspection visits advance the cadence — repairs/emergencies
-    // don't reset the clock.
-    try {
-      const isPm = log.service_type === 'pm' || log.service_type === 'inspection';
-      const svcDate = log.service_date || new Date().toISOString().slice(0, 10);
-      if (isPm) {
-        try {
-          await NX.sb.from('pm_schedules')
-            .update({ status: 'completed', updated_at: new Date().toISOString() })
-            .eq('equipment_id', log.equipment_id).eq('status', 'scheduled');
-        } catch (_) {}
-      }
-      // ── Establish / advance the PM cadence ──────────────────────────
-      // The PM Health bar (computePmCountdown) needs BOTH last_pm_date AND
-      // pm_interval_days. Most equipment have no interval configured, so a
-      // logged PM would reset last_pm_date but the bar still couldn't render
-      // or "restart". So we LEARN the interval from the contractor's stated
-      // next-service date when the unit has none yet.
-      let curInterval = null;
-      if (isPm) {
-        const { data: eqRow } = await NX.sb.from('equipment')
-          .select('pm_interval_days').eq('id', log.equipment_id).maybeSingle();
-        const iv = eqRow && parseInt(eqRow.pm_interval_days, 10);
-        if (iv && iv > 0) curInterval = iv;
-      }
-      // Only honor a contractor "next service due" that is strictly AFTER the
-      // service date. A same-day or past value is the stale form default, not
-      // a real cadence — accepting it is what pinned next_pm_date to "today".
-      const explicitNext = (isPm && log.next_service_date && log.next_service_date > svcDate)
-        ? log.next_service_date : null;
-
-      let interval = curInterval;
-      let learnedInterval = false;
-      if (isPm && !interval && explicitNext) {
-        const days = Math.round(
-          (new Date(explicitNext + 'T00:00:00') - new Date(svcDate + 'T00:00:00')) / 86400000);
-        if (days > 0) { interval = days; learnedInterval = true; }
-      }
-
-      let nextDue = explicitNext;
-      if (!nextDue && isPm && interval) {
-        const d = new Date(svcDate + 'T00:00:00');
-        d.setDate(d.getDate() + interval);
-        nextDue = d.toISOString().slice(0, 10);
-      }
-
-      const eqPatch = {};
-      if (isPm) eqPatch.last_pm_date = svcDate;
-      if (nextDue) eqPatch.next_pm_date = nextDue;
-      // Persist a newly-learned cadence so the health bar appears and resets
-      // on every future visit. Never overwrite an interval the unit already
-      // has — that's an explicit config decision owned by the operator.
-      if (isPm && learnedInterval && interval > 0) eqPatch.pm_interval_days = interval;
-      if (Object.keys(eqPatch).length) {
-        let attempt = { ...eqPatch };
-        let r = await NX.sb.from('equipment').update(attempt).eq('id', log.equipment_id);
-        let guard = 0;
-        while (r.error && guard < 6) {
-          const m = /column "?([a-z_]+)"?.*does not exist/i.exec(r.error.message || '');
-          if (!m || !(m[1] in attempt)) break;
-          delete attempt[m[1]];
-          r = await NX.sb.from('equipment').update(attempt).eq('id', log.equipment_id);
-          guard++;
-        }
-      }
-      try { await NX.sb.rpc('recompute_health_score', { eq_id: log.equipment_id }); } catch (_) {}
-    } catch (e) {
-      console.warn('[pm] cadence advance failed', e);
+    // Delegate to the shared cadence helper (js/pm-core.js): refresh
+    // last_pm_date + next_pm_date, LEARN a missing interval from the
+    // contractor's stated "next service due", complete the scheduled row, and
+    // recompute health. This is the SAME path every PM logger now uses, so
+    // the PM Health bar restarts identically no matter where the log came
+    // from. Only PM / inspection visits advance the clock.
+    const isPm = log.service_type === 'pm' || log.service_type === 'inspection';
+    if (isPm && NX.pm && NX.pm.advance) {
+      await NX.pm.advance(log.equipment_id, {
+        serviceDate: log.service_date,
+        isPm: true,
+        nextServiceDate: log.next_service_date || null,
+      });
     }
   }
 

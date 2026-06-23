@@ -708,27 +708,14 @@ function openPmLogger(equipId) {
         }
       }
 
-      // Step 3: Update equipment — last_pm_date + next_pm_date
-      const interval = parseInt(eq.pm_interval_days, 10);
-      const eqUpdate = { last_pm_date: actual };
-      if (interval > 0) {
-        const next = new Date(actual + 'T00:00:00');
-        next.setDate(next.getDate() + interval);
-        eqUpdate.next_pm_date = next.toISOString().slice(0, 10);
+      // Step 3: Advance the PM cadence via the shared helper (js/pm-core.js)
+      // — refreshes last_pm_date + next_pm_date, completes the unit's
+      // scheduled PM row, and recomputes health. One implementation shared
+      // with the QR self-approve and PM-schedule loggers, so the health bar
+      // restarts identically everywhere. `actual` is the user-picked date.
+      if (NX.pm && NX.pm.advance) {
+        await NX.pm.advance(equipId, { serviceDate: actual, isPm: true });
       }
-      const { error: eqErr } = await NX.sb.from('equipment').update(eqUpdate).eq('id', equipId);
-      if (eqErr) {
-        // Same defense — if last_pm_date column missing, the v18.18
-        // migration hasn't been run yet. Skip and toast.
-        if (/column.+last_pm_date.+does not exist/i.test(eqErr.message || '')) {
-          NX.toast && NX.toast('PM logged but countdown needs v18.18 migration', 'warn', 3500);
-        } else {
-          throw eqErr;
-        }
-      }
-
-      // Optional: recompute health score
-      try { await NX.sb.rpc('recompute_health_score', { eq_id: equipId }); } catch (_) {}
 
       NX.toast && NX.toast('PM logged ✓ Countdown restarted', 'success', 2200);
       overlay.remove();
@@ -6327,7 +6314,8 @@ async function scanDataPlate(existingId) {
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'image/*';
-  input.capture = 'environment';
+  // No `capture` → allow choosing an existing data-plate photo from the
+  // library as well as taking one.
 
   input.addEventListener('change', async e => {
     const file = e.target.files[0];
@@ -6416,7 +6404,14 @@ Return null for any field not clearly visible. Do NOT guess.`;
       }
     } catch (err) {
       console.error('[DataPlate] Extraction failed:', err);
-      NX.toast && NX.toast('Could not read plate — try better lighting/angle', 'error', 5000);
+      // Show the REAL reason when the vision call itself failed (no API key,
+      // bad key, model error, no credits, CORS) — only fall back to the
+      // "lighting" hint when the image was genuinely read but unparseable.
+      const reason = NX._lastVisionError
+        || (/No JSON/i.test(err.message || '')
+              ? 'Read the image but found no plate details — try better lighting/angle.'
+              : 'Could not read plate: ' + (err.message || 'unknown error'));
+      NX.toast && NX.toast(reason, 'error', 6000);
     }
   });
 
@@ -7283,17 +7278,17 @@ function openAICreator() {
           <button class="eq-ai-method" data-method="photo">
             <div class="eq-ai-method-icon">${uiSvg('camera', '28px')}</div>
             <div class="eq-ai-method-title">Photo of Unit</div>
-            <div class="eq-ai-method-desc">Take a picture of the equipment. AI identifies make/model from visible details.</div>
+            <div class="eq-ai-method-desc">Take or upload a photo of the equipment. AI identifies make/model from visible details.</div>
           </button>
           <button class="eq-ai-method" data-method="bulk">
             <div class="eq-ai-method-icon">${uiSvg('building', '28px')}</div>
             <div class="eq-ai-method-title">Scan Whole Room</div>
-            <div class="eq-ai-method-desc">Take a photo of your kitchen or bar. AI identifies every piece it sees and adds all of them at once.</div>
+            <div class="eq-ai-method-desc">Take or upload a photo of your kitchen or bar. AI identifies every piece it sees and adds all of them at once.</div>
           </button>
           <button class="eq-ai-method" data-method="dataplate">
             <div class="eq-ai-method-icon">${uiSvg('qr', '28px')}</div>
             <div class="eq-ai-method-title">Scan Data Plate</div>
-            <div class="eq-ai-method-desc">Photograph the metal/plastic data plate. AI extracts exact model/serial/specs.</div>
+            <div class="eq-ai-method-desc">Photograph or upload the data plate. AI extracts exact model/serial/specs.</div>
           </button>
         </div>
       </div>
@@ -7436,7 +7431,8 @@ async function photoIdentify() {
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'image/*';
-  input.capture = 'environment';
+  // No `capture` → the native picker offers the photo LIBRARY as well as the
+  // camera, so users can add an existing image instead of only snapping one.
 
   input.addEventListener('change', async e => {
     const file = e.target.files[0];
@@ -7477,7 +7473,7 @@ If you can't identify it clearly, still return a best-guess entry with low confi
       showCreationConfirmation(parsed, context, 'photo');
     } catch (err) {
       console.error('[AI-Create] Photo failed:', err);
-      NX.toast && NX.toast('Identification failed: ' + err.message, 'error', 6000);
+      NX.toast && NX.toast('Identification failed: ' + (NX._lastVisionError || err.message), 'error', 6000);
     }
   });
 
@@ -7488,7 +7484,8 @@ async function bulkIdentify() {
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'image/*';
-  input.capture = 'environment';
+  // No `capture` → users can pick an existing room photo from their library,
+  // not just shoot a new one.
 
   input.addEventListener('change', async e => {
     const file = e.target.files[0];
@@ -7540,7 +7537,7 @@ Skip: utensils, small hand tools, food, decor items.`;
       showCreationConfirmation(parsed, context, 'bulk');
     } catch (err) {
       console.error('[AI-Create] Bulk failed:', err);
-      NX.toast && NX.toast('Scan failed: ' + err.message, 'error', 6000);
+      NX.toast && NX.toast('Scan failed: ' + (NX._lastVisionError || err.message), 'error', 6000);
     }
   });
 

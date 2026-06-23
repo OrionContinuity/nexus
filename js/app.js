@@ -3461,8 +3461,16 @@ td.check{background:#F0EDE6 !important}
   },
 
   async askClaudeVision(prompt, base64Data, mimeType) {
+    // Records WHY a call returned '' so callers can show an actionable
+    // message instead of a misleading "couldn't read the image". Cleared on
+    // each call; readers use NX._lastVisionError. Still returns '' on failure
+    // (the contract the ~8 callers rely on) — this is a side channel only.
+    this._lastVisionError = null;
     const key = this.getApiKey();
-    if (!key) return '';
+    if (!key) {
+      this._lastVisionError = 'No Anthropic API key set — add one in Admin ▸ Settings to use AI vision.';
+      return '';
+    }
     try {
       const resp = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -3476,10 +3484,20 @@ td.check{background:#F0EDE6 !important}
           ]}]
         })
       });
-      const data = await resp.json();
-      if (data.error) return '';
-      return data.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
-    } catch (e) { return ''; }
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || data.error) {
+        const msg = (data.error && data.error.message) || ('HTTP ' + resp.status);
+        this._lastVisionError = 'AI vision error: ' + msg + ' (model: ' + this.getModel() + ')';
+        return '';
+      }
+      const text = data.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
+      if (!text) this._lastVisionError = 'The AI returned no text for that image.';
+      return text;
+    } catch (e) {
+      this._lastVisionError = 'AI vision request failed: ' + (e.message || e) +
+        ' — usually a network issue or the API key lacks browser access.';
+      return '';
+    }
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -3624,6 +3642,20 @@ if ('serviceWorker' in navigator) {
       window.location.reload();
     });
   }
+  // Notification tap → navigate. sw.js posts {type:'nexus-notification-click',
+  // view, entityId, …} to the focused client on notification click; there was
+  // no listener for it, so tapping a push notification focused the tab but
+  // never routed anywhere. Route via the app's view switcher (no-op if the
+  // view is empty/unknown), and stash the entity so the target view can
+  // deep-link to it if it chooses.
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    const d = e && e.data;
+    if (!d || d.type !== 'nexus-notification-click') return;
+    try {
+      if (d.entityId) { try { sessionStorage.setItem('nx_notif_entity', String(d.entityId)); } catch (_) {} }
+      if (d.view && typeof NX.switchTo === 'function') NX.switchTo(d.view);
+    } catch (err) { console.warn('[push] notification-click route failed:', err); }
+  });
   navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
     try { reg.update(); } catch (_) {}
     // ═══ PUSH NOTIFICATION SUBSCRIPTION ═══════════════════════════

@@ -911,3 +911,158 @@
     window.NX.debug = T.debug; window.NX.debugOn = T.debugOn; window.NX.debugOff = T.debugOff;
   }
 })();
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   NX.pm — single source of truth for "a PM visit happened, advance the
+   equipment's PM cadence."  (consolidated — was js/pm-core.js)
+
+   Defined here in core.js because core.js loads AFTER app.js (which does
+   `const NX = {…}; window.NX = NX`, replacing the namespace) — so attaching
+   NX.pm earlier (e.g. in domain.js) gets wiped. By call time (a PM-log user
+   action) NX.pm is always present.
+
+   The cadence-advance logic used to be copy-pasted (and DRIFTED) across
+   applyApprovalEffects (equipment-public-pm.js), the internal PM logger
+   (equipment.js), and pm.js markScheduleDone (which was a NO-OP that never
+   advanced the clock). NX.pm.advance() is the ONE implementation — call it
+   after writing the pm_log/maintenance record and every path behaves the
+   same: last_pm_date + next_pm_date refresh, a missing interval is learned,
+   the scheduled row is completed, health is recomputed. Never throws.
+   ═══════════════════════════════════════════════════════════════════════ */
+(function () {
+  'use strict';
+  window.NX = window.NX || {};
+
+  const todayIso = () => new Date().toISOString().slice(0, 10);
+
+  function addDays(iso, days) {
+    const d = new Date(iso + 'T00:00:00');
+    if (isNaN(d)) return null;
+    d.setDate(d.getDate() + days);
+    return d.toISOString().slice(0, 10);
+  }
+  function daysBetween(fromIso, toIso) {
+    const a = new Date(fromIso + 'T00:00:00');
+    const b = new Date(toIso + 'T00:00:00');
+    if (isNaN(a) || isNaN(b)) return 0;
+    return Math.round((b - a) / 86400000);
+  }
+
+  /**
+   * Advance an equipment unit's PM cadence after a completed PM / inspection.
+   * @param {string} equipmentId
+   * @param {object} [opts]
+   * @param {string} [opts.serviceDate]  'YYYY-MM-DD' the work was done (default today)
+   * @param {boolean}[opts.isPm=true]    only PM/inspection visits advance the clock
+   * @param {string} [opts.nextServiceDate] explicit next-due; honored only if strictly
+   *                                      AFTER serviceDate (else it's a stale default)
+   * @param {boolean}[opts.completeSchedules=true] mark scheduled pm_schedules completed;
+   *                                      false for RECURRING schedules (pm.js)
+   * @returns {Promise<object|null>} the patch applied to `equipment`, or null
+   */
+  async function advance(equipmentId, opts) {
+    opts = opts || {};
+    if (!equipmentId || !window.NX || !NX.sb || opts.isPm === false) return null;
+    const svcDate = opts.serviceDate || todayIso();
+
+    try {
+      // Current cadence (so we never overwrite an operator-set interval).
+      let curInterval = null;
+      try {
+        const { data: eqRow } = await NX.sb.from('equipment')
+          .select('pm_interval_days').eq('id', equipmentId).maybeSingle();
+        const iv = eqRow && parseInt(eqRow.pm_interval_days, 10);
+        if (iv && iv > 0) curInterval = iv;
+      } catch (_) {}
+
+      // Honor an explicit next-service date only if it's strictly after the
+      // service date — a same-day/past value is the stale form default.
+      const explicitNext = (opts.nextServiceDate && opts.nextServiceDate > svcDate)
+        ? opts.nextServiceDate : null;
+
+      // Learn the cadence from the explicit next date when the unit has none.
+      let interval = curInterval;
+      let learned = false;
+      if (!interval && explicitNext) {
+        const d = daysBetween(svcDate, explicitNext);
+        if (d > 0) { interval = d; learned = true; }
+      }
+
+      // Next due: explicit future date wins, else roll forward by interval.
+      let nextDue = explicitNext;
+      if (!nextDue && interval) nextDue = addDays(svcDate, interval);
+
+      const patch = { last_pm_date: svcDate };
+      if (nextDue) patch.next_pm_date = nextDue;
+      if (learned && interval > 0) patch.pm_interval_days = interval;
+
+      // Update with a column-drop guard so an older DB missing a column
+      // (e.g. pre-migration last_pm_date) still applies the rest.
+      let attempt = { ...patch };
+      let r = await NX.sb.from('equipment').update(attempt).eq('id', equipmentId);
+      let guard = 0;
+      while (r && r.error && guard < 6) {
+        const m = /column "?([a-z_]+)"?.*does not exist/i.exec(r.error.message || '');
+        if (!m || !(m[1] in attempt)) break;
+        delete attempt[m[1]];
+        r = await NX.sb.from('equipment').update(attempt).eq('id', equipmentId);
+        guard++;
+      }
+
+      // Close the loop: complete any still-"scheduled" PM rows for this unit.
+      // Skipped for recurring schedules (pm.js) that re-arm via frequency_days.
+      if (opts.completeSchedules !== false) {
+        try {
+          await NX.sb.from('pm_schedules')
+            .update({ status: 'completed', updated_at: new Date().toISOString() })
+            .eq('equipment_id', equipmentId).eq('status', 'scheduled');
+        } catch (_) {}
+      }
+
+      // Recompute the stored health score (SECURITY DEFINER RPC; anon-safe).
+      try { await NX.sb.rpc('recompute_health_score', { eq_id: equipmentId }); } catch (_) {}
+
+      return patch;
+    } catch (e) {
+      console.warn('[pm-core] advance failed for', equipmentId, e);
+      return null;
+    }
+  }
+
+  NX.pm = NX.pm || {};
+  NX.pm.advance = advance;
+  NX.pm.addDays = addDays;
+  NX.pm.daysBetween = daysBetween;
+})();
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   NX.log.write — single writer for plain (user/voice/SMS/manual) daily_logs
+   entries, so the ~scattered raw inserts stop hand-formatting strings and
+   forgetting user_name. System events already have a shared writer
+   (NX.syslog → '[SYS] event: detail'); this covers the non-system side.
+
+   The feed classifier (js/log.js) keys off these same canonical prefixes,
+   so writer and reader can't drift. 'user' = no prefix (a plain log).
+   ═══════════════════════════════════════════════════════════════════════ */
+(function () {
+  'use strict';
+  window.NX = window.NX || {};
+  const PREFIX = { user: '', system: '[SYS] ' };
+
+  async function write(opts) {
+    opts = opts || {};
+    const text = (opts.text || '').toString();
+    if (!window.NX || !NX.sb || !text) return { error: 'no-op' };
+    const row = { entry: (PREFIX[opts.type] || '') + text };
+    const who = opts.user || (NX.currentUser && NX.currentUser.name);
+    if (who) row.user_name = who;
+    try { return await NX.sb.from('daily_logs').insert(row); }
+    catch (e) { console.warn('[NX.log.write] failed:', e); return { error: e }; }
+  }
+
+  NX.log = NX.log || {};
+  NX.log.write  = write;
+  NX.log.PREFIX = PREFIX;
+})();

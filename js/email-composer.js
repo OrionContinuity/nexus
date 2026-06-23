@@ -47,7 +47,9 @@
     if (cc && cc.length)  p.push('cc=' + encodeURIComponent(cc.join(',')));
     if (bcc && bcc.length) p.push('bcc=' + encodeURIComponent(bcc.join(',')));
     p.push('subject=' + encodeURIComponent(subject || ''));
-    p.push('body=' + encodeURIComponent(body || '').replace(/%20/g, '%20'));
+    // `+` → %20 so spaces survive in mail clients that read '+' literally
+    // (the old `.replace(/%20/g,'%20')` was a no-op). Matches nx-email.js.
+    p.push('body=' + encodeURIComponent(body || '').replace(/\+/g, '%20'));
     return 'mailto:' + encodeURIComponent(to || '') + '?' + p.join('&');
   }
 
