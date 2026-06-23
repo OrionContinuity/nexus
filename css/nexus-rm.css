@@ -1589,3 +1589,163 @@
   text-transform: uppercase;
   color: var(--nx-muted);
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   2026 VISUAL REFRESH + MOBILE SAFETY  (consolidated — was refresh-2026.css)
+   ───────────────────────────────────────────────────────────────────────
+   Folded into nexus-rm.css (the LAST-loaded stylesheet) so it wins the
+   cascade with no extra file. Reversible: delete from here to end-of-file.
+   Keeps the NEXUS identity (Roman gold, editorial, dark). Sections:
+     1 ambient depth · 2 masthead coin · 3 chrome lift ·
+     4 desktop frame · 5 primitive lift · 6 iPhone-Safari overflow safety.
+   The PIN/login screen is intentionally left at its ORIGINAL look.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ─── 1. AMBIENT DEPTH ─────────────────────────────────────────────────── */
+[data-theme="dark"] body {
+  background:
+    radial-gradient(125% 70% at 50% -8%,  rgba(212, 164, 78, 0.11), rgba(212,164,78,0) 58%),
+    radial-gradient(120% 85% at 50% 112%, rgba(28, 40, 68, 0.55),   rgba(28,40,68,0)  55%),
+    linear-gradient(180deg, #0c111d 0%, #0e1320 46%, #090d16 100%) !important;
+  background-attachment: fixed !important;
+}
+[data-theme="light"] body {
+  background:
+    radial-gradient(125% 70% at 50% -8%, rgba(184, 136, 48, 0.10), rgba(184,136,48,0) 58%),
+    linear-gradient(180deg, #f3ecdd 0%, #efe7d6 60%, #e9e0cc 100%) !important;
+  background-attachment: fixed !important;
+}
+
+/* ─── 2. MASTHEAD MINI COIN — ~15% smaller (login hero left original) ──── */
+.nx-mast-coin { width: 29px !important; height: 29px !important; }
+
+/* ─── 3. CHROME LIFT (top nav + bottom nav) ────────────────────────────── */
+[data-theme="dark"] .nav {
+  background: rgba(14, 19, 32, 0.72) !important;
+  backdrop-filter: blur(18px) saturate(1.3) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(1.3) !important;
+  border-bottom: 1px solid var(--nx-gold-line) !important;
+  box-shadow: 0 6px 22px rgba(4, 8, 16, 0.45) !important;
+}
+[data-theme="light"] .nav {
+  background: rgba(243, 236, 221, 0.78) !important;
+  backdrop-filter: blur(18px) saturate(1.2) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(1.2) !important;
+  border-bottom: 1px solid var(--nx-gold-line) !important;
+  box-shadow: 0 6px 18px rgba(120, 100, 70, 0.12) !important;
+}
+[data-theme="dark"] .bottom-nav {
+  box-shadow: 0 -6px 24px rgba(4, 8, 16, 0.5) !important;
+}
+.bnav-btn.active::before { box-shadow: 0 0 16px var(--nx-gold-glow); }
+
+/* ─── 4. DESKTOP FRAME — centered ~600px app-shell on wide screens ──────── */
+@media (min-width: 900px) {
+  #appWrap {
+    max-width: 600px;
+    margin: 0 auto;
+    min-height: 100dvh;
+    border-left: 1px solid var(--nx-gold-line);
+    border-right: 1px solid var(--nx-gold-line);
+    box-shadow: 0 0 90px rgba(0, 0, 0, 0.5);
+    background: rgba(255, 255, 255, 0.014);
+  }
+  .bottom-nav {
+    left: 50% !important;
+    right: auto !important;
+    transform: translateX(-50%) !important;
+    width: 100% !important;
+    max-width: 600px !important;
+    border-left: 1px solid var(--nx-gold-line) !important;
+    border-right: 1px solid var(--nx-gold-line) !important;
+  }
+  .nx-tr-fab { left: calc(50% - 300px + 14px) !important; }
+}
+
+/* ─── 5. PRIMITIVE LIFT (hover-only, so touch never sticks) ─────────────── */
+@media (hover: hover) and (pointer: fine) {
+  .nx-card, .nx-card--elevated, .home-rm-tile, .home-kpi,
+  .home-rm-decision-row, .home-rm-wo-item {
+    transition: transform .16s ease, box-shadow .2s ease, border-color .2s ease !important;
+  }
+  .nx-card:hover, .nx-card--elevated:hover, .home-rm-tile:hover, .home-kpi:hover,
+  .home-rm-decision-row:hover, .home-rm-wo-item:hover {
+    transform: translateY(-2px);
+    border-color: var(--nx-gold-line-2) !important;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 10px 30px rgba(4, 8, 16, 0.45) !important;
+  }
+  .nx-pill--primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 22px var(--nx-gold-aura), 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+  .nx-pill--secondary:hover {
+    border-color: var(--nx-gold) !important;
+    background: var(--nx-gold-faint) !important;
+  }
+}
+[data-theme="dark"] .home-rm-tile,
+[data-theme="dark"] .home-kpi {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0) 42%),
+    var(--nx-elevated) !important;
+}
+
+/* ─── 6. MOBILE-BROWSER SAFETY (iPhone Safari) ──────────────────────────
+   NEXUS runs mostly in mobile browsers, not the installed app. Keep content
+   inside the viewport on narrow iPhones (SE = 375px): media never wider than
+   the screen; flex rows can shrink+wrap (default min-width:auto refuses to
+   shrink and pushes rows past the edge); long unbroken strings wrap. */
+@media (max-width: 480px) {
+  img, video, iframe { max-width: 100%; }
+  .home-rm-wo-item, .home-rm-decision-row,
+  .home-rm-wo-body, .home-rm-decision-body,
+  .eq-row, .eq-row-main, .nx-listrow, .nx-card { min-width: 0; }
+  .home-rm-wo-title, .home-rm-wo-meta,
+  .home-rm-decision-title, .home-rm-decision-meta,
+  .eq-row-name, .eq-row-sub, .eq-card-title, .eq-card-sub {
+    overflow-wrap: anywhere;
+  }
+}
+
+/* ─── 7. LOGIN → APP HANDOFF — no whole-screen zoom ─────────────────────
+   The PIN screen exits with `transform: scale(1.05)` (css/nexus.css) while
+   it fades, so right after login the entire login surface visibly zooms up
+   ~5% over half a second — which reads as "the whole screen enlarges a
+   second after logging in" (the delay is the auth round-trip). Keep the
+   opacity fade for a soft reveal, but drop the scale so the app is simply
+   uncovered at its true size instead of appearing to grow. */
+.pin-screen.hidden { transform: none !important; }
+
+/* ─── 8. TOUCH TARGETS — meet the 44px floor (WCAG 2.5.5 / Apple HIG) ────
+   A 375px audit found two controls under 44px tall: the login language
+   toggle (34px) and the masthead "more" button (42px). Bump both to 44px;
+   center the icon button's contents so the glyph stays put in the taller
+   hit area. Everything else (pin keys 62px, bottom-nav 56px) already passes. */
+.pin-lang-btn { min-height: 44px; }
+.nav-more {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ─── 9. REDUCED-MOTION BACKSTOP ────────────────────────────────────────
+   Many stylesheets (clippy.css spins, coin/anomaly pulses, galaxy, chat,
+   ordering, nexus.css) declare `infinite` animations WITHOUT a
+   prefers-reduced-motion guard, and the design system's reduced-motion block
+   isn't a blanket reset — so perpetual motion leaks through for users who
+   asked the OS to reduce motion (a real vestibular-accessibility issue).
+   This is a gentle global backstop: it lets one-shot reveals play normally
+   but collapses INFINITE loops to a single cycle (no perpetual spin/pulse),
+   which is the part that actually causes discomfort. Files that already set
+   `animation:none` under their own guard still win — this only catches the
+   ungated ones. Deliberately NOT zeroing duration, to avoid breaking
+   reveal animations that lack `forwards`. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}
