@@ -293,10 +293,28 @@
 .clippy-svg .cl-tears-stream,
 .clippy-svg .cl-drool,
 .clippy-svg .cl-red-nose,
+.clippy-svg .cl-vein,
+.clippy-svg .cl-snot,
+.clippy-svg .cl-queasy,
 .clippy-svg .cl-heart-blush { opacity: 0; transition: opacity 0.25s ease; }
 
 /* Sleep Z's hidden by default (kept from prior version) */
 .clippy-svg .cl-zzz { opacity: 0; transition: opacity 280ms ease; }
+
+/* v2026 extra overlays — shown on existing moods, combinable with any face.
+   anger pop-vein on the angry family, snot bubble while sleeping, green
+   wash when disgusted. The snot bubble gently inflates (the reduced-motion
+   backstop in nexus-rm.css collapses the loop for motion-sensitive users). */
+#clippy-shell.is-angry .cl-vein,
+#clippy-shell.is-peeved .cl-vein,
+#clippy-shell.is-frustrated .cl-vein { opacity: 1; }
+#clippy-shell.is-sleeping .cl-snot { opacity: 1; }
+#clippy-shell.is-sleeping .cl-snot-bubble {
+  animation: clSnot 3.2s ease-in-out infinite;
+  transform-origin: 112px 137px;
+}
+@keyframes clSnot { 0%, 100% { transform: scale(0.7); } 55% { transform: scale(1.12); } }
+#clippy-shell.is-disgusted .cl-queasy { opacity: 1; }
 
 /* Pupil + glint translate via --eye-x/--eye-y CSS vars (set by JS).
    Only meaningful for default eyes; other variants are static. */
