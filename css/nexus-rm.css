@@ -1640,13 +1640,18 @@
 }
 .bnav-btn.active::before { box-shadow: 0 0 16px var(--nx-gold-glow); }
 
-/* ─── 4. DESKTOP FRAME — centered app-shell on wide screens (v2) ──────────
-   v1 was a thin 600px column with hard gold side-borders floating in a wide
-   gold-bloom void — which read as "broken" on a real monitor. v2: calm the
-   backdrop (the top gold bloom that's a soft halo on a phone becomes a garish
-   wash across 1280px), widen to a comfortable 720px app-shell, lift it onto a
-   solid surface, and float it with a soft shadow + hairline so the empty side
-   space reads as intentional negative space (the Linear/Claude pattern). */
+/* ─── 4. DESKTOP LAYOUT — defer to the PC sidebar rail (v3) ────────────────
+   The desktop layout is the "PC SIDEBAR NAV" media query in index.html: a
+   fixed 240px nav rail on the left, with the workspace (.main) shifted right
+   to fill the rest of the viewport. v1/v2 here ALSO tried to clamp #appWrap
+   into a narrow centered "phone frame" — and the two fought. The clamp boxed
+   the whole app into a 720px column in the middle of the screen, and the
+   fixed rail (anchored to the clamp, not the viewport) landed ON TOP of the
+   content, which was itself squeezed to a ~430px right-shifted sliver. That
+   collision IS the "desktop looks very bad" report. Fix: stop clamping so the
+   sidebar rail anchors to the viewport and the workspace fills the width;
+   calm the backdrop; cap the reading column so content doesn't sprawl on wide
+   monitors. Verified by geometry: rail x=0 w=240, workspace x=264 → edge. */
 @media (min-width: 900px) {
   /* Quiet, focused backdrop — kill the wide gold wash, keep a faint top tint. */
   [data-theme="dark"] body {
@@ -1660,33 +1665,44 @@
       linear-gradient(180deg, #efe7d6 0%, #e7ddc9 100%) !important;
   }
 
-  /* The app shell — a centered, elevated panel that fills the viewport height. */
+  /* Undo the old phone-frame clamp — let the app fill the viewport so the
+     index.html sidebar rail + right-shifted workspace read correctly. The
+     single-column views (.nxrm-page max-width:880, .nxrm-brief-page 720)
+     already cap + `margin:0 auto`-center themselves inside the workspace, so
+     content stays a comfortable reading width and the board keeps full width
+     for its lanes — nothing more to clamp here. */
   #appWrap {
-    max-width: 720px;
-    margin: 0 auto;
-    min-height: 100dvh;
-    background: var(--nx-surface-solid);
-    border-left: 1px solid var(--nx-gold-line);
-    border-right: 1px solid var(--nx-gold-line);
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 24px 80px rgba(0, 0, 0, 0.55);
-  }
-  [data-theme="light"] #appWrap {
-    background: #fffdf8;
-    box-shadow: 0 0 0 1px rgba(120,100,70,0.10), 0 24px 70px rgba(120,100,70,0.18);
+    max-width: none !important;
+    margin: 0 !important;
+    background: transparent !important;
+    border-left: 0 !important;
+    border-right: 0 !important;
+    box-shadow: none !important;
   }
 
-  /* Keep the fixed bottom nav aligned to the panel, not the whole viewport. */
-  .bottom-nav {
-    left: 50% !important;
-    right: auto !important;
-    transform: translateX(-50%) !important;
-    width: 100% !important;
-    max-width: 720px !important;
-    border-left: 1px solid var(--nx-gold-line) !important;
-    border-right: 1px solid var(--nx-gold-line) !important;
+  /* Supabase-style section labels in the sidebar rail. `.nav-tabs .x`
+     (specificity 0,2,0) beats the default `.nav-group-label{display:none}`
+     below, so labels show ONLY in the ≥900px vertical rail — never inline in
+     the 769–899px horizontal nav row. */
+  .nav-tabs .nav-group-label {
+    display: block;
+    margin: 15px 12px 5px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 9.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--nx-muted, #8a8576);
+    user-select: none;
+    pointer-events: none;
   }
-  .nx-tr-fab { left: calc(50% - 360px + 14px) !important; }
+  .nav-tabs .nav-group-label:first-child { margin-top: 4px; }
+  /* Action tabs route to panes/popups, not a .view, so switchTo never marks
+     them .active — a faint tint keeps them from reading as disabled. */
+  .nav-tab.nav-tab-action { opacity: 0.94; }
 }
+/* Default: group labels are a rail-only affordance — hidden everywhere the
+   rail isn't a vertical column. */
+.nav-group-label { display: none; }
 
 /* ─── 5. PRIMITIVE LIFT (hover-only, so touch never sticks) ─────────────── */
 @media (hover: hover) and (pointer: fine) {
