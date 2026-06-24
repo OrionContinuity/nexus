@@ -3953,32 +3953,31 @@
       <input autocomplete="off" data-lpignore="true" data-form-type="other" type="password" id="adminApiKey" placeholder="Anthropic API Key" class="admin-field">
       <input autocomplete="off" data-lpignore="true" data-form-type="other" type="password" id="adminElevenKey" placeholder="ElevenLabs API Key" class="admin-field">
       <hr class="admin-divider">
-      <div class="admin-section-label" data-i18n="aiModel">AI Model</div>
-      <!-- Free-text + datalist instead of a fixed <select>: model ids churn
-           (Opus 4 / claude-opus-4-20250514 is retired), so pick a suggestion
-           OR paste any current Anthropic model id. .value reads unchanged in
-           app.js (input.value works like select.value). -->
-      <input id="adminModel" class="admin-field" list="adminModelList"
-             placeholder="claude-sonnet-4-20250514" autocomplete="off" spellcheck="false">
-      <datalist id="adminModelList">
-        <option value="claude-sonnet-4-20250514">Claude Sonnet 4 — fast, default</option>
-        <option value="claude-opus-4-1-20250805">Claude Opus 4.1 — most capable</option>
-        <option value="claude-3-5-haiku-20241022">Claude Haiku 3.5 — cheapest</option>
-      </datalist>
+      <div class="admin-section-label" data-i18n="aiModel">Ask NEXUS uses</div>
+      <!-- ONE picker drives the AI backend for Ask NEXUS + all AI (vision too):
+           a current Claude model (cloud, needs the API key above) OR Clippy
+           (your local brain, no key). The value encodes the provider:
+           'clippy[:model]' → local; '__custom__' → reveal the free-text Claude
+           id; anything else → that Claude model on Anthropic. Clippy's own LLMs
+           are auto-added to the Clippy group when discoverable (#adminClippyModelGroup). -->
+      <select id="adminModel" class="admin-field">
+        <optgroup label="Claude · cloud (needs API key)">
+          <option value="claude-sonnet-4-20250514">Claude Sonnet 4 — fast (default)</option>
+          <option value="claude-opus-4-1-20250805">Claude Opus 4.1 — most capable</option>
+          <option value="claude-3-5-haiku-20241022">Claude Haiku 3.5 — cheapest</option>
+          <option value="__custom__">Custom Claude model id…</option>
+        </optgroup>
+        <optgroup label="Clippy · local (no API key)" id="adminClippyModelGroup">
+          <option value="clippy">Clippy — local AI (his default brain)</option>
+        </optgroup>
+      </select>
+      <input id="adminModelCustom" class="admin-field" style="display:none" autocomplete="off" spellcheck="false"
+             placeholder="Paste a Claude model id — e.g. claude-…">
       <div class="admin-hint" style="font-size:10px;color:var(--muted);margin:2px 2px 6px;line-height:1.5">
-        Pick a suggestion or paste the latest model id from console.anthropic.com.
-        The old <code>claude-opus-4-20250514</code> is retired.
+        One picker for everything Ask NEXUS (and AI vision) runs on. <b>Claude</b> = cloud, uses the API key above;
+        <b>Clippy</b> = your local brain, no key. Choose “Custom” for a newer Claude id from console.anthropic.com.
       </div>
 
-      <hr class="admin-divider">
-      <!-- AI PROVIDER — Claude API (default) or Clippy, the local autonomous
-           AI (Ollama). Device-local: persisted to localStorage only, since the
-           endpoint is localhost on THIS machine. -->
-      <div class="admin-section-label">AI Provider</div>
-      <select id="adminProvider" class="admin-field">
-        <option value="anthropic">Claude API (Anthropic)</option>
-        <option value="clippy">Clippy — local autonomous AI</option>
-      </select>
       <div id="adminClippyRow" style="display:none">
         <input id="adminClippyEndpoint" class="admin-field" autocomplete="off" spellcheck="false"
                placeholder="Clippy endpoint — http://localhost:4242">
@@ -3989,11 +3988,9 @@
           <span id="adminClippyStatus" class="admin-key-status" style="font-size:11px"></span>
         </div>
         <div class="admin-hint" style="font-size:10px;color:var(--muted);margin:2px 2px 6px;line-height:1.5">
-          Routes every AI call to Clippy's local brain (the ClippyPC HTTP API, default <code>:4242</code>) instead of Claude — no API key.
-          Requires a Clippy instance running on this machine; Clippy picks his own model. Same-machine
-          <code>http://localhost:4242</code> works <b>even from the deployed https site</b> (browsers trust localhost), but other
-          PCs on the LAN (<code>http://192.168.x.x</code>) can't be reached from the browser — those need the server-side pool
-          fan-out (Supabase edge function). Vision (plate / photo scan) needs Clippy to have a vision model loaded.
+          Clippy's local brain (the ClippyPC HTTP API, default <code>:4242</code>) — no API key. Needs a Clippy instance running.
+          “Check Clippy” shows online status + how many LLMs he has. Same-machine <code>http://localhost:4242</code> works from the
+          deployed https site; other PCs on the LAN (<code>192.168.x.x</code>) need the pool edge function. Vision needs a vision model loaded.
         </div>
       </div>
       <!-- Voice selector — hidden control. The legacy dropdown lives
