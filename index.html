@@ -2710,7 +2710,7 @@
     <button class="nav-tab" data-view="education" title="Education"><i data-lucide="book-open" class="nav-icon"></i> <span>Education</span></button>
     <button class="nav-tab" data-view="dailylog" title="Daily Log"><i data-lucide="notebook-pen" class="nav-icon"></i> <span>Daily Log</span></button>
     <button class="nav-tab" data-view="biweekly" title="Biweekly Review"><i data-lucide="calendar-clock" class="nav-icon"></i> <span>Biweekly</span></button>
-    <button class="nav-tab" data-view="train" data-perm="train" title="Training" hidden style="display:none"><i data-lucide="graduation-cap" class="nav-icon"></i> <span data-i18n="training">Training</span><span class="nav-tab-badge" id="navTrainBadge" aria-hidden="true" hidden></span></button>
+    <button class="nav-tab nav-tab-action" data-nav-action="train" data-perm="train" title="Training"><i data-lucide="graduation-cap" class="nav-icon"></i> <span data-i18n="training">Training</span><span class="nav-tab-badge" id="navTrainBadge" aria-hidden="true" hidden></span></button>
 
     <div class="nav-group-label" aria-hidden="true">Tools</div>
     <button class="nav-tab nav-tab-action" data-nav-action="transactions" title="Transactions"><i data-lucide="receipt" class="nav-icon"></i> <span>Transactions</span></button>
@@ -3969,6 +3969,7 @@
         </optgroup>
         <optgroup label="Clippy · local (no API key)" id="adminClippyModelGroup">
           <option value="clippy">Clippy — local AI (his default brain)</option>
+          <option value="clippy-pool">Clippy pool — every PC running Clippy</option>
         </optgroup>
       </select>
       <input id="adminModelCustom" class="admin-field" style="display:none" autocomplete="off" spellcheck="false"
