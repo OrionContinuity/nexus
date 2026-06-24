@@ -1640,27 +1640,52 @@
 }
 .bnav-btn.active::before { box-shadow: 0 0 16px var(--nx-gold-glow); }
 
-/* ─── 4. DESKTOP FRAME — centered ~600px app-shell on wide screens ──────── */
+/* ─── 4. DESKTOP FRAME — centered app-shell on wide screens (v2) ──────────
+   v1 was a thin 600px column with hard gold side-borders floating in a wide
+   gold-bloom void — which read as "broken" on a real monitor. v2: calm the
+   backdrop (the top gold bloom that's a soft halo on a phone becomes a garish
+   wash across 1280px), widen to a comfortable 720px app-shell, lift it onto a
+   solid surface, and float it with a soft shadow + hairline so the empty side
+   space reads as intentional negative space (the Linear/Claude pattern). */
 @media (min-width: 900px) {
+  /* Quiet, focused backdrop — kill the wide gold wash, keep a faint top tint. */
+  [data-theme="dark"] body {
+    background:
+      radial-gradient(70% 55% at 50% -25%, rgba(212,164,78,0.055), rgba(212,164,78,0) 60%),
+      linear-gradient(180deg, #0b0f1a 0%, #090d16 100%) !important;
+  }
+  [data-theme="light"] body {
+    background:
+      radial-gradient(70% 55% at 50% -25%, rgba(184,136,48,0.06), rgba(184,136,48,0) 60%),
+      linear-gradient(180deg, #efe7d6 0%, #e7ddc9 100%) !important;
+  }
+
+  /* The app shell — a centered, elevated panel that fills the viewport height. */
   #appWrap {
-    max-width: 600px;
+    max-width: 720px;
     margin: 0 auto;
     min-height: 100dvh;
+    background: var(--nx-surface-solid);
     border-left: 1px solid var(--nx-gold-line);
     border-right: 1px solid var(--nx-gold-line);
-    box-shadow: 0 0 90px rgba(0, 0, 0, 0.5);
-    background: rgba(255, 255, 255, 0.014);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 24px 80px rgba(0, 0, 0, 0.55);
   }
+  [data-theme="light"] #appWrap {
+    background: #fffdf8;
+    box-shadow: 0 0 0 1px rgba(120,100,70,0.10), 0 24px 70px rgba(120,100,70,0.18);
+  }
+
+  /* Keep the fixed bottom nav aligned to the panel, not the whole viewport. */
   .bottom-nav {
     left: 50% !important;
     right: auto !important;
     transform: translateX(-50%) !important;
     width: 100% !important;
-    max-width: 600px !important;
+    max-width: 720px !important;
     border-left: 1px solid var(--nx-gold-line) !important;
     border-right: 1px solid var(--nx-gold-line) !important;
   }
-  .nx-tr-fab { left: calc(50% - 300px + 14px) !important; }
+  .nx-tr-fab { left: calc(50% - 360px + 14px) !important; }
 }
 
 /* ─── 5. PRIMITIVE LIFT (hover-only, so touch never sticks) ─────────────── */
