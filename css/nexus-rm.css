@@ -1950,3 +1950,49 @@
   display: inline-flex !important; align-items: center; justify-content: center;
 }
 .nav-bell .nav-icon, .nav-more .nav-icon { width: 20px; height: 20px; }
+
+/* ─── 16. CLEANING — 2-week schedule + call-out chips (extends §14) ──────── */
+.clean-sched-2wk { grid-template-columns: repeat(auto-fill, minmax(116px, 1fr)) !important; }
+.clean-sched-2wk .clean-sched-name { flex-wrap: wrap; gap: 3px 5px; }
+.clean-sched-nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clean-sched-name.is-off { opacity: 0.5; }
+.clean-sched-name.is-off .clean-sched-nm { text-decoration: line-through; }
+.clean-sched-callout {
+  flex-shrink: 0; width: 16px; height: 16px; line-height: 1; text-align: center;
+  border-radius: 50%; border: 1px solid var(--nx-gold-line, rgba(212,164,78,0.25));
+  background: transparent; color: var(--nx-muted, #8a8576);
+  font-size: 9px; cursor: pointer; padding: 0;
+}
+.clean-sched-callout:hover { border-color: var(--nx-red, #d24b4b); color: var(--nx-red, #d24b4b); }
+.clean-sched-name.is-off .clean-sched-callout { border-color: var(--nx-green, #6cd09a); color: var(--nx-green, #6cd09a); }
+
+/* ─── 17. CLEANING TOOLBAR — Roster button + Learn toggle ────────────────── */
+.clean-roster-pill { border-color: var(--nx-gold, #d4a44e) !important; color: var(--nx-gold, #d4a44e) !important; }
+.clean-roster-pill:hover { background: var(--nx-gold-tint, rgba(212,164,78,0.12)) !important; }
+/* Learn is a real on/off toggle: a little switch that slides + fills gold when on. */
+.clean-pill-toggle {
+  display: inline-block; width: 22px; height: 13px; border-radius: 999px; flex-shrink: 0;
+  background: var(--nx-border-strong, rgba(255,255,255,0.18)); position: relative;
+  margin-left: 6px; vertical-align: middle; transition: background .15s;
+}
+.clean-pill-toggle::after {
+  content: ''; position: absolute; top: 1.5px; left: 1.5px; width: 10px; height: 10px;
+  border-radius: 50%; background: #fff; transition: transform .15s;
+}
+.clean-edu-pill.is-active .clean-pill-toggle { background: var(--nx-gold, #d4a44e); }
+.clean-edu-pill.is-active .clean-pill-toggle::after { transform: translateX(9px); }
+
+/* ─── 18. DESKTOP SIDEBAR FIX — let the fixed rail fill the viewport ──────────
+   §3 (chrome lift) puts a backdrop-filter on .nav. A filtered ancestor becomes
+   the CONTAINING BLOCK for position:fixed descendants — so the fixed sidebar
+   (#navTabs, top:60/bottom:0) anchored to the 60px .nav instead of the viewport
+   and COLLAPSED to ~28px, clipping all 19 nav buttons into a sliver (the "empty
+   sidebar"). Drop the filter on .nav at desktop so the rail anchors to the
+   viewport and stacks the buttons full-height. Matches §3's specificity. */
+@media (min-width: 900px) {
+  [data-theme="dark"] .nav, [data-theme="light"] .nav {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    overflow: visible !important;
+  }
+}
