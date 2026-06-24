@@ -87,6 +87,47 @@
      usually doesn't. */
   const BODY_WARN_LEN = 1900;
 
+  /* ── Robust draft opener (shared by ordering + the composer) ──────────
+     Desktop mailto: is unreliable: a long body (a full order or a daily-log
+     recap, 2000+ chars) gets truncated/dropped by the OS handler, and many
+     desktops have no mail client registered at all — so `location.href =
+     mailto:` silently does nothing and the draft never appears ("email
+     unable to be made"). On desktop we route to Gmail's web composer, which
+     handles long bodies and always works in a browser; touch/mobile keeps
+     native mailto (the OS mail apps handle it well). The body is copied to
+     the clipboard as a belt-and-suspenders fallback. */
+  function isDesktop() {
+    try { return window.matchMedia('(min-width: 900px)').matches && !('ontouchstart' in window); }
+    catch (_) { return false; }
+  }
+  function gmailComposeUrl(to, subject, body, cc, bcc) {
+    const toStr = Array.isArray(to) ? to.join(',') : (to || '');
+    let u = 'https://mail.google.com/mail/?view=cm&fs=1&tf=1';
+    if (toStr) u += '&to=' + encodeURIComponent(toStr);
+    if (cc && cc.length)  u += '&cc='  + encodeURIComponent(cc.join(','));
+    if (bcc && bcc.length) u += '&bcc=' + encodeURIComponent(bcc.join(','));
+    u += '&su=' + encodeURIComponent(subject || '');
+    u += '&body=' + encodeURIComponent(body || '');
+    return u;
+  }
+  // Open a mail draft. Returns true if a window/handler was triggered.
+  function openDraft(to, subject, body, cc, bcc) {
+    if (isDesktop()) {
+      const win = window.open(gmailComposeUrl(to, subject, body, cc, bcc), '_blank', 'noopener');
+      try { if (navigator.clipboard) navigator.clipboard.writeText(body || ''); } catch (_) {}
+      if (win) { if (NX.toast) NX.toast('Opening Gmail draft…', 'info'); return true; }
+      if (NX.toast) NX.toast('Pop-up blocked — email body copied, paste it into your mail app', 'error');
+      // fall through to mailto, body already copied
+    }
+    const a = document.createElement('a');
+    a.href = buildMailtoUrl(to, subject, body, cc, bcc);
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { if (a.parentNode) a.parentNode.removeChild(a); }, 0);
+    return true;
+  }
+
   NX.email = {
     buildMailtoUrl,
     sectionHeader,
@@ -94,5 +135,8 @@
     encode,
     fillTemplate,
     BODY_WARN_LEN,
+    openDraft,
+    isDesktop,
+    gmailComposeUrl,
   };
 })();

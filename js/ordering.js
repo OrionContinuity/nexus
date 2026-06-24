@@ -2520,14 +2520,22 @@ ${lineList}
 
 Thanks for your help sorting this out.`;
 
-    const mailto = `mailto:${encodeURIComponent(vendor.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    // Stamp the issue flag on the order BEFORE redirecting to mailto.
+    // Stamp the issue flag on the order BEFORE opening the draft.
     // Mobile may background JS once the mail app takes focus, so the
     // record needs to land first. The note placeholder is a clue to
     // come back and edit it once the email's been sent.
     flagOrderIssue(order, 'See email for details');
-    window.location.href = mailto;
-    if (NX.toast) NX.toast('Opening mail app…', 'info', 1200);
+    // Robust send: desktop → Gmail web composer (mailto: drops long bodies /
+    // when no client is registered); mobile → native mailto. See nx-email.js.
+    // Reference window.NX.email explicitly — app.js's lexical `const NX`
+    // (what a bare `NX` resolves to here) is a DIFFERENT object that lacks
+    // .email; the shared engine lives on window.NX.email.
+    if (window.NX && window.NX.email && window.NX.email.openDraft) {
+      window.NX.email.openDraft(vendor.email, subject, body);
+    } else {
+      window.location.href = `mailto:${encodeURIComponent(vendor.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    }
+    if (NX.toast) NX.toast('Opening mail draft…', 'info', 1200);
   }
 
   /**
@@ -4766,8 +4774,14 @@ Thanks for your help sorting this out.`;
       NX.toast(`Removed your address (${filtered.sender}) from CC`, 'info', 2000);
     }
 
-    const url = buildMailtoUrl(vendor.email, subject, body, ccList, bccList);
-    window.location.href = url;
+    // Robust send: desktop → Gmail web composer (mailto: silently drops long
+    // order bodies / when no mail client is registered); mobile → native
+    // mailto. Single source of truth in nx-email.js.
+    if (window.NX && window.NX.email && window.NX.email.openDraft) {
+      window.NX.email.openDraft(vendor.email, subject, body, ccList, bccList);
+    } else {
+      window.location.href = buildMailtoUrl(vendor.email, subject, body, ccList, bccList);
+    }
 
     // Capture the order ID before closeEntry() clears entryState
     const sentOrderId = entryState && entryState.draftOrderId;
@@ -9346,7 +9360,9 @@ Thanks for your help sorting this out.`;
         const cleaned = stripSenderFromRecipients(ccList, bccList);
         ccList = cleaned.ccList; bccList = cleaned.bccList;
       } catch (_) { /* no recipient list — single-recipient send */ }
-      window.location.href = buildMailtoUrl(to, subject || '', body || '', ccList, bccList);
+      // Robust send: desktop → Gmail web composer; mobile → native mailto.
+      if (window.NX && window.NX.email && window.NX.email.openDraft) window.NX.email.openDraft(to, subject || '', body || '', ccList, bccList);
+      else window.location.href = buildMailtoUrl(to, subject || '', body || '', ccList, bccList);
       return true;
     },
   };

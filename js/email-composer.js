@@ -53,6 +53,22 @@
     return 'mailto:' + encodeURIComponent(to || '') + '?' + p.join('&');
   }
 
+  // Send via the shared engine (nx-email.js → NX.email.openDraft): desktop →
+  // Gmail web composer (mailto: drops long bodies / when no mail client is
+  // registered — "email unable to be made"); mobile → native mailto. Falls
+  // back to a local anchor-click mailto only if the engine isn't loaded.
+  function sendDraft(to, subject, body, cc, bcc) {
+    // The shared engine lives on window.NX.email — NOT the lexical `NX`
+    // (app.js's const) that `T` resolves to, which is a different object.
+    var E = (window.NX && window.NX.email) || T.email;
+    if (E && E.openDraft) { E.openDraft(to, subject, body, cc || [], bcc || []); return; }
+    var a = document.createElement('a');
+    a.href = buildMailto(to, subject, body, cc, bcc); a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () { if (a.parentNode) a.parentNode.removeChild(a); }, 0);
+  }
+
   function injectStyles() {
     if (document.getElementById('nx-compose-style')) return;
     var st = document.createElement('style');
@@ -215,7 +231,7 @@
       }
       state.to = to;
       if (key) store(key, { to: state.to, cc: state.cc, bcc: state.bcc });
-      try { window.location.href = buildMailto(to, subj, bod, state.cc, state.bcc); } catch (e) { if (T.debug) T.debug('composer.send', e); }
+      try { sendDraft(to, subj, bod, state.cc, state.bcc); } catch (e) { if (T.debug) T.debug('composer.send', e); }
       close();
       if (typeof opts.onSend === 'function') { try { opts.onSend({ to: to, cc: state.cc, bcc: state.bcc, subject: subj, body: bod }); } catch (_) {} }
     });

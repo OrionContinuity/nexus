@@ -1236,7 +1236,7 @@ td.check{background:#F0EDE6 !important}
       // popups that aren't useful in the mast row (Transactions, Clock).
       // The mast-routed items don't need cases here anymore — their
       // buttons no longer exist in the dial.
-      if (target === 'cal' || target === 'education' || target === 'dailylog' || target === 'biweekly') {
+      if (target === 'cal' || target === 'education' || target === 'dailylog' || target === 'biweekly' || target === 'inventory') {
         switchTo(target);
         return;
       }
