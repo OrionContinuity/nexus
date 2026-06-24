@@ -2104,6 +2104,34 @@
     return { count: rows.length };
   }
 
+  // Schedule-driven auto-fill: assign duties to the WHOLE scheduled crew at once
+  // (the employee calendar), not just one person. For a given day-of-week, every
+  // active profile that works that day gets their allowed-section duties filled
+  // at their shift. autofillScheduleWeek does the same across each person's days.
+  function _activeProfiles() {
+    return Object.values(profilesByUserId).filter(p =>
+      p && p.active !== false && p.user_id != null &&
+      Array.isArray(p.allowed_sections) && p.allowed_sections.length);
+  }
+  async function autofillScheduleForDay(dow) {
+    let total = 0, people = 0;
+    for (const p of _activeProfiles()) {
+      if (!Array.isArray(p.working_days) || !p.working_days.includes(dow)) continue;
+      const r = await autofillAssignmentsForUser(p.user_id, [dow], p.default_shift || 'both', p.allowed_sections);
+      if (r && r.count) { total += r.count; people++; }
+    }
+    return { total, people };
+  }
+  async function autofillScheduleWeek() {
+    let total = 0, people = 0;
+    for (const p of _activeProfiles()) {
+      if (!Array.isArray(p.working_days) || !p.working_days.length) continue;
+      const r = await autofillAssignmentsForUser(p.user_id, p.working_days, p.default_shift || 'both', p.allowed_sections);
+      if (r && r.count) { total += r.count; people++; }
+    }
+    return { total, people };
+  }
+
   async function openRosterManager() {
     if (!canManageRoster()) return;
     document.querySelectorAll('.clean-roster-manager').forEach(m => m.remove());
@@ -2244,6 +2272,24 @@
         <div class="clean-roster-list" data-people>
           ${activeUsers.length ? activeUsers.map(personRowHTML).join('') : '<div class="clean-roster-empty">No people on the roster.</div>'}
         </div>
+
+        <div class="clean-roster-section-label">Weekly schedule
+          <button type="button" class="clean-sched-fillweek" data-fill-week>${svg('plus', 12)} Auto-fill week</button>
+        </div>
+        <div class="clean-roster-sub">Each day shows who's scheduled (from their profile). Tap <b>Fill duties</b> to auto-assign that day's tasks to the scheduled crew.</div>
+        <div class="clean-sched-grid">
+          ${DOW.map(x => {
+            const crew = activeUsers.filter(u => { const p = profilesByUserId[u.id]; return p && Array.isArray(p.working_days) && p.working_days.includes(x.d); });
+            return `<div class="clean-sched-day ${x.d === _todayDow ? 'is-today' : ''}">
+              <div class="clean-sched-day-head">${esc(x.label)}${x.d === _todayDow ? '<span class="clean-sched-today-dot" title="Today"></span>' : ''}</div>
+              <div class="clean-sched-day-crew">${crew.length
+                ? crew.map(u => { const sh = ((profilesByUserId[u.id] || {}).default_shift || 'both').toUpperCase(); return `<span class="clean-sched-name">${esc((u.name || '').split(' ')[0])}<i>${esc(sh)}</i></span>`; }).join('')
+                : '<span class="clean-sched-off">off</span>'}</div>
+              <button type="button" class="clean-sched-fill" data-fill-day="${x.d}" ${crew.length ? '' : 'disabled'}>Fill duties</button>
+            </div>`;
+          }).join('')}
+        </div>
+
         ${removedUsers.length ? `
           <button type="button" class="clean-roster-removed-toggle" data-removed-toggle>Removed · ${removedUsers.length}</button>
           <div class="clean-roster-removed" hidden>
@@ -2257,6 +2303,32 @@
     const reopen = () => { close(); openRosterManager(); };
     sheet.querySelector('.clean-roster-bg').addEventListener('click', close);
     sheet.querySelector('.clean-roster-close').addEventListener('click', close);
+
+    // ─── Weekly schedule — per-day + whole-week duty auto-fill ──────────────
+    sheet.querySelectorAll('[data-fill-day]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const dow = parseInt(btn.dataset.fillDay, 10);
+        const orig = btn.textContent; btn.disabled = true; btn.textContent = 'Filling…';
+        try {
+          const r = await autofillScheduleForDay(dow);
+          await loadAssignments(); render();
+          btn.textContent = r.total ? `✓ ${r.total} duties` : 'None';
+          toast(r.total ? `Auto-filled ${r.total} duties for ${r.people} ${r.people === 1 ? 'person' : 'people'}` : 'No scheduled crew or duties for that day', r.total ? 'success' : 'info');
+        } catch (e) { console.warn('[cleaning] fill day:', e); btn.textContent = 'Failed'; toast('Fill failed: ' + (e.message || e), 'error'); }
+        setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1800);
+      });
+    });
+    const fillWeekBtn = sheet.querySelector('[data-fill-week]');
+    if (fillWeekBtn) fillWeekBtn.addEventListener('click', async () => {
+      const orig = fillWeekBtn.innerHTML; fillWeekBtn.disabled = true; fillWeekBtn.textContent = 'Filling…';
+      try {
+        const r = await autofillScheduleWeek();
+        await loadAssignments(); render();
+        fillWeekBtn.textContent = r.total ? `✓ ${r.total}` : 'Done';
+        toast(r.total ? `Auto-filled ${r.total} duties across the week (${r.people} ${r.people === 1 ? 'person' : 'people'})` : 'No profiles with days + duties to fill from', r.total ? 'success' : 'info');
+      } catch (e) { console.warn('[cleaning] fill week:', e); fillWeekBtn.textContent = 'Failed'; toast('Fill failed: ' + (e.message || e), 'error'); }
+      setTimeout(() => { fillWeekBtn.innerHTML = orig; fillWeekBtn.disabled = false; }, 1800);
+    });
 
     const wireChips = (scopeEl) => {
       scopeEl.querySelectorAll('[data-day]').forEach(b => { if (!b._w) { b._w = 1; b.addEventListener('click', () => b.classList.toggle('on')); } });
