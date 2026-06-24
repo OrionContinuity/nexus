@@ -120,6 +120,9 @@
   // Assignment rows keyed by task_id. Each task can have many — one per
   // (day_of_week, shift) for weekly, one per year_month for monthly.
   let assignmentsByTaskId = {};
+  let calloutsByDate = {};  // { 'YYYY-MM-DD': Set(userId string) } — last-minute call-outs
+  // Local YYYY-MM-DD (toISOString is UTC → can be a day off in the evening).
+  function localISO(d) { const x = d || new Date(); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; }
   // Linked education guides per task. Each value is an array of guide
   // objects with at least { id, title_en, primary_kind }.
   let guidesLinkedByTaskId = {};
@@ -380,6 +383,21 @@
     } catch (e) {
       console.warn('[cleaning] loadAssignments ex:', e);
     }
+  }
+
+  // Last-minute call-outs for the next 2 weeks. Gracefully degrades to "none"
+  // if the cleaning_callouts table hasn't been migrated yet.
+  async function loadCallouts() {
+    calloutsByDate = {};
+    if (!NX.sb || NX.paused) return;
+    try {
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const to = new Date(today.getTime() + 14 * 86400000);
+      const { data, error } = await NX.sb.from('cleaning_callouts')
+        .select('user_id, off_date').gte('off_date', localISO(today)).lte('off_date', localISO(to));
+      if (error) return;  // table missing → no call-outs (feature dormant until migrated)
+      (data || []).forEach(r => { (calloutsByDate[r.off_date] = calloutsByDate[r.off_date] || new Set()).add(String(r.user_id)); });
+    } catch (_) { /* dormant until migrated */ }
   }
 
   // ─── V16: cleaner profiles (who works which days + their allowed work) ──
@@ -834,6 +852,7 @@
     const isMonthly = (task.frequency_type === 'monthly');
     const dow = todayDayOfWeek();
     const ym = currentYearMonth();
+    const offToday = calloutsByDate[localISO()] || null;  // last-minute call-outs
     let am = null, pm = null;
     rows.forEach(r => {
       if (isMonthly && r.scope === 'monthly' && r.year_month === ym) {
@@ -842,6 +861,7 @@
         const u = usersList.find(x => x.id === r.user_id);
         if (u) am = u;
       } else if (!isMonthly && r.scope === 'weekly' && r.day_of_week === dow) {
+        if (offToday && offToday.has(String(r.user_id))) return;  // called out today → slot opens up
         const u = usersList.find(x => x.id === r.user_id);
         if (!u) return;
         if (r.shift === 'am') am = u;
@@ -2150,6 +2170,7 @@
 
     await loadProfiles();
     await loadTemplates();
+    await loadCallouts();
 
     const DOW = [
       { d: 1, label: 'Sun' }, { d: 2, label: 'Mon' }, { d: 3, label: 'Tue' },
@@ -2183,6 +2204,14 @@
           return `<span class="clean-roster-crew-chip"><span class="clean-roster-crew-dot"></span>${esc(u.name)}<span class="clean-roster-crew-shift">${esc(sh)}</span></span>`;
         }).join('')
       : '<span class="clean-roster-crew-empty">No one scheduled today — anyone can clean.</span>';
+
+    // Next 14 days (2 weeks ahead). Each day resolves its crew from the
+    // recurring profiles; call-outs are applied per date when rendering.
+    const _startDay = new Date(); _startDay.setHours(0, 0, 0, 0);
+    const fortnight = Array.from({ length: 14 }, (_, i) => {
+      const d = new Date(_startDay.getTime() + i * 86400000);
+      return { iso: localISO(d), dow: d.getDay() + 1, dom: d.getDate(), wd: DOW[d.getDay()].label, isToday: i === 0 };
+    });
 
     const personRowHTML = (u) => {
       const p = profilesByUserId[u.id] || {};
@@ -2273,19 +2302,24 @@
           ${activeUsers.length ? activeUsers.map(personRowHTML).join('') : '<div class="clean-roster-empty">No people on the roster.</div>'}
         </div>
 
-        <div class="clean-roster-section-label">Weekly schedule
+        <div class="clean-roster-section-label">2-week schedule
           <button type="button" class="clean-sched-fillweek" data-fill-week>${svg('plus', 12)} Auto-fill week</button>
         </div>
-        <div class="clean-roster-sub">Each day shows who's scheduled (from their profile). Tap <b>Fill duties</b> to auto-assign that day's tasks to the scheduled crew.</div>
-        <div class="clean-sched-grid">
-          ${DOW.map(x => {
-            const crew = activeUsers.filter(u => { const p = profilesByUserId[u.id]; return p && Array.isArray(p.working_days) && p.working_days.includes(x.d); });
-            return `<div class="clean-sched-day ${x.d === _todayDow ? 'is-today' : ''}">
-              <div class="clean-sched-day-head">${esc(x.label)}${x.d === _todayDow ? '<span class="clean-sched-today-dot" title="Today"></span>' : ''}</div>
+        <div class="clean-roster-sub">The next 14 days, crewed from each profile. Tap <b>Fill</b> to assign a day's duties; tap a name's <b>✕</b> to call them out for that date — their duties open up for the rest of the crew.</div>
+        <div class="clean-sched-grid clean-sched-2wk">
+          ${fortnight.map(day => {
+            const off = calloutsByDate[day.iso] || null;
+            const crew = activeUsers.filter(u => { const p = profilesByUserId[u.id]; return p && Array.isArray(p.working_days) && p.working_days.includes(day.dow); });
+            return `<div class="clean-sched-day ${day.isToday ? 'is-today' : ''}">
+              <div class="clean-sched-day-head">${esc(day.wd)} ${day.dom}${day.isToday ? '<span class="clean-sched-today-dot" title="Today"></span>' : ''}</div>
               <div class="clean-sched-day-crew">${crew.length
-                ? crew.map(u => { const sh = ((profilesByUserId[u.id] || {}).default_shift || 'both').toUpperCase(); return `<span class="clean-sched-name">${esc((u.name || '').split(' ')[0])}<i>${esc(sh)}</i></span>`; }).join('')
+                ? crew.map(u => {
+                    const isOff = off && off.has(String(u.id));
+                    const sh = ((profilesByUserId[u.id] || {}).default_shift || 'both').toUpperCase();
+                    return `<span class="clean-sched-name ${isOff ? 'is-off' : ''}"><span class="clean-sched-nm">${esc((u.name || '').split(' ')[0])}</span><i>${esc(sh)}</i><button type="button" class="clean-sched-callout" data-callout-user="${esc(u.id)}" data-callout-date="${esc(day.iso)}" title="${isOff ? 'Restore' : 'Call out — off this day'}">${isOff ? '↩' : '✕'}</button></span>`;
+                  }).join('')
                 : '<span class="clean-sched-off">off</span>'}</div>
-              <button type="button" class="clean-sched-fill" data-fill-day="${x.d}" ${crew.length ? '' : 'disabled'}>Fill duties</button>
+              <button type="button" class="clean-sched-fill" data-fill-day="${day.dow}" ${crew.length ? '' : 'disabled'}>Fill</button>
             </div>`;
           }).join('')}
         </div>
@@ -2328,6 +2362,32 @@
         toast(r.total ? `Auto-filled ${r.total} duties across the week (${r.people} ${r.people === 1 ? 'person' : 'people'})` : 'No profiles with days + duties to fill from', r.total ? 'success' : 'info');
       } catch (e) { console.warn('[cleaning] fill week:', e); fillWeekBtn.textContent = 'Failed'; toast('Fill failed: ' + (e.message || e), 'error'); }
       setTimeout(() => { fillWeekBtn.innerHTML = orig; fillWeekBtn.disabled = false; }, 1800);
+    });
+
+    // Call-out toggle — mark a person off (or restore) for a specific date.
+    // Needs the cleaning_callouts table (migration); fails gracefully with a hint.
+    sheet.querySelectorAll('[data-callout-user]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const uid = btn.dataset.calloutUser, date = btn.dataset.calloutDate;
+        const isOff = (calloutsByDate[date] || new Set()).has(String(uid));
+        btn.disabled = true;
+        try {
+          if (isOff) {
+            const { error } = await NX.sb.from('cleaning_callouts').delete().eq('user_id', uid).eq('off_date', date);
+            if (error) throw error;
+          } else {
+            const { error } = await NX.sb.from('cleaning_callouts').insert({ user_id: uid, off_date: date });
+            if (error) throw error;
+          }
+          await loadCallouts(); await loadAssignments(); render();
+          reopen();  // rebuild the sheet with the updated schedule
+        } catch (err) {
+          console.warn('[cleaning] callout:', err);
+          btn.disabled = false;
+          toast('Call-out needs the cleaning_callouts table — run the migration. (' + (err.message || err) + ')', 'error', 5000);
+        }
+      });
     });
 
     const wireChips = (scopeEl) => {
@@ -2644,11 +2704,14 @@
       <button class="clean-person-pill ${viewingUserId !== null ? 'is-active' : ''}" data-person-pill title="Whose view to show">
         ${svg('user', 12)} <span>${esc(pillLabel)}</span>
       </button>
-      <button class="clean-person-pill ${educationModeOn ? 'is-active' : ''}" data-edu-pill title="Show & manage the training button on every task" aria-pressed="${educationModeOn}">
-        ${svg('graduation', 12)} <span>Learn</span>
+      <button class="clean-person-pill clean-edu-pill ${educationModeOn ? 'is-active' : ''}" data-edu-pill title="Toggle training mode — show the training button on every task" role="switch" aria-checked="${educationModeOn}">
+        ${svg('graduation', 12)} <span>Learn</span><span class="clean-pill-toggle" aria-hidden="true"></span>
       </button>
       <button class="clean-person-pill clean-focus-pill ${focusModeOn ? 'is-active' : ''}" data-focus-pill title="Full screen — hide the masthead" aria-pressed="${focusModeOn}">
         ${svg(focusModeOn ? 'minimize' : 'maximize', 12)} <span>${focusModeOn ? 'Exit' : 'Focus'}</span>
+      </button>
+      <button class="clean-person-pill clean-roster-pill" data-roster-pill title="Shift roster & 2-week schedule">
+        ${svg('calendar', 12)} <span>Roster</span>
       </button>
     `;
     viewToggle.querySelectorAll('[data-view]').forEach(btn => {
@@ -2664,6 +2727,8 @@
     });
     const focusPill = viewToggle.querySelector('[data-focus-pill]');
     if (focusPill) focusPill.addEventListener('click', toggleFocusMode);
+    const rosterPill = viewToggle.querySelector('[data-roster-pill]');
+    if (rosterPill) rosterPill.addEventListener('click', () => openRosterManager());
     list.appendChild(viewToggle);
 
     // ─── COMING UP strip — 7-day forward look ────────────────────
