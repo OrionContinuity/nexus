@@ -1896,3 +1896,57 @@
    (verified). The masthead only shows post-login, so this never leaks onto the
    PIN screen. */
 #navBell { display: inline-flex !important; align-items: center; justify-content: center; }
+
+/* ─── 14. CLEANING — weekly schedule calendar ───────────────────────────── */
+.clean-sched-fillweek {
+  float: right; display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 10px; border-radius: 14px; cursor: pointer;
+  background: var(--nx-gold, #d4a44e); color: var(--nx-gold-on, #1c1814);
+  border: 1px solid var(--nx-gold-deep, #b88830);
+  font-family: inherit; font-size: 11px; font-weight: 700;
+}
+.clean-sched-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin: 8px 0 14px; }
+@media (max-width: 560px) { .clean-sched-grid { grid-template-columns: repeat(4, 1fr); } }
+.clean-sched-day {
+  display: flex; flex-direction: column; gap: 6px; min-width: 0;
+  padding: 8px 7px; border-radius: 12px;
+  background: var(--nx-surface-solid, rgba(255,255,255,0.03));
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,0.18));
+}
+.clean-sched-day.is-today { border-color: var(--nx-gold, #d4a44e); background: var(--nx-gold-tint, rgba(212,164,78,0.08)); }
+.clean-sched-day-head {
+  display: flex; align-items: center; gap: 4px; justify-content: center;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--nx-text-strong, #f5f1e8); font-weight: 700;
+}
+.clean-sched-today-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--nx-gold, #d4a44e); }
+.clean-sched-day-crew { display: flex; flex-direction: column; gap: 3px; min-height: 36px; }
+.clean-sched-name {
+  display: flex; align-items: center; justify-content: space-between; gap: 4px;
+  font-size: 11px; color: var(--nx-text, #ede9e0);
+  background: rgba(0,0,0,0.18); border-radius: 8px; padding: 2px 6px; overflow: hidden;
+}
+.clean-sched-name i { font-style: normal; font-size: 8px; color: var(--nx-muted, #8a8576); font-family: 'JetBrains Mono', monospace; }
+.clean-sched-off { font-size: 10px; color: var(--nx-faint, #6b7280); text-align: center; padding: 6px 0; font-style: italic; }
+.clean-sched-fill {
+  margin-top: auto; padding: 5px 4px; border-radius: 9px; cursor: pointer;
+  background: var(--nx-gold-tint, rgba(212,164,78,0.1)); border: 1px solid var(--nx-gold-line, rgba(212,164,78,0.22));
+  color: var(--nx-gold, #d4a44e); font-family: inherit; font-size: 10px; font-weight: 600;
+}
+.clean-sched-fill:hover:not(:disabled) { background: var(--nx-gold, #d4a44e); color: var(--nx-gold-on, #1c1814); }
+.clean-sched-fill:disabled { opacity: 0.4; cursor: default; }
+
+/* ─── 15. MASTHEAD — tidy the header into one aligned row ────────────────────
+   The header items (NEXUS wordmark, advisor coin, date, bell, ☰) sat on mixed
+   baselines/heights (16–59px) — a scattered look, made worse by un-hiding the
+   bell. Center everything on one line and give the two icon buttons a matching
+   size so the right cluster reads as a pair. */
+.nav { align-items: center !important; }
+.nav-bell, .nav-more {
+  width: 44px !important; height: 44px !important;   /* match each other + the 44px touch floor (§8) */
+  min-width: 44px !important; min-height: 44px !important;
+  flex-shrink: 0; padding: 0 !important;
+  display: inline-flex !important; align-items: center; justify-content: center;
+}
+.nav-bell .nav-icon, .nav-more .nav-icon { width: 20px; height: 20px; }
