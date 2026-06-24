@@ -23,6 +23,32 @@
   const NXRM = window.NXRM = window.NXRM || {};
   NXRM.version = '1.0.0';
 
+  // ─── window.eqOpenDetail — the cross-view "jump to equipment detail" global ──
+  // SEVEN views (brief, home-rm, inbox, money/spend, pm, vendors, daily-log)
+  // call window.eqOpenDetail(id, opts) — but NOTHING ever defined it, so every
+  // one of those jumps was a silent no-op (their `typeof === 'function'` guard
+  // always failed). Define it here (core.js is always loaded, early). Handles
+  // the lazy-loaded equipment module: open immediately if present, else switch
+  // to the equipment view (which loads it) and open once it's available.
+  if (typeof window !== 'undefined' && !window.eqOpenDetail) {
+    window.eqOpenDetail = function (id, opts) {
+      if (!id) return;
+      const resolve = () =>
+        (window.NX && NX.modules && NX.modules.equipment && NX.modules.equipment.openDetail) ||
+        (window.__nxe && window.__nxe.openDetail) || null;
+      const fn0 = resolve();
+      if (fn0) { try { fn0(id, opts); } catch (e) { console.warn('[eqOpenDetail]', e); } return; }
+      // Not loaded yet — navigate to the equipment view (lazy-loads it), then open.
+      try { if (window.NX && NX.switchTo) NX.switchTo('equipment'); } catch (_) {}
+      let tries = 0;
+      const iv = setInterval(() => {
+        const fn = resolve();
+        if (fn) { clearInterval(iv); try { fn(id, opts); } catch (e) { console.warn('[eqOpenDetail]', e); } }
+        else if (++tries > 40) clearInterval(iv);   // ~6s ceiling, then give up
+      }, 150);
+    };
+  }
+
   // ─────────────────────────────────────────────────────────────────────
   // FORMATTERS — small, predictable, allocation-free where possible
   // ─────────────────────────────────────────────────────────────────────
@@ -994,7 +1020,13 @@
       if (!nextDue && interval) nextDue = addDays(svcDate, interval);
 
       const patch = { last_pm_date: svcDate };
-      if (nextDue) patch.next_pm_date = nextDue;
+      // Always (re)set next_pm_date: to the new due date when we can compute
+      // one, else NULL. Clearing it matters — a unit with no interval whose
+      // next_pm_date was pinned to a past date would otherwise stay "overdue"
+      // immediately AFTER you just serviced it. No cadence ⇒ no due date ⇒
+      // not overdue (rather than falsely overdue). Set an interval to get a
+      // real countdown + health bar.
+      patch.next_pm_date = nextDue || null;
       if (learned && interval > 0) patch.pm_interval_days = interval;
 
       // Update with a column-drop guard so an older DB missing a column

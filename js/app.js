@@ -20,6 +20,12 @@ const NX = {
 
   // Auth state
   currentUser: null, // {id, name, pin, role, location}
+  // Back-compat alias — ~30 call sites read NX.user.* but NX.user was NEVER
+  // assigned (only NX.currentUser is), so the ones without a `|| NX.currentUser`
+  // fallback silently yielded undefined and dropped attribution (reported_by in
+  // domain reopen / issue transitions / email-contractor, created_by + sent_by
+  // on every order). Aliasing user → currentUser fixes them all at once.
+  get user() { return this.currentUser; },
   config: null,      // {anthropic_key, elevenlabs_key, ...}
 
   // Key getters — from Supabase config (memory), fallback to localStorage
@@ -1857,7 +1863,9 @@ td.check{background:#F0EDE6 !important}
           const _custom = document.getElementById('adminModelCustom');
           const _prov = this.getProvider();
           if (_sel) {
-            if (_prov === 'clippy') {
+            if (_prov === 'clippy-pool') {
+              _sel.value = 'clippy-pool';
+            } else if (_prov === 'clippy') {
               const cm = this.getClippyModel();
               const want = cm ? 'clippy:' + cm : 'clippy';
               _sel.value = [..._sel.options].some(o => o.value === want) ? want : 'clippy';
@@ -2021,10 +2029,13 @@ td.check{background:#F0EDE6 !important}
       // Unified "Ask NEXUS uses" picker → provider + Claude model + optional Clippy LLM.
       const _pick = document.getElementById('adminModel')?.value || 'claude-sonnet-4-20250514';
       let prov, modelId, clippyModel = '';
-      if (_pick === 'clippy' || _pick.indexOf('clippy:') === 0) {
+      if (_pick === 'clippy-pool') {
+        prov = 'clippy-pool';
+        modelId = this.getModel();   // keep last Claude model so toggling back is sticky
+      } else if (_pick === 'clippy' || _pick.indexOf('clippy:') === 0) {
         prov = 'clippy';
         clippyModel = _pick.indexOf('clippy:') === 0 ? _pick.slice(7) : '';
-        modelId = this.getModel();   // keep last Claude model so toggling back is sticky
+        modelId = this.getModel();
       } else if (_pick === '__custom__') {
         prov = 'anthropic';
         modelId = document.getElementById('adminModelCustom')?.value.trim() || this.getModel();
@@ -2073,15 +2084,21 @@ td.check{background:#F0EDE6 !important}
       document.getElementById('adminTrelloToken').value = '';
       const voiceNames=['Adam','Bella','Daniel','Charlotte','Liam','Emily','Sam','Dorothy','Arnold','Bill','Antoni','Domi','Fin','Freya','Gigi','Grace','Harry','James','Josh','Rachel'];
       const voiceIdx=updates.voice_idx||0;
-      const aiLabel = prov === 'clippy' ? ('Clippy' + (clippyModel ? ' · ' + clippyModel : ' (default brain)')) : ('Claude · ' + updates.model);
+      const aiLabel = prov === 'clippy-pool' ? 'Clippy pool (all PCs)'
+                    : prov === 'clippy' ? ('Clippy' + (clippyModel ? ' · ' + clippyModel : ' (default brain)'))
+                    : ('Claude · ' + updates.model);
       document.getElementById('adminKeyStatus').textContent = error ? 'Save failed: ' + error.message : `✓ Saved — ${aiLabel} · Voice: ${voiceNames[voiceIdx]||'Unknown'}`;
       document.getElementById('adminKeyStatus').style.color = error ? 'var(--red)' : 'var(--green)';
       setTimeout(() => { document.getElementById('adminKeyStatus').textContent = ''; }, 5000);
     });
     // Unified picker: toggle the Clippy / custom-Claude rows + probe Clippy on change.
     document.getElementById('adminModel')?.addEventListener('change', () => this._syncAiPickerUI());
-    // "Check Clippy" — live online/offline + LLM count from /health + models.
-    document.getElementById('adminClippyCheck')?.addEventListener('click', () => this.clippyStatusInto('adminClippyStatus'));
+    // "Check Clippy" — pool mode shows node count; direct mode pings /health.
+    document.getElementById('adminClippyCheck')?.addEventListener('click', () => {
+      const v = document.getElementById('adminModel')?.value || '';
+      if (v === 'clippy-pool') this.poolStatusInto('adminClippyStatus');
+      else this.clippyStatusInto('adminClippyStatus');
+    });
 
     document.getElementById('adminCancel').addEventListener('click', () => {
       modal.classList.remove('open'); modal.style.display = '';
@@ -3525,7 +3542,9 @@ td.check{background:#F0EDE6 !important}
     }catch(e){}
   },
   async askClaude(system, messages, maxTokens = 600, useSearch = false) {
-    if (this.getProvider() === 'clippy') return this.askLocal(system, messages, maxTokens);
+    const _p = this.getProvider();
+    if (_p === 'clippy') return this.askLocal(system, messages, maxTokens);
+    if (_p === 'clippy-pool') return this.askPool(this._flattenMessages(messages), { system });
     const key = this.getApiKey();
     if (!key) throw new Error('No API key. Admin → save your Anthropic key.');
     const body = { model: this.getModel(), max_tokens: maxTokens, system, messages };
@@ -3546,7 +3565,12 @@ td.check{background:#F0EDE6 !important}
     // each call; readers use NX._lastVisionError. Still returns '' on failure
     // (the contract the ~8 callers rely on) — this is a side channel only.
     this._lastVisionError = null;
-    if (this.getProvider() === 'clippy') return this.askLocalVision(prompt, base64Data, mimeType);
+    const _pv = this.getProvider();
+    if (_pv === 'clippy') return this.askLocalVision(prompt, base64Data, mimeType);
+    if (_pv === 'clippy-pool') {
+      try { return await this.askPool(prompt, { image_b64: base64Data }); }
+      catch (e) { this._lastVisionError = e.message || String(e); return ''; }
+    }
     const key = this.getApiKey();
     if (!key) {
       this._lastVisionError = 'No Anthropic API key set — add one in Admin ▸ Settings to use AI vision.';
@@ -3595,6 +3619,29 @@ td.check{background:#F0EDE6 !important}
     if (t) h['X-Clippy-Token'] = t;   // /act can drive the mouse — token-gate
     return h;
   },
+  // Fetch wrapper for Clippy calls: an AbortController timeout (a cold 7B model
+  // can take a while to load, so /ask + /vision get a generous 130s; the quick
+  // probes get 8s), plus a throttled "warming up" toast if a generation call
+  // runs long — so a loading model reads as progress, not a hang.
+  async _clippyFetch(url, options, opts = {}) {
+    const timeout = opts.timeout || 120000;
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), timeout);
+    let warnTimer = null;
+    if (opts.warmHint) warnTimer = setTimeout(() => {
+      const now = Date.now();
+      if (this.toast && (!this._clippyWarnTs || now - this._clippyWarnTs > 30000)) {
+        this._clippyWarnTs = now;
+        this.toast('Clippy is warming up his model — the first reply can take a moment…', 'info');
+      }
+    }, 4000);
+    try {
+      return await fetch(url, { ...options, signal: ctrl.signal });
+    } finally {
+      clearTimeout(to);
+      if (warnTimer) clearTimeout(warnTimer);
+    }
+  },
   // POST /ask {prompt, system?, timeout?} → {id, reply}. Flattens the
   // Anthropic system + messages shape into a single prompt for Clippy.
   async askLocal(system, messages, maxTokens = 600) {
@@ -3606,10 +3653,10 @@ td.check{background:#F0EDE6 !important}
       .map(m => (m.role === 'assistant' ? 'Assistant: ' : 'User: ') + toText(m.content))
       .join('\n\n') || '';
     try {
-      const resp = await fetch(base + '/ask', {
+      const resp = await this._clippyFetch(base + '/ask', {
         method: 'POST', headers: this._clippyHeaders(),
         body: JSON.stringify({ prompt, system: system ? String(system) : undefined, timeout: 120, model: this.getClippyModel() || undefined })
-      });
+      }, { timeout: 130000, warmHint: true });
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       const data = await resp.json();
       return data.reply || '';
@@ -3622,10 +3669,10 @@ td.check{background:#F0EDE6 !important}
   async askLocalVision(prompt, base64Data, mimeType) {
     const base = this.getClippyEndpoint();
     try {
-      const resp = await fetch(base + '/vision', {
+      const resp = await this._clippyFetch(base + '/vision', {
         method: 'POST', headers: this._clippyHeaders(),
         body: JSON.stringify({ prompt, image_b64: base64Data, model: this.getClippyModel() || undefined })
-      });
+      }, { timeout: 130000, warmHint: true });
       if (!resp.ok) {
         this._lastVisionError = 'Clippy vision error: HTTP ' + resp.status + ' at ' + base + '/vision — is a vision model loaded?';
         return '';
@@ -3643,7 +3690,7 @@ td.check{background:#F0EDE6 !important}
   // Liveness probe — GET /health → {ok,id,model,vision_model,caps,url} | null.
   async clippyHealth() {
     try {
-      const resp = await fetch(this.getClippyEndpoint() + '/health', { headers: this._clippyHeaders() });
+      const resp = await this._clippyFetch(this.getClippyEndpoint() + '/health', { headers: this._clippyHeaders() }, { timeout: 8000 });
       if (!resp.ok) return null;
       return await resp.json();
     } catch (_) { return null; }
@@ -3653,11 +3700,97 @@ td.check{background:#F0EDE6 !important}
   // server-side via the edge function.)
   async clippyNodes() {
     try {
-      const resp = await fetch(this.getClippyEndpoint() + '/nodes', { headers: this._clippyHeaders() });
+      const resp = await this._clippyFetch(this.getClippyEndpoint() + '/nodes', { headers: this._clippyHeaders() }, { timeout: 8000 });
       if (!resp.ok) return [];
       const data = await resp.json();
       return Array.isArray(data.nodes) ? data.nodes : [];
     } catch (_) { return []; }
+  },
+
+  // ─── CLIPPY POOL (hive relay) ────────────────────────────────────────
+  // Harness ANY running Clippy node's llama — even across machines behind a
+  // home router — with NO inbound reachability and NO tunnels. NEXUS drops a
+  // job row in clippy_sync; a Clippy node (which only needs OUTBOUND access to
+  // Supabase) polls, claims it, runs it on its local llama via /ask, and
+  // writes the result back; NEXUS polls the row for the answer. Works where
+  // the direct call (localhost only) and the edge fn (can't reach LAN IPs)
+  // can't. Needs the Clippy-side job poller (see the handoff spec).
+  _flattenMessages(messages) {
+    const toText = c => Array.isArray(c)
+      ? c.map(b => (typeof b === 'string' ? b : (b.text || ''))).join('\n')
+      : (c == null ? '' : String(c));
+    return (messages || []).map(m => (m.role === 'assistant' ? 'Assistant: ' : 'User: ') + toText(m.content)).join('\n\n');
+  },
+  // Live pool from the hive registry (clippy_sync id='clippy_nodes'), stale-dropped.
+  async clippyPoolNodes() {
+    if (!this.sb) return [];
+    try {
+      const { data } = await this.sb.from('clippy_sync').select('data').eq('id', 'clippy_nodes').maybeSingle();
+      const arr = data && Array.isArray(data.data) ? data.data : [];
+      const now = Date.now() / 1000;
+      return arr.filter(n => n && (now - (n.ts || 0) < 120));   // drop nodes older than 120s
+    } catch (_) { return []; }
+  },
+  // Enqueue a job, then poll for the answer a Clippy node writes back.
+  async askPool(prompt, opts = {}) {
+    if (!this.sb) throw new Error('Clippy pool needs the Supabase connection.');
+    const rid = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+              : (Date.now() + '-' + Math.random().toString(36).slice(2));
+    const id = 'job:' + rid;
+    const job = {
+      status: 'pending', prompt: String(prompt || ''),
+      system: opts.system || null, image_b64: opts.image_b64 || null,
+      vision: !!opts.image_b64, model: this.getClippyModel() || null, ts: Date.now(),
+    };
+    await this.sb.from('clippy_sync').upsert({ id, data: job, from_id: 'nexus' }, { onConflict: 'id' });
+    const timeoutMs = opts.timeoutMs || 90000;
+    const deadline = Date.now() + timeoutMs;
+    try {
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 1500));
+        const { data } = await this.sb.from('clippy_sync').select('data').eq('id', id).maybeSingle();
+        const d = data && data.data;
+        if (d && d.status === 'done') return d.result || '';
+        if (d && d.status === 'error') throw new Error('Clippy pool: ' + (d.error || 'a node reported an error'));
+      }
+      throw new Error('Clippy pool: no node answered within ' + Math.round(timeoutMs / 1000) +
+        's — is a Clippy job-poller running on any of your PCs?');
+    } finally {
+      // Best-effort cleanup so the queue doesn't bloat. DELETE needs a delete
+      // RLS policy (see the pool SQL); UPDATE to a tombstone is the always-
+      // allowed fallback so a poller won't answer an abandoned job late.
+      this.sb.from('clippy_sync').delete().eq('id', id).then(() => {}, () => {});
+      this.sb.from('clippy_sync').update({ data: { status: 'expired', ts: Date.now() } }).eq('id', id).then(() => {}, () => {});
+    }
+  },
+  // Live pool job activity for the admin readout: jobs in flight + who last answered.
+  async poolActivity() {
+    if (!this.sb) return { inFlight: 0, lastNode: null };
+    try {
+      const { data } = await this.sb.from('clippy_sync').select('data').like('id', 'job:%');
+      const rows = (data || []).map(r => r.data).filter(Boolean);
+      const now = Date.now();
+      const inFlight = rows.filter(d => (d.status === 'pending' || d.status === 'claimed') && (now - (d.ts || 0) < 120000)).length;
+      const done = rows.filter(d => d.status === 'done').sort((a, b) => (b.ts || 0) - (a.ts || 0))[0];
+      return { inFlight, lastNode: done ? (done.node || 'a node') : null };
+    } catch (_) { return { inFlight: 0, lastNode: null }; }
+  },
+  // Pool status + activity for the admin indicator.
+  async poolStatusInto(el) {
+    const node = typeof el === 'string' ? document.getElementById(el) : el;
+    if (!node) return;
+    node.textContent = 'Checking pool…'; node.style.color = 'var(--muted)';
+    const nodes = await this.clippyPoolNodes();
+    if (!nodes.length) {
+      node.textContent = '● no Clippy nodes registered — start Clippy with hive sync';
+      node.style.color = 'var(--red)';
+      return;
+    }
+    const a = await this.poolActivity();
+    node.textContent = '● ' + nodes.length + ' node' + (nodes.length > 1 ? 's' : '') + ' online'
+      + (a.inFlight ? ' · ' + a.inFlight + ' in flight' : '')
+      + (a.lastNode ? ' · last: ' + a.lastNode : '');
+    node.style.color = 'var(--green)';
   },
   // List Clippy's available LLMs — best effort. Tries a /models endpoint, then
   // an Ollama-style /api/tags, then falls back to what /health advertises
@@ -3666,7 +3799,7 @@ td.check{background:#F0EDE6 !important}
     const base = this.getClippyEndpoint();
     for (const path of ['/models', '/api/tags']) {
       try {
-        const r = await fetch(base + path, { headers: this._clippyHeaders() });
+        const r = await this._clippyFetch(base + path, { headers: this._clippyHeaders() }, { timeout: 8000 });
         if (!r.ok) continue;
         const d = await r.json();
         const list = d.models || d.tags || (Array.isArray(d) ? d : []);
@@ -3718,11 +3851,18 @@ td.check{background:#F0EDE6 !important}
     const sel = document.getElementById('adminModel');
     if (!sel) return;
     const v = sel.value || '';
-    const isClippy = v === 'clippy' || v.indexOf('clippy:') === 0;
+    const isPool = v === 'clippy-pool';
+    const isClippyDirect = v === 'clippy' || v.indexOf('clippy:') === 0;
+    const isClippy = isPool || isClippyDirect;
     const isCustom = v === '__custom__';
     const row = document.getElementById('adminClippyRow'); if (row) row.style.display = isClippy ? 'block' : 'none';
     const custom = document.getElementById('adminModelCustom'); if (custom) custom.style.display = isCustom ? 'block' : 'none';
-    if (isClippy) { this.clippyStatusInto('adminClippyStatus'); this._loadClippyModelOptions(); }
+    // The endpoint/token inputs are only for a DIRECT Clippy; the pool reaches
+    // nodes through Supabase, so hide them in pool mode.
+    const ep = document.getElementById('adminClippyEndpoint'); if (ep) ep.style.display = isPool ? 'none' : '';
+    const tk = document.getElementById('adminClippyToken'); if (tk) tk.style.display = isPool ? 'none' : '';
+    if (isPool) this.poolStatusInto('adminClippyStatus');
+    else if (isClippyDirect) { this.clippyStatusInto('adminClippyStatus'); this._loadClippyModelOptions(); }
   },
 
   // ═══════════════════════════════════════════════════════════════════

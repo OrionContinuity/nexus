@@ -984,14 +984,24 @@
     // we show a small "EQUIP" tag plus its real status. Different visual
     // treatment is intentional — it tells the user this row routes to a
     // different module.
-    const right = isEquip
-      ? `<span class="inv-pill" style="--pill-c:var(--green);font-size:8.5px;letter-spacing:1.5px">EQUIP</span>`
-      : statusPill(a.status);
+    let right;
+    if (isEquip) {
+      // Reflect the unit's ACTUAL status (down=red, needs-service=amber) rather
+      // than a flat green "EQUIP" pill — so a broken unit reads as broken here too.
+      const st = String(a._equipment_status || '').toLowerCase();
+      const c = /down|broken|out/.test(st) ? 'var(--red)'
+              : /needs|service/.test(st) ? 'var(--nx-gold, #d4a44e)'
+              : 'var(--green)';
+      const lbl = a._equipment_status ? esc(String(a._equipment_status).replace(/_/g, ' ').toUpperCase()) : 'EQUIP';
+      right = `<span class="inv-pill" style="--pill-c:${c};font-size:8.5px;letter-spacing:1.5px">${lbl}</span>`;
+    } else {
+      right = statusPill(a.status);
+    }
     const subParts = [
       esc(a.internal_pn),
       esc(a.home_location),
     ];
-    if (isEquip && a._equipment_status) subParts.push(esc(a._equipment_status));
+    // (equipment status now shown as a colored pill on the right, not the sub-line)
     if (!isEquip && a.custodian_user_id) subParts.push('loaned');
     // data-kind drives the click handler routing — see wireEvents
     return `

@@ -2133,11 +2133,28 @@
     const secChips = (sel) => sections.length
       ? sections.map(sc => `<button type="button" class="clean-roster-sec ${sel.includes(sc.es) ? 'on' : ''}" data-sec="${esc(sc.es)}">${esc(sc.en)}</button>`).join('')
       : '<span class="clean-roster-empty">No sections yet.</span>';
-    const metaText = (days, secs) => `${days.length ? days.length + 'd' : 'any day'} · ${secs.length ? secs.length + ' sec' : 'all'}`;
+    const dayInitial = ['', 'S', 'M', 'T', 'W', 'T', 'F', 'S'];  // DOW 1=Sun … 7=Sat
+    const daysAbbr = (arr) => (arr && arr.length) ? arr.slice().sort((a, b) => a - b).map(d => dayInitial[d]).join(' ') : 'any day';
+    const metaText = (days, secs) => `${daysAbbr(days)} · ${secs.length ? secs.length + ' sec' : 'all'}`;
 
     const isRemoved = (u) => (profilesByUserId[u.id] && profilesByUserId[u.id].active === false);
     const activeUsers  = usersList.filter(u => !isRemoved(u));
     const removedUsers = usersList.filter(u => isRemoved(u));
+
+    // "On today" crew — people explicitly scheduled for today's day-of-week.
+    // Turns the roster from pure config into an at-a-glance view of who cleans
+    // today (name + shift), so the sheet answers "who's on?" not just "who can".
+    const _todayDow = todayDayOfWeek();
+    const crewToday = activeUsers.filter(u => {
+      const p = profilesByUserId[u.id];
+      return p && Array.isArray(p.working_days) && p.working_days.length && p.working_days.includes(_todayDow);
+    });
+    const crewHTML = crewToday.length
+      ? crewToday.map(u => {
+          const sh = ((profilesByUserId[u.id] || {}).default_shift || 'both').toUpperCase();
+          return `<span class="clean-roster-crew-chip"><span class="clean-roster-crew-dot"></span>${esc(u.name)}<span class="clean-roster-crew-shift">${esc(sh)}</span></span>`;
+        }).join('')
+      : '<span class="clean-roster-crew-empty">No one scheduled today — anyone can clean.</span>';
 
     const personRowHTML = (u) => {
       const p = profilesByUserId[u.id] || {};
@@ -2211,6 +2228,11 @@
           <button class="clean-roster-close" aria-label="Close">${svg('close', 14)}</button>
         </div>
         <div class="clean-roster-sub">Build reusable profiles (days + shift + duties), attach them to people to autofill tasks at <b>${esc(locLabel(activeLoc))}</b>, and remove anyone who doesn't clean.</div>
+
+        <div class="clean-roster-today">
+          <div class="clean-roster-today-label">On today · ${esc(DOW.find(x => x.d === _todayDow)?.label || '')}</div>
+          <div class="clean-roster-today-crew">${crewHTML}</div>
+        </div>
 
         <div class="clean-roster-section-label">Profiles</div>
         <div class="clean-roster-templates" data-templates>

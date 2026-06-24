@@ -469,7 +469,33 @@ function computePmCountdown(eq) {
  */
 function renderPmProgressBar(eq, compact) {
   const cd = computePmCountdown(eq);
-  if (!cd) return '';
+  if (!cd) {
+    // Degraded: a unit with a last PM but no interval used to render BLANK,
+    // which read as "no PM at all". Show elapsed + a nudge to set the cadence
+    // (a striped bar signals "not yet tracked") instead of nothing.
+    if (eq && eq.last_pm_date) {
+      const _l = new Date(eq.last_pm_date + 'T00:00:00');
+      if (!isNaN(_l)) {
+        const _t = new Date(); _t.setHours(0, 0, 0, 0);
+        const since = Math.floor((_t - _l) / 86400000);
+        if (compact) {
+          return `<div class="eq-pm-progress" title="${since}d since last PM — set a PM interval to enable the countdown" style="font-size:9px;color:var(--nx-faint);font-family:'JetBrains Mono',monospace">PM ${since}d ago</div>`;
+        }
+        return `
+          <div class="eq-pm-progress" title="Set a PM interval to enable the countdown">
+            <div style="display:flex; justify-content:space-between; font-size:10px; text-transform:uppercase; letter-spacing:1px; color:var(--nx-faint); margin-bottom:4px">
+              <span>PM Health</span>
+              <span style="font-family:'JetBrains Mono', monospace">${since}d since · set interval</span>
+            </div>
+            <div style="height:6px; background:rgba(255,255,255,0.08); border-radius:3px; overflow:hidden">
+              <div style="height:100%; width:100%; background:repeating-linear-gradient(45deg,rgba(212,164,78,0.22),rgba(212,164,78,0.22) 4px,transparent 4px,transparent 8px)"></div>
+            </div>
+          </div>
+        `;
+      }
+    }
+    return '';
+  }
   const pct = Math.round(cd.pctRemaining * 100);
   let color = '#3a8d3a';  // green
   if (cd.pctRemaining < 0.1)      color = '#c44';   // red
@@ -5106,6 +5132,11 @@ function openEditModal(id) {
               source: 'edit_form',
             },
           });
+          // Same auto-ticket on the working→problem edge from the full editor.
+          autoTicketForStatus(
+            { id, name: data.name || priorSnap.name, status_note: (data.status_note !== undefined ? data.status_note : priorSnap.status_note) },
+            data.status, priorSnap.status
+          );
         }
         if ((data.location !== undefined && data.location !== priorSnap.location) ||
             (data.area !== undefined && data.area !== priorSnap.area)) {
@@ -6925,7 +6956,7 @@ async function extractBOMFromManual(equipId) {
         'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
-        model: NX.getModel?.() || 'claude-sonnet-4-5',
+        model: NX.getModel?.() || 'claude-sonnet-4-20250514',
         max_tokens: 4096,
         messages: [{
           role: 'user',
@@ -11155,6 +11186,8 @@ function openQuickStatusMenuForRow(equipId, anchorEl) {
             source: 'quick_status_menu',
           },
         });
+        // Auto-open a ticket on the working→problem edge (deduped, best-effort).
+        autoTicketForStatus(eq, newStatus, priorStatus);
       } catch (err) {
         // Rollback the optimistic update.
         console.error('[quickStatus] save failed:', err);
@@ -13240,6 +13273,41 @@ async function loadEquipmentIssues(equipmentId, opts) {
     return [];
   }
   return data || [];
+}
+
+// Auto-open a ticket when a unit crosses from a working state to a problem
+// state (down / needs_service / broken) via ANY status control. Deduped:
+// skips if an open (non-repaired) issue already exists for that unit, so
+// routine toggles don't spam tickets. Best-effort + non-blocking — mirrors
+// onto the board via the same domain hook the manual "Report issue" uses.
+const PROBLEM_STATES = ['down', 'needs_service', 'broken', 'out_of_service'];
+async function autoTicketForStatus(eq, newStatus, priorStatus) {
+  try {
+    if (!eq || !eq.id || !NX.sb) return;
+    if (!PROBLEM_STATES.includes(newStatus)) return;      // only problem states
+    if (PROBLEM_STATES.includes(priorStatus)) return;     // only the working→problem edge
+    const open = await loadEquipmentIssues(eq.id, { includeRepaired: false });
+    if (open && open.length) return;                      // dedup: already an open issue
+    const isDown = newStatus === 'down' || newStatus === 'broken';
+    const priority = isDown ? 'high' : 'normal';
+    const title = isDown ? `${eq.name} is down` : `${eq.name} needs service`;
+    const { data, error } = await NX.sb.from('equipment_issues').insert({
+      equipment_id: eq.id,
+      title,
+      description: eq.status_note || null,
+      status: 'reported',
+      reported_at: new Date().toISOString(),
+      reported_by: (NX.user && NX.user.id) || (NX.currentUser && NX.currentUser.id) || null,
+      reported_by_name: (NX.user && NX.user.name) || (NX.currentUser && NX.currentUser.name) || null,
+    }).select('*').single();
+    if (error) throw error;
+    if (NX.domain && NX.domain.recordEquipmentIssue) {
+      await NX.domain.recordEquipmentIssue({ issueId: data.id, equipmentId: eq.id, title: data.title, description: data.description, priority });
+    }
+    if (NX.toast) NX.toast('🎫 Ticket opened — ' + title, 'info', 3500);
+  } catch (e) {
+    console.warn('[equipment] autoTicketForStatus failed (non-fatal):', e);
+  }
 }
 
 /** Load latest open issue per equipment id (for list-view badges). */

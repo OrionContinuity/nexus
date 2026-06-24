@@ -1068,7 +1068,11 @@ function createCardEl(card){
     meta.push(`<span class="${dueCls}">${dueLbl}</span>`);
   }
   if(card.assignee) meta.push(`<span class="b-card-meta-assignee">${initials(card.assignee)}</span> ${esc(card.assignee)}`);
-  if(card.cost_estimate) meta.push(`$${Number(card.cost_estimate).toFixed(0)} est`);
+  // Show the ACTUAL cost on the face when set (the meaningful number on closed
+  // cards) — previously only the estimate showed, so real repair costs were
+  // invisible without reopening the card. Fall back to the estimate.
+  if(card.cost_actual != null && card.cost_actual !== '') meta.push(`<span class="b-card-meta-cost">$${Number(card.cost_actual).toFixed(0)}</span>`);
+  else if(card.cost_estimate) meta.push(`$${Number(card.cost_estimate).toFixed(0)} est`);
   // Age indicator — only for open cards. Silent under 3d, amber at 7d, red at 14d.
   if(!done && card.created_at){
     const ageDays = Math.floor((Date.now() - new Date(card.created_at).getTime())/86400000);
@@ -1400,7 +1404,8 @@ function closeMirrorTicket(card){
     if (NX.work && NX.work.syncTicketToCard) {
       NX.work.syncTicketToCard({ ticketId: tid, closed: true });
     } else {
-      NX.sb.from('tickets').update({ status: 'closed', closed_at: new Date().toISOString() }).eq('id', tid).then(() => {});
+      NX.sb.from('tickets').update({ status: 'closed', closed_at: new Date().toISOString() }).eq('id', tid)
+        .then(r => { if (r && r.error) console.warn('[board] mirror ticket close failed — Duties may still show it open:', r.error.message); });
     }
   } catch (_) {}
 }
@@ -2177,11 +2182,18 @@ async function renderEquipmentEmbed(card, container){
       ${vlinksHtml}
       <button class="b-btn" id="bEqUnlink" style="margin-top:6px;font-size:11px">Unlink equipment</button>`;
     container.querySelector('#bEqGo').addEventListener('click', () => {
-      if(NX.modules?.equipment?.openDetail){
-        NX.modules.equipment.openDetail(eq.id);
-        // close this modal
+      // Robust cross-view jump — lazy-loads equipment if it isn't in yet (the
+      // old NX.modules?.equipment?.openDetail guard silently no-op'd from the
+      // board when equipment hadn't been opened). Focus the linked issue when
+      // this card came from one (issue:<id> label).
+      const issueId = (card.labels || [])
+        .map(l => typeof l === 'string' ? l : (l && l.name) || '')
+        .map(s => /^issue:(.+)$/.exec(s)).filter(Boolean).map(m => m[1])[0] || null;
+      const go = window.eqOpenDetail || (NX.modules && NX.modules.equipment && NX.modules.equipment.openDetail);
+      if (go) {
+        go(eq.id, issueId ? { focusIssue: issueId } : undefined);
         const modal = container.closest('.b-modal-bg');
-        if(modal) modal.remove();
+        if (modal) modal.remove();
       }
     });
     container.querySelector('#bEqUnlink').addEventListener('click', () => {

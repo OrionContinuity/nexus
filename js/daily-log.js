@@ -817,12 +817,20 @@ async function markEquipmentOperational(equipmentId) {
     // Log the status_change event so it shows in Today's Equipment Activity
     try {
       if (typeof NX !== 'undefined' && NX.logEquipmentEvent) {
-        await NX.logEquipmentEvent('status_change', equipmentId, {
-          from: fromStatus,
-          to: 'operational',
-          equipment_name: cur.name,
-          source: 'daily-log',
-        }, cur.location);
+        // logEquipmentEvent takes a SINGLE object — this was passing positional
+        // args, so every field destructured to undefined and the activity event
+        // logged garbage (empty status_change). Pass the object it expects.
+        await NX.logEquipmentEvent({
+          equipmentId,
+          eventType: 'status_change',
+          payload: {
+            from: fromStatus,
+            to: 'operational',
+            equipment_name: cur.name,
+            source: 'daily-log',
+          },
+          location: cur.location,
+        });
       }
     } catch (e) {
       console.warn('[daily-log] logEquipmentEvent failed (non-fatal):', e);
@@ -1547,7 +1555,7 @@ function renderEquipmentActivitySection(d) {
       : '';
     const actor = ev.actor_name ? ` · ${esc(ev.actor_name)}` : '';
     return `
-      <div class="dlog-act-row">
+      <div class="dlog-act-row${ev.equipment_id ? ' dlog-eqjump' : ''}"${ev.equipment_id ? ` data-eq-id="${esc(ev.equipment_id)}" role="button" tabindex="0" style="cursor:pointer" title="Open ${esc(eqName)}"` : ''}>
         <span class="${pillClass}"></span>
         <div class="dlog-act-main">
           <div class="dlog-act-line"><b>${esc(eqName)}</b> ${loc}</div>
@@ -1557,6 +1565,23 @@ function renderEquipmentActivitySection(d) {
       </div>
     `;
   }).join('');
+  // One-time: clicking an activity row (or Enter/Space on it) jumps to that
+  // equipment's detail — previously the row named the unit but was a dead end.
+  if (!state._eqJumpWired) {
+    state._eqJumpWired = true;
+    const jump = (e) => {
+      const row = e.target.closest && e.target.closest('.dlog-act-row[data-eq-id]');
+      if (!row) return;
+      if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+      const id = row.getAttribute('data-eq-id');
+      if (!id) return;
+      e.preventDefault();
+      const open = (NX.modules && NX.modules.equipment && NX.modules.equipment.openDetail) || window.eqOpenDetail;
+      if (open) open(id);
+    };
+    document.addEventListener('click', jump);
+    document.addEventListener('keydown', jump);
+  }
   const count = events.length;
   return `
     <details class="dlog-section" ${count ? 'open' : ''}>

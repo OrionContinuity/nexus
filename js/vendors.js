@@ -1736,7 +1736,10 @@
       const saveBtn = overlay.querySelector('#vslSave');
       saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
       try {
-        const cost = costStr ? (parseFloat(costStr) || null) : null;
+        // parseFloat(costStr) || null wrongly turned a real $0 (free service)
+        // into null; keep 0, only null out empty/non-numeric input.
+        const _c = parseFloat(costStr);
+        const cost = Number.isFinite(_c) ? _c : null;
         await saveMaintRow({
           equipment_id: selId,
           event_date: dateStr,

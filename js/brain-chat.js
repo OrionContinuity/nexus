@@ -277,6 +277,7 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
           btn.disabled=true;btn.textContent+=' ✓';
           try{
             if(action.type==='ticket'){
+              if(!(NX.work&&NX.work.create)) throw new Error('Work module not loaded — try again');
               await NX.work.create({title:action.title, notes:action.detail, priority:action.urgency==='high'?'urgent':'normal', reportedBy:NX.currentUser?.name||'AI', aiCreated:true});
               chainLog.push({type:'ticket',title:action.title,result:'created'});
             }else if(action.type==='card'){

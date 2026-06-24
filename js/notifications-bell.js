@@ -208,6 +208,12 @@
   function init() {
     injectStyles();
     var bell = document.getElementById('navBell');
+    if (bell) {
+      // Some author rule (a @layer'd display:none !important that an unlayered
+      // id+!important rule can't beat) was hiding the fully-wired bell. An
+      // inline !important wins the cascade outright — surface it.
+      bell.style.setProperty('display', 'inline-flex', 'important');
+    }
     if (bell && !bell.__nxBound) {
       bell.__nxBound = true;
       bell.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); openPanel(); });
