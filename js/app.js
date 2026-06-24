@@ -29,6 +29,14 @@ const NX = {
   getTrelloKey() { return this.config?.trello_key || localStorage.getItem('nexus_trello_key') || ''; },
   getTrelloToken() { return this.config?.trello_token || localStorage.getItem('nexus_trello_token') || ''; },
   getModel() { return this.config?.model || localStorage.getItem('nexus_model') || 'claude-sonnet-4-20250514'; },
+  // AI provider — 'anthropic' (Claude API, default) or 'clippy' (the Clippy
+  // HTTP API = ClippyPC's offline brain, default :4242). Device-local
+  // (localStorage), since the endpoint is localhost on THIS machine. The
+  // token is optional, only needed if Clippy sets api_token (the /act route
+  // can drive the mouse, so it's worth gating).
+  getProvider() { return this.config?.ai_provider || localStorage.getItem('nexus_ai_provider') || 'anthropic'; },
+  getClippyEndpoint() { return String(this.config?.clippy_endpoint || localStorage.getItem('nexus_clippy_endpoint') || 'http://localhost:4242').replace(/\/+$/, ''); },
+  getClippyToken() { return this.config?.clippy_token || localStorage.getItem('nexus_clippy_token') || ''; },
 
   // Roles
   isAdmin: false,
@@ -1109,8 +1117,11 @@ td.check{background:#F0EDE6 !important}
       // Re-apply language after view switch
       if(this.i18n)setTimeout(()=>this.i18n.applyUI(),100);
     };
-    // Bind top nav tabs
-    tabs.forEach(tab => tab.addEventListener('click', () => switchTo(tab.dataset.view)));
+    // Bind top nav tabs. Action tabs (data-nav-action, e.g. Ordering /
+    // Transactions / Clock) have no data-view — they route through
+    // dutiesDispatch below, so skip them here (switchTo(undefined) would
+    // bounce to home).
+    tabs.forEach(tab => tab.addEventListener('click', () => { if (tab.dataset.view) switchTo(tab.dataset.view); }));
     // Bind bottom nav buttons — EXCEPT duties (data-view="clean"), which
     // is special-cased below to open the speed-dial instead of navigating.
     bnavBtns.forEach(btn => {
@@ -1209,7 +1220,7 @@ td.check{background:#F0EDE6 !important}
     //      re-fire, so we need to push the new state ourselves.
     const dutiesDial = document.getElementById('dutiesDial');
     const dutiesBtn  = document.querySelector('.bnav-btn[data-view="clean"]');
-    bindSpeedDial(dutiesBtn, dutiesDial, (target) => {
+    const dutiesDispatch = (target) => {
       // v18.32 Phase 1 — Dial now handles only the items that stayed
       // here after Theme/Log/Settings/Prefs moved to the restored
       // masthead ☰: nav fallbacks (Cal, Education) and the two utility
@@ -1221,7 +1232,16 @@ td.check{background:#F0EDE6 !important}
         return;
       }
       if (target === 'transactions') {
-        document.getElementById('utilTransactions')?.click();
+        // The #utilTransactions util-button was removed, so the old
+        // `.click()` was a silent no-op (Transactions never opened from the
+        // dial OR the desktop rail). Call the real entry, lazy-loading
+        // ordering.js the first time if it isn't in yet.
+        const openTx = () => {
+          if (typeof NX.openAllTransactions === 'function') NX.openAllTransactions();
+          else if (NX.toast) NX.toast('Transactions failed to load — try again', 'warn');
+        };
+        if (typeof NX.openAllTransactions === 'function') openTx();
+        else NX.loadScript('js/ordering.js', openTx);
         return;
       }
       if (target === 'clock') {
@@ -1254,7 +1274,14 @@ td.check{background:#F0EDE6 !important}
           NX.modules.duties.activatePane(target);
         }
       }, 80);
-    });
+    };
+    bindSpeedDial(dutiesBtn, dutiesDial, dutiesDispatch);
+    // Desktop sidebar "action" tabs (Ordering / Transactions / Clock) reuse the
+    // EXACT phone speed-dial routing, so the rail reaches everything the dial
+    // does — the duties panes plus the two utility popups. They carry
+    // data-nav-action (not data-view), so the switchTo binding skips them.
+    document.querySelectorAll('.nav-tab[data-nav-action]').forEach(b =>
+      b.addEventListener('click', () => dutiesDispatch(b.dataset.navAction)));
     // ──────────────────────────────────────────────────────────────────
     // ─── DEFAULT LANDING VIEW: Home ──────────────────────────────────
     // The first thing after login is the Home dashboard (mini-galaxy,
@@ -1822,6 +1849,13 @@ td.check{background:#F0EDE6 !important}
           const tt = this.getTrelloToken();
           document.getElementById('adminTrelloToken').placeholder = tt ? 'Token set (••••' + tt.slice(-4) + ')' : 'Trello Token';
           document.getElementById('adminModel').value = this.getModel();
+          // AI provider + Clippy (local) fields
+          const _prov = this.getProvider();
+          const _provSel = document.getElementById('adminProvider'); if (_provSel) _provSel.value = _prov;
+          const _cep = document.getElementById('adminClippyEndpoint'); if (_cep) _cep.value = this.getClippyEndpoint();
+          const _ctk = document.getElementById('adminClippyToken'); if (_ctk) _ctk.value = this.getClippyToken();
+          const _crow = document.getElementById('adminClippyRow'); if (_crow) _crow.style.display = (_prov === 'clippy') ? 'block' : 'none';
+          if (_prov === 'clippy') this.clippyStatusInto('adminClippyStatus');
           document.getElementById('adminVoice').value = (this.config && this.config.voice_idx != null) ? this.config.voice_idx : (localStorage.getItem('nexus_voice_idx') || '0');
         } catch (e) { console.warn('[admin] prefill failed:', e); }
 
@@ -1988,6 +2022,18 @@ td.check{background:#F0EDE6 !important}
       if (tt) localStorage.setItem('nexus_trello_token', tt);
       localStorage.setItem('nexus_model', updates.model);
 
+      // AI provider + Clippy endpoint are DEVICE-LOCAL (the endpoint is
+      // localhost on this machine) — persist to localStorage only, NOT the
+      // shared nexus_config row. Adding columns it doesn't have to the
+      // Supabase .update() would reject the entire save.
+      const prov = document.getElementById('adminProvider')?.value || 'anthropic';
+      localStorage.setItem('nexus_ai_provider', prov);
+      const cep = document.getElementById('adminClippyEndpoint')?.value.trim();
+      if (cep) localStorage.setItem('nexus_clippy_endpoint', cep);
+      const ctk = document.getElementById('adminClippyToken')?.value.trim();
+      if (ctk !== undefined) localStorage.setItem('nexus_clippy_token', ctk);  // allow clearing
+      if (this.config) { this.config.ai_provider = prov; if (cep) this.config.clippy_endpoint = cep; if (ctk !== undefined) this.config.clippy_token = ctk; }
+
       const { error } = await this.sb.from('nexus_config').update(updates).eq('id', 1);
       if (!error) { 
         if (!this.config) this.config = {};
@@ -1999,10 +2045,20 @@ td.check{background:#F0EDE6 !important}
       document.getElementById('adminTrelloToken').value = '';
       const voiceNames=['Adam','Bella','Daniel','Charlotte','Liam','Emily','Sam','Dorothy','Arnold','Bill','Antoni','Domi','Fin','Freya','Gigi','Grace','Harry','James','Josh','Rachel'];
       const voiceIdx=updates.voice_idx||0;
-      document.getElementById('adminKeyStatus').textContent = error ? 'Save failed: ' + error.message : `✓ Saved — Voice: ${voiceNames[voiceIdx]||'Unknown'}, Model: ${updates.model.includes('opus')?'Opus':'Sonnet'}`;
+      const provLabel = prov === 'clippy' ? 'Clippy (local)' : 'Claude';
+      document.getElementById('adminKeyStatus').textContent = error ? 'Save failed: ' + error.message : `✓ Saved — ${provLabel} · ${updates.model} · Voice: ${voiceNames[voiceIdx]||'Unknown'}`;
       document.getElementById('adminKeyStatus').style.color = error ? 'var(--red)' : 'var(--green)';
       setTimeout(() => { document.getElementById('adminKeyStatus').textContent = ''; }, 5000);
     });
+    // Show/hide the Clippy fields as the provider changes; probe health on switch.
+    document.getElementById('adminProvider')?.addEventListener('change', (e) => {
+      const crow = document.getElementById('adminClippyRow');
+      const on = e.target.value === 'clippy';
+      if (crow) crow.style.display = on ? 'block' : 'none';
+      if (on) this.clippyStatusInto('adminClippyStatus');
+    });
+    // "Check Clippy" button — live online/offline + model from /health.
+    document.getElementById('adminClippyCheck')?.addEventListener('click', () => this.clippyStatusInto('adminClippyStatus'));
 
     document.getElementById('adminCancel').addEventListener('click', () => {
       modal.classList.remove('open'); modal.style.display = '';
@@ -3446,6 +3502,7 @@ td.check{background:#F0EDE6 !important}
     }catch(e){}
   },
   async askClaude(system, messages, maxTokens = 600, useSearch = false) {
+    if (this.getProvider() === 'clippy') return this.askLocal(system, messages, maxTokens);
     const key = this.getApiKey();
     if (!key) throw new Error('No API key. Admin → save your Anthropic key.');
     const body = { model: this.getModel(), max_tokens: maxTokens, system, messages };
@@ -3466,6 +3523,7 @@ td.check{background:#F0EDE6 !important}
     // each call; readers use NX._lastVisionError. Still returns '' on failure
     // (the contract the ~8 callers rely on) — this is a side channel only.
     this._lastVisionError = null;
+    if (this.getProvider() === 'clippy') return this.askLocalVision(prompt, base64Data, mimeType);
     const key = this.getApiKey();
     if (!key) {
       this._lastVisionError = 'No Anthropic API key set — add one in Admin ▸ Settings to use AI vision.';
@@ -3498,6 +3556,94 @@ td.check{background:#F0EDE6 !important}
         ' — usually a network issue or the API key lacks browser access.';
       return '';
     }
+  },
+
+  // ─── CLIPPY (local AI) provider ──────────────────────────────────────
+  // When getProvider()==='clippy', askClaude/askClaudeVision route to the
+  // Clippy HTTP API (ClippyPC/brain, default :4242) instead of Anthropic —
+  // no API key, his local LLM answers. Only works while a Clippy instance is
+  // up. Same-machine http://localhost:4242 IS reachable even from the
+  // deployed https site (browsers treat localhost as trustworthy); LAN IPs
+  // (http://192.168.x.x) are NOT — those need a server-side pool fan-out
+  // (Supabase edge fn over clippy_sync → clippy_nodes).
+  _clippyHeaders() {
+    const h = { 'Content-Type': 'application/json' };
+    const t = this.getClippyToken();
+    if (t) h['X-Clippy-Token'] = t;   // /act can drive the mouse — token-gate
+    return h;
+  },
+  // POST /ask {prompt, system?, timeout?} → {id, reply}. Flattens the
+  // Anthropic system + messages shape into a single prompt for Clippy.
+  async askLocal(system, messages, maxTokens = 600) {
+    const base = this.getClippyEndpoint();
+    const toText = c => Array.isArray(c)
+      ? c.map(b => (typeof b === 'string' ? b : (b.text || ''))).join('\n')
+      : (c == null ? '' : String(c));
+    const prompt = (messages || [])
+      .map(m => (m.role === 'assistant' ? 'Assistant: ' : 'User: ') + toText(m.content))
+      .join('\n\n') || '';
+    try {
+      const resp = await fetch(base + '/ask', {
+        method: 'POST', headers: this._clippyHeaders(),
+        body: JSON.stringify({ prompt, system: system ? String(system) : undefined, timeout: 120 })
+      });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const data = await resp.json();
+      return data.reply || '';
+    } catch (e) {
+      throw new Error('Clippy (local AI) unreachable at ' + base +
+        ' — is a Clippy instance running? (' + (e.message || e) + ')');
+    }
+  },
+  // POST /vision {prompt, image_b64} → {id, reply}. image_b64 = RAW base64.
+  async askLocalVision(prompt, base64Data, mimeType) {
+    const base = this.getClippyEndpoint();
+    try {
+      const resp = await fetch(base + '/vision', {
+        method: 'POST', headers: this._clippyHeaders(),
+        body: JSON.stringify({ prompt, image_b64: base64Data })
+      });
+      if (!resp.ok) {
+        this._lastVisionError = 'Clippy vision error: HTTP ' + resp.status + ' at ' + base + '/vision — is a vision model loaded?';
+        return '';
+      }
+      const data = await resp.json();
+      const text = data.reply || '';
+      if (!text) this._lastVisionError = 'Clippy returned no text for that image — is a vision model (e.g. llava) configured on Clippy?';
+      return text;
+    } catch (e) {
+      this._lastVisionError = 'Clippy (local AI) unreachable at ' + base +
+        ' — is an instance running? (' + (e.message || e) + ')';
+      return '';
+    }
+  },
+  // Liveness probe — GET /health → {ok,id,model,vision_model,caps,url} | null.
+  async clippyHealth() {
+    try {
+      const resp = await fetch(this.getClippyEndpoint() + '/health', { headers: this._clippyHeaders() });
+      if (!resp.ok) return null;
+      return await resp.json();
+    } catch (_) { return null; }
+  },
+  // The discoverable pool on this machine — GET /nodes → [{id,url,model,…}].
+  // (Browser can only reach localhost nodes; cross-machine fan-out is
+  // server-side via the edge function.)
+  async clippyNodes() {
+    try {
+      const resp = await fetch(this.getClippyEndpoint() + '/nodes', { headers: this._clippyHeaders() });
+      if (!resp.ok) return [];
+      const data = await resp.json();
+      return Array.isArray(data.nodes) ? data.nodes : [];
+    } catch (_) { return []; }
+  },
+  // Paint a "Clippy: online/offline" status into an element (admin indicator).
+  async clippyStatusInto(el) {
+    const node = typeof el === 'string' ? document.getElementById(el) : el;
+    if (!node) return;
+    node.textContent = 'Checking…'; node.style.color = 'var(--muted)';
+    const h = await this.clippyHealth();
+    if (h && (h.ok || h.id)) { node.textContent = '● online — ' + (h.model || h.id || 'clippy'); node.style.color = 'var(--green)'; }
+    else { node.textContent = '● offline at ' + this.getClippyEndpoint(); node.style.color = 'var(--red)'; }
   },
 
   // ═══════════════════════════════════════════════════════════════════
