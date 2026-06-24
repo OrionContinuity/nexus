@@ -2692,6 +2692,7 @@
 
     <div class="nav-group-label" aria-hidden="true">Operations</div>
     <button class="nav-tab" data-view="clean" data-perm="clean" title="Duties · Cleaning"><i data-lucide="clipboard-list" class="nav-icon"></i> <span data-i18n="duties">Duties</span></button>
+    <button class="nav-tab nav-tab-action" data-view="inventory" data-perm="inventory" title="Inventory"><i data-lucide="boxes" class="nav-icon"></i> <span data-i18n="inventory">Inventory</span></button>
     <button class="nav-tab nav-tab-action" data-nav-action="ordering" data-perm="clean" title="Ordering"><i data-lucide="shopping-cart" class="nav-icon"></i> <span>Ordering</span></button>
     <button class="nav-tab" data-view="board" data-perm="board" title="Task Board"><i data-lucide="columns-3" class="nav-icon"></i> <span data-i18n="board">Board</span></button>
     <button class="nav-tab" data-view="cal" data-perm="cal" title="Calendar"><i data-lucide="calendar" class="nav-icon"></i> <span data-i18n="cal">Cal</span></button>
@@ -2704,7 +2705,7 @@
     <button class="nav-tab" data-view="spend"   data-perm="equipment" title="Spend"><i data-lucide="dollar-sign"            class="nav-icon"></i> <span>Spend</span></button>
     <button class="nav-tab" data-view="vendors" data-perm="equipment" title="Vendors"><i data-lucide="hard-hat"             class="nav-icon"></i> <span>Vendors</span></button>
     <button class="nav-tab" data-view="pm"      data-perm="equipment" title="PM Schedules"><i data-lucide="calendar-clock"  class="nav-icon"></i> <span>PM</span></button>
-    <button class="nav-tab" data-view="inventory" data-perm="inventory" title="Inventory"><i data-lucide="boxes" class="nav-icon"></i> <span data-i18n="inventory">Inventory</span></button>
+    <button class="nav-tab" title="Tools" onclick="event.stopImmediatePropagation();window.NX&&window.NX.tools&&window.NX.tools.open()"><i data-lucide="wrench" class="nav-icon"></i> <span>Tools</span></button>
 
     <div class="nav-group-label" aria-hidden="true">Learn</div>
     <button class="nav-tab" data-view="education" title="Education"><i data-lucide="book-open" class="nav-icon"></i> <span>Education</span></button>
@@ -3293,6 +3294,12 @@
         </svg>
       </span>
     </button>
+    <button class="nx-speed-dial-action" data-target="inventory" type="button" aria-label="Open Inventory">
+      <span class="nx-speed-dial-label" data-i18n="inventory">Inventory</span>
+      <span class="nx-speed-dial-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7l9-4 9 4-9 4-9-4Z"/><path d="M3 7v10l9 4 9-4V7"/><path d="M12 11v10"/></svg>
+      </span>
+    </button>
     <!-- Training is its own top-level view (#trainView), not a Duties
          pane like Cleaning + Ordering. The dispatcher in app.js detects
          data-target="train" and calls switchTo('train') instead of
@@ -3662,13 +3669,9 @@
     <svg class="bnav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="3" y="15" width="7" height="6" rx="1"/><rect x="14" y="11" width="7" height="10" rx="1"/></svg>
     <span data-i18n="board">Board</span>
   </button>
-  <button class="bnav-btn" data-view="inventory" data-perm="inventory" aria-label="Inventory">
-    <!-- Lucide-style "boxes" — speaks to inventory/stock without the
-         ambiguity of a single box (which reads as packaging) or a
-         clipboard (which reads as a checklist). Three stacked boxes
-         is the universal "items in stock" iconographic shorthand. -->
-    <svg class="bnav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z"/><path d="m7 16.5-4.74-2.85"/><path d="m7 16.5 5-3"/><path d="M7 16.5v5.17"/><path d="M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z"/><path d="m17 16.5-5-3"/><path d="m17 16.5 4.74-2.85"/><path d="M17 16.5v5.17"/><path d="M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z"/><path d="M12 8 7.26 5.15"/><path d="m12 8 4.74-2.85"/><path d="M12 13.5V8"/></svg>
-    <span data-i18n="inventory">Inventory</span>
+  <button class="bnav-btn" aria-label="Tools" onclick="event.stopImmediatePropagation();window.NX&&window.NX.tools&&window.NX.tools.open()">
+    <svg class="bnav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.6 5.6L3 18v3h3l6.1-6.1a4 4 0 0 0 5.6-5.6l-2.9 2.9-2-2 2.9-2.9Z"/></svg>
+    <span>Tools</span>
   </button>
 </nav>
 
@@ -4144,6 +4147,14 @@
         <button id="logbookOpenBtn" class="admin-drive-btn">Open Sheet ↗</button>
       </div>
       <div id="logbookStatus" class="admin-key-status" style="font-size:11px"></div>
+      <hr class="admin-divider">
+      <div class="admin-section-label">Get the OpenTether app</div>
+      <div style="font-size:10.5px;color:var(--muted);line-height:1.45;margin:2px 0 8px;">
+        Download OpenTether (unlimited tethering) for your phone or PC, or show a QR to scan.
+      </div>
+      <div class="admin-drive-row">
+        <button id="otGetBtn" class="admin-drive-btn">📲 Get OpenTether (PC / APK)</button>
+      </div>
       <!-- LOGIN PERFORMANCE (PIN hash cache for fast re-login) -->
       <hr class="admin-divider">
       <div class="admin-section-label">Login Performance</div>
@@ -4698,6 +4709,7 @@
 <script src="js/record-editor.js"></script>
 <script src="js/daily-card.js"></script>
 <script src="js/home.js"></script>
+<script src="js/nexus-qr.js"></script>
 <script defer src="js/nx-drive.js"></script>
 <script defer src="js/daily-log.js"></script>
 <script defer src="js/biweekly-log.js"></script>
@@ -4950,5 +4962,147 @@
      IIFE with a 4.8s retry loop trying to call lazy-loaded module functions.
      Now: persists target to localStorage + switches view + equipment.js
      reads the pending action on init. Identical pattern to Duties dial. -->
+<!-- ═══════════════════════════════════════════════════════════════════════
+     OpenTether download chooser  (folded into index.html — reversible:
+     delete this block + the #otGetBtn button + the nexus-qr.js <script>).
+     Opens via window.openOpenTether() / NX.openOpenTether() or the admin
+     "Get OpenTether" button. QR codes render offline via NexusQR (no CDN).
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div id="otDlBg" class="ot-dl-bg" hidden>
+  <div class="ot-dl" role="dialog" aria-modal="true" aria-label="Download OpenTether">
+    <button class="ot-dl-x" id="otDlClose" aria-label="Close" type="button">&times;</button>
+    <div class="ot-dl-head">
+      <div class="ot-dl-kicker">UNLIMITED TETHER · NO TRACE</div>
+      <div class="ot-dl-title">Get OpenTether</div>
+      <div class="ot-dl-sub">Pick your device — scan the QR with a phone, or download directly.</div>
+    </div>
+    <div class="ot-dl-grid">
+      <!-- ANDROID -->
+      <div class="ot-dl-card" data-plat="android">
+        <div class="ot-dl-badge">PHONE</div>
+        <svg class="ot-dl-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2.5"/><path d="M11 18h2"/></svg>
+        <div class="ot-dl-name">Android app</div>
+        <div class="ot-dl-meta">APK · 9.4 MB</div>
+        <div class="ot-dl-qr" id="otQrApk"></div>
+        <div class="ot-dl-scan">Scan with your phone camera</div>
+        <a class="ot-dl-btn ot-dl-btn-primary" id="otApkLink" href="#" target="_blank" rel="noopener">Download APK</a>
+        <div class="ot-dl-hint">Open the file, then allow “install from this source”.</div>
+      </div>
+      <!-- WINDOWS -->
+      <div class="ot-dl-card" data-plat="windows">
+        <div class="ot-dl-badge">COMPUTER</div>
+        <svg class="ot-dl-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="1.5"/><path d="M8 21h8M12 17v4"/></svg>
+        <div class="ot-dl-name">Windows client</div>
+        <div class="ot-dl-meta">ZIP · 14 KB</div>
+        <div class="ot-dl-qr" id="otQrWin"></div>
+        <div class="ot-dl-scan">Scan, or use the button below</div>
+        <a class="ot-dl-btn ot-dl-btn-primary" id="otWinLink" href="#" target="_blank" rel="noopener">Download for PC</a>
+        <div class="ot-dl-hint">Unzip, then run <code>start.bat</code> (needs Node.js).</div>
+      </div>
+    </div>
+    <div class="ot-dl-foot">Files served from your Google Drive. If a download asks you to sign in, the file isn’t shared “Anyone with the link” yet.</div>
+  </div>
+</div>
+<style>
+  .ot-dl-bg{position:fixed;inset:0;z-index:10050;display:flex;align-items:center;justify-content:center;
+    background:rgba(0,0,0,.6);opacity:0;transition:opacity .2s ease;padding:16px;
+    -webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);}
+  .ot-dl-bg.open{opacity:1}
+  .ot-dl{position:relative;width:100%;max-width:660px;max-height:92dvh;overflow-y:auto;
+    background:var(--nx-surface-solid,var(--surface,#161d2e));
+    border:1px solid var(--nx-gold-line,rgba(212,164,78,.26));border-radius:22px;
+    box-shadow:0 24px 70px rgba(0,0,0,.55);padding:24px 22px 18px;
+    transform:translateY(14px) scale(.985);transition:transform .22s cubic-bezier(.4,0,.2,1);
+    font-family:var(--font-body,'Libre Franklin',system-ui,sans-serif);}
+  .ot-dl-bg.open .ot-dl{transform:none}
+  .ot-dl-x{position:absolute;top:12px;right:14px;width:34px;height:34px;border-radius:50%;
+    background:transparent;border:1px solid var(--border,rgba(255,255,255,.14));color:var(--muted,#9aa3b2);
+    font-size:22px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .ot-dl-x:hover{color:var(--text,#ece4d4);border-color:var(--accent,#d4a44e)}
+  .ot-dl-head{text-align:center;margin-bottom:18px}
+  .ot-dl-kicker{font-family:var(--font-mono,'JetBrains Mono',monospace);font-size:10px;letter-spacing:2.5px;color:var(--faint,#6c7585)}
+  .ot-dl-title{font-size:23px;font-weight:700;color:var(--accent,#d4a44e);margin:4px 0 4px;letter-spacing:.5px}
+  .ot-dl-sub{font-size:13px;color:var(--muted,#9aa3b2);line-height:1.5}
+  .ot-dl-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .ot-dl-card{position:relative;display:flex;flex-direction:column;align-items:center;text-align:center;
+    background:var(--elevated,rgba(255,255,255,.03));border:1px solid var(--border,rgba(212,164,78,.16));
+    border-radius:16px;padding:18px 16px 16px;transition:border-color .18s,box-shadow .18s,transform .18s}
+  .ot-dl-card:hover{border-color:rgba(212,164,78,.4)}
+  .ot-dl-badge{font-family:var(--font-mono,monospace);font-size:9px;letter-spacing:1.5px;color:var(--faint,#6c7585);
+    border:1px solid var(--border,rgba(255,255,255,.12));border-radius:999px;padding:3px 9px;margin-bottom:10px}
+  .ot-dl-ic{width:34px;height:34px;color:var(--accent,#d4a44e);margin-bottom:6px}
+  .ot-dl-name{font-size:16px;font-weight:700;color:var(--text,#ece4d4)}
+  .ot-dl-meta{font-family:var(--font-mono,monospace);font-size:10.5px;color:var(--faint,#6c7585);margin:2px 0 12px}
+  .ot-dl-qr{width:150px;height:150px;background:#ece4d4;border-radius:12px;padding:8px;box-sizing:border-box;
+    display:flex;align-items:center;justify-content:center;color:#999;font-size:11px}
+  .ot-dl-scan{font-size:11px;color:var(--muted,#9aa3b2);margin:9px 0 12px}
+  .ot-dl-btn{display:block;width:100%;box-sizing:border-box;padding:12px;border-radius:12px;
+    font-weight:600;font-size:14px;text-decoration:none;text-align:center;cursor:pointer;
+    border:1px solid var(--accent,#d4a44e);color:var(--accent,#d4a44e);background:transparent;transition:background .15s,color .15s}
+  .ot-dl-btn:hover{background:rgba(212,164,78,.12)}
+  .ot-dl-btn-primary{background:var(--accent,#d4a44e);color:var(--nx-gold-on,#1a1205);border-color:var(--accent,#d4a44e)}
+  .ot-dl-btn-primary:hover{filter:brightness(1.07)}
+  .ot-dl-hint{font-size:10.5px;color:var(--faint,#6c7585);line-height:1.45;margin-top:9px}
+  .ot-dl-hint code{font-family:var(--font-mono,monospace);background:rgba(255,255,255,.06);padding:1px 5px;border-radius:5px}
+  .ot-dl-foot{text-align:center;font-size:10.5px;color:var(--faint,#6c7585);line-height:1.5;margin-top:16px;padding-top:12px;border-top:1px solid var(--border,rgba(255,255,255,.08))}
+  /* Emphasis: highlight the device the user is most likely on. */
+  .ot-dl-bg.ot-prefer-android .ot-dl-card[data-plat="android"],
+  .ot-dl-bg.ot-prefer-windows .ot-dl-card[data-plat="windows"]{
+    border-color:var(--accent,#d4a44e);box-shadow:0 0 0 1px var(--accent,#d4a44e),0 10px 30px rgba(212,164,78,.14)}
+  /* Phone: stack, and float the recommended card to the top. */
+  @media(max-width:560px){
+    .ot-dl-grid{grid-template-columns:1fr}
+    .ot-dl{padding:22px 16px 16px}
+    .ot-dl-bg.ot-prefer-android .ot-dl-card[data-plat="android"]{order:-1}
+  }
+  @media(prefers-reduced-motion:reduce){ .ot-dl,.ot-dl-bg{transition:none} }
+</style>
+<script>
+(function(){
+  // Drive direct-download URLs (the Desktop-synced files). For these to work
+  // on someone else's device the Drive files must be shared "Anyone with the link".
+  var APK_ID='1HxNF78s5Q6ka4jvMt-7V9pLDYQrb3wkU';
+  var WIN_ID='1xkP3O_jDbdmgeZ7MJTY6Zx_0ZwdePRgq';
+  var url=function(id){return 'https://drive.usercontent.google.com/download?id='+id+'&export=download&confirm=t';};
+  var APK_URL=url(APK_ID), WIN_URL=url(WIN_ID);
+  var bg=document.getElementById('otDlBg');
+  if(!bg) return;
+
+  function renderQr(boxId,target){
+    var el=document.getElementById(boxId); if(!el) return;
+    if(window.NexusQR){
+      try{
+        el.innerHTML=NexusQR.svg(target,{ecl:'M',border:1,scale:6,dark:'#0e1320',light:'#ece4d4'});
+        var s=el.querySelector('svg'); if(s){s.removeAttribute('width');s.removeAttribute('height');s.style.width='100%';s.style.height='100%';}
+        return;
+      }catch(e){}
+    }
+    el.textContent='QR unavailable';
+  }
+
+  function open(){
+    var a=document.getElementById('otApkLink'); if(a) a.href=APK_URL;
+    var w=document.getElementById('otWinLink'); if(w) w.href=WIN_URL;
+    renderQr('otQrApk',APK_URL);
+    renderQr('otQrWin',WIN_URL);
+    var isAndroid=/android/i.test(navigator.userAgent||'');
+    var isDesktop=window.matchMedia('(min-width:900px)').matches && !('ontouchstart' in window);
+    bg.classList.toggle('ot-prefer-android', isAndroid || !isDesktop);
+    bg.classList.toggle('ot-prefer-windows', !isAndroid && isDesktop);
+    bg.hidden=false;
+    requestAnimationFrame(function(){bg.classList.add('open');});
+  }
+  function close(){ bg.classList.remove('open'); setTimeout(function(){bg.hidden=true;},220); }
+
+  window.openOpenTether=open;
+  try{ if(window.NX) window.NX.openOpenTether=open; }catch(e){}
+
+  bg.addEventListener('click',function(e){ if(e.target===bg) close(); });
+  var x=document.getElementById('otDlClose'); if(x) x.addEventListener('click',close);
+  document.addEventListener('keydown',function(e){ if(e.key==='Escape' && !bg.hidden) close(); });
+  var btn=document.getElementById('otGetBtn'); if(btn) btn.addEventListener('click',open);
+})();
+</script>
+  <script defer src="js/tools.js"></script>
 </body>
 </html>
