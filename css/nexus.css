@@ -278,8 +278,12 @@ body.view-brain .main{padding-bottom:calc(56px + env(safe-area-inset-bottom))}
 
 /* Hide top nav tabs on mobile — bottom nav replaces them */
 .nav-tabs{display:none}
-/* Desktop: show top tabs, hide bottom nav */
-@media(min-width:769px){
+/* Desktop: show the nav as the left SIDEBAR, hide bottom nav. Breakpoint is
+   900px to MATCH the PC-sidebar layout in index.html — they were mismatched
+   (tabs showed horizontally on top from 769px, but the sidebar only kicked in
+   at 900px), so windows 769–899px wide saw orphaned buttons stuck on top with
+   no sidebar. Now: <900 = mobile bottom-nav, ≥900 = left sidebar. No top row. */
+@media(min-width:900px){
   .nav-tabs{display:flex}
   .bottom-nav{display:none}
   .main{padding-bottom:0}

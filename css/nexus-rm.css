@@ -1688,10 +1688,11 @@
     display: block;
     margin: 15px 12px 5px;
     font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-size: 9.5px;
-    letter-spacing: 0.16em;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
-    color: var(--nx-muted, #8a8576);
+    color: var(--nx-gold, #d4a44e);   /* was faint --nx-muted 9.5px — low contrast, easy to miss */
     user-select: none;
     pointer-events: none;
   }
@@ -1790,3 +1791,108 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* ─── 10. DESKTOP POLISH + A11Y (audit Phase 2) ─────────────────────────────
+   Sheets/modals are mobile bottom-sheets (slide up from translateY(100%),
+   top-rounded, bottom-anchored). On a wide desktop that reads as a stretched
+   phone UI — center it as a card with a fade+scale instead. Plus a visible
+   keyboard focus ring on the sidebar rail, and two stray sub-44px controls. */
+@keyframes nxSheetInDesktop {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (min-width: 900px) {
+  .nx-sheet-backdrop { align-items: center !important; }
+  .nx-sheet {
+    max-height: calc(100dvh - 80px) !important;
+    border-radius: 16px !important;
+    border-bottom: 1px solid var(--nx-border) !important;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5) !important;
+    animation: nxSheetInDesktop var(--nx-flow) !important;
+  }
+  .nx-sheet-handle { display: none !important; }   /* drag handle is meaningless when centered */
+
+  /* Keyboard focus ring on the sidebar rail (was invisible → silent tab nav). */
+  .nav-tab:focus-visible {
+    outline: 2px solid var(--nx-gold) !important;
+    outline-offset: -2px;
+    border-radius: 6px;
+  }
+}
+/* Touch targets to the 44px floor (WCAG 2.5.5) for two stragglers. */
+.tc-btn { min-height: 44px; }
+.admin-user-del { min-width: 32px; min-height: 32px; }
+
+/* ─── 11. DESKTOP SIDEBAR — Supabase / ResQ-style rail ──────────────────────
+   The ≥900px rail (index.html PC-sidebar layout) was functional but flat —
+   no hover, active state was just a thin left border. Give it the SaaS feel:
+   a slightly-recessed rail surface, calm idle items that brighten on hover,
+   and a clear filled + gold-accented active item. Visual only — no width /
+   .main-offset changes, so geometry is untouched. */
+@media (min-width: 900px) {
+  /* #navTabs (id) specificity so these beat the base rail rules. */
+  [data-theme="dark"] #navTabs { background: #0d1119 !important; }   /* recessed vs content for depth */
+  [data-theme="light"] #navTabs { background: #efe7d6 !important; }
+  #navTabs { padding: 14px 10px !important; gap: 3px !important; }
+
+  #navTabs .nav-tab {
+    border-radius: 8px !important;
+    border-left: 3px solid transparent !important;
+    transition: background .12s ease, color .12s ease !important;
+  }
+  #navTabs .nav-tab .nav-icon { opacity: .72; transition: opacity .12s ease; }
+  #navTabs .nav-tab:hover {
+    background: var(--nx-gold-tint, rgba(212,164,78,0.07)) !important;
+    color: var(--nx-text-strong, #f5f1e8) !important;
+  }
+  #navTabs .nav-tab:hover .nav-icon { opacity: 1; }
+  #navTabs .nav-tab.active {
+    background: var(--nx-gold-tint, rgba(212,164,78,0.13)) !important;
+    border-left-color: var(--nx-gold, #d4a44e) !important;
+    color: var(--nx-gold, #d4a44e) !important;
+    font-weight: 600 !important;
+  }
+  #navTabs .nav-tab.active span { color: var(--nx-gold, #d4a44e) !important; font-weight: 600 !important; }
+  #navTabs .nav-tab.active .nav-icon { opacity: 1; }
+  /* The active background was being beaten by a higher-specificity rule; a
+     2-id selector + background-color longhand wins cleanly. */
+  #appWrap #navTabs .nav-tab.active { background-color: rgba(212, 164, 78, 0.13) !important; }
+  #appWrap #navTabs .nav-tab:hover { background-color: rgba(212, 164, 78, 0.07) !important; }
+}
+
+/* ─── 12. CLEANING ROSTER — "on today" crew header ──────────────────────── */
+.clean-roster-today {
+  margin: 4px 0 14px; padding: 12px 14px;
+  background: var(--nx-gold-tint, rgba(212,164,78,0.06));
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,0.20));
+  border-radius: 14px;
+}
+.clean-roster-today-label {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--nx-gold, #d4a44e); margin-bottom: 8px;
+}
+.clean-roster-today-crew { display: flex; flex-wrap: wrap; gap: 6px; }
+.clean-roster-crew-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 10px; border-radius: 16px;
+  background: var(--nx-surface-solid, rgba(255,255,255,0.04));
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,0.20));
+  font-size: 12.5px; color: var(--nx-text, #ede9e0);
+}
+.clean-roster-crew-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--nx-green, #6cd09a); flex-shrink: 0; }
+.clean-roster-crew-shift {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 9px; letter-spacing: 0.08em; color: var(--nx-muted, #8a8576);
+  border-left: 1px solid var(--nx-gold-line, rgba(212,164,78,0.20)); padding-left: 6px; margin-left: 2px;
+}
+.clean-roster-crew-empty { font-size: 12.5px; color: var(--nx-muted, #8a8576); font-style: italic; }
+
+/* ─── 13. NOTIFICATION BELL — surface it ────────────────────────────────────
+   notifications-bell.js is loaded + fully wired (counts urgent WOs, down units,
+   overdue cards, pending PMs, quotes, unpaid invoices → badge + "Needs doing"
+   panel that routes to each view), but the bell computed display:none from a
+   rule we couldn't locate in any stylesheet. id + !important wins reliably
+   (verified). The masthead only shows post-login, so this never leaks onto the
+   PIN screen. */
+#navBell { display: inline-flex !important; align-items: center; justify-content: center; }
