@@ -773,9 +773,79 @@
     state.cloudPushTimer = setTimeout(() => cloudPush(), 8000);
   }
 
+  // ─── CLIPPY HIVE — one shared mind across the web + desktop copies ──────
+  // Reads/writes the `clippy_sync` Supabase table (id='hive_notes', a rolling
+  // list of short "I did/learned X" notes). The ClippyPC desktop buddy speaks
+  // the same table (Downloads/ClippyPC/NEXUS-CLIPPY-HANDOFF.md), so a note the
+  // in-app Clippy posts is heard by the desktop one and vice-versa. Best-
+  // effort: never blocks, degrades silently if the table/RLS isn't set up.
+  const HIVE_KEY = 'hive_notes';
+  function hiveId() {
+    let id = null;
+    try { id = localStorage.getItem('nx_clippy_hive_id'); } catch (_) {}
+    if (!id) {
+      id = 'web_' + Math.random().toString(36).slice(2, 9);
+      try { localStorage.setItem('nx_clippy_hive_id', id); } catch (_) {}
+    }
+    return id;
+  }
+  async function hivePull() {
+    if (!window.NX || !NX.sb) return state.hiveNotes || [];
+    try {
+      const { data } = await NX.sb.from('clippy_sync')
+        .select('data').eq('id', HIVE_KEY).maybeSingle();
+      const notes = (data && Array.isArray(data.data)) ? data.data : [];
+      state.hiveNotes = notes;
+      return notes;
+    } catch (_) { return state.hiveNotes || []; }
+  }
+  async function hivePush(text, kind) {
+    if (!window.NX || !NX.sb || !text) return;
+    try {
+      const notes = await hivePull();   // read-modify-write (low-traffic table)
+      const entry = {
+        from: hiveId(), kind: kind || 'note',
+        text: String(text).slice(0, 240), at: new Date().toISOString(),
+      };
+      const next = [...notes, entry].slice(-40);   // rolling, capped
+      await NX.sb.from('clippy_sync')
+        .upsert({ id: HIVE_KEY, data: next, from_id: hiveId() }, { onConflict: 'id' });
+      state.hiveNotes = next;
+    } catch (_) { /* hive is best-effort */ }
+  }
+  async function hiveInit() {
+    if (state.hiveInited) return;
+    state.hiveInited = true;
+    const notes = await hivePull();
+    // Greet with what ANOTHER copy (e.g. the desktop Clippy) has been up to.
+    const fromOthers = notes.filter(n => n && n.from && n.from !== hiveId()).slice(-1)[0];
+    if (fromOthers && state.enabled) {
+      setTimeout(() => {
+        if (!state.bubble && state.enabled) {
+          bubble('Across your devices: ' + fromOthers.text, { autoHide: 4200, eyebrow: '☁ HIVE' });
+        }
+      }, 3200);
+    }
+    // Tell the hive the in-app Clippy is online so the desktop one knows.
+    hivePush('In-app Clippy came online (web).', 'presence');
+    // Re-pull occasionally so cross-device notes trickle in over a session.
+    trackInterval(hivePull, 4 * 60000);
+  }
+  // Public surface so app code (and the in-app Clippy's own actions) can post
+  // to the shared mind: NX.clippyHive.push('learned the walk-in is down').
+  if (window.NX) {
+    window.NX.clippyHive = {
+      pull: hivePull,
+      push: hivePush,
+      notes: () => state.hiveNotes || [],
+      id: hiveId,
+    };
+  }
+
   function initCloudSync() {
     if (state.cloudSyncInited) return;
     state.cloudSyncInited = true;
+    hiveInit();   // join the shared Clippy hive (web ↔ desktop)
     // Pull on init (background — don't block)
     cloudPull().then(applied => {
       if (applied) {
