@@ -37,6 +37,9 @@ const NX = {
   getProvider() { return this.config?.ai_provider || localStorage.getItem('nexus_ai_provider') || 'anthropic'; },
   getClippyEndpoint() { return String(this.config?.clippy_endpoint || localStorage.getItem('nexus_clippy_endpoint') || 'http://localhost:4242').replace(/\/+$/, ''); },
   getClippyToken() { return this.config?.clippy_token || localStorage.getItem('nexus_clippy_token') || ''; },
+  // Optional specific Clippy LLM (empty = let Clippy pick his default). Only
+  // takes effect once Clippy's /ask honors a `model` field; sent regardless.
+  getClippyModel() { return this.config?.clippy_model || localStorage.getItem('nexus_clippy_model') || ''; },
 
   // Roles
   isAdmin: false,
@@ -1848,14 +1851,25 @@ td.check{background:#F0EDE6 !important}
           document.getElementById('adminTrelloKey').placeholder = tk ? 'Key set (••••' + tk.slice(-4) + ')' : 'Trello API Key';
           const tt = this.getTrelloToken();
           document.getElementById('adminTrelloToken').placeholder = tt ? 'Token set (••••' + tt.slice(-4) + ')' : 'Trello Token';
-          document.getElementById('adminModel').value = this.getModel();
-          // AI provider + Clippy (local) fields
+          // Unified "Ask NEXUS uses" picker — map current provider+model → the
+          // <select> value; _syncAiPickerUI then toggles the dependent rows.
+          const _sel = document.getElementById('adminModel');
+          const _custom = document.getElementById('adminModelCustom');
           const _prov = this.getProvider();
-          const _provSel = document.getElementById('adminProvider'); if (_provSel) _provSel.value = _prov;
+          if (_sel) {
+            if (_prov === 'clippy') {
+              const cm = this.getClippyModel();
+              const want = cm ? 'clippy:' + cm : 'clippy';
+              _sel.value = [..._sel.options].some(o => o.value === want) ? want : 'clippy';
+            } else {
+              const m = this.getModel();
+              if ([..._sel.options].some(o => o.value === m)) _sel.value = m;
+              else { _sel.value = '__custom__'; if (_custom) _custom.value = m; }
+            }
+          }
           const _cep = document.getElementById('adminClippyEndpoint'); if (_cep) _cep.value = this.getClippyEndpoint();
           const _ctk = document.getElementById('adminClippyToken'); if (_ctk) _ctk.value = this.getClippyToken();
-          const _crow = document.getElementById('adminClippyRow'); if (_crow) _crow.style.display = (_prov === 'clippy') ? 'block' : 'none';
-          if (_prov === 'clippy') this.clippyStatusInto('adminClippyStatus');
+          this._syncAiPickerUI();
           document.getElementById('adminVoice').value = (this.config && this.config.voice_idx != null) ? this.config.voice_idx : (localStorage.getItem('nexus_voice_idx') || '0');
         } catch (e) { console.warn('[admin] prefill failed:', e); }
 
@@ -2004,13 +2018,27 @@ td.check{background:#F0EDE6 !important}
       const ek = document.getElementById('adminElevenKey').value.trim() || this.getElevenLabsKey();
       const tk = document.getElementById('adminTrelloKey').value.trim() || this.getTrelloKey();
       const tt = document.getElementById('adminTrelloToken').value.trim() || this.getTrelloToken();
+      // Unified "Ask NEXUS uses" picker → provider + Claude model + optional Clippy LLM.
+      const _pick = document.getElementById('adminModel')?.value || 'claude-sonnet-4-20250514';
+      let prov, modelId, clippyModel = '';
+      if (_pick === 'clippy' || _pick.indexOf('clippy:') === 0) {
+        prov = 'clippy';
+        clippyModel = _pick.indexOf('clippy:') === 0 ? _pick.slice(7) : '';
+        modelId = this.getModel();   // keep last Claude model so toggling back is sticky
+      } else if (_pick === '__custom__') {
+        prov = 'anthropic';
+        modelId = document.getElementById('adminModelCustom')?.value.trim() || this.getModel();
+      } else {
+        prov = 'anthropic';
+        modelId = _pick;
+      }
       const updates = {
         anthropic_key: ak,
         elevenlabs_key: ek,
         google_client_id: this.getGoogleClientId(),
         trello_key: tk,
         trello_token: tt,
-        model: document.getElementById('adminModel').value,
+        model: modelId,
         voice_idx: parseInt(document.getElementById('adminVoice').value)||0,
         updated_at: new Date().toISOString()
       };
@@ -2026,13 +2054,13 @@ td.check{background:#F0EDE6 !important}
       // localhost on this machine) — persist to localStorage only, NOT the
       // shared nexus_config row. Adding columns it doesn't have to the
       // Supabase .update() would reject the entire save.
-      const prov = document.getElementById('adminProvider')?.value || 'anthropic';
       localStorage.setItem('nexus_ai_provider', prov);
+      localStorage.setItem('nexus_clippy_model', clippyModel);   // '' = Clippy's own default
       const cep = document.getElementById('adminClippyEndpoint')?.value.trim();
       if (cep) localStorage.setItem('nexus_clippy_endpoint', cep);
       const ctk = document.getElementById('adminClippyToken')?.value.trim();
       if (ctk !== undefined) localStorage.setItem('nexus_clippy_token', ctk);  // allow clearing
-      if (this.config) { this.config.ai_provider = prov; if (cep) this.config.clippy_endpoint = cep; if (ctk !== undefined) this.config.clippy_token = ctk; }
+      if (this.config) { this.config.ai_provider = prov; this.config.clippy_model = clippyModel; if (cep) this.config.clippy_endpoint = cep; if (ctk !== undefined) this.config.clippy_token = ctk; }
 
       const { error } = await this.sb.from('nexus_config').update(updates).eq('id', 1);
       if (!error) { 
@@ -2045,19 +2073,14 @@ td.check{background:#F0EDE6 !important}
       document.getElementById('adminTrelloToken').value = '';
       const voiceNames=['Adam','Bella','Daniel','Charlotte','Liam','Emily','Sam','Dorothy','Arnold','Bill','Antoni','Domi','Fin','Freya','Gigi','Grace','Harry','James','Josh','Rachel'];
       const voiceIdx=updates.voice_idx||0;
-      const provLabel = prov === 'clippy' ? 'Clippy (local)' : 'Claude';
-      document.getElementById('adminKeyStatus').textContent = error ? 'Save failed: ' + error.message : `✓ Saved — ${provLabel} · ${updates.model} · Voice: ${voiceNames[voiceIdx]||'Unknown'}`;
+      const aiLabel = prov === 'clippy' ? ('Clippy' + (clippyModel ? ' · ' + clippyModel : ' (default brain)')) : ('Claude · ' + updates.model);
+      document.getElementById('adminKeyStatus').textContent = error ? 'Save failed: ' + error.message : `✓ Saved — ${aiLabel} · Voice: ${voiceNames[voiceIdx]||'Unknown'}`;
       document.getElementById('adminKeyStatus').style.color = error ? 'var(--red)' : 'var(--green)';
       setTimeout(() => { document.getElementById('adminKeyStatus').textContent = ''; }, 5000);
     });
-    // Show/hide the Clippy fields as the provider changes; probe health on switch.
-    document.getElementById('adminProvider')?.addEventListener('change', (e) => {
-      const crow = document.getElementById('adminClippyRow');
-      const on = e.target.value === 'clippy';
-      if (crow) crow.style.display = on ? 'block' : 'none';
-      if (on) this.clippyStatusInto('adminClippyStatus');
-    });
-    // "Check Clippy" button — live online/offline + model from /health.
+    // Unified picker: toggle the Clippy / custom-Claude rows + probe Clippy on change.
+    document.getElementById('adminModel')?.addEventListener('change', () => this._syncAiPickerUI());
+    // "Check Clippy" — live online/offline + LLM count from /health + models.
     document.getElementById('adminClippyCheck')?.addEventListener('click', () => this.clippyStatusInto('adminClippyStatus'));
 
     document.getElementById('adminCancel').addEventListener('click', () => {
@@ -3585,7 +3608,7 @@ td.check{background:#F0EDE6 !important}
     try {
       const resp = await fetch(base + '/ask', {
         method: 'POST', headers: this._clippyHeaders(),
-        body: JSON.stringify({ prompt, system: system ? String(system) : undefined, timeout: 120 })
+        body: JSON.stringify({ prompt, system: system ? String(system) : undefined, timeout: 120, model: this.getClippyModel() || undefined })
       });
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       const data = await resp.json();
@@ -3601,7 +3624,7 @@ td.check{background:#F0EDE6 !important}
     try {
       const resp = await fetch(base + '/vision', {
         method: 'POST', headers: this._clippyHeaders(),
-        body: JSON.stringify({ prompt, image_b64: base64Data })
+        body: JSON.stringify({ prompt, image_b64: base64Data, model: this.getClippyModel() || undefined })
       });
       if (!resp.ok) {
         this._lastVisionError = 'Clippy vision error: HTTP ' + resp.status + ' at ' + base + '/vision — is a vision model loaded?';
@@ -3636,14 +3659,70 @@ td.check{background:#F0EDE6 !important}
       return Array.isArray(data.nodes) ? data.nodes : [];
     } catch (_) { return []; }
   },
-  // Paint a "Clippy: online/offline" status into an element (admin indicator).
+  // List Clippy's available LLMs — best effort. Tries a /models endpoint, then
+  // an Ollama-style /api/tags, then falls back to what /health advertises
+  // (model + vision_model). Returns [{name}] (possibly empty).
+  async clippyModels() {
+    const base = this.getClippyEndpoint();
+    for (const path of ['/models', '/api/tags']) {
+      try {
+        const r = await fetch(base + path, { headers: this._clippyHeaders() });
+        if (!r.ok) continue;
+        const d = await r.json();
+        const list = d.models || d.tags || (Array.isArray(d) ? d : []);
+        if (Array.isArray(list) && list.length) {
+          return list.map(x => ({ name: typeof x === 'string' ? x : (x.name || x.model) })).filter(x => x.name);
+        }
+      } catch (_) {}
+    }
+    const h = await this.clippyHealth();
+    const names = [];
+    if (h) { if (h.model) names.push(h.model); if (h.vision_model && h.vision_model !== h.model) names.push(h.vision_model); }
+    return names.map(n => ({ name: n }));
+  },
+  // Paint a "Clippy: online/offline · N LLMs" status into an element.
   async clippyStatusInto(el) {
     const node = typeof el === 'string' ? document.getElementById(el) : el;
     if (!node) return;
     node.textContent = 'Checking…'; node.style.color = 'var(--muted)';
     const h = await this.clippyHealth();
-    if (h && (h.ok || h.id)) { node.textContent = '● online — ' + (h.model || h.id || 'clippy'); node.style.color = 'var(--green)'; }
-    else { node.textContent = '● offline at ' + this.getClippyEndpoint(); node.style.color = 'var(--red)'; }
+    if (h && (h.ok || h.id)) {
+      const n = (await this.clippyModels()).length;
+      node.textContent = '● online — ' + (h.model || h.id || 'clippy') + (n ? ' · ' + n + ' LLM' + (n > 1 ? 's' : '') : '');
+      node.style.color = 'var(--green)';
+    } else {
+      node.textContent = '● offline at ' + this.getClippyEndpoint();
+      node.style.color = 'var(--red)';
+    }
+  },
+  // Add Clippy's discovered LLMs to the picker's Clippy optgroup as
+  // 'clippy:<model>' options (deduped), so a specific brain can be targeted.
+  async _loadClippyModelOptions() {
+    const group = document.getElementById('adminClippyModelGroup');
+    if (!group) return;
+    const models = await this.clippyModels();
+    if (!models.length) return;
+    const have = new Set([...group.querySelectorAll('option')].map(o => o.value));
+    models.forEach(m => {
+      const val = 'clippy:' + m.name;
+      if (!have.has(val)) {
+        const opt = document.createElement('option');
+        opt.value = val; opt.textContent = 'Clippy · ' + m.name;
+        group.appendChild(opt);
+      }
+    });
+  },
+  // Keep the Clippy row + custom-Claude input in sync with the unified picker;
+  // when a Clippy option is active, probe health + list his LLMs.
+  _syncAiPickerUI() {
+    const sel = document.getElementById('adminModel');
+    if (!sel) return;
+    const v = sel.value || '';
+    const isClippy = v === 'clippy' || v.indexOf('clippy:') === 0;
+    const isCustom = v === '__custom__';
+    const row = document.getElementById('adminClippyRow'); if (row) row.style.display = isClippy ? 'block' : 'none';
+    const custom = document.getElementById('adminModelCustom'); if (custom) custom.style.display = isCustom ? 'block' : 'none';
+    if (isClippy) { this.clippyStatusInto('adminClippyStatus'); this._loadClippyModelOptions(); }
   },
 
   // ═══════════════════════════════════════════════════════════════════
