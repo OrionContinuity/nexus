@@ -3954,44 +3954,39 @@
       <input autocomplete="off" data-lpignore="true" data-form-type="other" type="password" id="adminElevenKey" placeholder="ElevenLabs API Key" class="admin-field">
       <hr class="admin-divider">
       <div class="admin-section-label" data-i18n="aiModel">Ask NEXUS uses</div>
-      <!-- ONE picker drives the AI backend for Ask NEXUS + all AI (vision too):
-           a current Claude model (cloud, needs the API key above) OR Clippy
-           (your local brain, no key). The value encodes the provider:
-           'clippy[:model]' → local; '__custom__' → reveal the free-text Claude
-           id; anything else → that Claude model on Anthropic. Clippy's own LLMs
-           are auto-added to the Clippy group when discoverable (#adminClippyModelGroup). -->
+      <!-- One picker drives Ask NEXUS + all AI (vision/autofill too). Special
+           values app.js relies on: 'clippy', 'clippy-pool', 'clippy:<model>',
+           '__custom__'. Any other value is sent verbatim as the Claude model. -->
       <select id="adminModel" class="admin-field">
-        <optgroup label="Claude · cloud (needs API key)">
-          <option value="claude-sonnet-4-20250514">Claude Sonnet 4 — fast (default)</option>
-          <option value="claude-opus-4-1-20250805">Claude Opus 4.1 — most capable</option>
-          <option value="claude-3-5-haiku-20241022">Claude Haiku 3.5 — cheapest</option>
-          <option value="__custom__">Custom Claude model id…</option>
+        <optgroup label="Clippy · local — no API key" id="adminClippyModelGroup">
+          <option value="clippy-pool">Clippy pool — your PCs answer (recommended)</option>
+          <option value="clippy">Clippy — this machine only (localhost)</option>
         </optgroup>
-        <optgroup label="Clippy · local (no API key)" id="adminClippyModelGroup">
-          <option value="clippy">Clippy — local AI (his default brain)</option>
-          <option value="clippy-pool">Clippy pool — every PC running Clippy</option>
+        <optgroup label="Claude · cloud — needs API key">
+          <option value="claude-opus-4-8">Claude Opus 4.8 — most capable</option>
+          <option value="claude-sonnet-4-6">Claude Sonnet 4.6 — fast</option>
+          <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 — cheapest</option>
+          <option value="__custom__">Custom Claude model id…</option>
         </optgroup>
       </select>
       <input id="adminModelCustom" class="admin-field" style="display:none" autocomplete="off" spellcheck="false"
              placeholder="Paste a Claude model id — e.g. claude-…">
-      <div class="admin-hint" style="font-size:10px;color:var(--muted);margin:2px 2px 6px;line-height:1.5">
-        One picker for everything Ask NEXUS (and AI vision) runs on. <b>Claude</b> = cloud, uses the API key above;
-        <b>Clippy</b> = your local brain, no key. Choose “Custom” for a newer Claude id from console.anthropic.com.
+      <div class="admin-hint" style="font-size:10px;color:var(--muted);margin:2px 2px 8px;line-height:1.5">
+        Powers Ask NEXUS <b>and</b> equipment AI autofill. <b>Clippy</b> = your local LLM, no key · <b>Claude</b> = cloud, uses the key above.
       </div>
 
       <div id="adminClippyRow" style="display:none">
         <input id="adminClippyEndpoint" class="admin-field" autocomplete="off" spellcheck="false"
                placeholder="Clippy endpoint — http://localhost:4242">
         <input id="adminClippyToken" type="password" class="admin-field" autocomplete="off" spellcheck="false"
-               placeholder="Clippy token (optional — only if api_token is set)">
+               placeholder="Clippy token (optional)">
         <div style="display:flex;gap:8px;align-items:center;margin:2px 0 6px">
           <button id="adminClippyCheck" class="admin-save-btn" style="padding:6px 12px;font-size:11px;background:transparent;color:var(--muted);border:1px solid rgba(200,164,78,0.25)">Check Clippy</button>
           <span id="adminClippyStatus" class="admin-key-status" style="font-size:11px"></span>
         </div>
-        <div class="admin-hint" style="font-size:10px;color:var(--muted);margin:2px 2px 6px;line-height:1.5">
-          Clippy's local brain (the ClippyPC HTTP API, default <code>:4242</code>) — no API key. Needs a Clippy instance running.
-          “Check Clippy” shows online status + how many LLMs he has. Same-machine <code>http://localhost:4242</code> works from the
-          deployed https site; other PCs on the LAN (<code>192.168.x.x</code>) need the pool edge function. Vision needs a vision model loaded.
+        <div class="admin-hint" id="adminClippyPoolHint" style="font-size:10px;color:var(--muted);margin:2px 2px 6px;line-height:1.5">
+          <b>Pool</b> lets your phone use the LLM on your PC. Run the poller on that PC
+          (<code>tools/clippy-poller/run-clippy-poller.bat</code>), then tap <b>Check Clippy</b>.
         </div>
       </div>
       <!-- Voice selector — hidden control. The legacy dropdown lives
@@ -4032,6 +4027,8 @@
            audible. Each character has a Voice Design prompt to paste
            into elevenlabs.io/voice-design, then a voice ID slot to
            bring them to life. -->
+      <details class="admin-voices-details">
+      <summary class="admin-section-label" style="cursor:pointer;display:list-item;margin:6px 2px;">Voice design (advanced)</summary>
       <div class="admin-voices-of-nexus">
         <div class="admin-voices-intro">
           <div class="admin-voices-title">The Two Voices of NEXUS</div>
@@ -4117,6 +4114,7 @@
           voice, copy the new voice ID, and paste it back here.
         </div>
       </div>
+      </details>
 
       <hr class="admin-divider">
       <div class="admin-section-label" data-i18n="integrations">Integrations</div>
@@ -4132,6 +4130,20 @@
         <button id="driveRestoreBtn" class="admin-drive-btn" data-i18n="restore">Restore ↓</button>
       </div>
       <div id="driveStatus" class="admin-key-status" style="font-size:11px"></div>
+      <hr class="admin-divider">
+      <div class="admin-section-label">Logbook (Excel sheet in Drive ⇄)</div>
+      <div style="font-size:10.5px;color:var(--muted);line-height:1.45;margin:2px 0 8px;">
+        One “NEXUS Logbook” Google Sheet in your Drive folder with every log on its own tab
+        (Work Orders, Spend, Vendors, Daily Logs). Type notes in the <b>Notes ⇄ NEXUS</b> tab,
+        then <b>Pull</b> to post them as work-order comments. Download as .xlsx from Drive, or Print here.
+      </div>
+      <div class="admin-drive-row">
+        <button id="logbookSyncBtn" class="admin-drive-btn">Logbook → Sheet ⇄</button>
+        <button id="logbookPullBtn" class="admin-drive-btn">Pull Sheet Notes ↓</button>
+        <button id="logbookPrintBtn" class="admin-drive-btn">Print Logbook 🖨</button>
+        <button id="logbookOpenBtn" class="admin-drive-btn">Open Sheet ↗</button>
+      </div>
+      <div id="logbookStatus" class="admin-key-status" style="font-size:11px"></div>
       <!-- LOGIN PERFORMANCE (PIN hash cache for fast re-login) -->
       <hr class="admin-divider">
       <div class="admin-section-label">Login Performance</div>
