@@ -2680,24 +2680,41 @@
   </div>
   <!-- Live date/time, mono caps. Updated by app.js ticker. -->
   <span class="nx-mast-date" id="mastDate"></span>
+  <!-- Desktop sidebar nav (≥769px; becomes the vertical rail ≥900px). Hidden
+       on phones, where the bottom-nav + speed-dials carry navigation. Grouped
+       Supabase-style so the full destination list is scannable on desktop —
+       and now COMPLETE: every place the phone can reach (incl. Ordering,
+       Transactions, Clock, the duties-dial-only items) has a rail entry.
+       Items with data-nav-action (not data-view) run through dutiesDispatch()
+       in app.js — same routing the phone speed-dial uses. -->
   <div class="nav-tabs" id="navTabs">
     <button class="nav-tab" data-view="home" title="Home"><i data-lucide="home" class="nav-icon"></i> <span data-i18n="home">Home</span></button>
-    <button class="nav-tab" data-view="clean" data-perm="clean"><i data-lucide="clipboard-list" class="nav-icon"></i> <span data-i18n="duties">Duties</span></button>
-    <button class="nav-tab" data-view="log" data-perm="log"><i data-lucide="file-text" class="nav-icon"></i> <span data-i18n="log">Log</span></button>
+
+    <div class="nav-group-label" aria-hidden="true">Operations</div>
+    <button class="nav-tab" data-view="clean" data-perm="clean" title="Duties · Cleaning"><i data-lucide="clipboard-list" class="nav-icon"></i> <span data-i18n="duties">Duties</span></button>
+    <button class="nav-tab nav-tab-action" data-nav-action="ordering" data-perm="clean" title="Ordering"><i data-lucide="shopping-cart" class="nav-icon"></i> <span>Ordering</span></button>
     <button class="nav-tab" data-view="board" data-perm="board" title="Task Board"><i data-lucide="columns-3" class="nav-icon"></i> <span data-i18n="board">Board</span></button>
     <button class="nav-tab" data-view="cal" data-perm="cal" title="Calendar"><i data-lucide="calendar" class="nav-icon"></i> <span data-i18n="cal">Cal</span></button>
+    <button class="nav-tab" data-view="log" data-perm="log" title="Log"><i data-lucide="file-text" class="nav-icon"></i> <span data-i18n="log">Log</span></button>
+
+    <div class="nav-group-label" aria-hidden="true">Equipment</div>
     <button class="nav-tab" data-view="equipment" data-perm="equipment" title="Equipment"><i data-lucide="wrench" class="nav-icon"></i> <span data-i18n="equipment">Equipment</span></button>
-    <button class="nav-tab" data-view="education" title="Education"><i data-lucide="book-open" class="nav-icon"></i> <span>Education</span></button>
-    <button class="nav-tab" data-view="dailylog" title="Daily Log"><i data-lucide="notebook-pen" class="nav-icon"></i> <span>Daily Log</span></button>
-    <button class="nav-tab" data-view="biweekly" title="Biweekly Review"><i data-lucide="calendar-clock" class="nav-icon"></i> <span>Biweekly</span></button>
-    <button class="nav-tab" data-view="train" data-perm="train" title="Training" hidden style="display:none"><i data-lucide="graduation-cap" class="nav-icon"></i> <span data-i18n="training">Training</span><span class="nav-tab-badge" id="navTrainBadge" aria-hidden="true" hidden></span></button>
-    <button class="nav-tab" data-view="inventory" data-perm="inventory" title="Inventory"><i data-lucide="boxes" class="nav-icon"></i> <span data-i18n="inventory">Inventory</span></button>
-    <!-- NEXUS · R&M — Brief / Issues / Spend / Vendors / PM -->
     <button class="nav-tab" data-view="brief"   data-perm="equipment" title="Daily Brief"><i data-lucide="sun"            class="nav-icon"></i> <span>Brief</span></button>
     <button class="nav-tab" data-view="issues"  data-perm="equipment" title="Work Orders"><i data-lucide="alert-triangle" class="nav-icon"></i> <span>Issues</span></button>
     <button class="nav-tab" data-view="spend"   data-perm="equipment" title="Spend"><i data-lucide="dollar-sign"            class="nav-icon"></i> <span>Spend</span></button>
     <button class="nav-tab" data-view="vendors" data-perm="equipment" title="Vendors"><i data-lucide="hard-hat"             class="nav-icon"></i> <span>Vendors</span></button>
     <button class="nav-tab" data-view="pm"      data-perm="equipment" title="PM Schedules"><i data-lucide="calendar-clock"  class="nav-icon"></i> <span>PM</span></button>
+    <button class="nav-tab" data-view="inventory" data-perm="inventory" title="Inventory"><i data-lucide="boxes" class="nav-icon"></i> <span data-i18n="inventory">Inventory</span></button>
+
+    <div class="nav-group-label" aria-hidden="true">Learn</div>
+    <button class="nav-tab" data-view="education" title="Education"><i data-lucide="book-open" class="nav-icon"></i> <span>Education</span></button>
+    <button class="nav-tab" data-view="dailylog" title="Daily Log"><i data-lucide="notebook-pen" class="nav-icon"></i> <span>Daily Log</span></button>
+    <button class="nav-tab" data-view="biweekly" title="Biweekly Review"><i data-lucide="calendar-clock" class="nav-icon"></i> <span>Biweekly</span></button>
+    <button class="nav-tab" data-view="train" data-perm="train" title="Training" hidden style="display:none"><i data-lucide="graduation-cap" class="nav-icon"></i> <span data-i18n="training">Training</span><span class="nav-tab-badge" id="navTrainBadge" aria-hidden="true" hidden></span></button>
+
+    <div class="nav-group-label" aria-hidden="true">Tools</div>
+    <button class="nav-tab nav-tab-action" data-nav-action="transactions" title="Transactions"><i data-lucide="receipt" class="nav-icon"></i> <span>Transactions</span></button>
+    <button class="nav-tab nav-tab-action" data-nav-action="clock" title="Time Clock"><i data-lucide="clock" class="nav-icon"></i> <span>Clock</span></button>
   </div>
   <button class="nav-bell" id="navBell" title="Notifications" aria-label="Notifications"><i data-lucide="bell" class="nav-icon"></i><span class="nav-bell-count" id="navBellCount" hidden>0</span></button>
   <button class="nav-more" id="navMore" title="More"><i data-lucide="menu" class="nav-icon"></i></button>
@@ -3937,10 +3954,48 @@
       <input autocomplete="off" data-lpignore="true" data-form-type="other" type="password" id="adminElevenKey" placeholder="ElevenLabs API Key" class="admin-field">
       <hr class="admin-divider">
       <div class="admin-section-label" data-i18n="aiModel">AI Model</div>
-      <select id="adminModel" class="admin-field">
-        <option value="claude-sonnet-4-20250514">Claude Sonnet (fast)</option>
-        <option value="claude-opus-4-20250514">Claude Opus (smartest)</option>
+      <!-- Free-text + datalist instead of a fixed <select>: model ids churn
+           (Opus 4 / claude-opus-4-20250514 is retired), so pick a suggestion
+           OR paste any current Anthropic model id. .value reads unchanged in
+           app.js (input.value works like select.value). -->
+      <input id="adminModel" class="admin-field" list="adminModelList"
+             placeholder="claude-sonnet-4-20250514" autocomplete="off" spellcheck="false">
+      <datalist id="adminModelList">
+        <option value="claude-sonnet-4-20250514">Claude Sonnet 4 — fast, default</option>
+        <option value="claude-opus-4-1-20250805">Claude Opus 4.1 — most capable</option>
+        <option value="claude-3-5-haiku-20241022">Claude Haiku 3.5 — cheapest</option>
+      </datalist>
+      <div class="admin-hint" style="font-size:10px;color:var(--muted);margin:2px 2px 6px;line-height:1.5">
+        Pick a suggestion or paste the latest model id from console.anthropic.com.
+        The old <code>claude-opus-4-20250514</code> is retired.
+      </div>
+
+      <hr class="admin-divider">
+      <!-- AI PROVIDER — Claude API (default) or Clippy, the local autonomous
+           AI (Ollama). Device-local: persisted to localStorage only, since the
+           endpoint is localhost on THIS machine. -->
+      <div class="admin-section-label">AI Provider</div>
+      <select id="adminProvider" class="admin-field">
+        <option value="anthropic">Claude API (Anthropic)</option>
+        <option value="clippy">Clippy — local autonomous AI</option>
       </select>
+      <div id="adminClippyRow" style="display:none">
+        <input id="adminClippyEndpoint" class="admin-field" autocomplete="off" spellcheck="false"
+               placeholder="Clippy endpoint — http://localhost:4242">
+        <input id="adminClippyToken" type="password" class="admin-field" autocomplete="off" spellcheck="false"
+               placeholder="Clippy token (optional — only if api_token is set)">
+        <div style="display:flex;gap:8px;align-items:center;margin:2px 0 6px">
+          <button id="adminClippyCheck" class="admin-save-btn" style="padding:6px 12px;font-size:11px;background:transparent;color:var(--muted);border:1px solid rgba(200,164,78,0.25)">Check Clippy</button>
+          <span id="adminClippyStatus" class="admin-key-status" style="font-size:11px"></span>
+        </div>
+        <div class="admin-hint" style="font-size:10px;color:var(--muted);margin:2px 2px 6px;line-height:1.5">
+          Routes every AI call to Clippy's local brain (the ClippyPC HTTP API, default <code>:4242</code>) instead of Claude — no API key.
+          Requires a Clippy instance running on this machine; Clippy picks his own model. Same-machine
+          <code>http://localhost:4242</code> works <b>even from the deployed https site</b> (browsers trust localhost), but other
+          PCs on the LAN (<code>http://192.168.x.x</code>) can't be reached from the browser — those need the server-side pool
+          fan-out (Supabase edge function). Vision (plate / photo scan) needs Clippy to have a vision model loaded.
+        </div>
+      </div>
       <!-- Voice selector — hidden control. The legacy dropdown lives
            on as the underlying state mechanism (writes to nexus_voice_idx
            in localStorage and Supabase), but its UI was removed in favor
