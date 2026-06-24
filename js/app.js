@@ -34,7 +34,7 @@ const NX = {
   getGoogleClientId() { return this.config?.google_client_id || localStorage.getItem('nexus_google_client_id') || this.GOOGLE_CLIENT_ID; },
   getTrelloKey() { return this.config?.trello_key || localStorage.getItem('nexus_trello_key') || ''; },
   getTrelloToken() { return this.config?.trello_token || localStorage.getItem('nexus_trello_token') || ''; },
-  getModel() { return this.config?.model || localStorage.getItem('nexus_model') || 'claude-sonnet-4-20250514'; },
+  getModel() { return this.config?.model || localStorage.getItem('nexus_model') || 'claude-sonnet-4-6'; },
   // AI provider — 'anthropic' (Claude API, default) or 'clippy' (the Clippy
   // HTTP API = ClippyPC's offline brain, default :4242). Device-local
   // (localStorage), since the endpoint is localhost on THIS machine. The

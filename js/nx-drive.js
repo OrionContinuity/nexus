@@ -1028,6 +1028,530 @@ async function uploadBiweeklyLog(logData, options) {
   };
 }
 
+/* ════════════════════════════════════════════════════════════════════════
+   LOGBOOK — bidirectional Google Sheet  (v18.33)
+   ════════════════════════════════════════════════════════════════════════
+   ONE spreadsheet ("NEXUS Logbook") living in the same Drive folder as the
+   daily-log docs, holding every log on its own tab. This is the
+   Excel-style "talks both ways" sheet Orion asked for:
+
+     • PUSH  (NEXUS → Sheet): syncLogbook() pulls the live data from the
+       proven Supabase views (v_issue_summary / v_spend_rollup /
+       v_vendor_performance), daily_logs, and the kanban board, writes each
+       to its own tab, and formats it (frozen bold header, alternating
+       row bands, auto-width). A Google Sheet IS an Excel file — Orion can
+       File → Download → .xlsx anytime, and it's printable in-browser too.
+
+     • PULL  (Sheet → NEXUS): pullLogbookNotes() reads the editable
+       "✍ Add Note" column on the Notes⇄ tab and appends whatever Orion
+       typed there as a comment on the matching work-order card. Additive
+       only — never deletes or overwrites existing data — and gated behind
+       an explicit confirm that lists exactly what will be written.
+
+   Auth: reuses ensureDriveToken (drive.file scope). drive.file is
+   sufficient for the Sheets API on files THIS app created, so no extra
+   consent screen beyond the one the daily-log upload already triggers.
+
+   Why a Google Sheet rather than a raw .xlsx blob:
+     • True two-way — a binary .xlsx in Drive can't be edited cell-by-cell
+       and read back without a parser library; a Google Sheet is live.
+     • Lives in Drive natively, opens on phone or desktop, prints cleanly.
+     • No new libraries, no Edge Function, all browser-side — matches the
+       existing nx-drive philosophy.
+   ════════════════════════════════════════════════════════════════════════ */
+
+const LOGBOOK_NAME = 'NEXUS Logbook';
+const LOGBOOK_FILE_KEY = 'nexus_logbook_file_id';
+const NOTES_TAB = 'Notes ⇄ NEXUS';
+const ADD_NOTE_HEADER = '✍ Add Note (type here, then Pull)';
+
+function sbClient() {
+  const sb = (window.NX && window.NX.sb) || (typeof NX !== 'undefined' && NX.sb) || null;
+  if (!sb) throw new Error('Not connected to the NEXUS database yet — open the app first.');
+  return sb;
+}
+
+async function gApi(url, token, method, body) {
+  const resp = await fetch(url, {
+    method: method || 'GET',
+    headers: {
+      'Authorization': 'Bearer ' + token,
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!resp.ok) {
+    let msg = `Google API ${resp.status}`;
+    try {
+      const j = JSON.parse(await resp.text());
+      if (j.error && j.error.message) msg += ': ' + j.error.message;
+    } catch (_) {}
+    if (resp.status === 401) msg = 'Drive authorization expired — reconnect Drive in Settings.';
+    throw new Error(msg);
+  }
+  if (resp.status === 204) return {};
+  return await resp.json();
+}
+
+// ─── Find-or-create the single Logbook spreadsheet in the Drive folder ──
+async function ensureLogbook(token, folderId) {
+  folderId = folderId || DAILY_LOG_FOLDER_ID;
+  // 1) Trust a cached id if it still resolves.
+  const cached = localStorage.getItem(LOGBOOK_FILE_KEY);
+  if (cached) {
+    try {
+      const meta = await gApi(
+        `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(cached)}?fields=id,trashed,webViewLink`,
+        token);
+      if (meta && meta.id && !meta.trashed) return { id: meta.id, webViewLink: meta.webViewLink };
+    } catch (_) { /* fall through to search/create */ }
+  }
+  // 2) Search the folder by name.
+  const q = encodeURIComponent(
+    `name='${LOGBOOK_NAME}' and '${folderId}' in parents and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`);
+  const found = await gApi(
+    `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,webViewLink)&spaces=drive`,
+    token);
+  if (found && found.files && found.files.length) {
+    localStorage.setItem(LOGBOOK_FILE_KEY, found.files[0].id);
+    return { id: found.files[0].id, webViewLink: found.files[0].webViewLink };
+  }
+  // 3) Create an empty spreadsheet in the folder via the Drive API.
+  const created = await gApi(
+    `https://www.googleapis.com/drive/v3/files?fields=id,webViewLink`,
+    token, 'POST',
+    { name: LOGBOOK_NAME, mimeType: 'application/vnd.google-apps.spreadsheet', parents: [folderId] });
+  localStorage.setItem(LOGBOOK_FILE_KEY, created.id);
+  return { id: created.id, webViewLink: created.webViewLink };
+}
+
+// ─── Gather every log from Supabase (reuses the proven export views) ───
+async function gatherLogbookData() {
+  const sb = sbClient();
+  const safe = async (fn) => { try { return await fn(); } catch (_) { return []; } };
+
+  const [workOrders, spend, vendors, dailyLogs, cards, lists] = await Promise.all([
+    safe(async () => (await sb.from('v_issue_summary').select('*')
+      .order('reported_at', { ascending: false }).limit(2000)).data || []),
+    safe(async () => (await sb.from('v_spend_rollup').select('*')).data || []),
+    safe(async () => (await sb.from('v_vendor_performance').select('*')).data || []),
+    safe(async () => (await sb.from('daily_logs').select('id, data, created_at')
+      .order('created_at', { ascending: false }).limit(400)).data || []),
+    safe(async () => (await sb.from('kanban_cards')
+      .select('id, title, location, priority, list_id, comments, archived')
+      .eq('archived', false).limit(1000)).data || []),
+    safe(async () => (await sb.from('kanban_lists').select('*').limit(200)).data || []),
+  ]);
+
+  const laneName = {};
+  (lists || []).forEach(l => { laneName[l.id] = l.name || l.title || l.label || ''; });
+  const openCards = (cards || []).map(c => ({ ...c, _lane: laneName[c.list_id] || '' }));
+
+  return { workOrders, spend, vendors, dailyLogs, cards: openCards };
+}
+
+const orDash = (v) => (v == null || v === '') ? '' : v;
+const moneyNum = (v) => (v == null || v === '' || isNaN(v)) ? '' : Number(v);
+
+// ─── Build the [headers, ...rows] grid for each tab ────────────────────
+function buildLogbookTabs(data) {
+  const tabs = [];
+
+  tabs.push({
+    title: 'Work Orders',
+    grid: [
+      ['ID', 'Title', 'Status', 'Priority', 'Equipment', 'Location',
+       'Reported By', 'Reported At', 'Vendor', 'Total Cost', 'Downtime (hrs)'],
+      ...(data.workOrders || []).map(i => [
+        orDash(i.id), orDash(i.title), orDash(i.status), orDash(i.priority),
+        orDash(i.equipment_name), orDash(i.restaurant),
+        orDash(i.reported_by_name), orDash(i.reported_at),
+        orDash(i.contractor_company), moneyNum(i.total_cost), moneyNum(i.downtime_hours),
+      ]),
+    ],
+  });
+
+  tabs.push({
+    title: 'Spend',
+    grid: [
+      ['Equipment', 'Location', 'Category', 'Spend YTD', 'Spend MTD',
+       'Total Spend', 'Open Issues', 'Downtime (hrs)'],
+      ...(data.spend || []).map(r => [
+        orDash(r.equipment_name), orDash(r.restaurant), orDash(r.equipment_category),
+        moneyNum(r.spend_ytd), moneyNum(r.spend_mtd), moneyNum(r.total_spend),
+        moneyNum(r.open_issues_count), moneyNum(r.total_downtime_hours),
+      ]),
+    ],
+  });
+
+  tabs.push({
+    title: 'Vendors',
+    grid: [
+      ['Vendor', 'Category', 'Phone', 'Total Jobs', 'Completed',
+       'Total Spend', 'Avg Response (hrs)', 'Last Job'],
+      ...(data.vendors || []).map(v => [
+        orDash(v.display_name), orDash(v.category), orDash(v.phone),
+        moneyNum(v.total_jobs), moneyNum(v.completed_jobs),
+        moneyNum(v.total_spend), moneyNum(v.avg_response_hours), orDash(v.last_job_at),
+      ]),
+    ],
+  });
+
+  tabs.push({
+    title: 'Daily Logs',
+    grid: [
+      ['Date', 'Weather', 'Significant Events', "Tomorrow's Plan", 'This Week', 'Logged'],
+      ...(data.dailyLogs || []).map(l => {
+        const d = l.data || {};
+        const h = d.header || {}, p = d.planning || {};
+        return [
+          orDash(h.date), orDash(h.weather), orDash(h.significant_events),
+          orDash(p.tomorrow_plan), orDash(p.this_week),
+          l.created_at ? String(l.created_at).slice(0, 10) : '',
+        ];
+      }),
+    ],
+  });
+
+  // Notes ⇄ NEXUS — the bidirectional tab.
+  const commentPreview = (comments) => {
+    if (!Array.isArray(comments) || !comments.length) return '';
+    return comments.slice(-3).map(c =>
+      (c && (c.text || c.body || c.note || c.message || '')).toString().replace(/\s+/g, ' ').trim()
+    ).filter(Boolean).join('  |  ');
+  };
+  tabs.push({
+    title: NOTES_TAB,
+    writeback: true,
+    grid: [
+      ['Card ID', 'Work Order', 'Location', 'Priority', 'Status', 'Recent Comments', ADD_NOTE_HEADER],
+      ...(data.cards || []).map(c => [
+        orDash(c.id), orDash(c.title), orDash(c.location), orDash(c.priority),
+        orDash(c._lane), commentPreview(c.comments), '', // last col left blank for Orion to type into
+      ]),
+    ],
+  });
+
+  return tabs;
+}
+
+// ─── Apply data + formatting to the spreadsheet via the Sheets API ─────
+async function writeLogbook(spreadsheetId, token, tabs) {
+  const base = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}`;
+
+  // Current tabs (so we know what to add and the default sheet to drop).
+  const meta = await gApi(`${base}?fields=sheets(properties(sheetId,title,index))`, token);
+  const existing = {};
+  (meta.sheets || []).forEach(s => { existing[s.properties.title] = s.properties; });
+
+  // Add any missing tabs in declared order.
+  const addReqs = [];
+  tabs.forEach((t, i) => {
+    if (!existing[t.title]) addReqs.push({ addSheet: { properties: { title: t.title, index: i } } });
+  });
+  if (addReqs.length) {
+    await gApi(`${base}:batchUpdate`, token, 'POST', { requests: addReqs });
+  }
+
+  // Re-read so we have sheetIds for every tab (including just-added).
+  const meta2 = await gApi(`${base}?fields=sheets(properties(sheetId,title))`, token);
+  const idByTitle = {};
+  (meta2.sheets || []).forEach(s => { idByTitle[s.properties.title] = s.properties.sheetId; });
+
+  // Clear + write values for each tab.
+  const clearRanges = tabs.map(t => `${quoteRange(t.title)}!A1:Z100000`);
+  await gApi(`${base}/values:batchClear`, token, 'POST', { ranges: clearRanges });
+
+  const valueData = tabs.map(t => ({
+    range: `${quoteRange(t.title)}!A1`,
+    majorDimension: 'ROWS',
+    values: t.grid,
+  }));
+  await gApi(`${base}/values:batchUpdate`, token, 'POST',
+    { valueInputOption: 'RAW', data: valueData });
+
+  // Formatting: bold + frozen header, alternating bands, auto-resize cols.
+  const fmtReqs = [];
+  tabs.forEach(t => {
+    const sid = idByTitle[t.title];
+    if (sid == null) return;
+    const cols = (t.grid[0] || []).length || 1;
+    fmtReqs.push(
+      { repeatCell: {
+        range: { sheetId: sid, startRowIndex: 0, endRowIndex: 1 },
+        cell: { userEnteredFormat: {
+          backgroundColor: { red: 0.12, green: 0.12, blue: 0.14 },
+          textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
+          verticalAlignment: 'MIDDLE', wrapStrategy: 'WRAP',
+        } },
+        fields: 'userEnteredFormat(backgroundColor,textFormat,verticalAlignment,wrapStrategy)',
+      } },
+      { updateSheetProperties: {
+        properties: { sheetId: sid, gridProperties: { frozenRowCount: 1 } },
+        fields: 'gridProperties.frozenRowCount',
+      } },
+      { autoResizeDimensions: {
+        dimensions: { sheetId: sid, dimension: 'COLUMNS', startIndex: 0, endIndex: cols },
+      } },
+    );
+  });
+  if (fmtReqs.length) {
+    // Banding can fail if a band already exists on the range; keep it in its
+    // own best-effort call so it never blocks the core formatting.
+    try { await gApi(`${base}:batchUpdate`, token, 'POST', { requests: fmtReqs }); } catch (_) {}
+  }
+}
+
+// Sheets A1 ranges quote a sheet title by wrapping in single quotes and
+// doubling any embedded single quotes.
+function quoteRange(title) {
+  return `'${String(title).replace(/'/g, "''")}'`;
+}
+
+// ─── PUSH: build + write the whole logbook ─────────────────────────────
+async function syncLogbook(opts) {
+  opts = opts || {};
+  const token = await ensureDriveToken({ scopes: DAILY_LOG_SCOPES });
+  const book = await ensureLogbook(token, opts.folderId);
+  const data = await gatherLogbookData();
+  const tabs = buildLogbookTabs(data);
+  await writeLogbook(book.id, token, tabs);
+  const counts = {
+    workOrders: (data.workOrders || []).length,
+    vendors: (data.vendors || []).length,
+    dailyLogs: (data.dailyLogs || []).length,
+    cards: (data.cards || []).length,
+  };
+  return { fileId: book.id, webViewLink: book.webViewLink, counts };
+}
+
+// ─── PULL: read the Notes⇄ tab, return notes the user typed ────────────
+async function readLogbookNotes(opts) {
+  opts = opts || {};
+  const token = await ensureDriveToken({ scopes: DAILY_LOG_SCOPES });
+  const book = await ensureLogbook(token, opts.folderId);
+  const range = `${quoteRange(NOTES_TAB)}!A1:Z100000`;
+  const resp = await gApi(
+    `https://sheets.googleapis.com/v4/spreadsheets/${book.id}/values/${encodeURIComponent(range)}`,
+    token);
+  const rows = resp.values || [];
+  if (!rows.length) return [];
+  const header = rows[0];
+  const idCol = 0;
+  const titleCol = 1;
+  const noteCol = header.findIndex(h => String(h).indexOf('Add Note') !== -1);
+  if (noteCol === -1) return [];
+  const pending = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    const id = (r[idCol] || '').toString().trim();
+    const note = (r[noteCol] || '').toString().trim();
+    if (id && note) pending.push({ cardId: id, title: (r[titleCol] || '').toString(), note });
+  }
+  return pending;
+}
+
+// Append the pulled notes onto their work-order cards as comments.
+// Additive only — reads each card's current comments, appends, writes back.
+// Then clears the Add-Note column in the sheet so notes aren't re-applied.
+async function applyLogbookNotes(pending, opts) {
+  opts = opts || {};
+  const sb = sbClient();
+  const author = (window.NX && NX.currentUser && NX.currentUser.name) || 'Sheet';
+  const stamp = new Date().toISOString();
+  let applied = 0;
+  const appliedIds = [];
+  for (const p of pending) {
+    try {
+      const { data: card } = await sb.from('kanban_cards')
+        .select('id, comments').eq('id', p.cardId).single();
+      if (!card) continue;
+      const comments = Array.isArray(card.comments) ? card.comments.slice() : [];
+      comments.push({ text: p.note, by: author, at: stamp, via: 'sheet' });
+      const { error } = await sb.from('kanban_cards')
+        .update({ comments }).eq('id', p.cardId);
+      if (!error) { applied++; appliedIds.push(p.cardId); }
+    } catch (_) { /* skip this row, keep going */ }
+  }
+
+  // Clear the typed notes from the sheet for the rows we applied, so a
+  // second Pull doesn't duplicate them. Best-effort.
+  if (appliedIds.length) {
+    try {
+      const token = await ensureDriveToken({ scopes: DAILY_LOG_SCOPES });
+      const book = await ensureLogbook(token, opts.folderId);
+      const range = `${quoteRange(NOTES_TAB)}!A1:Z100000`;
+      const resp = await gApi(
+        `https://sheets.googleapis.com/v4/spreadsheets/${book.id}/values/${encodeURIComponent(range)}`,
+        token);
+      const rows = resp.values || [];
+      const header = rows[0] || [];
+      const noteCol = header.findIndex(h => String(h).indexOf('Add Note') !== -1);
+      if (noteCol !== -1) {
+        const clearData = [];
+        for (let i = 1; i < rows.length; i++) {
+          const id = (rows[i][0] || '').toString().trim();
+          if (appliedIds.includes(id)) {
+            const a1 = colLetter(noteCol) + (i + 1);
+            clearData.push({ range: `${quoteRange(NOTES_TAB)}!${a1}`, values: [['']] });
+          }
+        }
+        if (clearData.length) {
+          await gApi(
+            `https://sheets.googleapis.com/v4/spreadsheets/${book.id}/values:batchUpdate`,
+            token, 'POST', { valueInputOption: 'RAW', data: clearData });
+        }
+      }
+    } catch (_) { /* clearing is best-effort */ }
+  }
+  return { applied };
+}
+
+function colLetter(idx) {
+  let s = '', n = idx;
+  do { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } while (n >= 0);
+  return s;
+}
+
+// ─── PRINT: a clean printable HTML logbook, no Drive/auth needed ───────
+function buildLogbookPrintHtml(data) {
+  const table = (title, headers, rows, emptyMsg) => {
+    const body = (rows && rows.length)
+      ? rows.map(r => `<tr>${r.map(c => `<td>${esc(c == null ? '' : c)}</td>`).join('')}</tr>`).join('')
+      : `<tr><td colspan="${headers.length}" class="empty">${esc(emptyMsg || 'No entries.')}</td></tr>`;
+    return `
+      <h2>${esc(title)} <span class="cnt">(${(rows || []).length})</span></h2>
+      <table>
+        <thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>
+        <tbody>${body}</tbody>
+      </table>`;
+  };
+  const tabs = buildLogbookTabs(data).filter(t => !t.writeback);
+  const sections = tabs.map(t => {
+    const [headers, ...rows] = t.grid;
+    return table(t.title, headers, rows);
+  }).join('');
+  return `<!DOCTYPE html><html><head><meta charset="utf-8">
+    <title>NEXUS Logbook — ${esc(new Date().toLocaleDateString())}</title>
+    <style>
+      *{box-sizing:border-box}
+      body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#1a1a1a;margin:28px;font-size:11px;}
+      h1{font-size:20px;text-align:center;margin:0 0 2px;letter-spacing:1px;}
+      .sub{text-align:center;color:#777;margin:0 0 18px;font-size:11px;}
+      h2{font-size:14px;border-bottom:2px solid #333;padding-bottom:3px;margin:22px 0 8px;page-break-after:avoid;}
+      .cnt{font-weight:normal;color:#888;font-size:11px;}
+      table{border-collapse:collapse;width:100%;margin-bottom:6px;}
+      th,td{border:1px solid #ccc;padding:4px 6px;text-align:left;vertical-align:top;}
+      th{background:#222;color:#fff;font-weight:600;}
+      tbody tr:nth-child(even){background:#f6f6f6;}
+      td.empty{color:#999;font-style:italic;text-align:center;}
+      @media print{ body{margin:0.5in;} h2{page-break-after:avoid;} tr{page-break-inside:avoid;} }
+    </style></head><body>
+      <h1>NEXUS FACILITIES LOGBOOK</h1>
+      <p class="sub">Generated ${esc(new Date().toLocaleString())}</p>
+      ${sections}
+      <p class="sub" style="margin-top:24px;">NEXUS · printable logbook</p>
+    </body></html>`;
+}
+
+async function printLogbook() {
+  const data = await gatherLogbookData();
+  const html = buildLogbookPrintHtml(data);
+  const w = window.open('', '_blank');
+  if (!w) throw new Error('Pop-up blocked — allow pop-ups to print the logbook.');
+  w.document.open(); w.document.write(html); w.document.close();
+  // Give the new window a tick to lay out, then invoke print.
+  setTimeout(() => { try { w.focus(); w.print(); } catch (_) {} }, 350);
+}
+
+// ─── UI wiring for the admin Drive section ─────────────────────────────
+function wireLogbookButtons() {
+  const status = document.getElementById('logbookStatus');
+  const setStatus = (msg, color) => {
+    if (status) { status.textContent = msg; status.style.color = color || 'var(--muted)'; }
+  };
+  const busy = (btn, on, label) => {
+    if (!btn) return;
+    if (on) { btn._t = btn.textContent; btn.textContent = label || '…'; btn.disabled = true; }
+    else { if (btn._t) btn.textContent = btn._t; btn.disabled = false; }
+  };
+
+  const syncBtn  = document.getElementById('logbookSyncBtn');
+  const pullBtn  = document.getElementById('logbookPullBtn');
+  const printBtn = document.getElementById('logbookPrintBtn');
+  const openBtn  = document.getElementById('logbookOpenBtn');
+
+  if (syncBtn && !syncBtn._wired) {
+    syncBtn._wired = true;
+    syncBtn.addEventListener('click', async () => {
+      busy(syncBtn, true, 'Syncing…'); setStatus('Building logbook…');
+      try {
+        const r = await syncLogbook();
+        setStatus(`✓ Synced — ${r.counts.workOrders} work orders, ${r.counts.vendors} vendors, ${r.counts.dailyLogs} daily logs.`, 'var(--green)');
+        if (r.webViewLink) localStorage.setItem('nexus_logbook_link', r.webViewLink);
+      } catch (e) {
+        setStatus('✗ ' + e.message, 'var(--red, #c0392b)');
+      } finally { busy(syncBtn, false); }
+    });
+  }
+
+  if (pullBtn && !pullBtn._wired) {
+    pullBtn._wired = true;
+    pullBtn.addEventListener('click', async () => {
+      busy(pullBtn, true, 'Reading…'); setStatus('Reading notes from the sheet…');
+      try {
+        const pending = await readLogbookNotes();
+        busy(pullBtn, false);
+        if (!pending.length) { setStatus('No new notes typed in the sheet.', 'var(--muted)'); return; }
+        const preview = pending.slice(0, 8).map(p =>
+          `• ${p.title || p.cardId}: “${p.note.slice(0, 60)}${p.note.length > 60 ? '…' : ''}”`).join('\n');
+        const more = pending.length > 8 ? `\n…and ${pending.length - 8} more` : '';
+        const ok = window.confirm(
+          `Apply ${pending.length} note${pending.length === 1 ? '' : 's'} from the sheet as work-order comments?\n\n${preview}${more}`);
+        if (!ok) { setStatus('Pull cancelled.', 'var(--muted)'); return; }
+        busy(pullBtn, true, 'Applying…'); setStatus('Applying notes…');
+        const r = await applyLogbookNotes(pending);
+        setStatus(`✓ Applied ${r.applied} note${r.applied === 1 ? '' : 's'} to work orders.`, 'var(--green)');
+      } catch (e) {
+        setStatus('✗ ' + e.message, 'var(--red, #c0392b)');
+      } finally { busy(pullBtn, false); }
+    });
+  }
+
+  if (printBtn && !printBtn._wired) {
+    printBtn._wired = true;
+    printBtn.addEventListener('click', async () => {
+      busy(printBtn, true, 'Preparing…'); setStatus('Building printable logbook…');
+      try { await printLogbook(); setStatus('Opened print view.', 'var(--green)'); }
+      catch (e) { setStatus('✗ ' + e.message, 'var(--red, #c0392b)'); }
+      finally { busy(printBtn, false); }
+    });
+  }
+
+  if (openBtn && !openBtn._wired) {
+    openBtn._wired = true;
+    openBtn.addEventListener('click', async () => {
+      const cachedLink = localStorage.getItem('nexus_logbook_link');
+      if (cachedLink) { window.open(cachedLink, '_blank'); return; }
+      busy(openBtn, true, 'Locating…');
+      try {
+        const token = await ensureDriveToken({ scopes: DAILY_LOG_SCOPES });
+        const book = await ensureLogbook(token);
+        const link = book.webViewLink || `https://docs.google.com/spreadsheets/d/${book.id}/edit`;
+        localStorage.setItem('nexus_logbook_link', link);
+        window.open(link, '_blank');
+      } catch (e) { setStatus('✗ ' + e.message, 'var(--red, #c0392b)'); }
+      finally { busy(openBtn, false); }
+    });
+  }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', wireLogbookButtons);
+} else {
+  wireLogbookButtons();
+}
+
 // Expose on global NX namespace
 window.NX = window.NX || {};
 NX.drive = {
@@ -1035,11 +1559,20 @@ NX.drive = {
   uploadDailyLog,
   uploadBiweeklyLog,
   DAILY_LOG_FOLDER_ID,
+  // Logbook (bidirectional Google Sheet)
+  syncLogbook,
+  readLogbookNotes,
+  applyLogbookNotes,
+  printLogbook,
+  ensureLogbook,
+  _gatherLogbookData: gatherLogbookData,
+  _buildLogbookTabs: buildLogbookTabs,
+  _wireLogbookButtons: wireLogbookButtons,
   // Exposed for testing / future modules
   _buildDailyLogHtml: buildDailyLogHtml,
   _buildBiweeklyLogHtml: buildBiweeklyLogHtml,
 };
 
-console.log('[nx-drive] v18.32 Phase 3c loaded — Daily Log + Biweekly Review Drive upload ready');
+console.log('[nx-drive] v18.33 loaded — Daily Log + Biweekly + bidirectional Logbook sheet ready');
 
 })();

@@ -3302,6 +3302,30 @@ function buildUI() {
         <button class="eq-btn eq-btn-secondary" id="eqAddBtn">+ Manual</button>
       </div>
 
+      <!-- Expanding AI panel — the header "AI Create" button reveals these
+           four methods inline (no separate modal). -->
+      <div class="eq-ai-expand" id="eqAiExpand" hidden>
+        <div class="eq-ai-expand-title">${uiSvg('sparkles','13px')} Let AI handle the data entry — pick a method</div>
+        <div class="eq-ai-expand-grid">
+          <button class="eq-ai-x" data-ai-method="describe">
+            <span class="eq-ai-x-ic">${uiSvg('message','20px')}</span>
+            <span class="eq-ai-x-txt"><b>Describe It</b><small>Type or paste details in plain language</small></span>
+          </button>
+          <button class="eq-ai-x" data-ai-method="photo">
+            <span class="eq-ai-x-ic">${uiSvg('camera','20px')}</span>
+            <span class="eq-ai-x-txt"><b>Photo of Unit</b><small>AI identifies make/model from a photo</small></span>
+          </button>
+          <button class="eq-ai-x" data-ai-method="bulk">
+            <span class="eq-ai-x-ic">${uiSvg('building','20px')}</span>
+            <span class="eq-ai-x-txt"><b>Scan Whole Room</b><small>Adds every piece it sees at once</small></span>
+          </button>
+          <button class="eq-ai-x" data-ai-method="dataplate">
+            <span class="eq-ai-x-ic">${uiSvg('qr','20px')}</span>
+            <span class="eq-ai-x-txt"><b>Scan Data Plate</b><small>Exact model / serial / specs</small></span>
+          </button>
+        </div>
+      </div>
+
       <div class="eq-tools-row" id="eqToolsRow">
         <button class="eq-tool-btn" id="eqToolWorkOrders" title="View all open work orders">
           <span class="eq-tool-icon">${uiSvg('wrench', '14px')}</span>
@@ -3369,7 +3393,36 @@ function buildUI() {
   document.getElementById('eqLocationBack')?.addEventListener('click', exitLocation);
 
   // Wire header buttons
-  document.getElementById('eqAiCreateBtn').addEventListener('click', openAICreator);
+  // AI Create — expand the inline panel instead of popping a modal.
+  (() => {
+    const aiBtn = document.getElementById('eqAiCreateBtn');
+    const aiExpand = document.getElementById('eqAiExpand');
+    if (!aiBtn || !aiExpand) return;
+    aiBtn.addEventListener('click', () => {
+      const isClosed = aiExpand.hasAttribute('hidden');
+      if (isClosed) {
+        aiExpand.removeAttribute('hidden');
+        requestAnimationFrame(() => aiExpand.classList.add('open'));
+        aiBtn.classList.add('expanded');
+      } else {
+        aiExpand.classList.remove('open');
+        aiBtn.classList.remove('expanded');
+        setTimeout(() => aiExpand.setAttribute('hidden', ''), 260);
+      }
+    });
+    aiExpand.querySelectorAll('[data-ai-method]').forEach(b => {
+      b.addEventListener('click', () => {
+        aiExpand.classList.remove('open');
+        aiBtn.classList.remove('expanded');
+        setTimeout(() => aiExpand.setAttribute('hidden', ''), 260);
+        const m = b.dataset.aiMethod;
+        if (m === 'describe') openDescribeDialog();
+        else if (m === 'photo') photoIdentify();
+        else if (m === 'bulk') bulkIdentify();
+        else if (m === 'dataplate') scanDataPlate(null);
+      });
+    });
+  })();
   document.getElementById('eqZebraHeaderBtn').addEventListener('click', printZebraBatch);
   document.getElementById('eqAddBtn').addEventListener('click', () => openEditModal(null));
   document.getElementById('eqPrintQRs').addEventListener('click', printQRSheet);
