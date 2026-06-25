@@ -40,6 +40,23 @@
     if (!key) return;
     try { localStorage.setItem('nx_recip_' + key, JSON.stringify(data)); } catch (e) { if (T.debug) T.debug('composer.store', e); }
   }
+  // Supabase-backed recipients (they rarely change → keep them server-side so
+  // they survive a device wipe and sync across machines). Table:
+  //   email_recipients(recipient_key text primary key, data jsonb, updated_at)
+  // Degrades gracefully to localStorage-only if the table/connection is absent.
+  function loadRemote(key) {
+    if (!key || !(T && T.sb)) return Promise.resolve(null);
+    return T.sb.from('email_recipients').select('data').eq('recipient_key', key).maybeSingle()
+      .then(function (r) { return (r && !r.error && r.data) ? r.data.data : null; })
+      .catch(function () { return null; });
+  }
+  function saveRemote(key, data) {
+    if (!key || !(T && T.sb)) return Promise.resolve(false);
+    return T.sb.from('email_recipients')
+      .upsert({ recipient_key: key, data: data, updated_at: new Date().toISOString() }, { onConflict: 'recipient_key' })
+      .then(function (r) { return !(r && r.error); })
+      .catch(function () { return false; });
+  }
 
   function buildMailto(to, subject, body, cc, bcc) {
     if (T.email && T.email.buildMailtoUrl) return T.email.buildMailtoUrl(to, subject || '', body || '', cc || [], bcc || []);
@@ -193,7 +210,7 @@
         b.onclick = function () {
           var parts = b.getAttribute('data-rm').split(':');
           var kind = parts[0], i = parseInt(parts[1], 10);
-          if (state[kind]) { state[kind].splice(i, 1); rerenderChips(kind); }
+          if (state[kind]) { state[kind].splice(i, 1); rerenderChips(kind); persistRecipients(); }
         };
       });
     }
@@ -207,6 +224,38 @@
       input.style.borderColor = '';
       rerenderChips(kind);
       input.focus();
+      persistRecipients(kind, v);   // confirm + sync to Supabase
+    }
+
+    // Current To/CC/BCC snapshot (To pulled live from the field).
+    function snapshot() {
+      var toEl = bg.querySelector('[data-to]');
+      return { to: toEl ? (toEl.value || '').trim() : state.to, cc: state.cc.slice(), bcc: state.bcc.slice() };
+    }
+    // Persist recipients locally + to Supabase; toast a confirmation when an
+    // address was just added (addedKind/addedAddr provided).
+    function persistRecipients(addedKind, addedAddr) {
+      if (!key) return;
+      var snap = snapshot();
+      store(key, snap);  // instant local
+      saveRemote(key, snap).then(function (ok) {
+        if (!T.toast) return;
+        if (addedKind) {
+          T.toast(addedKind.toUpperCase() + ' ' + (addedAddr || '') + (ok ? ' — saved & synced ✓' : ' — saved on this device'), ok ? 'success' : 'info');
+        }
+      });
+    }
+    // On open, pull saved recipients from Supabase (they rarely change) and
+    // fill any the caller didn't pass — so the CC list is always there.
+    if (key && T && T.sb) {
+      loadRemote(key).then(function (remote) {
+        if (!remote) return;
+        var changed = false;
+        if (!(opts.cc && opts.cc.length) && Array.isArray(remote.cc) && remote.cc.length && !state.cc.length) { state.cc = remote.cc.slice(); changed = true; }
+        if (!(opts.bcc && opts.bcc.length) && Array.isArray(remote.bcc) && remote.bcc.length && !state.bcc.length) { state.bcc = remote.bcc.slice(); changed = true; }
+        if (!opts.to && remote.to) { var toEl = bg.querySelector('[data-to]'); if (toEl && !toEl.value) { toEl.value = remote.to; state.to = remote.to; changed = true; } }
+        if (changed) { rerenderChips('cc'); rerenderChips('bcc'); }
+      });
     }
 
     bg.addEventListener('click', function (e) { if (e.target === bg) close(); });
@@ -230,7 +279,7 @@
         return;
       }
       state.to = to;
-      if (key) store(key, { to: state.to, cc: state.cc, bcc: state.bcc });
+      persistRecipients();   // local + Supabase
       try { sendDraft(to, subj, bod, state.cc, state.bcc); } catch (e) { if (T.debug) T.debug('composer.send', e); }
       close();
       if (typeof opts.onSend === 'function') { try { opts.onSend({ to: to, cc: state.cc, bcc: state.bcc, subject: subj, body: bod }); } catch (_) {} }
