@@ -244,12 +244,14 @@ function hydrateData(saved) {
         // persists it. Stops the "stuck Untitled" loop.
         loc.label = label;
       }
-      return {
+      // Spread the saved location first so the free-text note survives
+      // re-hydration; then normalize the known structural fields.
+      return Object.assign({}, loc, {
         id: loc.id || locationIdFromLabel(label),
         label,
         rm: Object.assign({}, makeEmptyRm(), loc.rm || {}),
         vendor_calls: Array.isArray(loc.vendor_calls) ? loc.vendor_calls : [],
-      };
+      });
     });
   } else if (saved.este || saved.suerte) {
     // Old shape — migrate. Pull vendor_calls out, treat the rest as rm fields.
@@ -815,12 +817,20 @@ async function markEquipmentOperational(equipmentId) {
     // Log the status_change event so it shows in Today's Equipment Activity
     try {
       if (typeof NX !== 'undefined' && NX.logEquipmentEvent) {
-        await NX.logEquipmentEvent('status_change', equipmentId, {
-          from: fromStatus,
-          to: 'operational',
-          equipment_name: cur.name,
-          source: 'daily-log',
-        }, cur.location);
+        // logEquipmentEvent takes a SINGLE object — this was passing positional
+        // args, so every field destructured to undefined and the activity event
+        // logged garbage (empty status_change). Pass the object it expects.
+        await NX.logEquipmentEvent({
+          equipmentId,
+          eventType: 'status_change',
+          payload: {
+            from: fromStatus,
+            to: 'operational',
+            equipment_name: cur.name,
+            source: 'daily-log',
+          },
+          location: cur.location,
+        });
       }
     } catch (e) {
       console.warn('[daily-log] logEquipmentEvent failed (non-fatal):', e);
@@ -1142,6 +1152,10 @@ function render() {
           `}
 
         <div class="dlog-actions">
+          <span class="dlog-autosend-wrap">
+            <button type="button" class="eq-btn eq-btn-secondary dlog-autosend-toggle ${dlogAutoSendOn() ? 'is-on' : ''}" id="dlogAutoSendBtn" title="When on, this log auto-uploads to Drive when you leave the screen — and, if still not sent by the time on the right, it sends automatically. Edits autosave continuously so nothing is lost.">${dlogAutoSendOn() ? '🔁 Auto-send: On' : '🔁 Auto-send: Off'}</button>
+            <input type="time" id="dlogAutoSendTime" class="dlog-autosend-time" value="${esc(dlogAutoSendTime())}" title="If not sent by this time, send automatically" ${dlogAutoSendOn() ? '' : 'style="display:none"'}>
+          </span>
           <button type="button" class="eq-btn eq-btn-secondary" id="dlogEmailBtn" title="${esc(emailBtnTitle)}">${esc(emailBtnLabel)}</button>
           <button type="button" class="eq-btn eq-btn-secondary" id="dlogSaveDraftBtn">Save</button>
           <button type="button" class="eq-btn eq-btn-primary"   id="dlogSubmitBtn">${esc(uploadBtnLabel)}</button>
@@ -1262,7 +1276,7 @@ function renderLocationSection(loc, idx) {
       <div class="dlog-section-body">
         <label class="dlog-field">
           <span class="dlog-field-label">Notes &amp; observations</span>
-          <textarea data-path="locations.${idx}.notes" rows="3" placeholder="Anything noteworthy at ${esc(loc.label)} today...">${esc(loc.notes || '')}</textarea>
+          <textarea data-path="locations.${idx}.notes" rows="4" placeholder="The shift recap for ${esc(loc.label)} — service, guests, 86s, anything noteworthy…">${esc(loc.notes || '')}</textarea>
         </label>
         <h3 class="dlog-subsection-title">Repairs &amp; Maintenance</h3>
         <div class="dlog-rm-grid">${rmFields}</div>
@@ -1545,7 +1559,7 @@ function renderEquipmentActivitySection(d) {
       : '';
     const actor = ev.actor_name ? ` · ${esc(ev.actor_name)}` : '';
     return `
-      <div class="dlog-act-row">
+      <div class="dlog-act-row${ev.equipment_id ? ' dlog-eqjump' : ''}"${ev.equipment_id ? ` data-eq-id="${esc(ev.equipment_id)}" role="button" tabindex="0" style="cursor:pointer" title="Open ${esc(eqName)}"` : ''}>
         <span class="${pillClass}"></span>
         <div class="dlog-act-main">
           <div class="dlog-act-line"><b>${esc(eqName)}</b> ${loc}</div>
@@ -1555,6 +1569,23 @@ function renderEquipmentActivitySection(d) {
       </div>
     `;
   }).join('');
+  // One-time: clicking an activity row (or Enter/Space on it) jumps to that
+  // equipment's detail — previously the row named the unit but was a dead end.
+  if (!state._eqJumpWired) {
+    state._eqJumpWired = true;
+    const jump = (e) => {
+      const row = e.target.closest && e.target.closest('.dlog-act-row[data-eq-id]');
+      if (!row) return;
+      if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+      const id = row.getAttribute('data-eq-id');
+      if (!id) return;
+      e.preventDefault();
+      const open = (NX.modules && NX.modules.equipment && NX.modules.equipment.openDetail) || window.eqOpenDetail;
+      if (open) open(id);
+    };
+    document.addEventListener('click', jump);
+    document.addEventListener('keydown', jump);
+  }
   const count = events.length;
   return `
     <details class="dlog-section" ${count ? 'open' : ''}>
@@ -1928,6 +1959,23 @@ function wireForm() {
   if (submitBtn) submitBtn.addEventListener('click', () => commitSave({ submit: true }));
   const emailBtn = view.querySelector('#dlogEmailBtn');
   if (emailBtn) emailBtn.addEventListener('click', () => openDailyLogEmail());
+  const autoSendBtn = view.querySelector('#dlogAutoSendBtn');
+  const autoSendTime = view.querySelector('#dlogAutoSendTime');
+  if (autoSendBtn) autoSendBtn.addEventListener('click', () => {
+    const on = !dlogAutoSendOn();
+    try { localStorage.setItem('nexus_dlog_autosend', on ? '1' : '0'); } catch (_) {}
+    autoSendBtn.textContent = on ? '🔁 Auto-send: On' : '🔁 Auto-send: Off';
+    autoSendBtn.classList.toggle('is-on', on);
+    if (autoSendTime) autoSendTime.style.display = on ? '' : 'none';
+    if (NX.toast) NX.toast(on
+      ? `Auto-send on — uploads to Drive when you leave, or by ${dlogAutoSendTime()} if still unsent`
+      : 'Auto-send off — use Upload to send manually', on ? 'success' : 'info', 3800);
+  });
+  if (autoSendTime) autoSendTime.addEventListener('change', () => {
+    const v = autoSendTime.value || '22:00';
+    try { localStorage.setItem('nexus_dlog_autosend_time', v); } catch (_) {}
+    if (NX.toast) NX.toast(`Auto-send by ${v} if not sent`, 'info');
+  });
 }
 
 // ── Email composer ────────────────────────────────────────────────────────
@@ -1972,27 +2020,10 @@ function buildDailyLogEmailBody(d, dateStr) {
   }
 
   (d.locations || []).forEach(loc => {
-    const rmLines = [];
-    RM_CATEGORIES.forEach(cat => {
-      const v = clean(loc.rm && loc.rm[cat.key]);
-      if (v) rmLines.push('\u00b7 ' + cat.label + ': ' + v);
-    });
-    const calls = (loc.vendor_calls || []).filter(c => clean(c.vendor) || clean(c.issue) || clean(c.status) || clean(c.equipment));
-    const note = clean(loc.notes);
-    if (!rmLines.length && !calls.length && !note) return;     // skip empty location
+    const lines = dlogLocationReportLines(loc);
+    if (!lines.length) return;     // skip empty location
     out.push(SH(loc.label || 'Location'));
-    if (note) { out.push(note); if (rmLines.length || calls.length) out.push(''); }
-    rmLines.forEach(l => out.push(l));
-    if (calls.length) {
-      if (rmLines.length) out.push('');
-      out.push('Vendor / service calls:');
-      calls.forEach(c => {
-        const head = [clean(c.vendor), clean(c.equipment)].filter(Boolean).join(' \u2014 ');
-        out.push('\u00b7 ' + (head || 'Call') + (clean(c.date) ? ' (' + clean(c.date) + ')' : ''));
-        if (clean(c.issue))  out.push('    Issue: ' + clean(c.issue));
-        if (clean(c.status)) out.push('    Status: ' + clean(c.status));
-      });
-    }
+    lines.forEach(l => out.push(l));
     out.push('');
   });
 
@@ -2026,24 +2057,55 @@ function buildDailyLogEmailBody(d, dateStr) {
 // Builds a recap that pertains to ONE location only — its notes, R&M, and
 // vendor/service calls. Used when a location pill is selected so you can send
 // a venue manager just their venue, split out from the rest of the day.
-function buildLocationEmailBody(loc, dateStr) {
-  const SH = (l, s) => (window.NX && NX.email) ? NX.email.sectionHeader(l, s) : ('--- ' + String(l).toUpperCase() + ' ---');
-  const RULE = () => (window.NX && NX.email) ? NX.email.rule() : '-----------------------------------';
+// Render ONE location's report as digestible email lines: service report,
+// R&M, vendor calls, next service, other notes — each section skipped when
+// empty. Shared by the per-location email and the full-day digest.
+function dlogLocationReportLines(loc) {
   const clean = s => String(s == null ? '' : s).trim();
+  const SH = l => (window.NX && NX.email) ? NX.email.sectionHeader(l) : ('--- ' + String(l).toUpperCase() + ' ---');
   const out = [];
+  const locKey = normLocKey(loc.label);
 
-  out.push('Daily Log \u2014 ' + (loc.label || 'Location') + ' \u2014 ' + fmtLogDateLong(dateStr));
-  out.push('');
+  // Notes — the shift recap the manager types into this location's note.
+  if (clean(loc.notes)) { out.push(SH('Notes')); out.push(clean(loc.notes)); out.push(''); }
 
-  if (clean(loc.notes)) { out.push(SH('Notes & observations')); out.push(clean(loc.notes)); out.push(''); }
+  // Equipment status — pulled live from NEXUS: anything non-operational at
+  // this location, with its status note. No manual entry.
+  const down = (state.equipmentDown || []).filter(eq => normLocKey(eq.location) === locKey && eq.archived !== true);
+  if (down.length) {
+    out.push(SH('Equipment status'));
+    down.forEach(eq => {
+      const st = (eq.status || '').replace(/_/g, ' ').trim();
+      out.push('\u00b7 ' + (eq.name || 'Equipment') + (st ? ' \u2014 ' + st : ''));
+      if (clean(eq.status_note)) out.push('    ' + clean(eq.status_note));
+    });
+    out.push('');
+  }
 
+  // Board / work orders — open + in-progress cards on the Board for this
+  // location (the live backlog), pulled straight from kanban_cards.
+  const slices = state.ticketSlices || {};
+  const eqNameById = state._cardEquipmentNames || {};
+  const cards = [].concat(slices.open || [], slices.working || [])
+    .filter(c => normLocKey(c.location) === locKey);
+  if (cards.length) {
+    out.push(SH('Board / work orders'));
+    cards.forEach(c => {
+      const bits = [];
+      const eqName = c.equipment_id ? eqNameById[c.equipment_id] : '';
+      if (eqName) bits.push('\ud83d\udd27 ' + eqName);
+      if (c._laneLabel) bits.push(c._laneLabel);
+      out.push('\u00b7 ' + (c.title || 'Untitled card') + (bits.length ? ' (' + bits.join(', ') + ')' : ''));
+    });
+    out.push('');
+  }
+
+  // Repairs & maintenance — from this location's note.
   const rmLines = [];
-  RM_CATEGORIES.forEach(cat => {
-    const v = clean(loc.rm && loc.rm[cat.key]);
-    if (v) rmLines.push('\u00b7 ' + cat.label + ': ' + v);
-  });
+  RM_CATEGORIES.forEach(cat => { const v = clean(loc.rm && loc.rm[cat.key]); if (v) rmLines.push('\u00b7 ' + cat.label + ': ' + v); });
   if (rmLines.length) { out.push(SH('Repairs & maintenance')); rmLines.forEach(l => out.push(l)); out.push(''); }
 
+  // Vendor / service calls — from this location's note.
   const calls = (loc.vendor_calls || []).filter(c => clean(c.vendor) || clean(c.issue) || clean(c.status) || clean(c.equipment));
   if (calls.length) {
     out.push(SH('Vendor / service calls'));
@@ -2055,6 +2117,28 @@ function buildLocationEmailBody(loc, dateStr) {
     });
     out.push('');
   }
+
+  return out;
+}
+
+function buildLocationEmailBody(loc, dateStr, d) {
+  const clean = s => String(s == null ? '' : s).trim();
+  const SH = l => (window.NX && NX.email) ? NX.email.sectionHeader(l) : ('--- ' + String(l).toUpperCase() + ' ---');
+  const RULE = () => (window.NX && NX.email) ? NX.email.rule() : '-----------------------------------';
+  const out = [];
+
+  out.push('Daily Log \u2014 ' + (loc.label || 'Location') + ' \u2014 ' + fmtLogDateLong(dateStr));
+  if (d && clean(d.header && d.header.weather)) out.push('Weather: ' + clean(d.header.weather));
+  out.push('');
+
+  if (d && clean(d.header && d.header.significant_events)) {
+    out.push(SH('Significant events'));
+    out.push(clean(d.header.significant_events));
+    out.push('');
+  }
+
+  const lines = dlogLocationReportLines(loc);
+  lines.forEach(l => out.push(l));
 
   out.push(RULE());
   const me = (window.NX && (NX.user || NX.currentUser)) ? ((NX.user && NX.user.name) || (NX.currentUser && NX.currentUser.name) || '') : '';
@@ -2069,7 +2153,7 @@ async function openDailyLogEmail() {
   const dateStr = (log && log.log_date) || (d.header && d.header.date) || todayISO();
   // Split option: a selected location pill sends ONLY that location's notes;
   // Overview sends the full day.
-  let subject, body;
+  let subject, body, recipientsKey, title;
   const locKey = state.activeLoc;
   if (locKey && locKey !== 'all') {
     const loc = (d.locations || []).find(l => normLocKey(l.label) === locKey);
@@ -2078,22 +2162,28 @@ async function openDailyLogEmail() {
       return;
     }
     subject = 'Daily Log \u2014 ' + (loc.label || 'Location') + ' \u2014 ' + fmtLogDateLong(dateStr);
-    body = buildLocationEmailBody(loc, dateStr);
+    body = buildLocationEmailBody(loc, dateStr, d);
+    recipientsKey = 'dlog:' + locKey;
+    title = 'Email \u2014 ' + (loc.label || 'Location');
   } else {
     subject = 'Daily Log \u2014 ' + fmtLogDateLong(dateStr);
     body = buildDailyLogEmailBody(d, dateStr);
+    recipientsKey = 'dlog:all';
+    title = 'Email daily log';
   }
 
   if (!body || body.split('\n').filter(l => l.trim()).length < 2) {
     if (window.NX && NX.alert) await NX.alert('This log is empty \u2014 add some notes first.', { title: 'Nothing to send' });
     return;
   }
-  // Some mail apps trim very long bodies; warn like the order engine does.
-  const WARN = (window.NX && NX.email && NX.email.BODY_WARN_LEN) ? NX.email.BODY_WARN_LEN : 1900;
-  if (body.length > WARN && window.NX && NX.confirm) {
-    const ok = await NX.confirm('This recap is long (' + body.length + ' characters) and some mail apps may trim it. Compose anyway?', { okLabel: 'Compose' });
-    if (!ok) return;
+
+  // Open the full composer (editable To/CC/BCC + body), exactly like ordering.
+  // Each location remembers its own recipients between sends.
+  if (window.NX && typeof NX.composeEmail === 'function') {
+    NX.composeEmail({ recipientsKey, subject, body, title });
+    return;
   }
+  // Fallback if the composer module isn't loaded: a plain mail draft.
   const url = (window.NX && NX.email && NX.email.buildMailtoUrl)
     ? NX.email.buildMailtoUrl('', subject, body)
     : 'mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body).replace(/\+/g, '%20');
@@ -2131,8 +2221,11 @@ async function maybeAutoWeather() {
     if (!log.data) log.data = hydrateData(null);
     if (!log.data.header) log.data.header = {};
     if (String(log.data.header.weather || '').trim()) return; // never overwrite a manual entry
-    const guardKey = 'nexus_weather_done_' + dateStr;
-    try { if (localStorage.getItem(guardKey)) return; } catch (_) {}
+    // The empty-field check above IS the dedupe — so weather auto-fills EVERY
+    // day the field is blank, instead of being blocked forever by a sticky
+    // localStorage "done" flag (which lost the weather if a save ever failed).
+    if (state._weatherFetching) return;
+    state._weatherFetching = true;
 
     const url = 'https://api.open-meteo.com/v1/forecast'
       + '?latitude=' + WEATHER_COORDS.lat + '&longitude=' + WEATHER_COORDS.lon
@@ -2153,12 +2246,12 @@ async function maybeAutoWeather() {
       + 'avg ' + avg + '\u00b0F (H ' + Math.round(hi) + ' / L ' + Math.round(lo) + ')';
     if (precip > 0.01) str += ' \u00b7 ' + precip.toFixed(2) + '" precip';
 
-    try { localStorage.setItem(guardKey, '1'); } catch (_) {}
     log.data.header.weather = str;
     const input = document.querySelector('[data-path="header.weather"]');
     if (input && !input.value.trim()) input.value = str;
     markDirty();   // quiet autosave so it persists with the rest of the log
-  } catch (e) { if (window.NX && NX.debug) NX.debug('dlog.weather', e); /* offline/API hiccup — field stays editable */ }
+  } catch (e) { if (window.NX && NX.debug) NX.debug('dlog.weather', e); /* offline/API hiccup — field stays editable, retries next open */ }
+  finally { state._weatherFetching = false; }
 }
 
 function ensureCurrentLog() {
@@ -2194,8 +2287,56 @@ function writeFieldToState(path, value) {
 function markDirty() {
   state.dirty = true;
   if (state.saveTimer) clearTimeout(state.saveTimer);
-  // Autosave after 3s of typing-pause. Quiet — no toast unless it fails.
-  state.saveTimer = setTimeout(() => commitSave({ submit: false, quiet: true }), 3000);
+  // Autosave after a short typing-pause. Quiet — no toast unless it fails.
+  state.saveTimer = setTimeout(() => commitSave({ submit: false, quiet: true }), 1200);
+}
+
+// ─── No-data-loss: flush pending saves when the tab is hidden / closed, and
+//     (if auto-send is on) auto-upload the day's log to Drive on leave. Wired
+//     once in init(). dlogAutoSendOn() reads the per-device toggle. ───────────
+function dlogAutoSendOn() { try { return localStorage.getItem('nexus_dlog_autosend') === '1'; } catch (_) { return false; } }
+function dlogAutoSendTime() { try { return localStorage.getItem('nexus_dlog_autosend_time') || '22:00'; } catch (_) { return '22:00'; } }
+function dlogHasContent(d) {
+  if (!d) return false;
+  return !!((d.header && (d.header.weather || d.header.significant_events)) ||
+    (d.planning && (d.planning.tomorrow_plan || d.planning.this_week || d.planning.side_notes)) ||
+    (Array.isArray(d.locations) && d.locations.length) ||
+    (d.cleaning && Object.values(d.cleaning).some(v => String(v || '').trim())));
+}
+let _dlogLifecycleWired = false;
+function wireDlogLifecycle() {
+  if (_dlogLifecycleWired) return;
+  _dlogLifecycleWired = true;
+  // Time-based safety net: if auto-send is on and today's log still isn't
+  // uploaded by the cutoff time, send it automatically. Runs every 3 min while
+  // the app is open. (A fully-closed app can't fire this — a true unattended
+  // send would need a server cron; this covers the always-open ops tablet.)
+  setInterval(() => {
+    try {
+      if (!dlogAutoSendOn()) return;
+      const log = state.currentLog;
+      if (!log || !log.data) return;
+      if ((log.log_date || todayISO()) !== todayISO()) return;     // today only
+      if (log.drive_upload_status === 'uploaded') return;          // already sent
+      const now = new Date();
+      const hhmm = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+      if (hhmm < dlogAutoSendTime()) return;                        // not yet cutoff
+      if (!dlogHasContent(log.data)) return;
+      commitSave({ submit: true, quiet: true });
+    } catch (_) {}
+  }, 180000);
+  const flush = () => {
+    if (state.saveTimer) { clearTimeout(state.saveTimer); state.saveTimer = null; }
+    const onView = document.body.classList.contains('view-dailylog') || (document.getElementById('dailylogView') || {}).classList?.contains('active');
+    if (!state.dirty && !(dlogAutoSendOn() && onView)) return;
+    // Auto-send: upload to Drive when leaving (only if the toggle is on and we
+    // have a log with content). Otherwise just a quiet DB save so edits persist.
+    const hasContent = state.currentLog && state.currentLog.data;
+    if (dlogAutoSendOn() && onView && hasContent) commitSave({ submit: true, quiet: true });
+    else if (state.dirty) commitSave({ submit: false, quiet: true });
+  };
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); });
+  window.addEventListener('pagehide', flush);
 }
 
 async function commitSave(opts) {
@@ -2366,6 +2507,7 @@ async function init() {
   // an underscore placeholder for the locations side-channel (which
   // already sets state.equipmentLocations internally — we don't need
   // the return value).
+  wireDlogLifecycle();   // flush-on-leave autosave + auto-send (idempotent)
   const today = todayISO();
   const [rs, todayRow, _locations, activity, slices, vendors, vendorIssues, eqDown] = await Promise.all([
     loadRecentLogs(),
