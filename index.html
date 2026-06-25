@@ -5005,9 +5005,10 @@
 </div>
 <style>
   .ot-dl-bg{position:fixed;inset:0;z-index:10050;display:flex;align-items:center;justify-content:center;
-    background:rgba(0,0,0,.6);opacity:0;transition:opacity .2s ease;padding:16px;
+    background:rgba(0,0,0,.6);opacity:0;transition:opacity .2s ease;padding:16px;pointer-events:none;
     -webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);}
-  .ot-dl-bg.open{opacity:1}
+  .ot-dl-bg[hidden]{display:none}            /* FIX: class display:flex was overriding the hidden attr -> invisible full-screen click-trap */
+  .ot-dl-bg.open{opacity:1;pointer-events:auto}
   .ot-dl{position:relative;width:100%;max-width:660px;max-height:92dvh;overflow-y:auto;
     background:var(--nx-surface-solid,var(--surface,#161d2e));
     border:1px solid var(--nx-gold-line,rgba(212,164,78,.26));border-radius:22px;
