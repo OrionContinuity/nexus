@@ -96,9 +96,13 @@
      handles long bodies and always works in a browser; touch/mobile keeps
      native mailto (the OS mail apps handle it well). The body is copied to
      the clipboard as a belt-and-suspenders fallback. */
+  // "Desktop" for email = a wide viewport (NEXUS's own desktop breakpoint).
+  // NOTE: do NOT also require !('ontouchstart' in window) — most Windows
+  // laptops/desktops report touch support, which made this return false on a
+  // real desktop and silently fall back to a mailto: that never opens.
   function isDesktop() {
-    try { return window.matchMedia('(min-width: 900px)').matches && !('ontouchstart' in window); }
-    catch (_) { return false; }
+    try { return window.matchMedia('(min-width: 900px)').matches; }
+    catch (_) { return (window.innerWidth || 0) >= 900; }
   }
   function gmailComposeUrl(to, subject, body, cc, bcc) {
     const toStr = Array.isArray(to) ? to.join(',') : (to || '');
@@ -110,21 +114,29 @@
     u += '&body=' + encodeURIComponent(body || '');
     return u;
   }
-  // Open a mail draft. Returns true if a window/handler was triggered.
-  function openDraft(to, subject, body, cc, bcc) {
-    if (isDesktop()) {
-      const win = window.open(gmailComposeUrl(to, subject, body, cc, bcc), '_blank', 'noopener');
-      try { if (navigator.clipboard) navigator.clipboard.writeText(body || ''); } catch (_) {}
-      if (win) { if (NX.toast) NX.toast('Opening Gmail draft…', 'info'); return true; }
-      if (NX.toast) NX.toast('Pop-up blocked — email body copied, paste it into your mail app', 'error');
-      // fall through to mailto, body already copied
-    }
+  // Trigger a navigation by clicking a transient anchor — more reliable than
+  // window.open inside a user gesture (popup blockers leave real link clicks
+  // alone), and it returns a new tab when target='_blank'.
+  function anchorOpen(href, newTab) {
     const a = document.createElement('a');
-    a.href = buildMailtoUrl(to, subject, body, cc, bcc);
-    a.style.display = 'none';
+    a.href = href; a.style.display = 'none';
+    if (newTab) { a.target = '_blank'; a.rel = 'noopener'; }
     document.body.appendChild(a);
     a.click();
     setTimeout(() => { if (a.parentNode) a.parentNode.removeChild(a); }, 0);
+  }
+  // Open a mail draft. Desktop → Gmail web compose in a NEW TAB (mailto: is
+  // unreliable on desktop — long bodies get dropped, and many machines have no
+  // mail client). Mobile → native mailto. Body is copied to the clipboard on
+  // desktop as a belt-and-suspenders fallback if Gmail can't open.
+  function openDraft(to, subject, body, cc, bcc) {
+    if (isDesktop()) {
+      try { if (navigator.clipboard) navigator.clipboard.writeText(body || ''); } catch (_) {}
+      anchorOpen(gmailComposeUrl(to, subject, body, cc, bcc), true);
+      if (NX.toast) NX.toast('Opening a Gmail draft in a new tab…', 'info');
+      return true;
+    }
+    anchorOpen(buildMailtoUrl(to, subject, body, cc, bcc), false);
     return true;
   }
 

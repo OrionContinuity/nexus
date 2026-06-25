@@ -4982,13 +4982,15 @@
   //  sync. "Advanced" flips to the full classic UI. Reversible: delete this
   //  block + the render() dispatch + the .cleanlite-* CSS.
   // ═══════════════════════════════════════════════════════════════════════
-  let cleaningSimpleMode = localStorage.getItem('nexus_cleaning_lite') !== '0';
-  let liteWeek = 'this';   // 'this' | 'next'
+  // The classic UI is retired — Lite is the only cleaning screen now.
+  let cleaningSimpleMode = true;
+  // Crew scope being edited/shown: 'all' (every day) or a day-of-week 1..7
+  // (1=Sun, Postgres convention). Defaults to today so it opens on today's crew.
+  let liteDay = todayDayOfWeek();
 
   function liteConfig() { try { return JSON.parse(localStorage.getItem('nexus_cleaning_config') || '{}'); } catch (_) { return {}; } }
   function saveLiteConfig(c) { try { localStorage.setItem('nexus_cleaning_config', JSON.stringify(c)); } catch (_) {} }
-  function liteCrewKey() { return liteWeek === 'next' ? 'nextZoneCrew' : 'zoneCrew'; }
-  function liteCrew() { const c = liteConfig(); return c[liteCrewKey()] || {}; }
+  const LITE_DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
   // Merged people: real nexus_users (can log in) + schedule-only staff (config).
   function litePeople() {
@@ -5013,50 +5015,58 @@
   function liteZones() {
     return tasksBySection(activeLoc).map(g => ({ es: g.section_es, en: g.section_en || g.section_es, tasks: g.tasks }));
   }
-  // Resolve a zone's person: config first (Lite source of truth), then fall
-  // back to the first active profile that covers the section (back-compat).
-  function liteZonePerson(sectionEs) {
-    const crew = liteCrew();
-    if (crew[sectionEs] != null) return crew[sectionEs];
+  // Per-day crew map from config: cfg.dayCrew[dow][section] = personId.
+  function liteDayCrewMap() { const c = liteConfig(); return c.dayCrew || {}; }
+  // Resolve who works a zone for a given scope ('all' | 1..7). For 'all',
+  // returns the common person across all 7 days, '__varies__' if mixed, or the
+  // profile-derived fallback. For a specific day, the config value (or fallback).
+  function liteZonePerson(sectionEs, scope) {
+    const s = (scope === undefined) ? liteDay : scope;
+    const dc = liteDayCrewMap();
+    if (s === 'all') {
+      const ids = [];
+      for (let d = 1; d <= 7; d++) ids.push((dc[d] || {})[sectionEs] == null ? null : (dc[d] || {})[sectionEs]);
+      const set = new Set(ids.map(x => x == null ? '' : String(x)));
+      if (set.size === 1 && !set.has('')) return ids[0];
+      if (ids.some(x => x != null)) return '__varies__';
+      return liteProfilePerson(sectionEs);
+    }
+    if (dc[s] && dc[s][sectionEs] != null) return dc[s][sectionEs];
+    return liteProfilePerson(sectionEs);
+  }
+  function liteProfilePerson(sectionEs) {
     const p = Object.values(profilesByUserId).find(pp =>
       pp && pp.active !== false && Array.isArray(pp.allowed_sections) && pp.allowed_sections.includes(sectionEs));
     return p ? p.user_id : null;
   }
 
-  // Assign a person to a zone. Always records it in config (display + print).
-  // For a REAL user we also keep cleaning_profiles + assignments in sync so the
-  // classic UI, the per-assignment Excel, and the server cron reflect it.
-  async function liteAssignZone(sectionEs, personId) {
+  // Assign a person to a zone for the current scope (liteDay). Writes config
+  // (display + print, works for schedule-only staff) and, for real users, the
+  // per-day cleaning_task_assignments so the rest of NEXUS stays in sync.
+  async function liteAssignZone(sectionEs, personId, scope) {
+    const s = (scope === undefined) ? liteDay : scope;
+    const days = s === 'all' ? [1,2,3,4,5,6,7] : [s];
     const cfg = liteConfig();
-    const key = liteCrewKey();
-    cfg[key] = cfg[key] || {};
-    if (personId == null) delete cfg[key][sectionEs]; else cfg[key][sectionEs] = personId;
+    cfg.dayCrew = cfg.dayCrew || {};
+    days.forEach(d => {
+      cfg.dayCrew[d] = cfg.dayCrew[d] || {};
+      if (personId == null) delete cfg.dayCrew[d][sectionEs]; else cfg.dayCrew[d][sectionEs] = personId;
+    });
     saveLiteConfig(cfg);
 
+    if (!NX.sb) return;
     const isRealUser = usersList.some(u => String(u.id) === String(personId));
-    // Only mutate the assignment tables for "this week" (the live schedule)
-    // and only for real users (schedule-only staff have no nexus_users row).
-    if (personId != null && isRealUser && liteWeek === 'this' && NX.sb) {
-      try {
-        // Remove this section from any OTHER person's scope (one person per zone).
-        for (const p of Object.values(profilesByUserId)) {
-          if (!p || String(p.user_id) === String(personId)) continue;
-          if (Array.isArray(p.allowed_sections) && p.allowed_sections.includes(sectionEs)) {
-            const secs = p.allowed_sections.filter(s => s !== sectionEs);
-            await NX.sb.from('cleaning_profiles').upsert({ user_id: p.user_id, working_days: p.working_days || [1,2,3,4,5,6,7], default_shift: p.default_shift || 'both', allowed_sections: secs, active: true, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
-            profilesByUserId[p.user_id] = Object.assign({}, p, { allowed_sections: secs });
-          }
-        }
-        const prev = profilesByUserId[personId] || {};
-        const days = (Array.isArray(prev.working_days) && prev.working_days.length) ? prev.working_days : [1,2,3,4,5,6,7];
-        const shift = prev.default_shift || 'both';
-        const secs = Array.from(new Set([...(prev.allowed_sections || []), sectionEs]));
-        await NX.sb.from('cleaning_profiles').upsert({ user_id: personId, working_days: days, default_shift: shift, allowed_sections: secs, active: true, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
-        profilesByUserId[personId] = { user_id: personId, working_days: days, default_shift: shift, allowed_sections: secs, active: true };
-        await autofillAssignmentsForUser(personId, days, shift, [sectionEs]);
-        await loadAssignments();
-      } catch (e) { console.warn('[cleanlite] assign zone:', e); }
-    }
+    try {
+      const taskIds = (tasksByLoc[activeLoc] || []).filter(t => t.section_es === sectionEs).map(t => t.id);
+      if (!taskIds.length) return;
+      // Clear whoever was on these tasks for these days (one person per zone/day).
+      await NX.sb.from('cleaning_task_assignments').delete()
+        .eq('scope', 'weekly').in('task_id', taskIds).in('day_of_week', days);
+      if (personId != null && isRealUser) {
+        await autofillAssignmentsForUser(personId, days, 'both', [sectionEs]);
+      }
+      await loadAssignments();
+    } catch (e) { console.warn('[cleanlite] assign zone:', e); }
   }
 
   // ─── Person picker (sheet) + new-employee (+optional login) ──────────────
@@ -5069,9 +5079,9 @@
     bg.innerHTML = `
       <div class="cleanlite-sheet" role="dialog" aria-modal="true">
         <div class="cleanlite-sheet-grip"></div>
-        <div class="cleanlite-sheet-title">Who works <b>${esc(liteZoneName(sectionEs))}</b>?</div>
+        <div class="cleanlite-sheet-title">Who works <b>${esc(liteZoneName(sectionEs))}</b> · <span class="cleanlite-sheet-day">${liteDay === 'all' ? 'every day' : esc(LITE_DOW[liteDay - 1])}</span></div>
         <div class="cleanlite-people">
-          <button class="cleanlite-person ${current == null ? 'is-active' : ''}" data-pid="">
+          <button class="cleanlite-person ${(current == null || current === '__varies__') ? 'is-active' : ''}" data-pid="">
             <span class="cleanlite-av is-none">${svg('user', 16)}</span><span>Unassigned</span></button>
           ${people.map(p => `
             <button class="cleanlite-person ${String(p.id) === String(current) ? 'is-active' : ''}" data-pid="${esc(p.id)}">
@@ -5092,7 +5102,8 @@
       close();
       await liteAssignZone(sectionEs, pid);
       render();
-      toast(pid == null ? 'Zone cleared' : `${litePersonName(pid)} → ${liteZoneName(sectionEs)}`, 'success');
+      const when = liteDay === 'all' ? 'every day' : LITE_DOW[liteDay - 1];
+      toast(pid == null ? 'Zone cleared' : `${litePersonName(pid)} → ${liteZoneName(sectionEs)} · ${when}`, 'success');
     }));
     bg.querySelector('[data-new]').addEventListener('click', () => { close(); liteNewEmployee(sectionEs); });
   }
@@ -5201,42 +5212,58 @@
     }
   }
 
-  // ─── Autofill the whole week (real users) + same-as-last-week ────────────
-  async function liteAutofillWeek() {
-    const r = await autofillScheduleWeek();
+  // ─── Apply the whole per-day schedule to the assignment tables ───────────
+  // Writes every cfg.dayCrew[day][zone] → cleaning_task_assignments for real
+  // users, so the live duties / per-assignment Excel / server cron all match.
+  async function liteApplySchedule() {
+    const dc = liteDayCrewMap();
+    let count = 0;
+    for (let d = 1; d <= 7; d++) {
+      const map = dc[d] || {};
+      for (const section of Object.keys(map)) {
+        const pid = map[section];
+        if (!usersList.some(u => String(u.id) === String(pid))) continue; // real users only
+        const r = await autofillAssignmentsForUser(pid, [d], 'both', [section]);
+        if (r && r.count) count += r.count;
+      }
+    }
     await loadAssignments();
     render();
-    toast(r.people ? `Filled ${r.total} tasks for ${r.people} people` : 'Set a person on each zone first', r.people ? 'success' : 'info');
+    toast(count ? `Schedule applied — ${count} task-slots` : 'Assign people to zones first', count ? 'success' : 'info');
   }
-  async function liteSameAsLastWeek() {
-    const cfg = liteConfig();
-    cfg.zoneCrew = Object.assign({}, cfg.nextZoneCrew || {}, cfg.zoneCrew || {});
-    cfg.nextZoneCrew = Object.assign({}, cfg.zoneCrew);
+  // Copy the selected day's crew to every other day (quick "same all week").
+  function liteCopyDayToAll() {
+    if (liteDay === 'all') return;
+    const cfg = liteConfig(); cfg.dayCrew = cfg.dayCrew || {};
+    const src = cfg.dayCrew[liteDay] || {};
+    for (let d = 1; d <= 7; d++) cfg.dayCrew[d] = Object.assign({}, src);
     saveLiteConfig(cfg);
     render();
-    toast('Next week copied from this week', 'success');
+    toast(`${LITE_DOW[liteDay - 1]}'s crew copied to every day`, 'success');
   }
 
   // ─── Print week (clean grid + QR) and .xlsx ──────────────────────────────
   function litePrintWeek() {
     const zones = liteZones();
-    const rows = zones.map(z => {
-      const person = litePersonName(liteZonePerson(z.es)) || '—';
-      return z.tasks.map(t => `<tr><td>${esc(z.en)}</td><td>${esc(t.name_en || t.name_es || '')}</td><td>${esc(freqLabelFor(t))}</td><td>${esc(person)}</td><td class="ck"></td></tr>`).join('');
-    }).join('');
+    const nameFor = (section, d) => litePersonName(liteZonePerson(section, d)) || '';
+    const rows = zones.map(z => z.tasks.map(t => {
+      const cells = [1,2,3,4,5,6,7].map(d => `<td>${esc(nameFor(z.es, d))}</td>`).join('');
+      return `<tr><td class="zn">${esc(z.en)}</td><td>${esc(t.name_en || t.name_es || '')}</td>${cells}</tr>`;
+    }).join('')).join('');
     let qr = '';
     try { if (window.NexusQR) qr = NexusQR.svg(location.origin + location.pathname, { ecl: 'M', border: 1, scale: 4, dark: '#0e1320', light: '#fff' }); } catch (_) {}
+    const dayHead = LITE_DOW.map(d => `<th>${d}</th>`).join('');
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>Cleaning — ${esc(locLabel(activeLoc))} — week of ${esc(today)}</title>
       <style>
-        *{box-sizing:border-box} body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111;margin:26px;font-size:12px}
+        *{box-sizing:border-box} body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111;margin:22px;font-size:11px}
         h1{font-size:19px;margin:0} .sub{color:#666;margin:2px 0 14px}
-        table{border-collapse:collapse;width:100%} th,td{border:1px solid #ccc;padding:6px 8px;text-align:left;vertical-align:top}
-        th{background:#222;color:#fff;font-size:11px} tbody tr:nth-child(even){background:#f6f6f6}
-        td.ck{width:42px} .hd{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
-        .qr{width:96px;height:96px;flex:0 0 auto} @media print{body{margin:.5in}}
+        table{border-collapse:collapse;width:100%} th,td{border:1px solid #ccc;padding:5px 7px;text-align:left;vertical-align:top}
+        th{background:#222;color:#fff;font-size:10px} tbody tr:nth-child(even){background:#f6f6f6} td.zn{font-weight:600}
+        .hd{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+        .qr{width:92px;height:92px;flex:0 0 auto} @media print{body{margin:.4in}}
       </style></head><body>
-      <div class="hd"><div><h1>Cleaning — ${esc(locLabel(activeLoc))}</h1><div class="sub">Week of ${esc(today)} · scan to open live</div></div><div class="qr">${qr}</div></div>
-      <table><thead><tr><th>Zone</th><th>Task</th><th>Frequency</th><th>Assigned</th><th>Done</th></tr></thead><tbody>${rows || '<tr><td colspan="5">No tasks.</td></tr>'}</tbody></table>
+      <div class="hd"><div><h1>Cleaning schedule — ${esc(locLabel(activeLoc))}</h1><div class="sub">Week of ${esc(today)} · scan to open live</div></div><div class="qr">${qr}</div></div>
+      <table><thead><tr><th>Zone</th><th>Task</th>${dayHead}</tr></thead><tbody>${rows || '<tr><td colspan="9">No tasks.</td></tr>'}</tbody></table>
       <p class="sub" style="margin-top:18px">Generated by NEXUS · ${esc(new Date().toLocaleString())}</p></body></html>`;
     const w = window.open('', '_blank');
     if (!w) { toast('Allow pop-ups to print', 'error'); return; }
@@ -5252,10 +5279,16 @@
     const wrap = document.createElement('div');
     wrap.className = 'cleanlite';
 
+    const todayDow = todayDayOfWeek();
+    const scopeLabel = liteDay === 'all' ? 'every day' : LITE_DOW[liteDay - 1];
     const locPills = LOCATIONS.map(l => `<button class="cleanlite-loc ${l === activeLoc ? 'is-active' : ''}" data-loc="${l}">${esc(locLabel(l))}</button>`).join('');
+    const dayPills = `<button class="cleanlite-day ${liteDay === 'all' ? 'is-active' : ''}" data-day="all">All</button>` +
+      LITE_DOW.map((lbl, i) => `<button class="cleanlite-day ${liteDay === i + 1 ? 'is-active' : ''} ${todayDow === i + 1 ? 'is-today' : ''}" data-day="${i + 1}" title="${esc(lbl)}">${lbl[0]}</button>`).join('');
+
     const zoneCards = zones.map(z => {
-      const pid = liteZonePerson(z.es);
-      const nm = litePersonName(pid);
+      const pid = liteZonePerson(z.es, liteDay);
+      const varies = pid === '__varies__';
+      const nm = varies ? 'Varies' : litePersonName(pid);
       const { done, total } = liteZoneCounts(z.es);
       const taskRows = z.tasks.map(t => {
         const isDone = getDoneState(t.section_es, t.task_order);
@@ -5267,8 +5300,8 @@
       }).join('');
       return `<div class="cleanlite-zone" data-zone="${esc(z.es)}">
         <div class="cleanlite-zone-head">
-          <button class="cleanlite-person-btn" data-pick-zone="${esc(z.es)}" title="Change who works this zone">
-            <span class="cleanlite-av ${nm ? '' : 'is-none'}" ${nm ? `style="--av-hue:${liteHue(pid)}"` : ''}>${nm ? esc(liteInitials(nm)) : svg('user', 14)}</span>
+          <button class="cleanlite-person-btn" data-pick-zone="${esc(z.es)}" title="Set who works this zone on ${esc(scopeLabel)}">
+            <span class="cleanlite-av ${nm ? '' : 'is-none'} ${varies ? 'is-varies' : ''}" ${(!varies && nm) ? `style="--av-hue:${liteHue(pid)}"` : ''}>${varies ? '~' : (nm ? esc(liteInitials(nm)) : svg('user', 14))}</span>
           </button>
           <div class="cleanlite-zone-titles"><div class="cleanlite-zone-name">${esc(z.en)}</div><div class="cleanlite-zone-person">${nm ? esc(nm) : 'Tap to assign'}</div></div>
           <span class="cleanlite-zone-count ${total > 0 && done === total ? 'is-complete' : ''}">${done}/${total}</span>
@@ -5281,18 +5314,15 @@
     wrap.innerHTML = `
       <div class="cleanlite-top">
         <div class="cleanlite-loc-picker">${locPills}</div>
-        <button class="cleanlite-adv" data-advanced title="Switch to the full classic cleaning view">${svg('maximize', 13)} Advanced</button>
       </div>
-      <div class="cleanlite-weekrow">
-        <div class="cleanlite-weektoggle">
-          <button class="cleanlite-week ${liteWeek === 'this' ? 'is-active' : ''}" data-week="this">This week</button>
-          <button class="cleanlite-week ${liteWeek === 'next' ? 'is-active' : ''}" data-week="next">Next week</button>
-        </div>
-        <button class="cleanlite-mini" data-same-week title="Copy this week's crew to next week">${svg('calendar', 12)} Same as this</button>
+      <div class="cleanlite-dayrow">
+        <span class="cleanlite-dayrow-label">Crew · ${esc(scopeLabel)}</span>
+        <div class="cleanlite-days">${dayPills}</div>
+        ${liteDay !== 'all' ? `<button class="cleanlite-mini" data-copy-all title="Copy this day's crew to every day">${svg('calendar', 12)} → all days</button>` : ''}
       </div>
-      <div class="cleanlite-zones">${zoneCards || '<div class="cleanlite-empty">No zones yet — add tasks in Advanced.</div>'}</div>
+      <div class="cleanlite-zones">${zoneCards || '<div class="cleanlite-empty">No zones yet — add tasks for this location first.</div>'}</div>
       <div class="cleanlite-cta-wrap">
-        <button class="cleanlite-cta" data-autofill>${svg('calendar', 15)} Autofill the week</button>
+        <button class="cleanlite-cta" data-apply title="Write the whole week's crew to the live duties">${svg('calendar', 15)} Apply schedule</button>
         <button class="cleanlite-cta is-ghost" data-print>${svg('document', 15)} Print week</button>
       </div>`;
 
@@ -5302,12 +5332,10 @@
       await loadTodayState(); await loadHistory(); await loadAssignments(); await loadProfiles();
       render();
     }));
-    wrap.querySelector('[data-advanced]').addEventListener('click', () => {
-      cleaningSimpleMode = false; localStorage.setItem('nexus_cleaning_lite', '0');
-      showingLocationCards = false; render();
-    });
-    wrap.querySelectorAll('[data-week]').forEach(b => b.addEventListener('click', () => { liteWeek = b.dataset.week; render(); }));
-    wrap.querySelector('[data-same-week]').addEventListener('click', liteSameAsLastWeek);
+    wrap.querySelectorAll('[data-day]').forEach(b => b.addEventListener('click', () => {
+      const v = b.dataset.day; liteDay = v === 'all' ? 'all' : parseInt(v, 10); render();
+    }));
+    const copyAll = wrap.querySelector('[data-copy-all]'); if (copyAll) copyAll.addEventListener('click', liteCopyDayToAll);
     wrap.querySelectorAll('[data-pick-zone]').forEach(b => b.addEventListener('click', () => liteOpenPersonPicker(b.dataset.pickZone)));
     wrap.querySelectorAll('[data-guide-zone]').forEach(b => b.addEventListener('click', () => liteOpenZoneGuide(b.dataset.guideZone)));
     wrap.querySelectorAll('.cleanlite-task').forEach(b => b.addEventListener('click', () => {
@@ -5315,7 +5343,7 @@
       const t = z && z.tasks.find(t => String(t.id) === b.dataset.taskId);
       if (t) liteToggleTask(t, b);
     }));
-    wrap.querySelector('[data-autofill]').addEventListener('click', liteAutofillWeek);
+    wrap.querySelector('[data-apply]').addEventListener('click', liteApplySchedule);
     wrap.querySelector('[data-print]').addEventListener('click', litePrintWeek);
 
     list.appendChild(wrap);
