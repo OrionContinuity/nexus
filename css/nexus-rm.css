@@ -2191,3 +2191,112 @@
 .cleanlite-tag.is-muted { background: var(--nx-surface-2, rgba(24,34,54,.62)); color: var(--nx-faint, #6c7585); }
 .cleanlite-newemp { border-style: dashed; color: var(--nx-gold, #d4a44e); }
 @media (min-width: 900px) { .cleanlite-sheet-bg { align-items: center; } .cleanlite-sheet { border-radius: 22px; border-bottom: 1px solid var(--nx-gold-line, rgba(212,164,78,.24)); } }
+/* Per-day crew selector (replaces the week toggle) */
+.cleanlite-dayrow { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.cleanlite-dayrow-label {
+  font-family: var(--nx-font-mono, "JetBrains Mono", monospace); font-size: 10.5px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--nx-gold, #d4a44e); font-weight: 700; flex: 0 0 auto;
+}
+.cleanlite-days {
+  display: inline-flex; gap: 3px; padding: 4px; border-radius: 999px;
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,.22)); background: var(--nx-surface-1, rgba(34,46,70,.42));
+}
+.cleanlite-day {
+  min-width: 30px; height: 32px; padding: 0 9px; border: 0; border-radius: 999px; cursor: pointer;
+  background: transparent; color: var(--nx-muted, #9aa3b2); font-weight: 600; font-size: 12.5px;
+  position: relative; transition: background .14s, color .14s;
+}
+.cleanlite-day.is-active { background: var(--nx-gold, #d4a44e); color: var(--nx-gold-on, #101626); }
+.cleanlite-day.is-today:not(.is-active)::after {
+  content: ""; position: absolute; left: 50%; bottom: 4px; width: 4px; height: 4px; border-radius: 50%;
+  background: var(--nx-gold, #d4a44e); transform: translateX(-50%);
+}
+.cleanlite-av.is-varies { background: var(--nx-surface-3, rgba(42,56,84,.72)); color: var(--nx-gold, #d4a44e); font-size: 17px; }
+.cleanlite-sheet-day { color: var(--nx-gold, #d4a44e); font-weight: 600; }
+
+/* ─── 21. DAILY LOG revamp — Lite/Ordering design language ────────────────────
+   Pure restyle of the existing .dlog-* form (markup unchanged, persistence
+   untouched). The dlog base styles are embedded in index.html and come LATER
+   in source, so every rule is scoped under #dailylogView to win specificity.
+   Gold pill tabs, rounded gold-line cards, calmer 16px inputs (no iOS zoom),
+   gold-gradient primary action. */
+#dailylogView .dlog-shell { max-width: 720px; }
+#dailylogView .dlog-title { font-size: 21px; font-weight: 700; color: var(--nx-gold, #d4a44e); letter-spacing: .4px; }
+#dailylogView .dlog-new-btn { border-radius: 999px; border-color: var(--nx-gold-line, rgba(212,164,78,.22)); }
+
+/* Location tabs — solid gold when active (matches the cleaning loc picker) */
+#dailylogView .dlog-loc-pill { border-color: var(--nx-gold-line, rgba(212,164,78,.22)); }
+#dailylogView .dlog-loc-pill.is-active {
+  background: var(--nx-gold, #d4a44e) !important; color: var(--nx-gold-on, #101626) !important;
+  border-color: var(--nx-gold, #d4a44e) !important; box-shadow: 0 0 14px rgba(212,164,78,.3);
+}
+#dailylogView .dlog-recent-chip.is-active { background: var(--nx-gold, #d4a44e); color: var(--nx-gold-on, #101626); border-color: var(--nx-gold, #d4a44e); }
+
+/* Sections → rounded gold-line cards */
+#dailylogView .dlog-section {
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,.22)); border-radius: 16px;
+  background: var(--nx-surface-1, rgba(34,46,70,.42)); margin-bottom: 14px;
+}
+#dailylogView .dlog-section-header { padding: 15px 16px; }
+#dailylogView .dlog-section-header::after { color: var(--nx-gold, #d4a44e); font-size: 20px; }
+#dailylogView .dlog-section-title { font-size: 15.5px; font-weight: 700; color: var(--nx-text-strong, #f6f0e2); }
+#dailylogView .dlog-section-count {
+  background: var(--nx-gold-faint, rgba(212,164,78,.12)); border-color: var(--nx-gold-line, rgba(212,164,78,.22));
+  color: var(--nx-gold, #d4a44e); font-weight: 700;
+}
+#dailylogView .dlog-subsection-title { color: var(--nx-gold, #d4a44e); letter-spacing: .12em; font-weight: 600; margin-top: 10px; }
+
+/* Inputs → calmer, rounded, gold focus ring; 16px avoids iOS zoom */
+#dailylogView .dlog-field-label { font-size: 13px; font-weight: 600; color: var(--nx-text, #ece4d4); }
+#dailylogView .dlog-field input[type="text"],
+#dailylogView .dlog-field input[type="date"],
+#dailylogView .dlog-field textarea {
+  background: var(--nx-bg, #0e1320); border: 1px solid var(--nx-gold-line, rgba(212,164,78,.2));
+  border-radius: 12px; padding: 11px 13px; font-size: 16px; min-height: 44px;
+}
+#dailylogView .dlog-field textarea { min-height: 70px; }
+#dailylogView .dlog-field input:focus,
+#dailylogView .dlog-field textarea:focus {
+  border-color: var(--nx-gold, #d4a44e); box-shadow: 0 0 0 2px var(--nx-gold-soft, rgba(212,164,78,.18));
+}
+
+/* Repeatable rows (vendor calls, other properties) → gold-line cards */
+#dailylogView .dlog-vendor-row, #dailylogView .dlog-other-row {
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,.2)); border-radius: 14px;
+  background: var(--nx-surface-1, rgba(34,46,70,.42));
+}
+#dailylogView .dlog-vendor-row input, #dailylogView .dlog-vendor-row textarea,
+#dailylogView .dlog-other-row input, #dailylogView .dlog-other-row textarea { border-radius: 10px; border-color: var(--nx-gold-line, rgba(212,164,78,.18)); font-size: 15px; }
+#dailylogView .dlog-row-remove { border-color: var(--nx-gold-line, rgba(212,164,78,.25)); }
+
+/* Status/activity/vendor/ticket cards → consistent gold-line rounding */
+#dailylogView .dlog-eqstatus-row { border-color: var(--nx-gold-line, rgba(212,164,78,.2)); border-radius: 14px; background: var(--nx-surface-1, rgba(34,46,70,.42)); }
+#dailylogView .dlog-vd-row, #dailylogView .dlog-tk-row { border-radius: 12px; }
+
+/* Actions — gold-gradient primary, pill secondaries */
+#dailylogView .dlog-actions { border-top: 1px solid var(--nx-gold-line, rgba(212,164,78,.18)); padding: 18px 0 100px; }
+#dailylogView .dlog-actions .eq-btn { border-radius: 999px; }
+#dailylogView .dlog-actions .eq-btn-primary {
+  background: linear-gradient(180deg, var(--nx-gold, #d4a44e), var(--nx-gold-deep, #a8821e));
+  color: var(--nx-gold-on, #101626); border: 0;
+  box-shadow: 0 4px 16px rgba(0,0,0,.4), 0 0 16px var(--nx-gold-soft, rgba(212,164,78,.3));
+}
+#dailylogView .dlog-add-row-btn, #dailylogView .dlog-add-loc-btn { border-radius: 999px; }
+
+/* ─── 22. CLEANING LITE chrome cleanup (fix the screenshots) ──────────────────
+   Lite is the only cleaning UI now, but it still rendered INSIDE the old
+   "takeover" chrome: the masthead (X · Suerte/Este/Toti · date · +Extra ·
+   Archive), the SHIFT-PROGRESS bar (clipped "0%"), and the Finish-Shift footer
+   that collided with Lite's own CTA. Hide all three — Lite has its own location
+   picker, per-zone progress pills, and Autofill/Print CTA. */
+#cleanView .clean-header-takeover,
+#cleanView .clean-progress,
+#cleanView .clean-footer { display: none !important; }
+/* The cleaning list no longer needs the takeover's tall top padding. */
+#cleanView .clean-list { padding-top: 6px; }
+/* Float Lite's CTA above the mobile bottom-nav (it renders ~79px tall with
+   icons+labels); on desktop (>=900px) the bottom-nav is replaced by the side
+   rail, so sit at 0. */
+.cleanlite { padding-bottom: 172px; }
+.cleanlite-cta-wrap { bottom: calc(86px + env(safe-area-inset-bottom, 0px)); }
+@media (min-width: 900px) { .cleanlite-cta-wrap { bottom: 0; } .cleanlite { padding-bottom: 110px; } }
