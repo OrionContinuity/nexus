@@ -2300,3 +2300,107 @@
 .cleanlite { padding-bottom: 172px; }
 .cleanlite-cta-wrap { bottom: calc(86px + env(safe-area-inset-bottom, 0px)); }
 @media (min-width: 900px) { .cleanlite-cta-wrap { bottom: 0; } .cleanlite { padding-bottom: 110px; } }
+
+/* ─── 23. CLEANING LITE — per-zone actions (kebab menu · note · history) ──────*/
+.cleanlite-kebab { font-size: 20px; font-weight: 700; line-height: 1; }
+.cleanlite-zone-noterow {
+  display: flex; align-items: flex-start; gap: 7px; padding: 8px 14px;
+  border-top: 1px solid var(--nx-gold-line, rgba(212,164,78,.12));
+  font-size: 12.5px; color: var(--nx-text, #ece4d4); background: var(--nx-gold-faint, rgba(212,164,78,.07));
+}
+.cleanlite-zone-noterow svg { color: var(--nx-gold, #d4a44e); flex: 0 0 auto; margin-top: 2px; }
+.cleanlite-zone-noterow span { overflow-wrap: anywhere; line-height: 1.4; }
+/* The ⋮ menu (reuses .clean-card-menu from openMenuNear) */
+.clean-card-menu {
+  min-width: 188px; padding: 6px; border-radius: 14px;
+  background: var(--nx-surface-solid, #161d2e); border: 1px solid var(--nx-gold-line, rgba(212,164,78,.24));
+  box-shadow: 0 14px 40px rgba(0,0,0,.5);
+}
+.clean-card-menu .clean-menu-item {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; cursor: pointer;
+  padding: 10px 12px; border: 0; border-radius: 10px; background: transparent;
+  color: var(--nx-text, #ece4d4); font-size: 13.5px;
+}
+.clean-card-menu .clean-menu-item:hover { background: var(--nx-gold-faint, rgba(212,164,78,.12)); }
+.clean-card-menu .clean-menu-item svg { color: var(--nx-gold, #d4a44e); flex: 0 0 auto; }
+/* History sheet rows */
+.cleanlite-hist { display: flex; flex-direction: column; }
+.cleanlite-hist-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 11px 4px; border-bottom: 1px solid var(--nx-gold-line, rgba(212,164,78,.1));
+}
+.cleanlite-hist-row:last-child { border-bottom: 0; }
+.cleanlite-hist-task { font-size: 13.5px; color: var(--nx-text, #ece4d4); overflow-wrap: anywhere; }
+.cleanlite-hist-when {
+  font-family: var(--nx-font-mono, "JetBrains Mono", monospace); font-size: 11px; color: var(--nx-faint, #6c7585);
+  white-space: nowrap; flex: 0 0 auto;
+}
+.cleanlite-hist-when.is-today { color: var(--nx-gold, #d4a44e); font-weight: 700; }
+
+/* Daily-log auto-send toggle (+ cutoff-time input) — gold-filled when ON */
+#dailylogView .dlog-autosend-wrap { display: inline-flex; align-items: center; gap: 6px; margin-right: auto; }
+#dailylogView .dlog-autosend-toggle.is-on {
+  background: var(--nx-gold, #d4a44e) !important; color: var(--nx-gold-on, #101626) !important;
+  border-color: var(--nx-gold, #d4a44e) !important;
+}
+#dailylogView .dlog-autosend-time {
+  background: var(--nx-bg, #0e1320); border: 1px solid var(--nx-gold-line, rgba(212,164,78,.25));
+  border-radius: 10px; color: var(--nx-text, #ece4d4); padding: 6px 8px; font: inherit; font-size: 13px;
+}
+
+/* ─── 24. CLEANING LITE — Overview (all locations) ───────────────────────────*/
+.cleanlite-ovhead {
+  font-family: var(--nx-font-mono, "JetBrains Mono", monospace); font-size: 11px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--nx-gold, #d4a44e); font-weight: 700; margin: 4px 2px 12px;
+}
+.cleanlite-ovgrid { display: flex; flex-direction: column; gap: 12px; }
+.cleanlite-ovcard {
+  display: block; width: 100%; text-align: left; cursor: pointer; padding: 16px; border-radius: 16px;
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,.22)); background: var(--nx-surface-1, rgba(34,46,70,.42));
+  color: var(--nx-text, #ece4d4); transition: border-color .15s, transform .08s;
+}
+.cleanlite-ovcard:hover { border-color: var(--nx-gold, #d4a44e); }
+.cleanlite-ovcard:active { transform: scale(.99); }
+.cleanlite-ovcard-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.cleanlite-ovcard-name { font-size: 17px; font-weight: 700; color: var(--nx-text-strong, #f6f0e2); }
+.cleanlite-ovcard-pct { font-family: var(--nx-font-mono, monospace); font-size: 15px; font-weight: 700; color: var(--nx-gold, #d4a44e); }
+.cleanlite-ovcard-pct.is-complete { color: #67c08c; }
+.cleanlite-ovbar { height: 8px; border-radius: 999px; background: var(--nx-surface-2, rgba(24,34,54,.62)); overflow: hidden; }
+.cleanlite-ovbar-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--nx-gold, #d4a44e), var(--nx-gold-deep, #a8821e)); transition: width .3s ease; }
+.cleanlite-ovcard-sub { font-size: 11.5px; color: var(--nx-muted, #9aa3b2); margin-top: 8px; }
+
+/* ─── 25. BIWEEKLY review — match the Daily-Log gold/Lite restyle ─────────────
+   Scoped under #biweeklyView so it wins over the embedded .bw-* base styles. */
+#biweeklyView .bw-card {
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,.22)) !important; border-radius: 16px !important;
+  background: var(--nx-surface-1, rgba(34,46,70,.42)) !important;
+}
+#biweeklyView .bw-card-title { font-size: 15px; font-weight: 700; color: var(--nx-text-strong, #f6f0e2); }
+#biweeklyView .bw-window-label { color: var(--nx-muted, #9aa3b2); }
+#biweeklyView textarea,
+#biweeklyView input[type="text"],
+#biweeklyView .bw-checklist-edit-input {
+  background: var(--nx-bg, #0e1320); border: 1px solid var(--nx-gold-line, rgba(212,164,78,.2));
+  border-radius: 12px; color: var(--nx-text, #ece4d4); font-size: 16px; padding: 11px 13px;
+}
+#biweeklyView textarea:focus,
+#biweeklyView input[type="text"]:focus {
+  outline: none; border-color: var(--nx-gold, #d4a44e); box-shadow: 0 0 0 2px var(--nx-gold-soft, rgba(212,164,78,.18));
+}
+#biweeklyView .eq-btn { border-radius: 999px; }
+#biweeklyView .eq-btn-primary {
+  background: linear-gradient(180deg, var(--nx-gold, #d4a44e), var(--nx-gold-deep, #a8821e)); color: var(--nx-gold-on, #101626);
+  border: 0; box-shadow: 0 4px 16px rgba(0,0,0,.4), 0 0 16px var(--nx-gold-soft, rgba(212,164,78,.3));
+}
+
+/* ─── 26. CLEANING LITE — Summary sheet + 3-button CTA fit ────────────────────*/
+.cleanlite-cta-wrap { flex-wrap: wrap; }
+.cleanlite-cta { height: 48px; padding: 0 16px; font-size: 14px; }
+.cleanlite-summary {
+  white-space: pre-wrap; word-break: break-word; font-family: var(--nx-font-mono, "JetBrains Mono", monospace);
+  font-size: 12px; line-height: 1.5; color: var(--nx-text, #ece4d4); background: var(--nx-bg, #0e1320);
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,.22)); border-radius: 12px; padding: 12px;
+  max-height: 48vh; overflow-y: auto; margin: 0 0 12px;
+}
+.cleanlite-summary-actions { display: flex; gap: 10px; }
+.cleanlite-summary-actions .cleanlite-cta { position: static; flex: 1; }
