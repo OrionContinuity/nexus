@@ -2633,6 +2633,10 @@
   function render() {
     const list = document.getElementById('cleanList');
     if (!list) return;
+
+    // Cleaning Lite is the default simple screen. "Advanced" flips the flag.
+    if (cleaningSimpleMode) { renderLite(list); return; }
+
     list.innerHTML = '';
 
     // V16: restaurant-card landing — tap a card to open one restaurant.
@@ -2713,7 +2717,14 @@
       <button class="clean-person-pill clean-roster-pill" data-roster-pill title="Shift roster & 2-week schedule">
         ${svg('calendar', 12)} <span>Roster</span>
       </button>
+      <button class="clean-person-pill" data-simple-pill title="Back to the simple view">
+        ${svg('minimize', 12)} <span>Simple</span>
+      </button>
     `;
+    const simplePill = viewToggle.querySelector('[data-simple-pill]');
+    if (simplePill) simplePill.addEventListener('click', () => {
+      cleaningSimpleMode = true; localStorage.setItem('nexus_cleaning_lite', '1'); render();
+    });
     viewToggle.querySelectorAll('[data-view]').forEach(btn => {
       btn.addEventListener('click', () => setViewMode(btn.dataset.view));
     });
@@ -4956,6 +4967,358 @@
       render();
     }
     return true;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  CLEANING LITE — simple daily driver (mirrors the Ordering UI language)
+  //  ----------------------------------------------------------------------
+  //  Default screen (flag `nexus_cleaning_lite`, ON unless '0'). Zones = the
+  //  sections that already exist at the active location. Pick a person per
+  //  zone; their zone IS their task list. Reuses every existing helper
+  //  (profiles, autofill, persistDone, exportCleaningExcel, education guides).
+  //  Zone→person for display lives in localStorage `nexus_cleaning_config`
+  //  so it works for schedule-only staff too; real users also get their
+  //  cleaning_profiles + assignments written so the rest of NEXUS stays in
+  //  sync. "Advanced" flips to the full classic UI. Reversible: delete this
+  //  block + the render() dispatch + the .cleanlite-* CSS.
+  // ═══════════════════════════════════════════════════════════════════════
+  let cleaningSimpleMode = localStorage.getItem('nexus_cleaning_lite') !== '0';
+  let liteWeek = 'this';   // 'this' | 'next'
+
+  function liteConfig() { try { return JSON.parse(localStorage.getItem('nexus_cleaning_config') || '{}'); } catch (_) { return {}; } }
+  function saveLiteConfig(c) { try { localStorage.setItem('nexus_cleaning_config', JSON.stringify(c)); } catch (_) {} }
+  function liteCrewKey() { return liteWeek === 'next' ? 'nextZoneCrew' : 'zoneCrew'; }
+  function liteCrew() { const c = liteConfig(); return c[liteCrewKey()] || {}; }
+
+  // Merged people: real nexus_users (can log in) + schedule-only staff (config).
+  function litePeople() {
+    const cfg = liteConfig();
+    const staff = Array.isArray(cfg.staff) ? cfg.staff : [];
+    return [
+      ...usersList.map(u => ({ id: u.id, name: u.name, login: true })),
+      ...staff.map(s => ({ id: s.id, name: s.name, login: false })),
+    ];
+  }
+  function litePersonName(id) {
+    if (id == null) return null;
+    const p = litePeople().find(x => String(x.id) === String(id));
+    return p ? p.name : null;
+  }
+  function liteInitials(name) {
+    return (name || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0] || '').join('').toUpperCase() || '?';
+  }
+  function liteHue(id) { let h = 0; String(id || '').split('').forEach(c => h = (h * 31 + c.charCodeAt(0)) % 360); return h; }
+
+  // Zones = distinct sections at the active location.
+  function liteZones() {
+    return tasksBySection(activeLoc).map(g => ({ es: g.section_es, en: g.section_en || g.section_es, tasks: g.tasks }));
+  }
+  // Resolve a zone's person: config first (Lite source of truth), then fall
+  // back to the first active profile that covers the section (back-compat).
+  function liteZonePerson(sectionEs) {
+    const crew = liteCrew();
+    if (crew[sectionEs] != null) return crew[sectionEs];
+    const p = Object.values(profilesByUserId).find(pp =>
+      pp && pp.active !== false && Array.isArray(pp.allowed_sections) && pp.allowed_sections.includes(sectionEs));
+    return p ? p.user_id : null;
+  }
+
+  // Assign a person to a zone. Always records it in config (display + print).
+  // For a REAL user we also keep cleaning_profiles + assignments in sync so the
+  // classic UI, the per-assignment Excel, and the server cron reflect it.
+  async function liteAssignZone(sectionEs, personId) {
+    const cfg = liteConfig();
+    const key = liteCrewKey();
+    cfg[key] = cfg[key] || {};
+    if (personId == null) delete cfg[key][sectionEs]; else cfg[key][sectionEs] = personId;
+    saveLiteConfig(cfg);
+
+    const isRealUser = usersList.some(u => String(u.id) === String(personId));
+    // Only mutate the assignment tables for "this week" (the live schedule)
+    // and only for real users (schedule-only staff have no nexus_users row).
+    if (personId != null && isRealUser && liteWeek === 'this' && NX.sb) {
+      try {
+        // Remove this section from any OTHER person's scope (one person per zone).
+        for (const p of Object.values(profilesByUserId)) {
+          if (!p || String(p.user_id) === String(personId)) continue;
+          if (Array.isArray(p.allowed_sections) && p.allowed_sections.includes(sectionEs)) {
+            const secs = p.allowed_sections.filter(s => s !== sectionEs);
+            await NX.sb.from('cleaning_profiles').upsert({ user_id: p.user_id, working_days: p.working_days || [1,2,3,4,5,6,7], default_shift: p.default_shift || 'both', allowed_sections: secs, active: true, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+            profilesByUserId[p.user_id] = Object.assign({}, p, { allowed_sections: secs });
+          }
+        }
+        const prev = profilesByUserId[personId] || {};
+        const days = (Array.isArray(prev.working_days) && prev.working_days.length) ? prev.working_days : [1,2,3,4,5,6,7];
+        const shift = prev.default_shift || 'both';
+        const secs = Array.from(new Set([...(prev.allowed_sections || []), sectionEs]));
+        await NX.sb.from('cleaning_profiles').upsert({ user_id: personId, working_days: days, default_shift: shift, allowed_sections: secs, active: true, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+        profilesByUserId[personId] = { user_id: personId, working_days: days, default_shift: shift, allowed_sections: secs, active: true };
+        await autofillAssignmentsForUser(personId, days, shift, [sectionEs]);
+        await loadAssignments();
+      } catch (e) { console.warn('[cleanlite] assign zone:', e); }
+    }
+  }
+
+  // ─── Person picker (sheet) + new-employee (+optional login) ──────────────
+  function liteOpenPersonPicker(sectionEs) {
+    document.querySelectorAll('.cleanlite-sheet-bg').forEach(m => m.remove());
+    const people = litePeople();
+    const current = liteZonePerson(sectionEs);
+    const bg = document.createElement('div');
+    bg.className = 'cleanlite-sheet-bg';
+    bg.innerHTML = `
+      <div class="cleanlite-sheet" role="dialog" aria-modal="true">
+        <div class="cleanlite-sheet-grip"></div>
+        <div class="cleanlite-sheet-title">Who works <b>${esc(liteZoneName(sectionEs))}</b>?</div>
+        <div class="cleanlite-people">
+          <button class="cleanlite-person ${current == null ? 'is-active' : ''}" data-pid="">
+            <span class="cleanlite-av is-none">${svg('user', 16)}</span><span>Unassigned</span></button>
+          ${people.map(p => `
+            <button class="cleanlite-person ${String(p.id) === String(current) ? 'is-active' : ''}" data-pid="${esc(p.id)}">
+              <span class="cleanlite-av" style="--av-hue:${liteHue(p.id)}">${esc(liteInitials(p.name))}</span>
+              <span class="cleanlite-person-name">${esc(p.name)}</span>
+              ${p.login ? '<span class="cleanlite-tag">login</span>' : '<span class="cleanlite-tag is-muted">schedule</span>'}
+            </button>`).join('')}
+          <button class="cleanlite-person cleanlite-newemp" data-new>
+            <span class="cleanlite-av is-add">${svg('plus', 16)}</span><span>New employee…</span></button>
+        </div>
+      </div>`;
+    document.body.appendChild(bg);
+    requestAnimationFrame(() => bg.classList.add('open'));
+    const close = () => { bg.classList.remove('open'); setTimeout(() => bg.remove(), 200); };
+    bg.addEventListener('click', e => { if (e.target === bg) close(); });
+    bg.querySelectorAll('[data-pid]').forEach(btn => btn.addEventListener('click', async () => {
+      const pid = btn.dataset.pid === '' ? null : btn.dataset.pid;
+      close();
+      await liteAssignZone(sectionEs, pid);
+      render();
+      toast(pid == null ? 'Zone cleared' : `${litePersonName(pid)} → ${liteZoneName(sectionEs)}`, 'success');
+    }));
+    bg.querySelector('[data-new]').addEventListener('click', () => { close(); liteNewEmployee(sectionEs); });
+  }
+
+  function liteZoneName(es) { const z = liteZones().find(z => z.es === es); return z ? z.en : es; }
+
+  // New employee → ask name, then ask whether to create a NEXUS login.
+  function liteNewEmployee(sectionEs) {
+    if (!NX.composer?.modal) { toast('Composer unavailable', 'warn'); return; }
+    NX.composer.modal({
+      title: 'New employee', subtitle: 'Add someone to the cleaning crew',
+      buttonLabel: 'Next', fields: [{ name: 'name', label: 'Name', placeholder: 'e.g. Maria', autofocus: true }],
+      onSubmit: async ({ name }) => {
+        const nm = (name || '').trim();
+        if (!nm) return;
+        const wantsLogin = await NX.confirm(
+          `Create a NEXUS login for ${nm}?\n\nYes = they get a PIN and can sign in. No = name only, just on the cleaning schedule.`,
+          { okLabel: 'Create login', cancelLabel: 'Schedule only' });
+        if (wantsLogin) return liteCreateLogin(nm, sectionEs);
+        return liteCreateScheduleStaff(nm, sectionEs);
+      },
+    });
+  }
+
+  // Login path — reuses the existing add_user RPC. The MANAGER types the PIN;
+  // we never generate or store credentials.
+  function liteCreateLogin(name, sectionEs) {
+    NX.composer.modal({
+      title: `Login for ${name}`, subtitle: 'You set the PIN — share it with them privately.',
+      buttonLabel: 'Create login',
+      fields: [
+        { name: 'pin', label: 'PIN (4 digits)', placeholder: '4-digit PIN', autofocus: true },
+        { name: 'role', label: 'Role (staff / manager / admin)', placeholder: 'staff', value: 'staff' },
+      ],
+      onSubmit: async ({ pin, role }) => {
+        const p = (pin || '').trim();
+        if (!/^\d{3,8}$/.test(p)) { toast('PIN must be 3–8 digits', 'error'); return; }
+        if (!NX.sb) { toast('Not connected', 'error'); return; }
+        const { error } = await NX.sb.rpc('add_user', {
+          p_name: name, p_pin: p, p_role: (role || 'staff').trim() || 'staff',
+          p_location: activeLoc, p_language: 'en',
+        });
+        if (error) {
+          toast(/duplicate|unique|23505/i.test(error.code + error.message) ? 'That PIN is taken — pick another' : ('Error: ' + error.message), 'error');
+          return;
+        }
+        await loadUsers();
+        const created = usersList.find(u => u.name === name);
+        if (created) { await liteAssignZone(sectionEs, created.id); }
+        render();
+        toast(`${name} added with a login`, 'success');
+      },
+    });
+  }
+
+  // Schedule-only staff — stored in config, no login, no PIN.
+  async function liteCreateScheduleStaff(name, sectionEs) {
+    const cfg = liteConfig();
+    cfg.staff = Array.isArray(cfg.staff) ? cfg.staff : [];
+    const id = 'staff:' + name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + ':' + (cfg.staff.length + 1);
+    cfg.staff.push({ id, name });
+    saveLiteConfig(cfg);
+    await liteAssignZone(sectionEs, id);
+    render();
+    toast(`${name} added (schedule only)`, 'success');
+  }
+
+  // ─── Tap-to-complete ─────────────────────────────────────────────────────
+  async function liteToggleTask(t, rowEl) {
+    const now = !getDoneState(t.section_es, t.task_order);
+    setDoneState(t.section_es, t.task_order, now);
+    if (rowEl) rowEl.classList.toggle('is-done', now);
+    liteUpdateZonePill(t.section_es);
+    try { await persistDone(t.section_es, t.task_order, now); } catch (e) { console.warn('[cleanlite] persist:', e); }
+  }
+  function liteZoneCounts(sectionEs) {
+    const z = liteZones().find(z => z.es === sectionEs);
+    let done = 0, total = 0;
+    (z ? z.tasks : []).forEach(t => { if (DAILY_TYPES.has(t.frequency_type)) { total++; if (getDoneState(t.section_es, t.task_order)) done++; } });
+    return { done, total };
+  }
+  function liteUpdateZonePill(sectionEs) {
+    const { done, total } = liteZoneCounts(sectionEs);
+    const pill = document.querySelector(`.cleanlite-zone[data-zone="${cssEsc(sectionEs)}"] .cleanlite-zone-count`);
+    if (pill) { pill.textContent = `${done}/${total}`; pill.classList.toggle('is-complete', total > 0 && done === total); }
+  }
+  function cssEsc(s) { return String(s).replace(/["\\]/g, '\\$&'); }
+
+  // ─── Training guide (button-gated) ───────────────────────────────────────
+  function liteOpenZoneGuide(sectionEs) {
+    const z = liteZones().find(z => z.es === sectionEs);
+    let guide = null;
+    (z ? z.tasks : []).some(t => { const g = guidesLinkedByTaskId[t.id]; if (g && g.length) { guide = g[0]; return true; } return false; });
+    if (guide && NX.educationAPI && NX.educationAPI.openGuideViewer) {
+      NX.educationAPI.openGuideViewer(guide.id, { returnToView: 'clean' });
+      return;
+    }
+    // Fallback: an editable per-zone note.
+    const cfg = liteConfig(); cfg.zoneNotes = cfg.zoneNotes || {};
+    if (NX.composer?.modal) {
+      NX.composer.modal({
+        title: `${liteZoneName(sectionEs)} — guide`, subtitle: 'No training guide linked yet — jot the basics here.',
+        buttonLabel: 'Save', fields: [{ name: 'note', label: 'How to clean this zone', value: cfg.zoneNotes[sectionEs] || '', multiline: true, autofocus: true }],
+        onSubmit: ({ note }) => { cfg.zoneNotes[sectionEs] = (note || '').trim(); saveLiteConfig(cfg); toast('Saved', 'success'); },
+      });
+    }
+  }
+
+  // ─── Autofill the whole week (real users) + same-as-last-week ────────────
+  async function liteAutofillWeek() {
+    const r = await autofillScheduleWeek();
+    await loadAssignments();
+    render();
+    toast(r.people ? `Filled ${r.total} tasks for ${r.people} people` : 'Set a person on each zone first', r.people ? 'success' : 'info');
+  }
+  async function liteSameAsLastWeek() {
+    const cfg = liteConfig();
+    cfg.zoneCrew = Object.assign({}, cfg.nextZoneCrew || {}, cfg.zoneCrew || {});
+    cfg.nextZoneCrew = Object.assign({}, cfg.zoneCrew);
+    saveLiteConfig(cfg);
+    render();
+    toast('Next week copied from this week', 'success');
+  }
+
+  // ─── Print week (clean grid + QR) and .xlsx ──────────────────────────────
+  function litePrintWeek() {
+    const zones = liteZones();
+    const rows = zones.map(z => {
+      const person = litePersonName(liteZonePerson(z.es)) || '—';
+      return z.tasks.map(t => `<tr><td>${esc(z.en)}</td><td>${esc(t.name_en || t.name_es || '')}</td><td>${esc(freqLabelFor(t))}</td><td>${esc(person)}</td><td class="ck"></td></tr>`).join('');
+    }).join('');
+    let qr = '';
+    try { if (window.NexusQR) qr = NexusQR.svg(location.origin + location.pathname, { ecl: 'M', border: 1, scale: 4, dark: '#0e1320', light: '#fff' }); } catch (_) {}
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Cleaning — ${esc(locLabel(activeLoc))} — week of ${esc(today)}</title>
+      <style>
+        *{box-sizing:border-box} body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111;margin:26px;font-size:12px}
+        h1{font-size:19px;margin:0} .sub{color:#666;margin:2px 0 14px}
+        table{border-collapse:collapse;width:100%} th,td{border:1px solid #ccc;padding:6px 8px;text-align:left;vertical-align:top}
+        th{background:#222;color:#fff;font-size:11px} tbody tr:nth-child(even){background:#f6f6f6}
+        td.ck{width:42px} .hd{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+        .qr{width:96px;height:96px;flex:0 0 auto} @media print{body{margin:.5in}}
+      </style></head><body>
+      <div class="hd"><div><h1>Cleaning — ${esc(locLabel(activeLoc))}</h1><div class="sub">Week of ${esc(today)} · scan to open live</div></div><div class="qr">${qr}</div></div>
+      <table><thead><tr><th>Zone</th><th>Task</th><th>Frequency</th><th>Assigned</th><th>Done</th></tr></thead><tbody>${rows || '<tr><td colspan="5">No tasks.</td></tr>'}</tbody></table>
+      <p class="sub" style="margin-top:18px">Generated by NEXUS · ${esc(new Date().toLocaleString())}</p></body></html>`;
+    const w = window.open('', '_blank');
+    if (!w) { toast('Allow pop-ups to print', 'error'); return; }
+    w.document.open(); w.document.write(html); w.document.close();
+    setTimeout(() => { try { w.focus(); w.print(); } catch (_) {} }, 350);
+  }
+
+  // ─── Render ──────────────────────────────────────────────────────────────
+  function renderLite(list) {
+    list.innerHTML = '';
+    const cfg = liteConfig();
+    const zones = liteZones();
+    const wrap = document.createElement('div');
+    wrap.className = 'cleanlite';
+
+    const locPills = LOCATIONS.map(l => `<button class="cleanlite-loc ${l === activeLoc ? 'is-active' : ''}" data-loc="${l}">${esc(locLabel(l))}</button>`).join('');
+    const zoneCards = zones.map(z => {
+      const pid = liteZonePerson(z.es);
+      const nm = litePersonName(pid);
+      const { done, total } = liteZoneCounts(z.es);
+      const taskRows = z.tasks.map(t => {
+        const isDone = getDoneState(t.section_es, t.task_order);
+        return `<button class="cleanlite-task ${isDone ? 'is-done' : ''}" data-task-id="${esc(t.id)}">
+          <span class="cleanlite-check">${svg('check', 13)}</span>
+          <span class="cleanlite-task-name">${esc(t.name_en || t.name_es || '')}</span>
+          ${DAILY_TYPES.has(t.frequency_type) ? '' : `<span class="cleanlite-freq">${esc(freqLabelFor(t))}</span>`}
+        </button>`;
+      }).join('');
+      return `<div class="cleanlite-zone" data-zone="${esc(z.es)}">
+        <div class="cleanlite-zone-head">
+          <button class="cleanlite-person-btn" data-pick-zone="${esc(z.es)}" title="Change who works this zone">
+            <span class="cleanlite-av ${nm ? '' : 'is-none'}" ${nm ? `style="--av-hue:${liteHue(pid)}"` : ''}>${nm ? esc(liteInitials(nm)) : svg('user', 14)}</span>
+          </button>
+          <div class="cleanlite-zone-titles"><div class="cleanlite-zone-name">${esc(z.en)}</div><div class="cleanlite-zone-person">${nm ? esc(nm) : 'Tap to assign'}</div></div>
+          <span class="cleanlite-zone-count ${total > 0 && done === total ? 'is-complete' : ''}">${done}/${total}</span>
+          <button class="cleanlite-guide" data-guide-zone="${esc(z.es)}" title="Training guide">${svg('book', 15)}</button>
+        </div>
+        <div class="cleanlite-tasks">${taskRows || '<div class="cleanlite-empty">No tasks in this zone.</div>'}</div>
+      </div>`;
+    }).join('');
+
+    wrap.innerHTML = `
+      <div class="cleanlite-top">
+        <div class="cleanlite-loc-picker">${locPills}</div>
+        <button class="cleanlite-adv" data-advanced title="Switch to the full classic cleaning view">${svg('maximize', 13)} Advanced</button>
+      </div>
+      <div class="cleanlite-weekrow">
+        <div class="cleanlite-weektoggle">
+          <button class="cleanlite-week ${liteWeek === 'this' ? 'is-active' : ''}" data-week="this">This week</button>
+          <button class="cleanlite-week ${liteWeek === 'next' ? 'is-active' : ''}" data-week="next">Next week</button>
+        </div>
+        <button class="cleanlite-mini" data-same-week title="Copy this week's crew to next week">${svg('calendar', 12)} Same as this</button>
+      </div>
+      <div class="cleanlite-zones">${zoneCards || '<div class="cleanlite-empty">No zones yet — add tasks in Advanced.</div>'}</div>
+      <div class="cleanlite-cta-wrap">
+        <button class="cleanlite-cta" data-autofill>${svg('calendar', 15)} Autofill the week</button>
+        <button class="cleanlite-cta is-ghost" data-print>${svg('document', 15)} Print week</button>
+      </div>`;
+
+    // wiring
+    wrap.querySelectorAll('[data-loc]').forEach(b => b.addEventListener('click', async () => {
+      activeLoc = b.dataset.loc;
+      await loadTodayState(); await loadHistory(); await loadAssignments(); await loadProfiles();
+      render();
+    }));
+    wrap.querySelector('[data-advanced]').addEventListener('click', () => {
+      cleaningSimpleMode = false; localStorage.setItem('nexus_cleaning_lite', '0');
+      showingLocationCards = false; render();
+    });
+    wrap.querySelectorAll('[data-week]').forEach(b => b.addEventListener('click', () => { liteWeek = b.dataset.week; render(); }));
+    wrap.querySelector('[data-same-week]').addEventListener('click', liteSameAsLastWeek);
+    wrap.querySelectorAll('[data-pick-zone]').forEach(b => b.addEventListener('click', () => liteOpenPersonPicker(b.dataset.pickZone)));
+    wrap.querySelectorAll('[data-guide-zone]').forEach(b => b.addEventListener('click', () => liteOpenZoneGuide(b.dataset.guideZone)));
+    wrap.querySelectorAll('.cleanlite-task').forEach(b => b.addEventListener('click', () => {
+      const z = liteZones().find(z => z.tasks.some(t => String(t.id) === b.dataset.taskId));
+      const t = z && z.tasks.find(t => String(t.id) === b.dataset.taskId);
+      if (t) liteToggleTask(t, b);
+    }));
+    wrap.querySelector('[data-autofill]').addEventListener('click', liteAutofillWeek);
+    wrap.querySelector('[data-print]').addEventListener('click', litePrintWeek);
+
+    list.appendChild(wrap);
   }
 
   // ═══ EXPORTS ════════════════════════════════════════════════════════════
