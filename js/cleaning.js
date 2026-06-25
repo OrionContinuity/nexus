@@ -4987,6 +4987,14 @@
   // Crew scope being edited/shown: 'all' (every day) or a day-of-week 1..7
   // (1=Sun, Postgres convention). Defaults to today so it opens on today's crew.
   let liteDay = todayDayOfWeek();
+  // Overview = all locations' cleaning at a glance (the "All" pill).
+  let liteOverview = false;
+  async function liteSwitchLoc(loc) {
+    if (loc === '__all__') { liteOverview = true; await loadAllLocProgress(); render(); return; }
+    liteOverview = false; activeLoc = loc;
+    await loadTodayState(); await loadHistory(); await loadAssignments(); await loadProfiles();
+    render();
+  }
 
   function liteConfig() { try { return JSON.parse(localStorage.getItem('nexus_cleaning_config') || '{}'); } catch (_) { return {}; } }
   function saveLiteConfig(c) { try { localStorage.setItem('nexus_cleaning_config', JSON.stringify(c)); } catch (_) {} }
@@ -5212,6 +5220,66 @@
     }
   }
 
+  // ─── Per-zone actions menu (cover/swap · note · history · photo) ─────────
+  function liteZoneNoteText(sectionEs) { const c = liteConfig(); return (c.notes && c.notes[sectionEs]) || ''; }
+  function liteOpenZoneMenu(sectionEs, btn) {
+    const hasNote = !!liteZoneNoteText(sectionEs);
+    const html =
+      `<button class="clean-menu-item" data-act="swap">${svg('user', 14)} Cover / swap person</button>` +
+      `<button class="clean-menu-item" data-act="note">${svg('pen', 14)} ${hasNote ? 'Edit note' : 'Add note'}</button>` +
+      `<button class="clean-menu-item" data-act="history">${svg('calendar', 14)} History</button>` +
+      `<button class="clean-menu-item" data-act="photo">${svg('camera', 14)} Add photo</button>`;
+    const ref = openMenuNear(btn, html);
+    const menu = ref && ref.menu ? ref.menu : null;
+    const close = (ref && ref.close) ? ref.close : () => { if (menu) menu.remove(); };
+    if (!menu) return;
+    menu.querySelector('[data-act="swap"]').addEventListener('click', () => { close(); liteOpenPersonPicker(sectionEs); });
+    menu.querySelector('[data-act="note"]').addEventListener('click', () => { close(); liteZoneNote(sectionEs); });
+    menu.querySelector('[data-act="history"]').addEventListener('click', () => { close(); liteZoneHistory(sectionEs); });
+    menu.querySelector('[data-act="photo"]').addEventListener('click', () => { close(); liteZonePhoto(sectionEs); });
+  }
+  function liteZoneNote(sectionEs) {
+    if (!NX.composer?.modal) { toast('Composer unavailable', 'warn'); return; }
+    const cfg = liteConfig(); cfg.notes = cfg.notes || {};
+    NX.composer.modal({
+      title: `${liteZoneName(sectionEs)} — note`, subtitle: 'A quick note for this zone — shows on the card.',
+      buttonLabel: 'Save', fields: [{ name: 'note', label: 'Note', value: cfg.notes[sectionEs] || '', multiline: true, autofocus: true }],
+      onSubmit: ({ note }) => {
+        const t = (note || '').trim();
+        if (t) cfg.notes[sectionEs] = t; else delete cfg.notes[sectionEs];
+        saveLiteConfig(cfg); render(); toast(t ? 'Note saved' : 'Note cleared', 'success');
+      },
+    });
+  }
+  // Recent completion history for a zone, from lastDoneByKey (section_taskOrder).
+  function liteZoneHistory(sectionEs) {
+    document.querySelectorAll('.cleanlite-sheet-bg').forEach(m => m.remove());
+    const z = liteZones().find(z => z.es === sectionEs);
+    const rows = (z ? z.tasks : []).map(t => {
+      const last = lastDoneByKey[`${t.section_es}_${t.task_order}`];
+      const done = getDoneState(t.section_es, t.task_order);
+      const when = done ? 'today' : (last && last.date ? esc(last.date) : 'never');
+      const by = (last && last.by) ? ` · ${esc(last.by)}` : '';
+      return `<div class="cleanlite-hist-row"><span class="cleanlite-hist-task">${esc(t.name_en || t.name_es || '')}</span><span class="cleanlite-hist-when ${done ? 'is-today' : ''}">${when}${by}</span></div>`;
+    }).join('');
+    const bg = document.createElement('div');
+    bg.className = 'cleanlite-sheet-bg';
+    bg.innerHTML = `<div class="cleanlite-sheet" role="dialog" aria-modal="true">
+      <div class="cleanlite-sheet-grip"></div>
+      <div class="cleanlite-sheet-title">${esc(liteZoneName(sectionEs))} · last cleaned</div>
+      <div class="cleanlite-hist">${rows || '<div class="cleanlite-empty">No tasks.</div>'}</div></div>`;
+    document.body.appendChild(bg);
+    requestAnimationFrame(() => bg.classList.add('open'));
+    bg.addEventListener('click', e => { if (e.target === bg) { bg.classList.remove('open'); setTimeout(() => bg.remove(), 200); } });
+  }
+  function liteZonePhoto(sectionEs) {
+    const z = liteZones().find(z => z.es === sectionEs);
+    const first = z && z.tasks[0];
+    if (!first) { toast('No task in this zone to attach a photo to', 'info'); return; }
+    if (typeof uploadPhotoForTask === 'function') uploadPhotoForTask(first);
+    else toast('Photo upload unavailable', 'warn');
+  }
+
   // ─── Apply the whole per-day schedule to the assignment tables ───────────
   // Writes every cfg.dayCrew[day][zone] → cleaning_task_assignments for real
   // users, so the live duties / per-assignment Excel / server cron all match.
@@ -5271,6 +5339,87 @@
     setTimeout(() => { try { w.focus(); w.print(); } catch (_) {} }, 350);
   }
 
+  // ─── Cleaning summary → email + Daily Log tie-in ─────────────────────────
+  // Builds a human-readable recap of the day: per-zone completion, the
+  // monthly/quarterly tasks knocked out today, and any zone notes ("odd
+  // things" / extras). Feeds the email composer and the daily log.
+  function liteBuildSummary(loc) {
+    loc = loc || activeLoc;
+    const cfg = liteConfig();
+    const zones = tasksBySection(loc).map(g => ({ es: g.section_es, en: g.section_en || g.section_es, tasks: g.tasks }));
+    let dDone = 0, dTotal = 0;
+    const zoneLines = [], periodic = [], noteLines = [];
+    zones.forEach(z => {
+      let zd = 0, zt = 0;
+      z.tasks.forEach(t => {
+        const done = getDoneState(t.section_es, t.task_order);
+        if (DAILY_TYPES.has(t.frequency_type)) { zt++; dTotal++; if (done) { zd++; dDone++; } }
+        else if (done) periodic.push((t.name_en || t.name_es || '') + ' (' + freqLabelFor(t) + ')');
+      });
+      const person = litePersonName(liteZonePerson(z.es, todayDayOfWeek()));
+      zoneLines.push(z.en + ' — ' + zd + '/' + zt + ' done' + (person ? ' · ' + person : ''));
+      const note = (cfg.notes && cfg.notes[z.es]) ? cfg.notes[z.es] : '';
+      if (note) noteLines.push(z.en + ': ' + note);
+    });
+    const pct = dTotal ? Math.round(dDone / dTotal * 100) : 0;
+    let out = 'CLEANING SUMMARY — ' + locLabel(loc) + ' — ' + today + '\n'
+      + 'Overall: ' + pct + '% (' + dDone + '/' + dTotal + ' daily tasks done)\n\nBy zone:\n'
+      + zoneLines.map(l => '  ' + l).join('\n');
+    if (periodic.length) out += '\n\nMonthly / quarterly completed today:\n' + periodic.map(l => '  • ' + l).join('\n');
+    if (noteLines.length) out += '\n\nNotes / odd things:\n' + noteLines.map(l => '  • ' + l).join('\n');
+    return { text: out, pct, dDone, dTotal };
+  }
+  function liteOpenSummary(loc) {
+    const s = liteBuildSummary(loc);
+    document.querySelectorAll('.cleanlite-sheet-bg').forEach(m => m.remove());
+    const bg = document.createElement('div');
+    bg.className = 'cleanlite-sheet-bg';
+    bg.innerHTML = `<div class="cleanlite-sheet" role="dialog" aria-modal="true">
+      <div class="cleanlite-sheet-grip"></div>
+      <div class="cleanlite-sheet-title">Cleaning summary · ${esc(locLabel(loc || activeLoc))}</div>
+      <pre class="cleanlite-summary">${esc(s.text)}</pre>
+      <div class="cleanlite-summary-actions">
+        <button class="cleanlite-cta" data-sum="email">${svg('mail', 15)} Email summary</button>
+        <button class="cleanlite-cta is-ghost" data-sum="dlog">${svg('document', 15)} Send to Daily Log</button>
+      </div></div>`;
+    document.body.appendChild(bg);
+    requestAnimationFrame(() => bg.classList.add('open'));
+    const close = () => { bg.classList.remove('open'); setTimeout(() => bg.remove(), 200); };
+    bg.addEventListener('click', e => { if (e.target === bg) close(); });
+    bg.querySelector('[data-sum="email"]').addEventListener('click', () => {
+      close();
+      if (window.NX && typeof NX.composeEmail === 'function') {
+        NX.composeEmail({ recipientsKey: 'clean:summary:' + (loc || activeLoc), title: 'Email cleaning summary',
+          subject: 'Cleaning summary — ' + locLabel(loc || activeLoc) + ' — ' + today, body: s.text });
+      } else { toast('Email composer unavailable', 'warn'); }
+    });
+    bg.querySelector('[data-sum="dlog"]').addEventListener('click', async () => { close(); await liteSummaryToDailyLog(loc || activeLoc, s.text); });
+  }
+  // Merge the summary into today's daily log (facility_logs.data.cleaning).
+  // Read-merge-write so we don't clobber other daily-log fields.
+  async function liteSummaryToDailyLog(loc, text) {
+    if (!NX.sb) { toast('Not connected', 'error'); return; }
+    try {
+      const me = (NX.currentUser && NX.currentUser.id) || null;
+      const dateStr = today;
+      let row = null;
+      try {
+        const q = NX.sb.from('facility_logs').select('id, data').eq('log_date', dateStr).eq('log_type', 'daily');
+        const { data } = me ? await q.eq('created_by', me).maybeSingle() : await q.limit(1).maybeSingle();
+        row = data || null;
+      } catch (_) {}
+      const data = (row && row.data) || {};
+      data.cleaning = data.cleaning || {};
+      // Append into the cleaning summary field; keep prior text.
+      const prev = (data.cleaning.summary || '').trim();
+      data.cleaning.summary = (prev ? prev + '\n\n' : '') + text;
+      const payload = { log_date: dateStr, log_type: 'daily', data: data, created_by: me, updated_at: new Date().toISOString() };
+      if (row && row.id) await NX.sb.from('facility_logs').update({ data: data, updated_at: payload.updated_at }).eq('id', row.id);
+      else await NX.sb.from('facility_logs').upsert(payload, { onConflict: 'log_date,log_type,created_by' });
+      toast('Summary added to today’s Daily Log', 'success');
+    } catch (e) { console.warn('[cleanlite] summary→dlog:', e); toast('Could not reach the Daily Log', 'error'); }
+  }
+
   // ─── Render ──────────────────────────────────────────────────────────────
   function renderLite(list) {
     list.innerHTML = '';
@@ -5281,7 +5430,34 @@
 
     const todayDow = todayDayOfWeek();
     const scopeLabel = liteDay === 'all' ? 'every day' : LITE_DOW[liteDay - 1];
-    const locPills = LOCATIONS.map(l => `<button class="cleanlite-loc ${l === activeLoc ? 'is-active' : ''}" data-loc="${l}">${esc(locLabel(l))}</button>`).join('');
+    const locPills = `<button class="cleanlite-loc ${liteOverview ? 'is-active' : ''}" data-loc="__all__">All</button>` +
+      LOCATIONS.map(l => `<button class="cleanlite-loc ${(!liteOverview && l === activeLoc) ? 'is-active' : ''}" data-loc="${l}">${esc(locLabel(l))}</button>`).join('');
+
+    // ── Overview: every location's cleaning progress in one place ──────────
+    if (liteOverview) {
+      const cards = LOCATIONS.map(l => {
+        const pct = progressByLoc[l] != null ? Math.round(progressByLoc[l]) : 0;
+        const zoneCount = (tasksBySection(l) || []).length;
+        return `<button class="cleanlite-ovcard" data-enter-loc="${l}">
+          <div class="cleanlite-ovcard-head">
+            <span class="cleanlite-ovcard-name">${esc(locLabel(l))}</span>
+            <span class="cleanlite-ovcard-pct ${pct >= 100 ? 'is-complete' : ''}">${pct}%</span>
+          </div>
+          <div class="cleanlite-ovbar"><div class="cleanlite-ovbar-fill" style="width:${pct}%"></div></div>
+          <div class="cleanlite-ovcard-sub">${zoneCount} zone${zoneCount === 1 ? '' : 's'} · tap to open</div>
+        </button>`;
+      }).join('');
+      wrap.innerHTML = `
+        <div class="cleanlite-top"><div class="cleanlite-loc-picker">${locPills}</div></div>
+        <div class="cleanlite-ovhead">All cleaning · today</div>
+        <div class="cleanlite-ovgrid">${cards}</div>
+        <div class="cleanlite-cta-wrap"><button class="cleanlite-cta is-ghost" data-print>${svg('document', 15)} Print week</button></div>`;
+      wrap.querySelectorAll('[data-loc]').forEach(b => b.addEventListener('click', () => liteSwitchLoc(b.dataset.loc)));
+      wrap.querySelectorAll('[data-enter-loc]').forEach(b => b.addEventListener('click', () => liteSwitchLoc(b.dataset.enterLoc)));
+      wrap.querySelector('[data-print]').addEventListener('click', litePrintWeek);
+      list.appendChild(wrap);
+      return;
+    }
     const dayPills = `<button class="cleanlite-day ${liteDay === 'all' ? 'is-active' : ''}" data-day="all">All</button>` +
       LITE_DOW.map((lbl, i) => `<button class="cleanlite-day ${liteDay === i + 1 ? 'is-active' : ''} ${todayDow === i + 1 ? 'is-today' : ''}" data-day="${i + 1}" title="${esc(lbl)}">${lbl[0]}</button>`).join('');
 
@@ -5289,6 +5465,7 @@
       const pid = liteZonePerson(z.es, liteDay);
       const varies = pid === '__varies__';
       const nm = varies ? 'Varies' : litePersonName(pid);
+      const note = liteZoneNoteText(z.es);
       const { done, total } = liteZoneCounts(z.es);
       const taskRows = z.tasks.map(t => {
         const isDone = getDoneState(t.section_es, t.task_order);
@@ -5306,7 +5483,9 @@
           <div class="cleanlite-zone-titles"><div class="cleanlite-zone-name">${esc(z.en)}</div><div class="cleanlite-zone-person">${nm ? esc(nm) : 'Tap to assign'}</div></div>
           <span class="cleanlite-zone-count ${total > 0 && done === total ? 'is-complete' : ''}">${done}/${total}</span>
           <button class="cleanlite-guide" data-guide-zone="${esc(z.es)}" title="Training guide">${svg('book', 15)}</button>
+          <button class="cleanlite-guide cleanlite-kebab" data-zone-menu="${esc(z.es)}" title="More — swap, note, history, photo">⋮</button>
         </div>
+        ${note ? `<div class="cleanlite-zone-noterow">${svg('pen', 11)}<span>${esc(note)}</span></div>` : ''}
         <div class="cleanlite-tasks">${taskRows || '<div class="cleanlite-empty">No tasks in this zone.</div>'}</div>
       </div>`;
     }).join('');
@@ -5322,22 +5501,20 @@
       </div>
       <div class="cleanlite-zones">${zoneCards || '<div class="cleanlite-empty">No zones yet — add tasks for this location first.</div>'}</div>
       <div class="cleanlite-cta-wrap">
-        <button class="cleanlite-cta" data-apply title="Write the whole week's crew to the live duties">${svg('calendar', 15)} Apply schedule</button>
-        <button class="cleanlite-cta is-ghost" data-print>${svg('document', 15)} Print week</button>
+        <button class="cleanlite-cta" data-apply title="Write the whole week's crew to the live duties">${svg('calendar', 15)} Apply</button>
+        <button class="cleanlite-cta is-ghost" data-summary title="Email a cleaning summary or send it to the Daily Log">${svg('mail', 15)} Summary</button>
+        <button class="cleanlite-cta is-ghost" data-print title="Printable weekly schedule">${svg('document', 15)} Print</button>
       </div>`;
 
     // wiring
-    wrap.querySelectorAll('[data-loc]').forEach(b => b.addEventListener('click', async () => {
-      activeLoc = b.dataset.loc;
-      await loadTodayState(); await loadHistory(); await loadAssignments(); await loadProfiles();
-      render();
-    }));
+    wrap.querySelectorAll('[data-loc]').forEach(b => b.addEventListener('click', () => liteSwitchLoc(b.dataset.loc)));
     wrap.querySelectorAll('[data-day]').forEach(b => b.addEventListener('click', () => {
       const v = b.dataset.day; liteDay = v === 'all' ? 'all' : parseInt(v, 10); render();
     }));
     const copyAll = wrap.querySelector('[data-copy-all]'); if (copyAll) copyAll.addEventListener('click', liteCopyDayToAll);
     wrap.querySelectorAll('[data-pick-zone]').forEach(b => b.addEventListener('click', () => liteOpenPersonPicker(b.dataset.pickZone)));
     wrap.querySelectorAll('[data-guide-zone]').forEach(b => b.addEventListener('click', () => liteOpenZoneGuide(b.dataset.guideZone)));
+    wrap.querySelectorAll('[data-zone-menu]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); liteOpenZoneMenu(b.dataset.zoneMenu, b); }));
     wrap.querySelectorAll('.cleanlite-task').forEach(b => b.addEventListener('click', () => {
       const z = liteZones().find(z => z.tasks.some(t => String(t.id) === b.dataset.taskId));
       const t = z && z.tasks.find(t => String(t.id) === b.dataset.taskId);
@@ -5345,6 +5522,7 @@
     }));
     wrap.querySelector('[data-apply]').addEventListener('click', liteApplySchedule);
     wrap.querySelector('[data-print]').addEventListener('click', litePrintWeek);
+    const sumBtn = wrap.querySelector('[data-summary]'); if (sumBtn) sumBtn.addEventListener('click', () => liteOpenSummary(activeLoc));
 
     list.appendChild(wrap);
   }

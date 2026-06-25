@@ -1152,6 +1152,10 @@ function render() {
           `}
 
         <div class="dlog-actions">
+          <span class="dlog-autosend-wrap">
+            <button type="button" class="eq-btn eq-btn-secondary dlog-autosend-toggle ${dlogAutoSendOn() ? 'is-on' : ''}" id="dlogAutoSendBtn" title="When on, this log auto-uploads to Drive when you leave the screen — and, if still not sent by the time on the right, it sends automatically. Edits autosave continuously so nothing is lost.">${dlogAutoSendOn() ? '🔁 Auto-send: On' : '🔁 Auto-send: Off'}</button>
+            <input type="time" id="dlogAutoSendTime" class="dlog-autosend-time" value="${esc(dlogAutoSendTime())}" title="If not sent by this time, send automatically" ${dlogAutoSendOn() ? '' : 'style="display:none"'}>
+          </span>
           <button type="button" class="eq-btn eq-btn-secondary" id="dlogEmailBtn" title="${esc(emailBtnTitle)}">${esc(emailBtnLabel)}</button>
           <button type="button" class="eq-btn eq-btn-secondary" id="dlogSaveDraftBtn">Save</button>
           <button type="button" class="eq-btn eq-btn-primary"   id="dlogSubmitBtn">${esc(uploadBtnLabel)}</button>
@@ -1955,6 +1959,23 @@ function wireForm() {
   if (submitBtn) submitBtn.addEventListener('click', () => commitSave({ submit: true }));
   const emailBtn = view.querySelector('#dlogEmailBtn');
   if (emailBtn) emailBtn.addEventListener('click', () => openDailyLogEmail());
+  const autoSendBtn = view.querySelector('#dlogAutoSendBtn');
+  const autoSendTime = view.querySelector('#dlogAutoSendTime');
+  if (autoSendBtn) autoSendBtn.addEventListener('click', () => {
+    const on = !dlogAutoSendOn();
+    try { localStorage.setItem('nexus_dlog_autosend', on ? '1' : '0'); } catch (_) {}
+    autoSendBtn.textContent = on ? '🔁 Auto-send: On' : '🔁 Auto-send: Off';
+    autoSendBtn.classList.toggle('is-on', on);
+    if (autoSendTime) autoSendTime.style.display = on ? '' : 'none';
+    if (NX.toast) NX.toast(on
+      ? `Auto-send on — uploads to Drive when you leave, or by ${dlogAutoSendTime()} if still unsent`
+      : 'Auto-send off — use Upload to send manually', on ? 'success' : 'info', 3800);
+  });
+  if (autoSendTime) autoSendTime.addEventListener('change', () => {
+    const v = autoSendTime.value || '22:00';
+    try { localStorage.setItem('nexus_dlog_autosend_time', v); } catch (_) {}
+    if (NX.toast) NX.toast(`Auto-send by ${v} if not sent`, 'info');
+  });
 }
 
 // ── Email composer ────────────────────────────────────────────────────────
@@ -2200,8 +2221,11 @@ async function maybeAutoWeather() {
     if (!log.data) log.data = hydrateData(null);
     if (!log.data.header) log.data.header = {};
     if (String(log.data.header.weather || '').trim()) return; // never overwrite a manual entry
-    const guardKey = 'nexus_weather_done_' + dateStr;
-    try { if (localStorage.getItem(guardKey)) return; } catch (_) {}
+    // The empty-field check above IS the dedupe — so weather auto-fills EVERY
+    // day the field is blank, instead of being blocked forever by a sticky
+    // localStorage "done" flag (which lost the weather if a save ever failed).
+    if (state._weatherFetching) return;
+    state._weatherFetching = true;
 
     const url = 'https://api.open-meteo.com/v1/forecast'
       + '?latitude=' + WEATHER_COORDS.lat + '&longitude=' + WEATHER_COORDS.lon
@@ -2222,12 +2246,12 @@ async function maybeAutoWeather() {
       + 'avg ' + avg + '\u00b0F (H ' + Math.round(hi) + ' / L ' + Math.round(lo) + ')';
     if (precip > 0.01) str += ' \u00b7 ' + precip.toFixed(2) + '" precip';
 
-    try { localStorage.setItem(guardKey, '1'); } catch (_) {}
     log.data.header.weather = str;
     const input = document.querySelector('[data-path="header.weather"]');
     if (input && !input.value.trim()) input.value = str;
     markDirty();   // quiet autosave so it persists with the rest of the log
-  } catch (e) { if (window.NX && NX.debug) NX.debug('dlog.weather', e); /* offline/API hiccup — field stays editable */ }
+  } catch (e) { if (window.NX && NX.debug) NX.debug('dlog.weather', e); /* offline/API hiccup — field stays editable, retries next open */ }
+  finally { state._weatherFetching = false; }
 }
 
 function ensureCurrentLog() {
@@ -2263,8 +2287,56 @@ function writeFieldToState(path, value) {
 function markDirty() {
   state.dirty = true;
   if (state.saveTimer) clearTimeout(state.saveTimer);
-  // Autosave after 3s of typing-pause. Quiet — no toast unless it fails.
-  state.saveTimer = setTimeout(() => commitSave({ submit: false, quiet: true }), 3000);
+  // Autosave after a short typing-pause. Quiet — no toast unless it fails.
+  state.saveTimer = setTimeout(() => commitSave({ submit: false, quiet: true }), 1200);
+}
+
+// ─── No-data-loss: flush pending saves when the tab is hidden / closed, and
+//     (if auto-send is on) auto-upload the day's log to Drive on leave. Wired
+//     once in init(). dlogAutoSendOn() reads the per-device toggle. ───────────
+function dlogAutoSendOn() { try { return localStorage.getItem('nexus_dlog_autosend') === '1'; } catch (_) { return false; } }
+function dlogAutoSendTime() { try { return localStorage.getItem('nexus_dlog_autosend_time') || '22:00'; } catch (_) { return '22:00'; } }
+function dlogHasContent(d) {
+  if (!d) return false;
+  return !!((d.header && (d.header.weather || d.header.significant_events)) ||
+    (d.planning && (d.planning.tomorrow_plan || d.planning.this_week || d.planning.side_notes)) ||
+    (Array.isArray(d.locations) && d.locations.length) ||
+    (d.cleaning && Object.values(d.cleaning).some(v => String(v || '').trim())));
+}
+let _dlogLifecycleWired = false;
+function wireDlogLifecycle() {
+  if (_dlogLifecycleWired) return;
+  _dlogLifecycleWired = true;
+  // Time-based safety net: if auto-send is on and today's log still isn't
+  // uploaded by the cutoff time, send it automatically. Runs every 3 min while
+  // the app is open. (A fully-closed app can't fire this — a true unattended
+  // send would need a server cron; this covers the always-open ops tablet.)
+  setInterval(() => {
+    try {
+      if (!dlogAutoSendOn()) return;
+      const log = state.currentLog;
+      if (!log || !log.data) return;
+      if ((log.log_date || todayISO()) !== todayISO()) return;     // today only
+      if (log.drive_upload_status === 'uploaded') return;          // already sent
+      const now = new Date();
+      const hhmm = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+      if (hhmm < dlogAutoSendTime()) return;                        // not yet cutoff
+      if (!dlogHasContent(log.data)) return;
+      commitSave({ submit: true, quiet: true });
+    } catch (_) {}
+  }, 180000);
+  const flush = () => {
+    if (state.saveTimer) { clearTimeout(state.saveTimer); state.saveTimer = null; }
+    const onView = document.body.classList.contains('view-dailylog') || (document.getElementById('dailylogView') || {}).classList?.contains('active');
+    if (!state.dirty && !(dlogAutoSendOn() && onView)) return;
+    // Auto-send: upload to Drive when leaving (only if the toggle is on and we
+    // have a log with content). Otherwise just a quiet DB save so edits persist.
+    const hasContent = state.currentLog && state.currentLog.data;
+    if (dlogAutoSendOn() && onView && hasContent) commitSave({ submit: true, quiet: true });
+    else if (state.dirty) commitSave({ submit: false, quiet: true });
+  };
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); });
+  window.addEventListener('pagehide', flush);
 }
 
 async function commitSave(opts) {
@@ -2435,6 +2507,7 @@ async function init() {
   // an underscore placeholder for the locations side-channel (which
   // already sets state.equipmentLocations internally — we don't need
   // the return value).
+  wireDlogLifecycle();   // flush-on-leave autosave + auto-send (idempotent)
   const today = todayISO();
   const [rs, todayRow, _locations, activity, slices, vendors, vendorIssues, eqDown] = await Promise.all([
     loadRecentLogs(),
