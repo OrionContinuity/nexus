@@ -605,17 +605,22 @@ const NX = {
   },
 
   async _loadConfigAndStart() {
-    // Load config from Supabase
+    // Load NON-SECRET config. SECURITY: the base nexus_config table holds the
+    // Anthropic/ElevenLabs/Trello secrets and must be locked to anon (the
+    // publishable key is public). We read the `nexus_config_public` VIEW, which
+    // exposes only non-secret columns; API keys live in localStorage per device
+    // (getApiKey/getElevenKey already fall back to it). Falls back to the base
+    // table if the view doesn't exist yet, so nothing breaks before migration.
     try {
-      const { data, error } = await this.sb.from('nexus_config').select('*').eq('id', 1).single();
-      if (error) { 
-        console.error('NEXUS config error:', error.message);
-        // Table might not exist — create it
-        if (error.code === 'PGRST116' || error.message.includes('not found')) {
-          console.log('NEXUS: nexus_config table may not exist. Using localStorage fallback.');
-        }
+      let { data, error } = await this.sb.from('nexus_config_public').select('*').eq('id', 1).single();
+      if (error && (error.code === '42P01' || error.code === 'PGRST205' || /does not exist|find the table/i.test(error.message || ''))) {
+        ({ data, error } = await this.sb.from('nexus_config').select('*').eq('id', 1).single());  // view not created yet
       }
-      if (data) { this.config = data; console.log('NEXUS: Config loaded from Supabase, anthropic_key:', data.anthropic_key ? 'SET' : 'EMPTY'); }
+      if (error) {
+        console.warn('NEXUS config:', error.message);
+        if (error.code === 'PGRST116') console.log('NEXUS: no config row — localStorage fallback.');
+      }
+      if (data) { this.config = data; console.log('NEXUS: config loaded (keys come from localStorage)'); }
       else { console.log('NEXUS: No config row found'); }
     } catch (e) { console.error('Config load exception:', e); }
 

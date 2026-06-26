@@ -547,6 +547,139 @@ function renderPmProgressBar(eq, compact) {
 }
 
 /* ════════════════════════════════════════════════════════════════════
+   v18.30 — Multi-cadence health bars (PM · Inspection · Deep clean)
+
+   Generalizes the PM countdown to three independent maintenance
+   cadences. Each bar is conditional on having BOTH an interval and a
+   last-done date (computeCadenceCountdown returns null otherwise), so
+   units without inspection/deep-clean data render EXACTLY as before —
+   this is additive and safe to ship ahead of the DB columns. Which
+   bars appear is a per-device preference set from the toolbar chooser.
+   ════════════════════════════════════════════════════════════════════ */
+
+// Generic cadence countdown — same shape as computePmCountdown but for any
+// {last_*_date} + {*_interval_days} pair. No install/created projection
+// here (inspection/deep-clean have no natural baseline), so it needs a
+// real last-done date. Returns null when not trackable → caller skips it.
+function computeCadenceCountdown(eq, lastField, intervalField) {
+  if (!eq) return null;
+  const interval = parseInt(eq[intervalField], 10);
+  if (!interval || interval <= 0) return null;
+  const baseStr = eq[lastField];
+  if (!baseStr) return null;
+  const last = new Date(baseStr + 'T00:00:00');
+  if (isNaN(last)) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const elapsedDays = Math.floor((today - last) / 86400000);
+  const remainingDays = interval - elapsedDays;
+  const pctRemaining = Math.max(0, Math.min(1, remainingDays / interval));
+  const next = new Date(last);
+  next.setDate(next.getDate() + interval);
+  return {
+    elapsedDays, remainingDays, pctRemaining,
+    intervalDays: interval,
+    nextDate: next.toISOString().slice(0, 10),
+    isOverdue: remainingDays < 0,
+    projected: false,
+  };
+}
+
+// Which health bars to show — per-device preference (localStorage).
+const EQ_HEALTH_BARS_KEY = 'nexus_eq_health_bars';
+const eqHealthBars = { pm: true, inspection: true, deep_clean: true };
+(function loadEqHealthBars() {
+  try {
+    const s = localStorage.getItem(EQ_HEALTH_BARS_KEY);
+    if (s) Object.assign(eqHealthBars, JSON.parse(s));
+  } catch (_) {}
+})();
+function saveEqHealthBars() {
+  try { localStorage.setItem(EQ_HEALTH_BARS_KEY, JSON.stringify(eqHealthBars)); } catch (_) {}
+}
+function toggleEqHealthBar(key) {
+  if (!(key in eqHealthBars)) return;
+  eqHealthBars[key] = !eqHealthBars[key];
+  saveEqHealthBars();
+  renderList();
+}
+
+// The three tracked cadences. PM keeps its projected-baseline countdown
+// (computePmCountdown); the other two use the generic helper.
+function _eqCadenceCountdowns(eq) {
+  return [
+    { key: 'pm',         label: 'PM',    cd: computePmCountdown(eq) },
+    { key: 'inspection', label: 'INSP',  cd: computeCadenceCountdown(eq, 'last_inspection_date', 'inspection_interval_days') },
+    { key: 'deep_clean', label: 'CLEAN', cd: computeCadenceCountdown(eq, 'last_deep_clean_date', 'deep_clean_interval_days') },
+  ];
+}
+
+// Stacked health bars for a unit, honoring the chooser. `compact` = list
+// row (tiny). Full = grid card (also shows the next-due date). Renders
+// nothing when no chosen cadence is trackable → callers fall back.
+function renderHealthBars(eq, compact) {
+  const rows = [];
+  for (const c of _eqCadenceCountdowns(eq)) {
+    if (!eqHealthBars[c.key] || !c.cd) continue;
+    const cd = c.cd;
+    const pct = Math.round(cd.pctRemaining * 100);
+    let color = '#3fa08f';                              // verdigris (healthy)
+    if (cd.pctRemaining < 0.1)      color = '#d24b4b';  // oxblood (overdue/critical)
+    else if (cd.pctRemaining < 0.5) color = '#d4a44e';  // gold (due soon)
+    const dt = pmShortDate(cd.nextDate);
+    const proj = cd.projected ? '~' : '';
+    const cdShort = cd.isOverdue ? 'OVER' : cd.remainingDays + 'd';
+    const title = cd.isOverdue
+      ? `${c.label} overdue ${Math.abs(cd.remainingDays)}d (was ${proj}${dt})`
+      : `${c.label} next ${proj}${dt} · ${cd.remainingDays}d`;
+    const cdText = compact ? cdShort : `${proj}${dt} · ${cdShort}`;
+    rows.push(
+      `<div class="eq-hb-row${compact ? '' : ' eq-hb-row-full'}" title="${esc(title)}">` +
+        `<span class="eq-hb-lab">${c.label}</span>` +
+        `<div class="eq-hb-track"><div class="eq-hb-fill" style="width:${pct}%;background:${color}"></div></div>` +
+        `<span class="eq-hb-cd" style="color:${color}">${cdText}</span>` +
+      `</div>`
+    );
+  }
+  if (!rows.length) return '';
+  return `<div class="eq-health-bars">${rows.join('')}</div>`;
+}
+
+// The toolbar chooser — three pills toggling which bars show.
+function renderHealthBarChooser() {
+  const opts = [
+    { key: 'pm',         label: 'PM' },
+    { key: 'inspection', label: 'Inspection' },
+    { key: 'deep_clean', label: 'Deep clean' },
+  ];
+  return `<div class="eq-hb-chooser" id="eqHbChooser">` +
+    opts.map(o => `<button class="eq-hb-toggle ${eqHealthBars[o.key] ? 'on' : ''}" data-hb="${o.key}">${o.label}</button>`).join('') +
+    `</div>`;
+}
+
+// Warranty shield — a FILLED navy shield (with a check) when the unit is in
+// warranty, or a bare OUTLINE shield when it's out of warranty / none on
+// file. The hover/long-press tooltip carries the end date. Driven by
+// equipment.warranty_until. Navy is NEXUS's cool complement to the gold.
+function warrantyShield(e) {
+  const until = e && e.warranty_until;
+  let active = false, label = 'No warranty on file';
+  if (until) {
+    const d = new Date(String(until).slice(0, 10) + 'T00:00:00');
+    if (!isNaN(d)) {
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      active = d >= today;
+      const ds = d.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
+      label = active ? `Under warranty until ${ds}` : `Warranty expired ${ds}`;
+    }
+  }
+  const svg = active
+    ? `<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="M12 2.2l7 2.8v6c0 4.4-2.9 7.9-7 9-4.1-1.1-7-4.6-7-9v-6l7-2.8z" fill="currentColor"/><path d="M8.8 12.1l2.1 2.1 4.3-4.5" fill="none" stroke="#0e1320" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+    : `<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="M12 2.2l7 2.8v6c0 4.4-2.9 7.9-7 9-4.1-1.1-7-4.6-7-9v-6l7-2.8z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>`;
+  return `<span class="eq-warranty${active ? ' is-active' : ''}" title="${esc(label)}" role="img" aria-label="${esc(label)}">${svg}</span>`;
+}
+
+/* ════════════════════════════════════════════════════════════════════
    v18.19 — PM logger with expected-vs-actual date tracking.
 
    When the user taps "Log PM" on an equipment, openPmLogger opens a
@@ -3396,6 +3529,10 @@ function buildUI() {
           <button class="eq-chip ${activeFilter.pm==='soon'?'active':''}" data-filter="pm" data-value="soon">Due ≤14d</button>
         </div>
         <div class="eq-filter-group">
+          <span class="eq-filter-label">Health bars:</span>
+          ${renderHealthBarChooser()}
+        </div>
+        <div class="eq-filter-group">
           <span class="eq-filter-label">Show:</span>
           <button class="eq-chip ${(activeFilter.archived||'active')==='active'?'active':''}" data-filter="archived" data-value="active">Active</button>
           <button class="eq-chip ${activeFilter.archived==='only'?'active':''}" data-filter="archived" data-value="only">Archived</button>
@@ -3489,6 +3626,16 @@ function buildUI() {
     chip.addEventListener('click', () => {
       activeFilter[chip.dataset.filter] = chip.dataset.value;
       buildUI();
+    });
+  });
+
+  // Health-bar chooser — toggle which cadence bars show (PM/Inspection/
+  // Deep clean). toggleEqHealthBar persists the pref + re-renders the list;
+  // we flip the pill's own .on class so the toolbar stays in sync.
+  view.querySelectorAll('.eq-hb-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      btn.classList.toggle('on');
+      toggleEqHealthBar(btn.dataset.hb);
     });
   });
 
@@ -3757,6 +3904,9 @@ function getFiltered() {
     if (archScope === 'only'   && !(e.archived_at || e.archived)) return false;
     if (activeFilter.location !== 'all' && e.location !== activeFilter.location) return false;
     if (activeFilter.status !== 'all' && e.status !== activeFilter.status) return false;
+    // Retired units are hidden from the default "all" view — reach them via the
+    // Status → Retired chip (which sets status='retired' and bypasses this).
+    if (activeFilter.status === 'all' && String(e.status || '').toLowerCase() === 'retired') return false;
     if (activeFilter.category !== 'all' && e.category !== activeFilter.category) return false;
     if (activeFilter.pm === 'overdue') {
       if (!e.next_pm_date) return false;
@@ -4070,10 +4220,11 @@ function buildListRow(e) {
       <div class="eq-row-main">
         <div class="eq-row-top">
           <div class="eq-row-name">${esc(e.name)}</div>
+          ${warrantyShield(e)}
           <div class="eq-row-when ${pmCls}">${esc(pmLabel || '—')}</div>
         </div>
         ${sub ? `<div class="eq-row-meta"><span class="eq-row-sub">${sub}</span></div>` : ''}
-        ${renderPmProgressBar(e, true)}
+        ${renderHealthBars(e, true) || renderPmProgressBar(e, true)}
       </div>
       <span class="eq-row-beacon" aria-hidden="true">${lifecycleStatusDot(e)}</span>
     </div>`;
@@ -4113,6 +4264,7 @@ function buildGridCard(e) {
               ? `<div class="eq-card-photo eq-card-photo-mfg">${manufacturerLogo(e, 'md')}</div>`
               : `<div class="eq-card-photo eq-card-photo-placeholder">${catIcon(e.category)}</div>`)}
         ${lifecycleStatusDot(e)}
+        ${warrantyShield(e)}
       </div>
       <div class="eq-card-body">
         <div class="eq-card-title">${esc(e.name)}</div>
@@ -4121,7 +4273,7 @@ function buildGridCard(e) {
           <span>${esc(e.manufacturer || '—')}</span>
           <span class="eq-health" style="color:${healthColor}">${health}%</span>
         </div>
-        <div class="eq-card-pm">Next PM: ${pmStr}</div>
+        ${renderHealthBars(e, false) || `<div class="eq-card-pm">Next PM: ${pmStr}</div>`}
         ${(() => {
           const cov = equipmentCoverage(e);
           return `<div class="eq-card-coverage cov-${cov.cls}">${cov.cls === 'none' ? '○' : '✓'} ${cov.label}${cov.legacy ? '<span class="cov-legacy" title="Legacy contractor — not linked to a vendor yet">⚠</span>' : ''}</div>`;
@@ -4906,6 +5058,28 @@ function renderParts(eq, parts, maintenance) {
     return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: '2-digit' });
   };
 
+  // Per-part replacement countdown (months-based): replacement_interval_months
+  // + last replaced (this unit's logged replacement, else the catalog field).
+  // Returns null when not trackable → the bar is simply omitted.
+  const replInfo = (p) => {
+    const interval = parseInt(p.replacement_interval_months, 10);
+    const lastIso = lastReplacedByPart.get(String(p.id)) || p.last_replaced_at;
+    if (!interval || interval <= 0 || !lastIso) return null;
+    const last = new Date(lastIso);
+    if (isNaN(last)) return null;
+    const now = new Date();
+    const monthsElapsed = (now.getFullYear() - last.getFullYear()) * 12 + (now.getMonth() - last.getMonth());
+    const remaining = interval - monthsElapsed;
+    const pct = Math.max(0, Math.min(1, remaining / interval));
+    let color = '#3fa08f';
+    if (pct < 0.1)       color = '#d24b4b';
+    else if (pct < 0.34) color = '#d4a44e';
+    return {
+      pct: Math.round(pct * 100), color,
+      label: remaining <= 0 ? `Overdue ${Math.abs(remaining)}mo` : `Replace in ~${remaining}mo`,
+    };
+  };
+
   return `
     <div class="eq-parts-head">
       <button class="eq-btn eq-btn-small eq-btn-secondary" onclick="NX.modules.equipment.extractBOMFromManual('${eq.id}')" style="margin-right:6px">${uiSvg("sparkles", "13px")} Extract from Manual</button>
@@ -4921,15 +5095,26 @@ function renderParts(eq, parts, maintenance) {
         ${parts.map(p => {
           const lastRepl = lastReplacedByPart.get(String(p.id));
           const lastReplLabel = lastRepl ? fmtShort(lastRepl) : null;
+          const ri = replInfo(p);
+          const buyUrl = (p.supplier_url && /^https?:\/\//i.test(p.supplier_url)) ? p.supplier_url : null;
+          const priceLbl = (p.last_price != null && p.last_price !== '') ? ('$' + p.last_price) : null;
+          const supplierLbl = p.supplier ? esc(p.supplier) : (buyUrl ? 'Supplier' : null);
           return `
           <div class="eq-part" data-part-id="${p.id}">
             <div class="eq-part-main">
-              <div class="eq-part-name">${esc(p.part_name)}</div>
+              <div class="eq-part-name">${esc(p.part_name)}${p.pm_required ? ' <span class="eq-part-pmtag">PM part</span>' : ''}</div>
               <div class="eq-part-sub">
                 ${p.oem_part_number ? `OEM: ${esc(p.oem_part_number)}` : ''}
+                ${p.mfr_part_number ? ` · MFR: ${esc(p.mfr_part_number)}` : ''}
                 ${p.quantity > 1 ? ` · Qty: ${p.quantity}` : ''}
                 ${p.equipment_id != eq.id ? ' · <span style="color:var(--nx-gold)">linked</span>' : ''}
               </div>
+              ${(supplierLbl || priceLbl || buyUrl) ? `<div class="eq-part-buy">
+                ${supplierLbl ? `<span class="eq-part-supplier">${supplierLbl}</span>` : ''}
+                ${priceLbl ? `<span class="eq-part-price">${esc(priceLbl)}</span>` : ''}
+                ${buyUrl ? `<a class="eq-part-buybtn" href="${escAttr(buyUrl)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${uiSvg("link", "11px")} Buy</a>` : ''}
+              </div>` : ''}
+              ${ri ? `<div class="eq-part-repl"><div class="eq-part-repl-track"><div class="eq-part-repl-fill" style="width:${ri.pct}%;background:${ri.color}"></div></div><span class="eq-part-repl-lab" style="color:${ri.color}">${ri.label}</span></div>` : ''}
               ${p.assembly_path ? `<div class="eq-part-path">${esc(p.assembly_path)}</div>` : ''}
               <div class="eq-part-replaced" style="margin-top:4px; font-size:11px; color:${lastReplLabel ? 'var(--nx-faint)' : '#666'}">
                 ${lastReplLabel

@@ -193,9 +193,38 @@
     observer.observe(document.body, { childList: true, subtree: true });
   }
 
+  // Public-landing maintenance health strip — a compact countdown from the
+  // equipment's next_pm_date (plus inspection/deep-clean next dates if the
+  // scan record carries them). Lets a scanning tech see what's due at a
+  // glance before tapping anything. Renders nothing when no date is known.
+  function pubHealthStrip(eq) {
+    if (!eq) return '';
+    const bars = [];
+    const add = (label, nextIso) => {
+      if (!nextIso) return;
+      const next = new Date(String(nextIso).slice(0, 10) + 'T00:00:00');
+      if (isNaN(next)) return;
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const days = Math.round((next - today) / 86400000);
+      const overdue = days < 0;
+      const color = overdue ? '#d24b4b' : (days < 14 ? '#d4a44e' : '#3fa08f');
+      const pct = overdue ? 100 : Math.max(6, Math.min(100, Math.round((days / 90) * 100)));
+      const lab = overdue ? `${Math.abs(days)}d overdue` : `${days}d`;
+      bars.push(`<div class="pm-pub-hb"><span class="pm-pub-hb-l">${label}</span><div class="pm-pub-hb-tr"><div class="pm-pub-hb-fl" style="width:${pct}%;background:${color}"></div></div><span class="pm-pub-hb-c" style="color:${color}">${esc(lab)}</span></div>`);
+    };
+    add('PM', eq.next_pm_date);
+    add('INSP', eq.next_inspection_date);
+    add('CLEAN', eq.next_deep_clean_date);
+    if (!bars.length) return '';
+    return `<div class="pm-public-health"><div class="pm-pub-hb-head">Maintenance health</div>${bars.join('')}</div>`;
+  }
+
   function replacePublicActions(actionsEl, qrCode) {
     // Pull the contact info that public-scan.js already loaded (if any)
     const contact = window._NX_PUBLIC_SCAN_CONTACT || null;
+    // The equipment record public-scan.js cached (same row on screen) — used
+    // for the at-a-glance health strip above the action buttons.
+    const _peq = (window._NX_PUBLIC_SCAN_EQ && window._NX_PUBLIC_SCAN_EQ.qr_code === qrCode) ? window._NX_PUBLIC_SCAN_EQ : null;
     
     const callBtnHtml = contact ? `
         <button class="pm-public-btn pm-public-btn-call" id="pmCallBtn" type="button">
@@ -208,6 +237,7 @@
     ` : '';
     
     actionsEl.innerHTML = `
+      ${pubHealthStrip(_peq)}
       <div class="pm-public-actions">
         <button class="pm-public-btn pm-public-btn-primary" id="pmLogBtn">
           <span class="pm-public-btn-icon">${svg('wrench', 1.4)}</span>
@@ -355,6 +385,16 @@
           <div class="pm-logger-eq-name">${esc(eq.name)}</div>
           <div class="pm-logger-eq-meta">${esc(eq.location || '')}${eq.area ? ' · ' + esc(eq.area) : ''}</div>
         </div>
+
+        <!-- v18.30 — progress stepper: fills as Name / What-was-done /
+             Signature complete, so a contractor on a small phone always
+             knows how far through the form they are. -->
+        <div class="pm-steps" id="pmSteps">
+          <div class="pm-step is-active" data-step="info"><span class="pm-step-dot">1</span> Your info</div>
+          <div class="pm-step" data-step="service"><span class="pm-step-dot">2</span> Service</div>
+          <div class="pm-step" data-step="sign"><span class="pm-step-dot">3</span> Sign</div>
+        </div>
+        <div class="pm-steps-bar"><div class="pm-steps-fill" id="pmStepsFill"></div></div>
 
         <!-- v18.8 Trajan-flavored welcome — inferred role based on
              equipment.status. DOWN/BROKEN → contractor greeting.
@@ -508,6 +548,38 @@
     // Photo previews
     setupFilePreview(modal.querySelector('#pmPhotos'), modal.querySelector('#pmPhotoPreview'), 'photo');
     setupFilePreview(modal.querySelector('#pmPdf'), modal.querySelector('#pmPdfPreview'), 'pdf');
+
+    // v18.30 — progress stepper. Fills as the three key fields complete
+    // (name → what-was-done → signature); the active step is the next one
+    // still empty. Pure feedback, no gating of submit.
+    (function wireSteps() {
+      const stepsEl = modal.querySelector('#pmSteps');
+      const fillEl  = modal.querySelector('#pmStepsFill');
+      if (!stepsEl || !fillEl) return;
+      const nameEl = modal.querySelector('#pmName');
+      const workEl = modal.querySelector('#pmWork');
+      const sig    = modal.querySelector('#pmSigCanvas');
+      let signed = false;
+      const setStep = (step, done, active) => {
+        const el = stepsEl.querySelector(`[data-step="${step}"]`);
+        if (!el) return;
+        el.classList.toggle('is-done', !!done);
+        el.classList.toggle('is-active', !!active);
+      };
+      const update = () => {
+        const a = !!(nameEl && nameEl.value.trim());
+        const b = !!(workEl && workEl.value.trim());
+        const c = signed;
+        fillEl.style.width = Math.round(((a + b + c) / 3) * 100) + '%';
+        setStep('info', a, !a);
+        setStep('service', b, a && !b);
+        setStep('sign', c, b && !c);
+      };
+      nameEl && nameEl.addEventListener('input', update);
+      workEl && workEl.addEventListener('input', update);
+      if (sig) sig.addEventListener('pointerdown', () => { signed = true; update(); });
+      update();
+    })();
 
     // Mass mode toggle
     setupMassMode(modal, eq);

@@ -1779,11 +1779,35 @@
               <div><div class="nx-ps-spec-label">Model</div><div class="nx-ps-spec-val">${esc(eq.model || '—')}</div></div>
               <div><div class="nx-ps-spec-label">Serial Number</div><div class="nx-ps-spec-val">${esc(eq.serial_number || '—')}</div></div>
               <div><div class="nx-ps-spec-label">Installed</div><div class="nx-ps-spec-val">${installStr}</div></div>
-              <div><div class="nx-ps-spec-label">Warranty</div><div class="nx-ps-spec-val ${warrantyValid ? '' : 'dim'}">${warrantyStr}</div></div>
+              <div><div class="nx-ps-spec-label">Warranty</div><div class="nx-ps-spec-val ${warrantyValid ? '' : 'dim'}"><span class="nx-ps-warranty${warrantyValid ? ' is-active' : ''}" title="${esc(warrantyValid ? ('Under warranty until ' + warranty.toLocaleDateString()) : (warranty ? 'Warranty expired ' + warranty.toLocaleDateString() : 'No warranty on file'))}" aria-hidden="true"><svg viewBox="0 0 24 24" width="12" height="12">${warrantyValid ? '<path d="M12 2.2l7 2.8v6c0 4.4-2.9 7.9-7 9-4.1-1.1-7-4.6-7-9v-6l7-2.8z" fill="currentColor"/><path d="M8.8 12.1l2.1 2.1 4.3-4.5" fill="none" stroke="#0e1320" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>' : '<path d="M12 2.2l7 2.8v6c0 4.4-2.9 7.9-7 9-4.1-1.1-7-4.6-7-9v-6l7-2.8z" fill="none" stroke="currentColor" stroke-width="1.5"/>'}</svg></span> ${warrantyStr}</div></div>
               <div><div class="nx-ps-spec-label">Next PM</div><div class="nx-ps-spec-val ${pmOverdue ? '' : 'dim'}">${pmStr}</div></div>
             </div>
             ${historyHTML}
             ${servicedByHTML}
+            ${(() => {
+              // v18.30 — at-a-glance maintenance health on the scan landing.
+              // Countdown from the equipment's next PM (+ inspection/deep-clean
+              // next dates if present). Self-contained inline styles so it
+              // renders regardless of which stylesheet the public page loaded.
+              const bars = [];
+              const add = (label, nextIso) => {
+                if (!nextIso) return;
+                const next = new Date(String(nextIso).slice(0, 10) + 'T00:00:00');
+                if (isNaN(next)) return;
+                const today = new Date(); today.setHours(0, 0, 0, 0);
+                const days = Math.round((next - today) / 86400000);
+                const overdue = days < 0;
+                const color = overdue ? '#d24b4b' : (days < 14 ? '#d4a44e' : '#3fa08f');
+                const pct = overdue ? 100 : Math.max(6, Math.min(100, Math.round((days / 90) * 100)));
+                const lab = overdue ? (Math.abs(days) + 'd overdue') : (days + 'd');
+                bars.push(`<div style="display:flex;align-items:center;gap:8px;margin-top:7px"><span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#9aa3b2;width:62px;flex-shrink:0">${label}</span><div style="flex:1;height:5px;border-radius:3px;background:rgba(212,164,78,0.14);overflow:hidden"><div style="height:100%;width:${pct}%;background:${color};border-radius:3px"></div></div><span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:${color};width:78px;text-align:right;flex-shrink:0">${lab}</span></div>`);
+              };
+              add('PM', eq.next_pm_date);
+              add('Inspection', eq.next_inspection_date);
+              add('Deep clean', eq.next_deep_clean_date);
+              if (!bars.length) return '';
+              return `<div class="nx-ps-health" style="margin:14px 0 0;padding:13px 14px;background:rgba(212,164,78,0.06);border:1px solid rgba(212,164,78,0.22);border-radius:14px"><div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:#d4a44e;margin-bottom:4px">Maintenance health</div>${bars.join('')}</div>`;
+            })()}
             <div class="nx-ps-actions">
               ${(activeTicket || activeIssue) ? `
               <button class="nx-ps-btn nx-ps-btn-primary nx-ps-btn-complete" data-action="complete-wo">

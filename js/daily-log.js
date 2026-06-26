@@ -143,6 +143,9 @@ let state = {
   // equipment has status != 'operational' AND !archived, it appears
   // in every daily log until fixed.
   equipmentDown: [],
+  // v18.32 — full non-archived fleet (all statuses), for the daily-log
+  // Maintenance-health + Warranty stats. Populated by loadEquipmentDown.
+  equipmentHealth: [],
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -741,14 +744,18 @@ async function loadEquipmentDown() {
   // returns whatever columns exist and can't fail on a missing one.
   // Archived filtered + sorting done client-side for the same reason.
   try {
+    // Load the FULL non-archived fleet (all statuses) so the daily log can
+    // report Maintenance-health + Warranty stats — not just the down units.
+    // select('*') so a missing optional column never blanks the query.
     const { data, error } = await NX.sb.from('equipment')
-      .select('*')
-      .in('status', NON_OPERATIONAL_STATUSES);
+      .select('*');
     if (error) {
       console.warn('[daily-log] loadEquipmentDown:', error.message);
       return [];
     }
-    const rows = (data || []).filter(eq => eq.archived !== true);
+    const all = (data || []).filter(eq => eq.archived !== true);
+    state.equipmentHealth = all;       // full fleet → health/warranty stats
+    const rows = all.filter(eq => NON_OPERATIONAL_STATUSES.indexOf((eq.status || '').toLowerCase()) !== -1);
     rows.sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
     return rows;
   } catch (e) {
@@ -1155,8 +1162,10 @@ function render() {
           <span class="dlog-autosend-wrap">
             <button type="button" class="eq-btn eq-btn-secondary dlog-autosend-toggle ${dlogAutoSendOn() ? 'is-on' : ''}" id="dlogAutoSendBtn" title="When on, this log auto-uploads to Drive when you leave the screen — and, if still not sent by the time on the right, it sends automatically. Edits autosave continuously so nothing is lost.">${dlogAutoSendOn() ? '🔁 Auto-send: On' : '🔁 Auto-send: Off'}</button>
             <input type="time" id="dlogAutoSendTime" class="dlog-autosend-time" value="${esc(dlogAutoSendTime())}" title="If not sent by this time, send automatically" ${dlogAutoSendOn() ? '' : 'style="display:none"'}>
+            <span class="dlog-autosend-days" id="dlogAutoSendDays" title="Days auto-send is allowed" ${dlogAutoSendOn() ? '' : 'style="display:none"'}>${['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((dd, i) => `<button type="button" class="dlog-day-pill ${dlogAutoSendDays().indexOf(i + 1) !== -1 ? 'is-on' : ''}" data-day="${i + 1}">${dd}</button>`).join('')}</span>
           </span>
           <button type="button" class="eq-btn eq-btn-secondary" id="dlogEmailBtn" title="${esc(emailBtnTitle)}">${esc(emailBtnLabel)}</button>
+          <button type="button" class="eq-btn eq-btn-secondary" id="dlogEmailEachBtn" title="Open one Gmail draft per location at once — just hit Send on each">✉️ Email each location</button>
           <button type="button" class="eq-btn eq-btn-secondary" id="dlogSaveDraftBtn">Save</button>
           <button type="button" class="eq-btn eq-btn-primary"   id="dlogSubmitBtn">${esc(uploadBtnLabel)}</button>
         </div>
@@ -1630,6 +1639,32 @@ function renderEquipmentActivitySection(d) {
 // The slices come from state.ticketSlices (live) unless we're viewing
 // a past submitted log that has a frozen snapshot in data.tickets —
 // in which case we prefer the snapshot for historical accuracy.
+// ─── Card field helpers (shared by the on-screen section + the email body) ──
+function cardAssignee(c) {
+  return (c && (c.assignee || c.assigned_to || c.assigned_name || c.reported_by)) || '';
+}
+function cardDetail(c) {
+  if (!c) return '';
+  let t = String(c.description || c.notes || '').trim();
+  if (!t && Array.isArray(c.comments) && c.comments.length) {
+    const last = c.comments[c.comments.length - 1];
+    t = String((last && (last.text || last.body || last.note || last.message)) || '').trim();
+  }
+  t = t.replace(/\s+/g, ' ');
+  return t.length > 180 ? t.slice(0, 180) + '…' : t;
+}
+// "created Sat Jun 21" for cards NOT made today (i.e. carried over / queued from
+// a weekend) — so the daily email shows when an older open card was created.
+// Empty for today's cards (the log is already dated today).
+function cardCreatedLabel(c) {
+  if (!c || !c.created_at) return '';
+  const dt = new Date(c.created_at);
+  if (isNaN(dt)) return '';
+  const iso = dt.toISOString().slice(0, 10);
+  if (iso >= todayISO()) return '';
+  return 'created ' + dt.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
 function renderTicketsSection(d) {
   // Source preference: LIVE state.ticketSlices for today's editable log.
   // The frozen snapshot (d.tickets) is only used for a PAST SUBMITTED log
@@ -1667,8 +1702,13 @@ function renderTicketsSection(d) {
     const priClass = pri === 'urgent' ? 'bw-pri-urgent' : (pri === 'low' ? 'bw-pri-low' : 'bw-pri-normal');
     const eqName = c.equipment_id ? eqNameById[c.equipment_id] : null;
     const lane = c._laneLabel || laneLabel(c.status);
+    const who = cardAssignee(c);
+    const created = cardCreatedLabel(c);          // "Sat Jun 21" — flags queued/weekend cards
+    const detail = cardDetail(c);                 // description / first comment, if any
     const metaBits = [];
     if (eqName) metaBits.push('🔧 ' + esc(eqName));
+    if (who) metaBits.push('👤 ' + esc(who));
+    if (created) metaBits.push('🗓 ' + esc(created));
     if (lane) metaBits.push(`<span class="dlog-tk-lane dlog-tk-lane-${bucket}">${esc(lane)}</span>`);
     return `
       <div class="dlog-tk-row">
@@ -1676,6 +1716,7 @@ function renderTicketsSection(d) {
         <div class="dlog-tk-main">
           <div class="dlog-tk-title">${esc(c.title || 'Untitled card')}</div>
           <div class="dlog-tk-loc">${metaBits.join(' · ')}</div>
+          ${detail ? `<div class="dlog-tk-detail">${esc(detail)}</div>` : ''}
         </div>
       </div>`;
   };
@@ -1977,14 +2018,26 @@ function wireForm() {
   if (submitBtn) submitBtn.addEventListener('click', () => commitSave({ submit: true }));
   const emailBtn = view.querySelector('#dlogEmailBtn');
   if (emailBtn) emailBtn.addEventListener('click', () => openDailyLogEmail());
+  const emailEachBtn = view.querySelector('#dlogEmailEachBtn');
+  if (emailEachBtn) emailEachBtn.addEventListener('click', () => emailEachLocation());
   const autoSendBtn = view.querySelector('#dlogAutoSendBtn');
   const autoSendTime = view.querySelector('#dlogAutoSendTime');
+  const autoSendDays = view.querySelector('#dlogAutoSendDays');
+  if (autoSendDays) autoSendDays.querySelectorAll('[data-day]').forEach(b => b.addEventListener('click', () => {
+    const dow = parseInt(b.dataset.day, 10);
+    let days = dlogAutoSendDays();
+    days = days.indexOf(dow) !== -1 ? days.filter(x => x !== dow) : days.concat(dow).sort((a, c) => a - c);
+    if (!days.length) days = [dow];   // never allow an empty set
+    try { localStorage.setItem('nexus_dlog_autosend_days', JSON.stringify(days)); } catch (_) {}
+    b.classList.toggle('is-on', days.indexOf(dow) !== -1);
+  }));
   if (autoSendBtn) autoSendBtn.addEventListener('click', () => {
     const on = !dlogAutoSendOn();
     try { localStorage.setItem('nexus_dlog_autosend', on ? '1' : '0'); } catch (_) {}
     autoSendBtn.textContent = on ? '🔁 Auto-send: On' : '🔁 Auto-send: Off';
     autoSendBtn.classList.toggle('is-on', on);
     if (autoSendTime) autoSendTime.style.display = on ? '' : 'none';
+    if (autoSendDays) autoSendDays.style.display = on ? '' : 'none';
     if (NX.toast) NX.toast(on
       ? `Auto-send on — uploads to Drive when you leave, or by ${dlogAutoSendTime()} if still unsent`
       : 'Auto-send off — use Upload to send manually', on ? 'success' : 'info', 3800);
@@ -2017,6 +2070,7 @@ function buildDailyLogEmailBody(d, dateStr) {
 
   out.push('Daily Log \u2014 ' + fmtLogDateLong(dateStr));
   if (clean(d.header && d.header.weather)) out.push('Weather: ' + clean(d.header.weather));
+  out.push(RULE());
   out.push('');
 
   if (clean(d.header && d.header.significant_events)) {
@@ -2069,6 +2123,10 @@ function buildDailyLogEmailBody(d, dateStr) {
   const me = (window.NX && (NX.user || NX.currentUser)) ? ((NX.user && NX.user.name) || (NX.currentUser && NX.currentUser.name) || '') : '';
   if (me) out.push(me);
 
+  // Small, unobtrusive brand footer — indented so it reads as a footnote.
+  out.push('');
+  out.push('              powered by NEXUS');
+
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
@@ -2100,6 +2158,70 @@ function dlogLocationReportLines(loc) {
     out.push('');
   }
 
+  // Maintenance health + warranties — pulled live from the full fleet
+  // (state.equipmentHealth). Health = PM/inspection/deep-clean due counts;
+  // the Warranties block only renders when this location has units with a
+  // warranty date ("if it has any").
+  const eqAll = (state.equipmentHealth || []).filter(eq => normLocKey(eq.location) === locKey && eq.archived !== true);
+  if (eqAll.length) {
+    const todayD = new Date(); todayD.setHours(0, 0, 0, 0);
+    const soonD = new Date(todayD); soonD.setDate(soonD.getDate() + 14);
+    const nextOf = (lastIso, days) => {
+      const n = parseInt(days, 10);
+      if (!lastIso || !n) return null;
+      const d = new Date(String(lastIso).slice(0, 10) + 'T00:00:00');
+      if (isNaN(d)) return null;
+      d.setDate(d.getDate() + n);
+      return d;
+    };
+    let pmO = 0, pmS = 0, insO = 0, insS = 0, dcO = 0, dcS = 0, op = 0;
+    eqAll.forEach(eq => {
+      if ((eq.status || 'operational').toLowerCase() === 'operational') op++;
+      const pmNext = eq.next_pm_date
+        ? new Date(String(eq.next_pm_date).slice(0, 10) + 'T00:00:00')
+        : nextOf(eq.last_pm_date, eq.pm_interval_days);
+      if (pmNext && !isNaN(pmNext)) { if (pmNext < todayD) pmO++; else if (pmNext <= soonD) pmS++; }
+      const insNext = nextOf(eq.last_inspection_date, eq.inspection_interval_days);
+      if (insNext) { if (insNext < todayD) insO++; else if (insNext <= soonD) insS++; }
+      const dcNext = nextOf(eq.last_deep_clean_date, eq.deep_clean_interval_days);
+      if (dcNext) { if (dcNext < todayD) dcO++; else if (dcNext <= soonD) dcS++; }
+    });
+    out.push(SH('Maintenance health'));
+    out.push('· ' + eqAll.length + ' unit' + (eqAll.length === 1 ? '' : 's') + ' — ' + op + ' operational');
+    const dueLine = (label, over, soon) => {
+      const t = over + soon;
+      return t ? ('· ' + label + ' due: ' + t + (over ? ' (' + over + ' overdue)' : '')) : null;
+    };
+    [dueLine('PM', pmO, pmS), dueLine('Inspections', insO, insS), dueLine('Deep cleans', dcO, dcS)]
+      .filter(Boolean).forEach(l => out.push(l));
+    out.push('');
+
+    // Warranties — units with a warranty date; active ones (soonest first)
+    // plus anything expired in the last ~120 days. Skipped entirely when
+    // this location has no warranty dates on file.
+    const todayMs = todayD.getTime();
+    const warr = eqAll
+      .filter(eq => eq.warranty_until)
+      .map(eq => { const d = new Date(String(eq.warranty_until).slice(0, 10) + 'T00:00:00'); return { name: eq.name || 'Equipment', d }; })
+      .filter(w => w.d && !isNaN(w.d))
+      .sort((a, b) => a.d - b.d);
+    const active = warr.filter(w => w.d.getTime() >= todayMs);
+    const recentExpired = warr.filter(w => w.d.getTime() < todayMs && (todayMs - w.d.getTime()) / 86400000 <= 120);
+    if (active.length || recentExpired.length) {
+      out.push(SH('Warranties'));
+      active.forEach(w => {
+        const ds = w.d.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
+        const days = Math.round((w.d.getTime() - todayMs) / 86400000);
+        out.push('· ' + w.name + ' — under warranty to ' + ds + (days <= 60 ? ' (expires in ' + days + 'd)' : ''));
+      });
+      recentExpired.forEach(w => {
+        const ds = w.d.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
+        out.push('· ' + w.name + ' — warranty expired ' + ds);
+      });
+      out.push('');
+    }
+  }
+
   // Board / work orders — open + in-progress cards on the Board for this
   // location (the live backlog), pulled straight from kanban_cards.
   const slices = state.ticketSlices || {};
@@ -2107,13 +2229,24 @@ function dlogLocationReportLines(loc) {
   const cards = [].concat(slices.open || [], slices.working || [])
     .filter(c => normLocKey(c.location) === locKey);
   if (cards.length) {
+    // Surface board priority in the digest: urgent first, and tag anything
+    // that isn't "normal" so the manager reading the log sees what's hot.
+    const priRank = p => { const m = { urgent: 0, high: 1, normal: 2, low: 3 }; const k = (p || 'normal').toLowerCase(); return (k in m) ? m[k] : 2; };
+    cards.sort((a, b) => priRank(a.priority) - priRank(b.priority));
     out.push(SH('Board / work orders'));
     cards.forEach(c => {
       const bits = [];
       const eqName = c.equipment_id ? eqNameById[c.equipment_id] : '';
       if (eqName) bits.push('\ud83d\udd27 ' + eqName);
+      const who = cardAssignee(c); if (who) bits.push('assigned: ' + who);
       if (c._laneLabel) bits.push(c._laneLabel);
-      out.push('\u00b7 ' + (c.title || 'Untitled card') + (bits.length ? ' (' + bits.join(', ') + ')' : ''));
+      // created date for carried-over / weekend-queued cards (blank if made today)
+      const created = cardCreatedLabel(c); if (created) bits.push(created);
+      // Priority tag (from the board card) \u2014 flag anything not "normal".
+      const pri = (c.priority || 'normal').toLowerCase();
+      const priTag = (pri && pri !== 'normal') ? '[' + pri.toUpperCase() + '] ' : '';
+      out.push('\u00b7 ' + priTag + (c.title || 'Untitled card') + (bits.length ? ' (' + bits.join(', ') + ')' : ''));
+      const detail = cardDetail(c); if (detail) out.push('    ' + detail);
     });
     out.push('');
   }
@@ -2147,6 +2280,7 @@ function buildLocationEmailBody(loc, dateStr, d) {
 
   out.push('Daily Log \u2014 ' + (loc.label || 'Location') + ' \u2014 ' + fmtLogDateLong(dateStr));
   if (d && clean(d.header && d.header.weather)) out.push('Weather: ' + clean(d.header.weather));
+  out.push(RULE());
   out.push('');
 
   if (d && clean(d.header && d.header.significant_events)) {
@@ -2162,7 +2296,38 @@ function buildLocationEmailBody(loc, dateStr, d) {
   const me = (window.NX && (NX.user || NX.currentUser)) ? ((NX.user && NX.user.name) || (NX.currentUser && NX.currentUser.name) || '') : '';
   if (me) out.push(me);
 
+  // Small, unobtrusive brand footer — indented so it reads as a footnote.
+  out.push('');
+  out.push('              powered by NEXUS');
+
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// One button → opens a Gmail compose tab for EACH location at once (each
+// pre-filled with that location's recap + its saved recipients). The user just
+// hits Send on each tab. Browsers may block multiple pop-ups the first time —
+// allow pop-ups for the site once and they'll all open thereafter.
+function emailEachLocation() {
+  const log = state.currentLog;
+  const d = hydrateData(log && log.data);
+  const dateStr = (log && log.log_date) || (d.header && d.header.date) || todayISO();
+  if (!Array.isArray(d.locations) || !d.locations.length) { if (NX.toast) NX.toast('No locations to email', 'info'); return; }
+  if (!(window.NX && NX.email && NX.email.gmailComposeUrl)) { if (NX.toast) NX.toast('Email engine not ready — try again', 'error'); return; }
+  let opened = 0, empty = 0;
+  d.locations.forEach(loc => {
+    const body = buildLocationEmailBody(loc, dateStr, d);
+    if (!body || body.split('\n').filter(l => l.trim()).length < 2) { empty++; return; }   // skip empty location
+    const locKey = normLocKey(loc.label);
+    let to = '', cc = [], bcc = [];
+    try { const s = JSON.parse(localStorage.getItem('nx_recip_dlog:' + locKey) || 'null'); if (s) { to = s.to || ''; cc = Array.isArray(s.cc) ? s.cc : []; bcc = Array.isArray(s.bcc) ? s.bcc : []; } } catch (_) {}
+    const subject = 'Daily Log — ' + (loc.label || 'Location') + ' — ' + fmtLogDateLong(dateStr);
+    const url = NX.email.gmailComposeUrl(to, subject, body, cc, bcc);
+    if (window.open(url, '_blank', 'noopener')) opened++;
+  });
+  if (NX.toast) {
+    if (opened) NX.toast('Opened ' + opened + ' Gmail draft' + (opened > 1 ? 's' : '') + ' — hit Send on each' + (empty ? ' (' + empty + ' empty skipped)' : ''), 'success', 5000);
+    else NX.toast(empty ? 'No location has notes yet' : 'Nothing opened — allow pop-ups for this site, then retry', 'info', 5000);
+  }
 }
 
 async function openDailyLogEmail() {
@@ -2328,6 +2493,14 @@ function markDirty() {
 //     once in init(). dlogAutoSendOn() reads the per-device toggle. ───────────
 function dlogAutoSendOn() { try { return localStorage.getItem('nexus_dlog_autosend') === '1'; } catch (_) { return false; } }
 function dlogAutoSendTime() { try { return localStorage.getItem('nexus_dlog_autosend_time') || '22:00'; } catch (_) { return '22:00'; } }
+// Master control: which days-of-week auto-send is allowed (1=Sun … 7=Sat).
+// e.g. weekdays-only. Default = every day. A card made on a non-send day stays
+// in the open backlog and rolls into the next allowed day's log/email.
+function dlogAutoSendDays() {
+  try { const v = JSON.parse(localStorage.getItem('nexus_dlog_autosend_days') || 'null'); return (Array.isArray(v) && v.length) ? v : [1, 2, 3, 4, 5, 6, 7]; }
+  catch (_) { return [1, 2, 3, 4, 5, 6, 7]; }
+}
+function dlogDayAllowed(dow) { return dlogAutoSendDays().indexOf(dow) !== -1; }
 function dlogHasContent(d) {
   if (!d) return false;
   return !!((d.header && (d.header.weather || d.header.significant_events)) ||
@@ -2346,10 +2519,11 @@ function wireDlogLifecycle() {
   setInterval(() => {
     try {
       if (!dlogAutoSendOn()) return;
+      if (!dlogDayAllowed(new Date().getDay() + 1)) return;        // master day-control
       const log = state.currentLog;
       if (!log || !log.data) return;
       if ((log.log_date || todayISO()) !== todayISO()) return;     // today only
-      if (log.drive_upload_status === 'uploaded') return;          // already sent
+      if (log.drive_upload_status === 'uploaded') return;          // already sent (never re-sends)
       const now = new Date();
       const hhmm = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
       if (hhmm < dlogAutoSendTime()) return;                        // not yet cutoff

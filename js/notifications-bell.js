@@ -9,9 +9,11 @@
      • keeps push on/off as a quiet footer control
 
    Pending sources (same tables/filters the app already trusts):
-     • tickets   status=open & priority in (urgent,high,critical)  -> Work Orders
-     • kanban_cards  archived=false & due_date < today             -> Board
-     • pm_logs   review_status=pending & not deleted               -> PM
+     • equipment_issues  priority in (urgent,high,critical) & not done  -> Work Orders
+     • kanban_cards  archived=false & due_date<today & closed_at null    -> Board
+     • pm_logs   review_status=pending & not deleted                    -> PM
+     • equipment status in (down,broken); quotes received-not-decided;
+       invoices received-not-paid (all via equipment_issues timestamps)
 
    Refreshes on open, when you return to the app (visibilitychange), and
    after you act — no polling, battery-safe. Remove this one file + the
@@ -71,25 +73,41 @@
       catch (e) { if (T.debug) T.debug('bell.count', e); return 0; }
     }
     var urgent = await cnt(function () {
-      return sb.from('tickets').select('*', { count: 'exact', head: true })
-        .eq('status', 'open').in('priority', ['urgent', 'high', 'critical']);
+      // BUGFIX: was querying a legacy `tickets` table (always 0) while this
+      // row navigates to the equipment_issues ('issues') view. Work orders
+      // live in equipment_issues; "open" = the repair isn't done/closed yet.
+      return sb.from('equipment_issues').select('*', { count: 'exact', head: true })
+        .in('priority', ['urgent', 'high', 'critical'])
+        .not('status', 'in', '(repaired,closed,cancelled,invoice_paid)');
     });
     var overdue = await cnt(function () {
+      // BUGFIX: was counting DONE/closed cards as "overdue" (archived=false but
+      // closed_at set). Closed cards carry a closed_at; excluding them drops the
+      // count from an alarming 30 to the 10 that are genuinely open + overdue.
       return sb.from('kanban_cards').select('*', { count: 'exact', head: true })
-        .eq('archived', false).lt('due_date', t).not('due_date', 'is', null);
+        .eq('archived', false).lt('due_date', t).not('due_date', 'is', null)
+        .is('closed_at', null);
     });
     var pmPend = await cnt(function () {
       return sb.from('pm_logs').select('*', { count: 'exact', head: true })
         .eq('review_status', 'pending').eq('is_deleted', false);
     });
     var down = await cnt(function () {
-      return sb.from('equipment').select('*', { count: 'exact', head: true }).eq('status', 'down');
+      // Match the header intent ("down/broken"), not only status='down'.
+      return sb.from('equipment').select('*', { count: 'exact', head: true }).in('status', ['down', 'broken']);
     });
     var quotes = await cnt(function () {
-      return sb.from('equipment_issues').select('*', { count: 'exact', head: true }).eq('awaiting_quote_approval', true);
+      // BUGFIX: no awaiting_quote_approval column exists (the old query 400'd
+      // and silently degraded to 0). Quote state is tracked via timestamps:
+      // received but neither approved nor rejected = awaiting approval.
+      return sb.from('equipment_issues').select('*', { count: 'exact', head: true })
+        .not('quote_received_at', 'is', null).is('quote_approved_at', null).is('quote_rejected_at', null);
     });
     var unpaid = await cnt(function () {
-      return sb.from('equipment_issues').select('*', { count: 'exact', head: true }).eq('awaiting_invoice_payment', true);
+      // BUGFIX: no awaiting_invoice_payment column (old query 400'd → 0).
+      // Invoice received but not yet paid = unpaid.
+      return sb.from('equipment_issues').select('*', { count: 'exact', head: true })
+        .not('invoice_received_at', 'is', null).is('invoice_paid_at', null);
     });
     var rows = [];
     if (urgent > 0)  rows.push({ label: urgent + ' urgent work order' + (urgent > 1 ? 's' : '') + ' open', view: 'issues', cls: 'danger' });
