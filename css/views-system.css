@@ -2238,8 +2238,7 @@ body.is-equipment-archive-world .eq-row:hover {
    Now 1.8s cycle with scale 1.06 and 16px halo — clearly in trouble
    without yelling about it. */
 .eq-row-beacon .eq-lc-dot.is-needs-service,
-.eq-row-beacon .eq-lc-dot.is-reported,
-.eq-row-beacon .eq-lc-dot.is-called {
+.eq-row-beacon .eq-lc-dot.is-reported {
   background: var(--nx-gold, #d4a44e) !important;
   animation: eq-beacon-flash 1.8s ease-in-out infinite !important;
 }
@@ -2269,12 +2268,27 @@ body.is-equipment-archive-world .eq-row:hover {
    eq-lc-struggle-dot animation defined in equipment.css. */
 .eq-row-beacon .eq-lc-dot.is-down,
 .eq-row-beacon .eq-lc-dot.is-broken {
+  background: #d24b4b;
+  box-shadow:
+    0 0 0 2px rgba(28, 20, 8, 0.85),
+    0 0 6px rgba(210, 75, 75, 0.7);
+  animation: eq-beacon-red-flash 0.9s steps(1, end) infinite !important;
+}
+/* OUT OF SERVICE (no contractor yet) — urgent red flashing light. */
+@keyframes eq-beacon-red-flash {
+  0%, 48%   { background: #d24b4b; box-shadow: 0 0 0 2px rgba(28,20,8,0.85), 0 0 8px rgba(210,75,75,0.9), 0 0 16px rgba(210,75,75,0.5); }
+  50%, 100% { background: #4a1c1c; box-shadow: 0 0 0 2px rgba(28,20,8,0.85), 0 0 2px rgba(210,75,75,0.3); }
+}
+/* OUT OF SERVICE · CONTRACTOR CALLED — struggling lightbulb "looking for
+   life": reuses the dying-bulb flicker (an irregular search that sparks
+   then fades), matching the contractor-on-the-way, waiting feeling. */
+.eq-row-beacon .eq-lc-dot.is-called {
   background: #5a4a30;
   box-shadow:
     0 0 0 2px rgba(28, 20, 8, 0.85),
     0 0 3px rgba(212, 164, 78, 0.20),
     inset 0 0 4px rgba(0, 0, 0, 0.5);
-  animation: eq-beacon-bulb-dying 5.4s steps(1, end) infinite !important;
+  animation: eq-beacon-bulb-dying 4.6s steps(1, end) infinite !important;
 }
 @keyframes eq-beacon-bulb-dying {
   /* DIM baseline (the bulb's "trying-to-stay-on" state) */

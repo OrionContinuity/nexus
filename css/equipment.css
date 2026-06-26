@@ -13717,3 +13717,188 @@ body.eq-bulk-mode .eq-row.is-selected::after {
   box-shadow: 0 0 10px currentColor,
               0 0 22px currentColor !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   v18.30 — Multi-cadence health bars (PM · Inspection · Deep clean) + the
+   toolbar chooser. Reversible block: delete from here to EOF to revert.
+   Bar fill colors + widths are inline (set by renderHealthBars) so they
+   survive the lazy-module CSS cache; only layout lives here.
+   ═══════════════════════════════════════════════════════════════════════ */
+.eq-health-bars {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.eq-hb-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+}
+.eq-hb-lab {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.04em;
+  color: var(--nx-faint, #6c7585);
+  width: 40px;
+  flex-shrink: 0;
+}
+.eq-hb-track {
+  flex: 1 1 auto;
+  height: 4px;
+  min-width: 34px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.eq-hb-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+.eq-hb-cd {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 8.5px;
+  white-space: nowrap;
+  width: 46px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.eq-hb-row-full .eq-hb-cd { width: auto; }
+
+/* Chooser — gold segmented pills, mirroring the ordering location picker. */
+.eq-hb-chooser {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--nx-surface-1, rgba(34, 46, 70, 0.42));
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.22));
+  border-radius: 999px;
+  padding: 3px;
+}
+.eq-hb-toggle {
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  padding: 5px 11px;
+  cursor: pointer;
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--nx-faint, #6c7585);
+  transition: background 0.14s ease, color 0.14s ease, box-shadow 0.14s ease;
+}
+.eq-hb-toggle:hover { color: var(--nx-text, #ece4d4); }
+.eq-hb-toggle.on {
+  background: var(--nx-gold, #d4a44e);
+  color: #101626;
+  box-shadow: 0 0 0 1px var(--nx-gold, #d4a44e), 0 0 12px rgba(212, 164, 78, 0.28);
+}
+
+/* ── Parts: where-to-buy + per-part replacement bar (v18.30) ── reversible ── */
+.eq-part-pmtag {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 8.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #5cc3b1;
+  background: rgba(63, 160, 143, 0.14);
+  border-radius: 999px;
+  padding: 2px 7px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.eq-part-buy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.eq-part-supplier { font-size: 11.5px; color: var(--nx-text, #ece4d4); }
+.eq-part-price {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: #e6c97a;
+}
+.eq-part-buybtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  text-decoration: none;
+  background: linear-gradient(180deg, #d4a44e, #b88830);
+  color: #101626;
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 11px;
+  border-radius: 999px;
+  box-shadow: 0 1px 5px rgba(212, 164, 78, 0.28);
+}
+.eq-part-buybtn:hover { filter: brightness(1.06); }
+.eq-part-repl {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 7px;
+}
+.eq-part-repl-track {
+  flex: 1 1 auto;
+  height: 4px;
+  min-width: 36px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.eq-part-repl-fill { height: 100%; border-radius: 2px; transition: width 0.3s ease; }
+.eq-part-repl-lab {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 9px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── QR tab — dark-gold Ordering restyle (v18.30) ── reversible ──
+   .eq-qr-* is styled only here, so this EOF block wins the cascade. */
+.eq-qr-section {
+  background: var(--nx-surface-1, rgba(34, 46, 70, 0.42)) !important;
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.22));
+  border-radius: 16px;
+  padding: 18px 16px;
+  text-align: center;
+}
+.eq-qr-label {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--nx-text-strong, #f6f0e2);
+  margin-bottom: 2px;
+}
+.eq-qr-sub { font-size: 12px; color: var(--nx-muted, #9aa3b2); margin-bottom: 14px; }
+.eq-qr-img {
+  background: #fff;
+  padding: 11px;
+  border-radius: 14px;
+  margin: 0 auto 12px;
+  display: block;
+}
+.eq-qr-code {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--nx-gold, #e6c97a);
+  margin-bottom: 3px;
+}
+.eq-qr-url {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 9.5px;
+  color: var(--nx-faint, #6c7585);
+  word-break: break-all;
+  line-height: 1.4;
+  margin-bottom: 14px;
+}
+.eq-qr-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.eq-qr-actions .eq-btn { width: 100%; }

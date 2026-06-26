@@ -2419,3 +2419,240 @@
   flex: 0 0 auto; background: var(--nx-bg, #0e1320); border: 1px solid var(--nx-gold-line, rgba(212,164,78,.25));
   border-radius: 10px; color: var(--nx-text, #ece4d4); padding: 7px 10px; font: inherit; font-size: 13px; max-width: 170px;
 }
+/* Card detail line (description / latest comment) under a ticket row */
+#dailylogView .dlog-tk-detail {
+  font-size: 12px; color: var(--nx-muted, #9aa3b2); line-height: 1.4; margin-top: 4px;
+  border-left: 2px solid var(--nx-gold-line, rgba(212,164,78,.25)); padding-left: 8px; overflow-wrap: anywhere;
+}
+/* Auto-send master day-control pills (which days auto-send is allowed) */
+#dailylogView .dlog-autosend-days { display: inline-flex; gap: 3px; flex-wrap: wrap; }
+#dailylogView .dlog-day-pill {
+  width: 27px; height: 30px; border-radius: 8px; cursor: pointer; font-size: 11px; font-weight: 700;
+  background: var(--nx-bg, #0e1320); border: 1px solid var(--nx-gold-line, rgba(212,164,78,.25)); color: var(--nx-muted, #9aa3b2);
+}
+#dailylogView .dlog-day-pill.is-on { background: var(--nx-gold, #d4a44e); color: var(--nx-gold-on, #101626); border-color: var(--nx-gold, #d4a44e); }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   v18.30 — UI polish for the new equipment surfaces (health-bars · parts ·
+   QR tab · public-PM landing + stepper). Appended to the last-loaded sheet
+   so it wins the cascade. Reversible: delete this block to revert. Pure
+   accessibility/tap-comfort — no layout or color-identity changes.
+   Geometry already verified clean at 375px (docOverflow 0, 0 offenders).
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Keyboard focus rings — these controls shipped with outline:none. */
+.eq-hb-toggle:focus-visible,
+.eq-part-buybtn:focus-visible,
+.eq-qr-actions .eq-btn:focus-visible,
+.pm-step:focus-visible,
+.nx-ps-health a:focus-visible {
+  outline: 2px solid var(--nx-gold, #d4a44e);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* The Buy button is a real CTA but shipped ~25px tall — give it a comfier
+   tap height (≈34px) without changing its gold-pill look. */
+.eq-part-buybtn { padding-top: 7px; padding-bottom: 7px; }
+
+/* Respect prefers-reduced-motion for the NEW beacon states + bar fills.
+   The flicker/flash defines the state, so pin each to a clearly-lit frame
+   rather than leaving the dot dark when motion is off. */
+@media (prefers-reduced-motion: reduce) {
+  .eq-row-beacon .eq-lc-dot.is-down,
+  .eq-row-beacon .eq-lc-dot.is-broken {
+    animation: none !important;
+    background: #d24b4b !important;
+    box-shadow: 0 0 0 2px rgba(28,20,8,.85), 0 0 6px rgba(210,75,75,.7) !important;
+  }
+  .eq-row-beacon .eq-lc-dot.is-called {
+    animation: none !important;
+    background: #c89a48 !important;
+    box-shadow: 0 0 0 2px rgba(28,20,8,.85), 0 0 6px rgba(212,164,78,.55) !important;
+  }
+  .eq-hb-fill, .eq-part-repl-fill, .pm-steps-fill,
+  .pm-pub-hb-fl { transition: none !important; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   v18.31 — NEXUS navy: a cool sapphire complement to the Roman gold, plus
+   the warranty shield on equipment cards. Reversible. Navy is a SECONDARY
+   accent (trust/coverage/info) — gold stays the hero.
+   ═══════════════════════════════════════════════════════════════════════ */
+:root {
+  --nx-navy:        #3f74b3;   /* primary navy accent */
+  --nx-navy-bright: #6aa0e0;   /* glyphs/text on dark */
+  --nx-navy-deep:   #294f7a;
+  --nx-navy-soft:   rgba(63, 116, 179, 0.16);
+  --nx-navy-line:   rgba(63, 116, 179, 0.42);
+}
+[data-theme="light"] {
+  --nx-navy:        #2f5f9a;
+  --nx-navy-bright: #2f5f9a;
+  --nx-navy-soft:   rgba(47, 95, 154, 0.12);
+  --nx-navy-line:   rgba(47, 95, 154, 0.30);
+}
+
+/* Warranty shield — outline = out of warranty (faint), filled navy = covered. */
+.eq-warranty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+  color: var(--nx-faintest, #4e5666);
+  cursor: help;
+}
+.eq-warranty.is-active { color: var(--nx-navy, #3f74b3); }
+
+/* List row: sits just left of the PM-date pill. */
+.eq-row-top .eq-warranty { flex-shrink: 0; align-self: center; margin-right: 1px; }
+
+/* Grid card: a small chip overlaid top-left of the photo area. */
+.eq-card-top { position: relative; }
+.eq-card-top .eq-warranty {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(14, 19, 32, 0.62);
+  box-shadow: 0 0 0 1px var(--nx-navy-line, rgba(63, 116, 179, 0.42));
+}
+.eq-card-top .eq-warranty.is-active {
+  background: var(--nx-navy-soft, rgba(63, 116, 179, 0.16));
+  box-shadow: 0 0 0 1px var(--nx-navy, #3f74b3), 0 0 8px rgba(63, 116, 179, 0.4);
+}
+
+/* Public scan card: inline shield before the warranty date. */
+.nx-ps-warranty {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: -2px;
+  margin-right: 4px;
+  line-height: 0;
+  color: var(--nx-faintest, #6c7585);
+}
+.nx-ps-warranty.is-active { color: var(--nx-navy-bright, #6aa0e0); }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   v18.33 — Cleaning "Periodic / Deep-clean" cards + the lightweight editor /
+   assignee overlay. Reversible. Mirrors the .cleanlite-* gold aesthetic.
+   ═══════════════════════════════════════════════════════════════════════ */
+.cleanlite-periodic { margin: 4px 14px 0; }
+.cleanlite-periodic-title {
+  display: flex; align-items: center; justify-content: space-between;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--nx-gold, #d4a44e); margin: 14px 2px 8px;
+}
+.cleanlite-periodic-title > span { display: inline-flex; align-items: center; gap: 6px; }
+.cleanlite-pnewcard {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--nx-gold-faint, rgba(212,164,78,.08));
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,.22));
+  color: var(--nx-gold, #d4a44e); border-radius: 999px; padding: 4px 10px;
+  font-family: 'Outfit', system-ui, sans-serif; font-size: 11px; font-weight: 500; cursor: pointer;
+}
+.cleanlite-pnewcard:active { transform: scale(.97); }
+.cleanlite-pcard {
+  background: var(--nx-surface-1, rgba(34,46,70,.42));
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,.22));
+  border-radius: 16px; overflow: hidden; margin-bottom: 11px;
+}
+.cleanlite-pcard-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 11px 13px; background: var(--nx-gold-faint, rgba(212,164,78,.08));
+  border-bottom: 1px solid var(--nx-gold-line, rgba(212,164,78,.22));
+}
+.cleanlite-pcard-name { font-family: 'Outfit', system-ui, sans-serif; font-size: 14px; font-weight: 600; color: var(--nx-text-strong, #f6f0e2); }
+.cleanlite-padd {
+  width: 28px; height: 28px; border-radius: 8px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 1px solid var(--nx-gold-line, rgba(212,164,78,.22));
+  color: var(--nx-gold, #d4a44e); cursor: pointer;
+}
+.cleanlite-padd:active { transform: scale(.95); }
+.cleanlite-ptasks { padding: 4px 6px 6px; }
+.cleanlite-ptask {
+  display: flex; align-items: center; gap: 10px; padding: 9px 8px;
+  border-radius: 12px;
+}
+.cleanlite-ptask + .cleanlite-ptask { border-top: 1px solid rgba(212,164,78,.10); }
+.cleanlite-pcheck {
+  flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 1.5px solid var(--nx-gold-line, rgba(212,164,78,.30));
+  color: transparent; cursor: pointer; transition: all .15s;
+}
+.cleanlite-ptask.is-done .cleanlite-pcheck { background: var(--nx-gold, #d4a44e); border-color: var(--nx-gold, #d4a44e); color: #101626; }
+.cleanlite-ptask-main { flex: 1 1 auto; min-width: 0; }
+.cleanlite-ptask-top { display: flex; align-items: baseline; gap: 8px; }
+.cleanlite-ptask-name { flex: 1; min-width: 0; font-size: 14px; color: var(--nx-text, #ece4d4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cleanlite-ptask.is-done .cleanlite-ptask-name { color: var(--nx-faint, #6c7585); text-decoration: line-through; }
+.cleanlite-pfreq {
+  flex-shrink: 0; font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 8.5px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--nx-gold, #d4a44e); background: var(--nx-gold-faint, rgba(212,164,78,.08));
+  border-radius: 999px; padding: 2px 7px;
+}
+.cleanlite-pbar { height: 4px; border-radius: 2px; background: rgba(212,164,78,.12); overflow: hidden; margin: 6px 0 4px; }
+.cleanlite-pbar-fill { height: 100%; border-radius: 2px; transition: width .3s ease; }
+.cleanlite-pbar-fill.is-fresh { background: #6fa853; }
+.cleanlite-pbar-fill.is-aging { background: #d99c3d; }
+.cleanlite-pbar-fill.is-stale { background: #cf5959; }
+.cleanlite-ptask-sub { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 9.5px; color: var(--nx-faint, #6c7585); }
+.cleanlite-ptask-sub.is-overdue { color: #e58a8a; }
+.cleanlite-ppeople, .cleanlite-pkebab {
+  flex-shrink: 0; background: transparent; border: none; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.cleanlite-ppeople { gap: -6px; padding: 2px; }
+.cleanlite-pkebab { width: 26px; height: 26px; border-radius: 8px; color: var(--nx-faint, #6c7585); }
+.cleanlite-pkebab:active { transform: scale(.95); }
+.cleanlite-pav {
+  width: 24px; height: 24px; border-radius: 50%; margin-left: -6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: hsl(var(--av-hue, 35), 32%, 38%); border: 1.5px solid var(--nx-bg, #0e1320);
+  color: #f5ecd6; font-family: 'Outfit', sans-serif; font-size: 10px; font-weight: 600;
+}
+.cleanlite-pav:first-child { margin-left: 0; }
+.cleanlite-pav.is-none { background: rgba(212,164,78,.10); color: var(--nx-faint, #6c7585); border-color: var(--nx-gold-line, rgba(212,164,78,.22)); }
+.cleanlite-pav.is-more { background: var(--nx-surface-2, rgba(24,34,54,.62)); color: var(--nx-gold, #d4a44e); }
+
+/* Lightweight overlay (assignee picker + task editor) */
+.cleanlite-ov {
+  position: fixed; inset: 0; z-index: 10002;
+  display: flex; align-items: flex-end; justify-content: center;
+  background: rgba(0,0,0,.5); padding: 0;
+}
+.cleanlite-ov-card {
+  width: 100%; max-width: 480px;
+  background: var(--nx-surface-solid, #161d2e);
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,.24)); border-bottom: none;
+  border-radius: 22px 22px 0 0; padding: 20px 18px calc(18px + env(safe-area-inset-bottom, 0px));
+  max-height: 84vh; overflow-y: auto;
+}
+.cleanlite-ov-title { font-family: 'Outfit', sans-serif; font-size: 18px; font-weight: 600; color: var(--nx-text-strong, #f6f0e2); }
+.cleanlite-ov-sub { font-size: 12.5px; color: var(--nx-muted, #9aa3b2); margin: 2px 0 14px; }
+.cleanlite-ov-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
+.cleanlite-ov-row { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 12px; cursor: pointer; }
+.cleanlite-ov-row:active { background: var(--nx-gold-faint, rgba(212,164,78,.08)); }
+.cleanlite-ov-row input { width: 18px; height: 18px; accent-color: var(--nx-gold, #d4a44e); flex-shrink: 0; }
+.cleanlite-ov-rowname { font-size: 14px; color: var(--nx-text, #ece4d4); }
+.cleanlite-ov-lbl { display: block; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 9px; text-transform: uppercase; letter-spacing: .12em; color: var(--nx-gold, #d4a44e); margin: 13px 0 6px; }
+.cleanlite-ov-input {
+  width: 100%; box-sizing: border-box; background: var(--nx-surface-2, rgba(24,34,54,.62));
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,.22)); border-radius: 12px;
+  padding: 11px 13px; color: var(--nx-text, #ece4d4); font-family: 'Outfit', sans-serif; font-size: 14px;
+}
+.cleanlite-ov-input:focus { outline: none; border-color: var(--nx-gold, #d4a44e); }
+.cleanlite-ov-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
+.cleanlite-ov-btn {
+  padding: 10px 16px; border-radius: 999px; cursor: pointer;
+  font-family: 'Outfit', sans-serif; font-size: 13px; font-weight: 600;
+  background: transparent; border: 1px solid var(--nx-gold-line, rgba(212,164,78,.3)); color: var(--nx-text, #ece4d4);
+}
+.cleanlite-ov-btn.is-primary { background: var(--nx-gold, #d4a44e); border-color: var(--nx-gold, #d4a44e); color: #101626; }
+.cleanlite-ov-del { margin-right: auto; border-color: rgba(210,75,75,.4); color: #e58a8a; }

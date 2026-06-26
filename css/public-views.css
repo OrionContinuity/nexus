@@ -977,3 +977,112 @@ body.public-view .pm-mass-empty {
   .pm-public-btn { padding: 12px 14px !important; }
   .public-coin img { width: 48px; height: 48px; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   v18.30 — public-PM progress stepper + landing health strip. Reversible
+   block: delete from here to EOF to revert. Bar fill colors/widths are
+   inline (set in JS); only layout + state styling live here.
+   ═══════════════════════════════════════════════════════════════════════ */
+.pm-steps {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 20px 0;
+}
+.pm-step {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--nx-faint, #6c7585);
+}
+.pm-step-dot {
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.3));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  flex-shrink: 0;
+}
+.pm-step.is-active { color: var(--nx-gold, #d4a44e); }
+.pm-step.is-active .pm-step-dot {
+  background: var(--nx-gold, #d4a44e);
+  border-color: var(--nx-gold, #d4a44e);
+  color: #101626;
+}
+.pm-step.is-done .pm-step-dot {
+  background: #3fa08f;
+  border-color: #3fa08f;
+  color: #0e1320;
+}
+.pm-steps-bar {
+  height: 4px;
+  border-radius: 2px;
+  margin: 8px 20px 4px;
+  background: rgba(212, 164, 78, 0.12);
+  overflow: hidden;
+}
+.pm-steps-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #d4a44e, #b88830);
+  transition: width 0.3s ease;
+}
+.pm-public-health {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  background: var(--nx-surface-1, rgba(34, 46, 70, 0.42));
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.22));
+  border-radius: 14px;
+}
+.pm-pub-hb-head {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--nx-gold, #d4a44e);
+  margin-bottom: 8px;
+}
+.pm-pub-hb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.pm-pub-hb:first-of-type { margin-top: 0; }
+.pm-pub-hb-l {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 9px;
+  color: var(--nx-faint, #6c7585);
+  width: 42px;
+  flex-shrink: 0;
+}
+.pm-pub-hb-tr {
+  flex: 1 1 auto;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(212, 164, 78, 0.12);
+  overflow: hidden;
+}
+.pm-pub-hb-fl { height: 100%; border-radius: 3px; transition: width 0.3s ease; }
+.pm-pub-hb-c {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 9.5px;
+  width: 74px;
+  text-align: right;
+  flex-shrink: 0;
+}
+[data-theme="light"] .pm-public-health {
+  background: #FAF6EC;
+  border-color: rgba(168, 116, 42, 0.24);
+}
+[data-theme="light"] .pm-steps-bar,
+[data-theme="light"] .pm-pub-hb-tr { background: rgba(168, 116, 42, 0.15); }
