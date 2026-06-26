@@ -439,29 +439,47 @@ async function moveCategoryOrder(key, direction) {
  * pm_interval_days. Returns null if either is missing.
  */
 function computePmCountdown(eq) {
-  if (!eq || !eq.pm_interval_days) return null;
+  if (!eq) return null;
   const interval = parseInt(eq.pm_interval_days, 10);
   if (!interval || interval <= 0) return null;
-  // Baseline = the last logged PM, or (if none yet) the install / purchase /
-  // created date, so equipment with a cadence but no logged PM still gets a
-  // PROJECTED next-PM date + overdue state instead of showing nothing.
-  let baseStr = eq.last_pm_date;
-  let projected = false;
-  if (!baseStr) {
-    baseStr = eq.install_date || eq.purchase_date || (eq.created_at ? String(eq.created_at).slice(0, 10) : null);
-    projected = true;
-  }
-  if (!baseStr) return null;
-  const last = new Date(baseStr + 'T00:00:00');
-  if (isNaN(last)) return null;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  // A PM bar needs a REAL maintenance anchor the user has actually engaged
+  // with — a logged last PM, or a next-PM date they set. It is NEVER derived
+  // from the NEXUS row-creation date or a rough install_date placeholder, so
+  // units that merely carry a default cadence (no PM ever logged, no next-PM
+  // scheduled) don't show a fabricated countdown. Anchor priority:
+  //   1. last_pm_date  → project one interval forward (real service history)
+  //   2. next_pm_date  → use it directly (a schedule the user actually set)
+  // No real anchor → return null so the bar simply doesn't render. (This
+  // matches detailHealthBars, which anchors on the same two fields, so the
+  // list/grid and the detail card always agree on which units show a PM bar.)
+  let baseStr = null;
+  let projected = false;
+  let nextIso = null;
+  if (eq.last_pm_date) {
+    baseStr = String(eq.last_pm_date).slice(0, 10);
+    projected = false;
+  } else if (eq.next_pm_date) {
+    const n = new Date(String(eq.next_pm_date).slice(0, 10) + 'T00:00:00');
+    if (isNaN(n)) return null;
+    nextIso = n.toISOString().slice(0, 10);
+    const b = new Date(n); b.setDate(b.getDate() - interval);   // derive last from the real next
+    baseStr = b.toISOString().slice(0, 10);
+    projected = false;
+  } else {
+    return null;
+  }
+  const last = new Date(baseStr + 'T00:00:00');
+  if (isNaN(last)) return null;
   const elapsedDays  = Math.floor((today - last) / 86400000);
   const remainingDays = interval - elapsedDays;
   const pctRemaining = Math.max(0, Math.min(1, remainingDays / interval));
-  const next = new Date(last);
-  next.setDate(next.getDate() + interval);
-  const nextIso = next.toISOString().slice(0, 10);
+  if (!nextIso) {
+    const next = new Date(last);
+    next.setDate(next.getDate() + interval);
+    nextIso = next.toISOString().slice(0, 10);
+  }
   return {
     elapsedDays,
     remainingDays,
@@ -4160,12 +4178,13 @@ function renderList() {
 }
 
 function buildListRow(e) {
-  // Prefer the real logged next_pm_date; otherwise show the PROJECTED date
-  // (from the cadence + install/created baseline) so a PM date appears even
-  // before the first PM is logged.
+  // Next-PM date for the row label: the real logged next_pm_date, or the
+  // date projected one interval past the last logged PM. computePmCountdown
+  // only yields a date when there's a real anchor (last_pm_date or
+  // next_pm_date), so a unit with no PM history shows "—" instead of a date
+  // fabricated from when it was entered into the app.
   const _pmcd = computePmCountdown(e);
   const _pmIso = e.next_pm_date || (_pmcd && _pmcd.nextDate) || null;
-  const _pmProjected = !e.next_pm_date && _pmcd && _pmcd.projected;
   const pm = _pmIso ? new Date(_pmIso + 'T00:00:00') : null;
   const pmOverdue = pm && pm < new Date();
   const pmSoon = pm && !pmOverdue && pm < new Date(Date.now() + 14 * 86400000);
@@ -4177,7 +4196,7 @@ function buildListRow(e) {
   let pmLabel = '';
   let pmCls = 'eq-row-when-empty';
   if (pm) {
-    pmLabel = (_pmProjected ? '~' : '') + pm.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    pmLabel = pm.toLocaleDateString([], { month: 'short', day: 'numeric' });
     if (pmOverdue) pmCls = 'is-overdue';
     else if (pmSoon) pmCls = 'is-soon';
     else pmCls = '';
@@ -4701,11 +4720,158 @@ async function _legacyCommitIssueAsBoardCard(eq, issue) {
   }
 }
 
+/* ═══ DETAIL HEALTH BARS + BARS STUDIO (v18.34) ═══════════════════════════
+   Animated, configurable maintenance-health bars at the top of the detail.
+   Built-in: PM / Inspection / Deep clean (from equipment columns). Custom bars
+   (e.g. Compliance) are user-defined {key,label,interval_days,last_date} stored
+   in eq.specs._nx.bars; built-in visibility in eq.specs._nx.hidden. No schema
+   change — specs is an existing jsonb column; _nx is filtered from the Specs card. */
+function _barCountdown(lastIso, intervalDays) {
+  const interval = parseInt(intervalDays, 10);
+  if (!interval || interval <= 0) return null;
+  // No real anchor date → no bar. (Previously this returned a red "Due now ·
+  // never logged" bar for any unit that merely had an interval, which lit up
+  // dozens of items that have no maintenance history. A bar needs a real
+  // last-done / next-due date to mean anything.)
+  if (!lastIso) return null;
+  const last = new Date(String(lastIso).slice(0, 10) + 'T00:00:00');
+  if (isNaN(last)) return null;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const elapsed = Math.floor((today - last) / 86400000);
+  const remaining = interval - elapsed;
+  const pct = Math.max(0, Math.min(1, remaining / interval));
+  const next = new Date(last); next.setDate(next.getDate() + interval);
+  const nextIso = next.toISOString().slice(0, 10);
+  let color = '#3fa08f';
+  if (pct < 0.1) color = '#d24b4b'; else if (pct < 0.5) color = '#d4a44e';
+  const overdue = remaining < 0;
+  const dueText = overdue
+    ? `Overdue ${Math.abs(remaining)}d · was due ${pmShortDate(nextIso)}`
+    : `Last ${pmShortDate(lastIso)} → due ${pmShortDate(nextIso)} · ${remaining}d left`;
+  return { pct: Math.round(pct * 100), color, dueText, overdue };
+}
+function _eqBarConfig(eq) {
+  const nx = (eq.specs && eq.specs._nx) || {};
+  return { hidden: Array.isArray(nx.hidden) ? nx.hidden : [], bars: Array.isArray(nx.bars) ? nx.bars : [] };
+}
+function detailHealthBars(eq) {
+  const cfg = _eqBarConfig(eq);
+  const hidden = new Set(cfg.hidden);
+  let pmLast = eq.last_pm_date;
+  if (!pmLast && eq.next_pm_date && eq.pm_interval_days) {
+    const d = new Date(String(eq.next_pm_date).slice(0, 10) + 'T00:00:00');
+    if (!isNaN(d)) { d.setDate(d.getDate() - parseInt(eq.pm_interval_days, 10)); pmLast = d.toISOString().slice(0, 10); }
+  }
+  const out = [];
+  const add = (key, label, last, interval) => {
+    if (hidden.has(key)) return;
+    const cd = _barCountdown(last, interval);
+    if (cd) out.push({ key, label, cd });
+  };
+  add('pm', 'PM', pmLast, eq.pm_interval_days);
+  add('inspection', 'Inspection', eq.last_inspection_date, eq.inspection_interval_days);
+  add('deep_clean', 'Deep clean', eq.last_deep_clean_date, eq.deep_clean_interval_days);
+  cfg.bars.forEach(b => { if (b && b.key && b.label) add(b.key, b.label, b.last_date, b.interval_days); });
+  return out;
+}
+function renderDetailHealth(eq) {
+  const bars = detailHealthBars(eq);
+  const rows = bars.map(b => `
+    <div class="eq-hbar ${b.cd.overdue ? 'is-over' : ''}">
+      <div class="eq-hbar-top"><span class="eq-hbar-label">${esc(b.label)}</span><span class="eq-hbar-pct" style="color:${b.cd.color}">${b.cd.overdue ? 'OVERDUE' : b.cd.pct + '%'}</span></div>
+      <div class="eq-hbar-track"><div class="eq-hbar-fill" style="width:${b.cd.pct}%;--bar:${b.cd.color}"></div></div>
+      <div class="eq-hbar-sub">${esc(b.cd.dueText)}</div>
+    </div>`).join('');
+  return `
+    <div class="eq-detail-card eq-health-card">
+      <div class="eq-detail-card-head eq-health-head">
+        <span>${uiSvg('activity', '12px')} Maintenance health</span>
+        <button class="eq-health-gear" onclick="NX.modules.equipment.openBarsStudio('${eq.id}')" title="Customize bars — choose what shows, add your own">${uiSvg('settings', '13px')}</button>
+      </div>
+      ${rows || '<div class="eq-empty-small">No health bars yet — tap ⚙ to show PM / Inspection / Deep clean, or add your own (e.g. Compliance).</div>'}
+    </div>`;
+}
+async function openBarsStudio(equipId) {
+  const eq = equipment.find(e => String(e.id) === String(equipId));
+  if (!eq) return;
+  const cfg = _eqBarConfig(eq);
+  const hidden = new Set(cfg.hidden);
+  const builtins = [
+    { key: 'pm', label: 'PM', interval: eq.pm_interval_days },
+    { key: 'inspection', label: 'Inspection', interval: eq.inspection_interval_days },
+    { key: 'deep_clean', label: 'Deep clean', interval: eq.deep_clean_interval_days },
+  ];
+  let customs = cfg.bars.map(b => Object.assign({}, b));
+  const ov = document.createElement('div');
+  ov.className = 'eq-studio-ov';
+  const customRow = (b, i) => `<div class="eq-studio-crow" data-ci="${i}">
+    <input class="eq-studio-in" data-cf="label" value="${escAttr(b.label || '')}" placeholder="Bar name (e.g. Compliance)">
+    <div class="eq-studio-crow2">
+      <input class="eq-studio-in eq-studio-num" type="number" min="1" data-cf="interval_days" value="${escAttr(b.interval_days || '')}" placeholder="Every N days">
+      <input class="eq-studio-in" type="date" data-cf="last_date" value="${escAttr((b.last_date || '').slice(0, 10))}">
+      <button class="eq-studio-del" data-del title="Remove">${uiSvg('close', '12px')}</button>
+    </div>
+  </div>`;
+  const collectCustoms = () => {
+    const rows = [];
+    ov.querySelectorAll('.eq-studio-crow').forEach((r, i) => {
+      const label = r.querySelector('[data-cf="label"]').value.trim();
+      if (!label) return;
+      const interval = r.querySelector('[data-cf="interval_days"]').value;
+      const last = r.querySelector('[data-cf="last_date"]').value;
+      const existing = customs[i] && customs[i].key;
+      rows.push({ key: existing || ('cb' + Date.now() + i), label, interval_days: parseInt(interval, 10) || null, last_date: last || null });
+    });
+    return rows;
+  };
+  const wire = () => {
+    ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+    ov.querySelector('[data-cancel]').addEventListener('click', () => ov.remove());
+    ov.querySelector('[data-add]').addEventListener('click', () => { customs = collectCustoms(); customs.push({ label: '', interval_days: null, last_date: null }); draw(); });
+    ov.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => { const i = +b.closest('.eq-studio-crow').dataset.ci; customs = collectCustoms(); customs.splice(i, 1); draw(); }));
+    ov.querySelector('[data-save]').addEventListener('click', async () => {
+      const newHidden = [];
+      ov.querySelectorAll('[data-bk]').forEach(cb => { if (!cb.checked) newHidden.push(cb.dataset.bk); });
+      const newCustoms = collectCustoms();
+      ov.remove();
+      await saveBarConfig(equipId, eq, { hidden: newHidden, bars: newCustoms });
+    });
+  };
+  const draw = () => {
+    ov.innerHTML = `<div class="eq-studio">
+      <div class="eq-studio-grip"></div>
+      <div class="eq-studio-title">Customize health bars</div>
+      <div class="eq-studio-sub">${esc(eq.name)} — pick what shows, or add your own</div>
+      <div class="eq-studio-sec">Built-in</div>
+      ${builtins.map(b => `<label class="eq-studio-row"><input type="checkbox" data-bk="${b.key}" ${hidden.has(b.key) ? '' : 'checked'}><span class="eq-studio-rl">${esc(b.label)}</span><span class="eq-studio-rm">${b.interval ? 'every ' + b.interval + 'd' : 'no interval set'}</span></label>`).join('')}
+      <div class="eq-studio-sec">Custom bars</div>
+      <div id="eqStudioCustoms">${customs.map((b, i) => customRow(b, i)).join('') || '<div class="eq-empty-small">None yet — add a Compliance, Filter-change, Calibration bar…</div>'}</div>
+      <button class="eq-studio-add" data-add>${uiSvg('plus', '13px')} Add custom bar</button>
+      <div class="eq-studio-actions"><button class="eq-studio-btn" data-cancel>Cancel</button><button class="eq-studio-btn is-primary" data-save>Save</button></div>
+    </div>`;
+    wire();
+  };
+  draw();
+  document.body.appendChild(ov);
+}
+async function saveBarConfig(equipId, eq, nx) {
+  if (!NX.sb) { NX.toast && NX.toast('Database unavailable', 'error'); return; }
+  const specs = Object.assign({}, eq.specs || {});
+  specs._nx = Object.assign({}, specs._nx || {}, nx);
+  try {
+    const { error } = await NX.sb.from('equipment').update({ specs }).eq('id', equipId);
+    if (error) throw error;
+    NX.toast && NX.toast('Bars saved', 'success', 1500);
+    if (typeof loadEquipment === 'function') { try { await loadEquipment(); } catch (_) {} }
+    if (typeof openDetail === 'function') openDetail(equipId);
+  } catch (e) { console.error('[barsStudio] save:', e); NX.toast && NX.toast('Save failed: ' + (e.message || ''), 'error', 3000); }
+}
+
 /* ═══ OVERVIEW TAB (merges base + full-editor enhancements) ═══ */
 
 function renderOverview(eq, attachments, customFields) {
   const specs = eq.specs || {};
-  const specKeys = Object.keys(specs).filter(k => specs[k]);
+  const specKeys = Object.keys(specs).filter(k => specs[k] && k !== '_nx');
 
   // Links block (manual_source_url + manual_url + attachment links)
   const linkAttachments = attachments.filter(a => a.type === 'link' || a.external_url);
@@ -4865,6 +5031,7 @@ function renderOverview(eq, attachments, customFields) {
 
   return `
     ${eq.photo_url ? `<img src="${eq.photo_url}" class="eq-detail-photo">` : ''}
+    ${renderDetailHealth(eq)}
     ${servicedByHTML}
 
     <div class="eq-detail-card">
@@ -5274,7 +5441,7 @@ function openEditModal(id) {
               <input type="date" name="next_pm_date" value="${eq.next_pm_date||''}" title="Computed from Last PM + Interval. Override if you want a specific date.">
             </div>
           </div>
-          ${eq.last_pm_date && eq.pm_interval_days ? `<div class="eq-form-group">${renderPmProgressBar(eq)}</div>` : ''}
+          ${(eq.last_pm_date || eq.next_pm_date) && eq.pm_interval_days ? `<div class="eq-form-group">${renderPmProgressBar(eq)}</div>` : ''}
           <div class="eq-form-group">
             <label>Notes</label>
             <textarea name="notes" rows="3" placeholder="Any special notes, quirks, service tips...">${esc(eq.notes||'')}</textarea>
@@ -20492,6 +20659,7 @@ const __nxeExports = {
   lookupServicePhoneFromNode,
   toggleOverflow,
   enhancePartsList,
+  openBarsStudio,
 
   // Issue tracker (lifecycle)
   openIssueTracker,

@@ -146,6 +146,8 @@ let state = {
   // v18.32 — full non-archived fleet (all statuses), for the daily-log
   // Maintenance-health + Warranty stats. Populated by loadEquipmentDown.
   equipmentHealth: [],
+  // v18.35 — most-recent OPEN equipment_issue per down unit (was a call placed?).
+  openIssuesByEq: {},
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -757,6 +759,20 @@ async function loadEquipmentDown() {
     state.equipmentHealth = all;       // full fleet → health/warranty stats
     const rows = all.filter(eq => NON_OPERATIONAL_STATUSES.indexOf((eq.status || '').toLowerCase()) !== -1);
     rows.sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
+    // Open work-order / call status for the down units (was a call placed?).
+    // Maps equipment_id → most-recent open issue. Best-effort; never blocks.
+    state.openIssuesByEq = {};
+    try {
+      const downIds = rows.map(e => e.id);
+      if (downIds.length && NX.sb) {
+        const { data: iss } = await NX.sb.from('equipment_issues')
+          .select('equipment_id, status, contractor_name, contractor_called_at, eta_at, reported_at, created_at, priority')
+          .in('equipment_id', downIds)
+          .not('status', 'in', '(repaired,closed,cancelled,invoice_paid)')
+          .order('created_at', { ascending: false });
+        (iss || []).forEach(r => { if (!state.openIssuesByEq[r.equipment_id]) state.openIssuesByEq[r.equipment_id] = r; });
+      }
+    } catch (e) { console.warn('[daily-log] open issues:', e); }
     return rows;
   } catch (e) {
     console.warn('[daily-log] loadEquipmentDown exception:', e);
@@ -2150,10 +2166,42 @@ function dlogLocationReportLines(loc) {
   const down = (state.equipmentDown || []).filter(eq => normLocKey(eq.location) === locKey && eq.archived !== true);
   if (down.length) {
     out.push(SH('Equipment status'));
+    const issByEq = state.openIssuesByEq || {};
+    const shortD = iso => { if (!iso) return ''; const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString([], { month: 'short', day: 'numeric' }); };
+    const etaTxt = iso => {
+      if (!iso) return '';
+      const d = new Date(iso); if (isNaN(d)) return '';
+      const t = new Date(); const sameDay = d.toDateString() === t.toDateString();
+      return sameDay
+        ? ('today ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))
+        : d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    };
     down.forEach(eq => {
       const st = (eq.status || '').replace(/_/g, ' ').trim();
       out.push('\u00b7 ' + (eq.name || 'Equipment') + (st ? ' \u2014 ' + st : ''));
-      if (clean(eq.status_note)) out.push('    ' + clean(eq.status_note));
+      if (clean(eq.status_note)) out.push('    why: ' + clean(eq.status_note));
+      // Has a contractor been called? Surface the open work-order lifecycle.
+      const iss = issByEq[eq.id];
+      if (!iss) {
+        out.push('    call: not logged \u2014 no open work order yet');
+      } else {
+        const s = (iss.status || '').toLowerCase();
+        const who = iss.contractor_name ? ' to ' + clean(iss.contractor_name) : '';
+        if (s === 'reported' || s === 'open' || s === 'new')
+          out.push('    call: NOT placed yet \u2014 reported ' + shortD(iss.reported_at || iss.created_at));
+        else if (s === 'contractor_called' || s === 'called' || s === 'dispatched')
+          out.push('    call: placed' + who + (iss.contractor_called_at ? ' on ' + shortD(iss.contractor_called_at) : '') + (iss.eta_at ? ' \u2014 ETA ' + etaTxt(iss.eta_at) : ''));
+        else if (s === 'eta_set' || s === 'scheduled')
+          out.push('    call: placed' + who + ' \u2014 ETA ' + etaTxt(iss.eta_at));
+        else if (s === 'in_progress' || s === 'on_site')
+          out.push('    call: placed \u2014 contractor on site, repair in progress');
+        else if (s === 'awaiting_parts')
+          out.push('    call: placed \u2014 awaiting parts');
+        else if (s === 'quote_requested' || s === 'awaiting_quote')
+          out.push('    call: placed' + who + ' \u2014 awaiting quote');
+        else
+          out.push('    call: ' + s.replace(/_/g, ' '));
+      }
     });
     out.push('');
   }
@@ -2174,13 +2222,19 @@ function dlogLocationReportLines(loc) {
       d.setDate(d.getDate() + n);
       return d;
     };
-    let pmO = 0, pmS = 0, insO = 0, insS = 0, dcO = 0, dcS = 0, op = 0;
+    let insO = 0, insS = 0, dcO = 0, dcS = 0, op = 0;
+    const pmItems = [];
+    const shortDate2 = d => d.toLocaleDateString([], { month: 'short', day: 'numeric' });
     eqAll.forEach(eq => {
       if ((eq.status || 'operational').toLowerCase() === 'operational') op++;
       const pmNext = eq.next_pm_date
         ? new Date(String(eq.next_pm_date).slice(0, 10) + 'T00:00:00')
         : nextOf(eq.last_pm_date, eq.pm_interval_days);
-      if (pmNext && !isNaN(pmNext)) { if (pmNext < todayD) pmO++; else if (pmNext <= soonD) pmS++; }
+      if (pmNext && !isNaN(pmNext) && pmNext <= soonD) {
+        const overdue = pmNext < todayD;
+        const days = Math.round((pmNext - todayD) / 86400000);
+        pmItems.push({ name: eq.name || 'Equipment', date: pmNext, overdue, days });
+      }
       const insNext = nextOf(eq.last_inspection_date, eq.inspection_interval_days);
       if (insNext) { if (insNext < todayD) insO++; else if (insNext <= soonD) insS++; }
       const dcNext = nextOf(eq.last_deep_clean_date, eq.deep_clean_interval_days);
@@ -2188,11 +2242,23 @@ function dlogLocationReportLines(loc) {
     });
     out.push(SH('Maintenance health'));
     out.push('· ' + eqAll.length + ' unit' + (eqAll.length === 1 ? '' : 's') + ' — ' + op + ' operational');
+    // PM due — itemized: WHICH unit + WHEN it was/is due (not just a count).
+    if (pmItems.length) {
+      pmItems.sort((a, b) => a.date - b.date);
+      const overdueN = pmItems.filter(x => x.overdue).length;
+      out.push('· PM due: ' + pmItems.length + (overdueN ? ' (' + overdueN + ' overdue)' : ''));
+      pmItems.slice(0, 12).forEach(x => {
+        out.push('    ' + x.name + ' — ' + (x.overdue
+          ? ('OVERDUE, was due ' + shortDate2(x.date) + (x.days <= -1 ? ' (' + Math.abs(x.days) + 'd ago)' : ''))
+          : ('due ' + shortDate2(x.date) + (x.days <= 14 ? ' (in ' + x.days + 'd)' : ''))));
+      });
+      if (pmItems.length > 12) out.push('    +' + (pmItems.length - 12) + ' more');
+    }
     const dueLine = (label, over, soon) => {
       const t = over + soon;
       return t ? ('· ' + label + ' due: ' + t + (over ? ' (' + over + ' overdue)' : '')) : null;
     };
-    [dueLine('PM', pmO, pmS), dueLine('Inspections', insO, insS), dueLine('Deep cleans', dcO, dcS)]
+    [dueLine('Inspections', insO, insS), dueLine('Deep cleans', dcO, dcS)]
       .filter(Boolean).forEach(l => out.push(l));
     out.push('');
 
