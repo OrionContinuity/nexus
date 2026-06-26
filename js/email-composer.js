@@ -121,6 +121,8 @@
       '.nx-cmp-btn{flex:1;padding:14px;border-radius:14px;font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;border:1px solid var(--nx-border-strong,rgba(255,255,255,.18));background:transparent;color:var(--nx-text,#ece4d4)}' +
       '.nx-cmp-btn-send{border-color:var(--nx-gold,#d4a44e);background:var(--nx-gold-faint,rgba(212,164,78,.1));color:var(--nx-gold,#d4a44e)}' +
       '.nx-cmp-btn-send:disabled{opacity:.5;cursor:default}' +
+      '.nx-cmp-chip-new{animation:nxCmpChipIn .5s ease}' +
+      '@keyframes nxCmpChipIn{0%{transform:scale(.7);background:var(--nx-gold,#d4a44e);color:var(--nx-gold-on,#101626)}60%{background:var(--nx-gold-soft,rgba(212,164,78,.4))}100%{transform:scale(1)}}' +
       '.nx-cmp-status{min-height:16px;padding:0 18px;font-size:12px;text-align:center;color:var(--nx-muted,#9aa3b2);transition:color .15s}' +
       '.nx-cmp-status.is-ok{color:var(--nx-green,#67c08c)}' +
       '.nx-cmp-status.is-warn{color:var(--nx-gold,#d4a44e)}' +
@@ -225,12 +227,19 @@
       if (!input) return;
       var v = (input.value || '').trim();
       if (!validEmail(v)) { input.focus(); input.style.borderColor = 'var(--nx-red,#d24b4b)'; return; }
-      if ((state[kind] || []).indexOf(v) === -1) state[kind].push(v);
+      var dup = (state[kind] || []).indexOf(v) !== -1;
+      if (!dup) state[kind].push(v);
       input.value = '';
       input.style.borderColor = '';
       rerenderChips(kind);
+      // Immediate acknowledgement: flash the new chip + toast right away (the
+      // inline status then updates to 'saved & synced' once Supabase confirms).
+      var chips = bg.querySelectorAll('[data-chips="' + kind + '"] .nx-cmp-chip');
+      var last = chips[chips.length - 1];
+      if (last) { last.classList.add('nx-cmp-chip-new'); setTimeout(function () { if (last) last.classList.remove('nx-cmp-chip-new'); }, 1300); }
+      if (T.toast) T.toast(dup ? (kind.toUpperCase() + ' already added') : (kind.toUpperCase() + ' added: ' + v), dup ? 'info' : 'success');
       input.focus();
-      persistRecipients(kind, v);   // confirm + sync to Supabase
+      persistRecipients(kind, v);   // then persist + sync, updating the inline status
     }
 
     // Current To/CC/BCC snapshot (To pulled live from the field).

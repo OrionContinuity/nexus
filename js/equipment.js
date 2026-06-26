@@ -439,10 +439,20 @@ async function moveCategoryOrder(key, direction) {
  * pm_interval_days. Returns null if either is missing.
  */
 function computePmCountdown(eq) {
-  if (!eq || !eq.last_pm_date || !eq.pm_interval_days) return null;
+  if (!eq || !eq.pm_interval_days) return null;
   const interval = parseInt(eq.pm_interval_days, 10);
   if (!interval || interval <= 0) return null;
-  const last = new Date(eq.last_pm_date + 'T00:00:00');
+  // Baseline = the last logged PM, or (if none yet) the install / purchase /
+  // created date, so equipment with a cadence but no logged PM still gets a
+  // PROJECTED next-PM date + overdue state instead of showing nothing.
+  let baseStr = eq.last_pm_date;
+  let projected = false;
+  if (!baseStr) {
+    baseStr = eq.install_date || eq.purchase_date || (eq.created_at ? String(eq.created_at).slice(0, 10) : null);
+    projected = true;
+  }
+  if (!baseStr) return null;
+  const last = new Date(baseStr + 'T00:00:00');
   if (isNaN(last)) return null;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -459,7 +469,15 @@ function computePmCountdown(eq) {
     intervalDays: interval,
     nextDate: nextIso,
     isOverdue: remainingDays < 0,
+    projected,
   };
+}
+
+// Short, friendly date for PM labels: "Jun 30".
+function pmShortDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso + 'T00:00:00');
+  return isNaN(d) ? iso : d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
 /**
@@ -500,9 +518,11 @@ function renderPmProgressBar(eq, compact) {
   let color = '#3a8d3a';  // green
   if (cd.pctRemaining < 0.1)      color = '#c44';   // red
   else if (cd.pctRemaining < 0.5) color = '#d4a44e'; // gold/amber
+  const _dt = pmShortDate(cd.nextDate);
+  const _proj = cd.projected ? '~' : '';   // ~ = projected (no PM logged yet)
   const label = cd.isOverdue
-    ? `OVERDUE by ${Math.abs(cd.remainingDays)}d`
-    : `${cd.remainingDays}d until PM`;
+    ? `OVERDUE ${Math.abs(cd.remainingDays)}d · was ${_proj}${_dt}`
+    : `Next PM ${_proj}${_dt} · ${cd.remainingDays}d`;
   if (compact) {
     return `
       <div class="eq-pm-progress" title="${esc(label)}" style="display:flex; align-items:center; gap:6px; font-size:10px;">
@@ -3990,7 +4010,13 @@ function renderList() {
 }
 
 function buildListRow(e) {
-  const pm = e.next_pm_date ? new Date(e.next_pm_date) : null;
+  // Prefer the real logged next_pm_date; otherwise show the PROJECTED date
+  // (from the cadence + install/created baseline) so a PM date appears even
+  // before the first PM is logged.
+  const _pmcd = computePmCountdown(e);
+  const _pmIso = e.next_pm_date || (_pmcd && _pmcd.nextDate) || null;
+  const _pmProjected = !e.next_pm_date && _pmcd && _pmcd.projected;
+  const pm = _pmIso ? new Date(_pmIso + 'T00:00:00') : null;
   const pmOverdue = pm && pm < new Date();
   const pmSoon = pm && !pmOverdue && pm < new Date(Date.now() + 14 * 86400000);
 
@@ -4001,7 +4027,7 @@ function buildListRow(e) {
   let pmLabel = '';
   let pmCls = 'eq-row-when-empty';
   if (pm) {
-    pmLabel = pm.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    pmLabel = (_pmProjected ? '~' : '') + pm.toLocaleDateString([], { month: 'short', day: 'numeric' });
     if (pmOverdue) pmCls = 'is-overdue';
     else if (pmSoon) pmCls = 'is-soon';
     else pmCls = '';
