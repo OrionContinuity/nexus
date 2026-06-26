@@ -1180,6 +1180,8 @@ function renderAddLocationControl(d) {
 
 function renderRecentLogsStrip() {
   if (!state.recentLogs || !state.recentLogs.length) return '';
+  const curDate = state.currentLog && state.currentLog.log_date;
+  // Quick chips for the last few days...
   const rows = state.recentLogs.slice(0, 7).map(r => {
     const isOpen = state.currentLog && state.currentLog.id === r.id;
     return `
@@ -1189,9 +1191,18 @@ function renderRecentLogsStrip() {
       </button>
     `;
   }).join('');
+  // ...plus a dropdown to jump to any older submitted log.
+  const opts = state.recentLogs.map(r => {
+    const tag = r.submitted_at ? ' ✓' : ' · draft';
+    return `<option value="${esc(r.log_date)}" ${r.log_date === curDate ? 'selected' : ''}>${esc(friendlyDate(r.log_date))}${tag}</option>`;
+  }).join('');
   return `
     <div class="dlog-recent">
       <span class="dlog-recent-label">RECENT</span>
+      <select class="dlog-recent-select" id="dlogRecentSelect" title="Open an older log" aria-label="Open an older log">
+        <option value="" disabled ${curDate ? '' : 'selected'}>Older logs…</option>
+        ${opts}
+      </select>
       <div class="dlog-recent-strip">${rows}</div>
     </div>
   `;
@@ -1206,7 +1217,10 @@ function renderHeaderSection(d) {
       <div class="dlog-section-body">
         <label class="dlog-field">
           <span class="dlog-field-label">Weather</span>
-          <input type="text" data-path="header.weather" value="${esc(d.header.weather)}" placeholder="e.g. Sunny, 78°F, evening showers">
+          <div class="dlog-weather-row">
+            <input type="text" data-path="header.weather" value="${esc(d.header.weather)}" placeholder="e.g. Sunny, 78°F, evening showers">
+            <button type="button" class="dlog-weather-refresh" id="dlogWeatherRefresh" title="Fetch today's weather now">↻</button>
+          </div>
         </label>
         <label class="dlog-field">
           <span class="dlog-field-label">Significant events or disruptions</span>
@@ -1792,6 +1806,10 @@ function wireForm() {
       render();
     });
   });
+  const weatherRefresh = view.querySelector('#dlogWeatherRefresh');
+  if (weatherRefresh) weatherRefresh.addEventListener('click', () => forceWeather());
+  const recentSelect = view.querySelector('#dlogRecentSelect');
+  if (recentSelect) recentSelect.addEventListener('change', () => { if (recentSelect.value) openLogForDate(recentSelect.value); });
   view.querySelectorAll('[data-log-date]').forEach(btn => {
     btn.addEventListener('click', () => openLogForDate(btn.dataset.logDate));
   });
@@ -2210,6 +2228,20 @@ function wmoText(code) {
     95: 'Thunderstorms', 96: 'Thunderstorms with hail', 99: 'Thunderstorms with hail',
   };
   return m[code] || 'Mixed conditions';
+}
+
+// Manual "↻" — clears the field and re-fetches today's weather on demand.
+async function forceWeather() {
+  const log = ensureCurrentLog();
+  if ((log.log_date || todayISO()) !== todayISO()) { if (NX.toast) NX.toast('Weather only fetches for today', 'info'); return; }
+  if (!log.data) log.data = hydrateData(null);
+  if (!log.data.header) log.data.header = {};
+  log.data.header.weather = '';
+  const input = document.querySelector('[data-path="header.weather"]');
+  if (input) input.value = '';
+  await maybeAutoWeather();
+  const got = String((log.data.header && log.data.header.weather) || '').trim();
+  if (NX.toast) NX.toast(got ? 'Weather updated' : 'Could not reach the weather service', got ? 'success' : 'error');
 }
 
 async function maybeAutoWeather() {

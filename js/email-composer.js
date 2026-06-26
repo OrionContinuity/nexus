@@ -121,6 +121,10 @@
       '.nx-cmp-btn{flex:1;padding:14px;border-radius:14px;font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;border:1px solid var(--nx-border-strong,rgba(255,255,255,.18));background:transparent;color:var(--nx-text,#ece4d4)}' +
       '.nx-cmp-btn-send{border-color:var(--nx-gold,#d4a44e);background:var(--nx-gold-faint,rgba(212,164,78,.1));color:var(--nx-gold,#d4a44e)}' +
       '.nx-cmp-btn-send:disabled{opacity:.5;cursor:default}' +
+      '.nx-cmp-status{min-height:16px;padding:0 18px;font-size:12px;text-align:center;color:var(--nx-muted,#9aa3b2);transition:color .15s}' +
+      '.nx-cmp-status.is-ok{color:var(--nx-green,#67c08c)}' +
+      '.nx-cmp-status.is-warn{color:var(--nx-gold,#d4a44e)}' +
+      '.nx-cmp-poweredby{text-align:center;font-family:var(--nx-font-mono,"JetBrains Mono",monospace);font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:var(--nx-faintest,#4e5666);padding:2px 0 calc(8px + env(safe-area-inset-bottom))}' +
       '@media (prefers-reduced-motion:reduce){.nx-cmp-bg,.nx-cmp{transition:none}}';
     document.head.appendChild(st);
   }
@@ -183,10 +187,12 @@
             '<textarea class="nx-cmp-textarea" data-body>' + escHtml(body) + '</textarea>' +
           '</div>' +
         '</div>' +
+        '<div class="nx-cmp-status" id="nxCmpStatus"></div>' +
         '<div class="nx-cmp-foot">' +
           '<button type="button" class="nx-cmp-btn" data-cancel>Cancel</button>' +
           '<button type="button" class="nx-cmp-btn nx-cmp-btn-send" data-send>Send</button>' +
         '</div>' +
+        '<div class="nx-cmp-poweredby">powered by NEXUS</div>' +
       '</div>';
 
     function close() {
@@ -234,16 +240,26 @@
     }
     // Persist recipients locally + to Supabase; toast a confirmation when an
     // address was just added (addedKind/addedAddr provided).
+    function setCmpStatus(msg, kind) {
+      var el = bg.querySelector('#nxCmpStatus');
+      if (el) { el.textContent = msg; el.className = 'nx-cmp-status' + (kind ? ' is-' + kind : ''); }
+    }
     function persistRecipients(addedKind, addedAddr) {
-      if (!key) return;
       var snap = snapshot();
-      store(key, snap);  // instant local
-      saveRemote(key, snap).then(function (ok) {
-        if (!T.toast) return;
-        if (addedKind) {
-          T.toast(addedKind.toUpperCase() + ' ' + (addedAddr || '') + (ok ? ' — saved & synced ✓' : ' — saved on this device'), ok ? 'success' : 'info');
-        }
-      });
+      var who = addedKind ? (addedKind.toUpperCase() + ' ' + (addedAddr || '') + ' ') : 'Recipients ';
+      if (key) store(key, snap);  // instant local
+      if (key && T && T.sb) {
+        setCmpStatus(who + 'saving…', 'warn');
+        saveRemote(key, snap).then(function (ok) {
+          var msg = who + (ok ? 'saved & synced to NEXUS ✓' : 'saved on this device (run email_recipients.sql to sync)');
+          setCmpStatus(msg, ok ? 'ok' : 'warn');
+          if (T.toast && addedKind) T.toast(msg, ok ? 'success' : 'info');
+        });
+      } else if (addedKind) {
+        // No recipientsKey → can't persist across emails, but still confirm.
+        setCmpStatus(who + 'added (this email only)', 'warn');
+        if (T.toast) T.toast(who + 'added', 'info');
+      }
     }
     // On open, pull saved recipients from Supabase (they rarely change) and
     // fill any the caller didn't pass — so the CC list is always there.
