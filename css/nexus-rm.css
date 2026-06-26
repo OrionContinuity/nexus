@@ -2404,3 +2404,18 @@
 }
 .cleanlite-summary-actions { display: flex; gap: 10px; }
 .cleanlite-summary-actions .cleanlite-cta { position: static; flex: 1; }
+
+/* ─── 27. DAILY LOG — weather refresh + older-logs dropdown ───────────────────*/
+#dailylogView .dlog-weather-row { display: flex; gap: 8px; align-items: center; }
+#dailylogView .dlog-weather-row input { flex: 1; min-width: 0; }
+#dailylogView .dlog-weather-refresh {
+  flex: 0 0 auto; width: 42px; height: 42px; border-radius: 12px; cursor: pointer; font-size: 18px; line-height: 1;
+  background: var(--nx-gold-faint, rgba(212,164,78,.1)); border: 1px solid var(--nx-gold-line, rgba(212,164,78,.25));
+  color: var(--nx-gold, #d4a44e); display: flex; align-items: center; justify-content: center;
+}
+#dailylogView .dlog-weather-refresh:hover { background: var(--nx-gold-soft, rgba(212,164,78,.18)); }
+#dailylogView .dlog-weather-refresh:active { transform: rotate(180deg); transition: transform .3s; }
+#dailylogView .dlog-recent-select {
+  flex: 0 0 auto; background: var(--nx-bg, #0e1320); border: 1px solid var(--nx-gold-line, rgba(212,164,78,.25));
+  border-radius: 10px; color: var(--nx-text, #ece4d4); padding: 7px 10px; font: inherit; font-size: 13px; max-width: 170px;
+}
