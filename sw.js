@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v158-firstsend-ccack-pmdates';
+const CACHE_NAME = 'nexus-v174-clean-print';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
