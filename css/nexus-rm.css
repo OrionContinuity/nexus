@@ -2656,3 +2656,9 @@
 }
 .cleanlite-ov-btn.is-primary { background: var(--nx-gold, #d4a44e); border-color: var(--nx-gold, #d4a44e); color: #101626; }
 .cleanlite-ov-del { margin-right: auto; border-color: rgba(210,75,75,.4); color: #e58a8a; }
+
+/* v179 — per-location weather chip in the daily-log location sections.
+   Filled async by maybeAutoWeather; hidden until it has content. */
+.dlog-loc-weather { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .02em; color: var(--nx-faint, #8a93a3); margin: 0 0 10px; }
+.dlog-loc-weather::before { content: '\2601\FE0F  '; opacity: .8; }
+.dlog-loc-weather:empty { display: none; }

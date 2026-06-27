@@ -13942,3 +13942,17 @@ body.eq-bulk-mode .eq-row.is-selected::after {
 .eq-studio-btn { padding: 10px 18px; border-radius: 999px; cursor: pointer; font-family: 'Outfit', system-ui, sans-serif; font-size: 13px; font-weight: 600; background: transparent; border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.3)); color: var(--nx-text, #ece4d4); }
 .eq-studio-btn.is-primary { background: var(--nx-gold, #d4a44e); border-color: var(--nx-gold, #d4a44e); color: #101626; }
 @media (prefers-reduced-motion: reduce) { .eq-hbar-fill::after, .eq-hbar.is-over .eq-hbar-fill { animation: none !important; } }
+
+/* v18.36 — Lifecycle & Service card sub-group labels (reversible) */
+.eq-ls-subhead {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--nx-faint, #8a93a3);
+  margin: 15px 2px 7px;
+}
+.eq-ls-subhead:first-of-type { margin-top: 8px; }
+.eq-ls-demoted { margin-top: 10px; opacity: 0.9; }
+.eq-ls-demoted .eq-detail-card-grid { grid-template-columns: 1fr; }
+.eq-ls-demoted .eq-detail-card-field-label { color: var(--nx-faint, #8a93a3); }
