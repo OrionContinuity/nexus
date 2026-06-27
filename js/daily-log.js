@@ -1313,6 +1313,7 @@ function renderLocationSection(loc, idx) {
         <button type="button" class="dlog-loc-remove" data-remove-loc="${idx}" title="Remove this location" aria-label="Remove location ${esc(loc.label)}">×</button>
       </summary>
       <div class="dlog-section-body">
+        <div class="dlog-loc-weather" data-loc-weather="${esc(normLocKey(loc.label))}">${esc((state.weatherByLoc && state.weatherByLoc[normLocKey(loc.label)]) || '')}</div>
         <label class="dlog-field">
           <span class="dlog-field-label">Notes &amp; observations</span>
           <textarea data-path="locations.${idx}.notes" rows="4" placeholder="The shift recap for ${esc(loc.label)} — service, guests, 86s, anything noteworthy…">${esc(loc.notes || '')}</textarea>
@@ -1716,15 +1717,10 @@ function renderTicketsSection(d) {
   const cardRow = (c, bucket) => {
     const pri = (c.priority || 'normal').toLowerCase();
     const priClass = pri === 'urgent' ? 'bw-pri-urgent' : (pri === 'low' ? 'bw-pri-low' : 'bw-pri-normal');
-    const eqName = c.equipment_id ? eqNameById[c.equipment_id] : null;
     const lane = c._laneLabel || laneLabel(c.status);
-    const who = cardAssignee(c);
-    const created = cardCreatedLabel(c);          // "Sat Jun 21" — flags queued/weekend cards
     const detail = cardDetail(c);                 // description / first comment, if any
+    // Compact: priority pill + title + lane. No assignee / created / emoji.
     const metaBits = [];
-    if (eqName) metaBits.push('🔧 ' + esc(eqName));
-    if (who) metaBits.push('👤 ' + esc(who));
-    if (created) metaBits.push('🗓 ' + esc(created));
     if (lane) metaBits.push(`<span class="dlog-tk-lane dlog-tk-lane-${bucket}">${esc(lane)}</span>`);
     return `
       <div class="dlog-tk-row">
@@ -2158,6 +2154,10 @@ function dlogLocationReportLines(loc) {
   const out = [];
   const locKey = normLocKey(loc.label);
 
+  // Weather — this location's own, from its address (state.weatherByLoc).
+  const locWx = (state.weatherByLoc && state.weatherByLoc[locKey]) || '';
+  if (locWx) { out.push(SH('Weather')); out.push(locWx); out.push(''); }
+
   // Notes — the shift recap the manager types into this location's note.
   if (clean(loc.notes)) { out.push(SH('Notes')); out.push(clean(loc.notes)); out.push(''); }
 
@@ -2242,6 +2242,9 @@ function dlogLocationReportLines(loc) {
     });
     out.push(SH('Maintenance health'));
     out.push('· ' + eqAll.length + ' unit' + (eqAll.length === 1 ? '' : 's') + ' — ' + op + ' operational');
+    // Which units aren't operational, and their status.
+    const _nonOp = eqAll.filter(e => (e.status || 'operational').toLowerCase() !== 'operational');
+    _nonOp.forEach(e => { const _st = (e.status || '').replace(/_/g, ' ').trim(); out.push('    ' + (e.name || 'Equipment') + ' \u2014 ' + (_st || 'not operational')); });
     // PM due — itemized: WHICH unit + WHEN it was/is due (not just a count).
     if (pmItems.length) {
       pmItems.sort((a, b) => a.date - b.date);
@@ -2262,27 +2265,23 @@ function dlogLocationReportLines(loc) {
       .filter(Boolean).forEach(l => out.push(l));
     out.push('');
 
-    // Warranties — units with a warranty date; active ones (soonest first)
-    // plus anything expired in the last ~120 days. Skipped entirely when
-    // this location has no warranty dates on file.
+    // Warranty — prompt ONLY when a unit's warranty is within 90 days of
+    // expiring (the actionable window). No active/expired roll-up; if nothing
+    // is coming due, the email says nothing about warranties.
     const todayMs = todayD.getTime();
-    const warr = eqAll
+    const warrSoon = eqAll
       .filter(eq => eq.warranty_until)
-      .map(eq => { const d = new Date(String(eq.warranty_until).slice(0, 10) + 'T00:00:00'); return { name: eq.name || 'Equipment', d }; })
-      .filter(w => w.d && !isNaN(w.d))
-      .sort((a, b) => a.d - b.d);
-    const active = warr.filter(w => w.d.getTime() >= todayMs);
-    const recentExpired = warr.filter(w => w.d.getTime() < todayMs && (todayMs - w.d.getTime()) / 86400000 <= 120);
-    if (active.length || recentExpired.length) {
-      out.push(SH('Warranties'));
-      active.forEach(w => {
+      .map(eq => {
+        const d = new Date(String(eq.warranty_until).slice(0, 10) + 'T00:00:00');
+        return { name: eq.name || 'Equipment', d, days: Math.round((d.getTime() - todayMs) / 86400000) };
+      })
+      .filter(w => w.d && !isNaN(w.d) && w.days >= 0 && w.days <= 90)
+      .sort((a, b) => a.days - b.days);
+    if (warrSoon.length) {
+      out.push(SH('Warranty due soon'));
+      warrSoon.forEach(w => {
         const ds = w.d.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
-        const days = Math.round((w.d.getTime() - todayMs) / 86400000);
-        out.push('· ' + w.name + ' — under warranty to ' + ds + (days <= 60 ? ' (expires in ' + days + 'd)' : ''));
-      });
-      recentExpired.forEach(w => {
-        const ds = w.d.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
-        out.push('· ' + w.name + ' — warranty expired ' + ds);
+        out.push('· ' + w.name + ' — warranty ends ' + ds + ' (in ' + w.days + 'd)');
       });
       out.push('');
     }
@@ -2301,18 +2300,11 @@ function dlogLocationReportLines(loc) {
     cards.sort((a, b) => priRank(a.priority) - priRank(b.priority));
     out.push(SH('Board / work orders'));
     cards.forEach(c => {
-      const bits = [];
-      const eqName = c.equipment_id ? eqNameById[c.equipment_id] : '';
-      if (eqName) bits.push('\ud83d\udd27 ' + eqName);
-      const who = cardAssignee(c); if (who) bits.push('assigned: ' + who);
-      if (c._laneLabel) bits.push(c._laneLabel);
-      // created date for carried-over / weekend-queued cards (blank if made today)
-      const created = cardCreatedLabel(c); if (created) bits.push(created);
-      // Priority tag (from the board card) \u2014 flag anything not "normal".
+      // Compact: just the to-do (title) + a priority tag. No assignee,
+      // created date, lane, equipment, emoji, or detail.
       const pri = (c.priority || 'normal').toLowerCase();
       const priTag = (pri && pri !== 'normal') ? '[' + pri.toUpperCase() + '] ' : '';
-      out.push('\u00b7 ' + priTag + (c.title || 'Untitled card') + (bits.length ? ' (' + bits.join(', ') + ')' : ''));
-      const detail = cardDetail(c); if (detail) out.push('    ' + detail);
+      out.push('\u00b7 ' + priTag + (c.title || 'Untitled card'));
     });
     out.push('');
   }
@@ -2439,13 +2431,84 @@ async function openDailyLogEmail() {
   window.location.href = url;
 }
 
-// ── Weather auto-populate ─────────────────────────────────────────────────
-// Once a day, when today's log opens with an empty Weather field, fetch the
-// day's weather for the venues' city (Austin) from Open-Meteo — free, no API
-// key — and fill a one-line summary with the day's average temp. Never
-// overwrites anything you typed; a per-date localStorage flag keeps it to one
-// network call a day. Change WEATHER_COORDS to move the location.
-const WEATHER_COORDS = { lat: 30.2672, lon: -97.7431 };   // Austin, TX
+// ── Weather auto-populate (address-based, per location) ───────────────────
+// Each location carries a street address (the `locations` table). We geocode
+// it once — Photon, a free CORS-enabled OSM geocoder, cached in localStorage —
+// then pull the day's weather from Open-Meteo for those coordinates. The header
+// field shows the active location's weather; each location's email section
+// carries its own. Falls back to the venues' default city if an address is
+// missing or won't geocode, so weather always resolves. Never overwrites a
+// manual entry.
+const DEFAULT_COORDS = { lat: 30.2672, lon: -97.7431 };   // Austin, TX — last-resort fallback
+
+// localStorage geocode cache: address string → {lat, lon}. Geocode each
+// address at most once — addresses rarely change and coordinates never do.
+const GEO_CACHE_KEY = 'nexus_geo_cache_v1';
+function _geoGet(addr) { try { return (JSON.parse(localStorage.getItem(GEO_CACHE_KEY) || '{}'))[addr] || null; } catch (_) { return null; } }
+function _geoSet(addr, c) { try { const m = JSON.parse(localStorage.getItem(GEO_CACHE_KEY) || '{}'); m[addr] = c; localStorage.setItem(GEO_CACHE_KEY, JSON.stringify(m)); } catch (_) {} }
+
+// Address → {lat, lon} via Photon (street-level, free, no key, CORS-enabled).
+// Cached. Returns null when there's no usable address (caller falls back).
+async function geocodeAddress(address) {
+  const a = String(address || '').trim();
+  if (!a || a.toUpperCase() === 'NA' || a.length < 4) return null;
+  const cached = _geoGet(a);
+  if (cached && isFinite(cached.lat) && isFinite(cached.lon)) return cached;
+  try {
+    const r = await fetch('https://photon.komoot.io/api/?limit=1&q=' + encodeURIComponent(a), { headers: { 'Accept': 'application/json' } });
+    if (r.ok) {
+      const j = await r.json();
+      const f = j && j.features && j.features[0];
+      const co = f && f.geometry && f.geometry.coordinates;   // GeoJSON [lon, lat]
+      if (Array.isArray(co) && co.length >= 2) {
+        const c = { lat: parseFloat(co[1]), lon: parseFloat(co[0]) };
+        if (isFinite(c.lat) && isFinite(c.lon)) { _geoSet(a, c); return c; }
+      }
+    }
+  } catch (_) { /* offline / blocked — caller uses the city fallback */ }
+  return null;
+}
+
+// Each location's street address from the `locations` table → state.locAddr
+// keyed by normalized label. Best-effort; weather still resolves (city
+// fallback) if this fails.
+async function loadLocationAddresses() {
+  state.locAddr = state.locAddr || {};
+  try {
+    const { data } = await NX.sb.from('locations').select('label,address').eq('archived', false);
+    (data || []).forEach(r => { if (r && r.label) state.locAddr[normLocKey(r.label)] = (r.address || '').trim(); });
+  } catch (_) {}
+  return state.locAddr;
+}
+
+// One coordinate → the day's weather as a one-line summary string.
+async function fetchDayWeather(lat, lon) {
+  const url = 'https://api.open-meteo.com/v1/forecast'
+    + '?latitude=' + lat + '&longitude=' + lon
+    + '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum'
+    + '&temperature_unit=fahrenheit&precipitation_unit=inch&timezone=auto&forecast_days=1';
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  const j = await res.json();
+  const dy = j && j.daily;
+  if (!dy || !dy.temperature_2m_max) return null;
+  const hi = dy.temperature_2m_max[0], lo = dy.temperature_2m_min[0];
+  if (hi == null || lo == null) return null;
+  const code = dy.weather_code ? dy.weather_code[0] : null;
+  const precip = (dy.precipitation_sum && dy.precipitation_sum[0]) || 0;
+  const avg = Math.round((hi + lo) / 2);
+  let str = (code != null ? wmoText(code) + ', ' : '')
+    + 'avg ' + avg + '°F (H ' + Math.round(hi) + ' / L ' + Math.round(lo) + ')';
+  if (precip > 0.01) str += ' · ' + precip.toFixed(2) + '" precip';
+  return str;
+}
+
+// Resolve a location's coords (address-based, cached) then fetch its weather.
+async function weatherForLocationKey(key) {
+  const addr = (state.locAddr && state.locAddr[key]) || '';
+  const coords = (await geocodeAddress(addr)) || DEFAULT_COORDS;
+  return fetchDayWeather(coords.lat, coords.lon);
+}
 
 function wmoText(code) {
   const m = {
@@ -2461,7 +2524,7 @@ function wmoText(code) {
   return m[code] || 'Mixed conditions';
 }
 
-// Manual "↻" — clears the field and re-fetches today's weather on demand.
+// Manual "↻" — clears the field + today's cache and re-fetches on demand.
 async function forceWeather() {
   const log = ensureCurrentLog();
   if ((log.log_date || todayISO()) !== todayISO()) { if (NX.toast) NX.toast('Weather only fetches for today', 'info'); return; }
@@ -2470,6 +2533,10 @@ async function forceWeather() {
   log.data.header.weather = '';
   const input = document.querySelector('[data-path="header.weather"]');
   if (input) input.value = '';
+  state.weatherByLoc = {};   // drop today's cached per-location weather
+  state._weatherDate = null;
+  state.locAddr = null;      // re-read addresses too (in case one changed)
+  if (NX.toast) NX.toast('Fetching weather…', 'info', 1200);
   await maybeAutoWeather();
   const got = String((log.data.header && log.data.header.weather) || '').trim();
   if (NX.toast) NX.toast(got ? 'Weather updated' : 'Could not reach the weather service', got ? 'success' : 'error');
@@ -2483,36 +2550,57 @@ async function maybeAutoWeather() {
     if (dateStr !== todayISO()) return;                       // today's log only
     if (!log.data) log.data = hydrateData(null);
     if (!log.data.header) log.data.header = {};
-    if (String(log.data.header.weather || '').trim()) return; // never overwrite a manual entry
-    // The empty-field check above IS the dedupe — so weather auto-fills EVERY
-    // day the field is blank, instead of being blocked forever by a sticky
-    // localStorage "done" flag (which lost the weather if a save ever failed).
+    // We no longer bail when the header already holds a manual entry — we still
+    // fetch each location's weather below (for the per-location email sections)
+    // and simply skip overwriting the header field itself.
     if (state._weatherFetching) return;
     state._weatherFetching = true;
 
-    const url = 'https://api.open-meteo.com/v1/forecast'
-      + '?latitude=' + WEATHER_COORDS.lat + '&longitude=' + WEATHER_COORDS.lon
-      + '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum'
-      + '&temperature_unit=fahrenheit&precipitation_unit=inch&timezone=auto&forecast_days=1';
-    const res = await fetch(url);
-    if (!res.ok) return;
-    const j = await res.json();
-    const dy = j && j.daily;
-    if (!dy || !dy.temperature_2m_max) return;
-    const hi = dy.temperature_2m_max[0];
-    const lo = dy.temperature_2m_min[0];
-    if (hi == null || lo == null) return;
-    const code = dy.weather_code ? dy.weather_code[0] : null;
-    const precip = (dy.precipitation_sum && dy.precipitation_sum[0]) || 0;
-    const avg = Math.round((hi + lo) / 2);
-    let str = (code != null ? wmoText(code) + ', ' : '')
-      + 'avg ' + avg + '\u00b0F (H ' + Math.round(hi) + ' / L ' + Math.round(lo) + ')';
-    if (precip > 0.01) str += ' \u00b7 ' + precip.toFixed(2) + '" precip';
+    // Reset the per-location weather cache at the start of each new day.
+    const today = todayISO();
+    if (state._weatherDate !== today) { state.weatherByLoc = {}; state._weatherDate = today; }
+    state.weatherByLoc = state.weatherByLoc || {};
 
-    log.data.header.weather = str;
-    const input = document.querySelector('[data-path="header.weather"]');
-    if (input && !input.value.trim()) input.value = str;
-    markDirty();   // quiet autosave so it persists with the rest of the log
+    if (!state.locAddr) await loadLocationAddresses();
+
+    // Fetch each active location's weather from its OWN address (cached/day).
+    // state.weatherByLoc feeds the per-location email sections.
+    const locs = (log.data.locations || []).filter(l => l && l.label);
+    for (const loc of locs) {
+      const key = normLocKey(loc.label);
+      if (state.weatherByLoc[key]) continue;
+      try {
+        const str = await weatherForLocationKey(key);
+        if (str) state.weatherByLoc[key] = str;
+      } catch (_) { /* one location's network hiccup must not block the rest */ }
+    }
+    // Reflect each location's weather into its on-screen section (best-effort —
+    // render() ran before this async fetch, so we fill the placeholders now).
+    locs.forEach(loc => {
+      const k = normLocKey(loc.label);
+      const sp = document.querySelector('[data-loc-weather="' + k + '"]');
+      if (sp && state.weatherByLoc[k]) sp.textContent = state.weatherByLoc[k];
+    });
+    // Always have something to show even before a location is added.
+    if (!state.weatherByLoc.__default) {
+      const str = await fetchDayWeather(DEFAULT_COORDS.lat, DEFAULT_COORDS.lon);
+      if (str) state.weatherByLoc.__default = str;
+    }
+
+    // Header field = the active location's weather (or the first location's, or
+    // the default). Only when blank \u2014 never clobber a manual entry. The empty-
+    // field check IS the dedupe, so it re-fills any day the field is blank.
+    if (!String(log.data.header.weather || '').trim()) {
+      let key = (state.activeLoc && state.activeLoc !== 'all') ? state.activeLoc : null;
+      if (!key || !state.weatherByLoc[key]) key = locs[0] ? normLocKey(locs[0].label) : null;
+      const w = (key && state.weatherByLoc[key]) || state.weatherByLoc.__default || '';
+      if (w) {
+        log.data.header.weather = w;
+        const input = document.querySelector('[data-path="header.weather"]');
+        if (input && !input.value.trim()) input.value = w;
+        markDirty();   // quiet autosave so it persists with the rest of the log
+      }
+    }
   } catch (e) { if (window.NX && NX.debug) NX.debug('dlog.weather', e); /* offline/API hiccup — field stays editable, retries next open */ }
   finally { state._weatherFetching = false; }
 }

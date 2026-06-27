@@ -4425,7 +4425,7 @@ async function openDetail(id) {
       </div>
 
       <div class="eq-detail-body">
-        <div class="eq-tab-panel active" data-panel="overview">${renderOverview(eq, attachments, customFields)}</div>
+        <div class="eq-tab-panel active" data-panel="overview">${renderOverview(eq, attachments, customFields, maintenance)}</div>
         <div class="eq-tab-panel" data-panel="timeline">${renderTimeline(eq, maintenance, pendingLogs)}</div>
         <div class="eq-tab-panel" data-panel="activity"><div class="eq-empty-small">Loading activity…</div></div>
         <div class="eq-tab-panel" data-panel="parts">${renderParts(eq, parts, maintenance)}</div>
@@ -4869,7 +4869,8 @@ async function saveBarConfig(equipId, eq, nx) {
 
 /* ═══ OVERVIEW TAB (merges base + full-editor enhancements) ═══ */
 
-function renderOverview(eq, attachments, customFields) {
+function renderOverview(eq, attachments, customFields, maintenance) {
+  maintenance = maintenance || [];
   const specs = eq.specs || {};
   const specKeys = Object.keys(specs).filter(k => specs[k] && k !== '_nx');
 
@@ -4980,7 +4981,15 @@ function renderOverview(eq, attachments, customFields) {
   // bordered card with a monospace header. Mirrors the order-detail
   // pattern from ordering. Empty groups render an em-dash so the user
   // can see at a glance what's blank vs missing.
-  const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
+  // Date-only DB values ("2022-01-01") parse as UTC midnight and roll back a
+  // day in negative-UTC timezones; pin them to local midnight so the install/
+  // warranty dates read true. Full timestamps pass through unchanged.
+  const fmtDate = (iso) => {
+    if (!iso) return '—';
+    const s = String(iso);
+    const d = new Date(s.length <= 10 ? s + 'T00:00:00' : s);
+    return isNaN(d) ? '—' : d.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
+  };
   // v18.20 — Each field now carries an `edit` key (DB column name) so the
   // detail-card click delegation can route into openFieldEditor. Fields
   // without `edit` (derived stats) render as static. The cascade hint
@@ -4991,24 +5000,73 @@ function renderOverview(eq, attachments, customFields) {
     { label: 'Serial',       value: esc(eq.serial_number || '—'),    edit: 'serial_number',  type: 'text' },
     { label: 'Category',     value: `${catIcon(eq.category)} <span style="margin-left:4px">${esc(eq.category || '—')}</span>`, edit: 'category', type: 'category' },
   ];
+  // ── LIFECYCLE & SERVICE (v18.36 — rebuilt around the health logs) ──
+  // Two readable groups: durable lifecycle facts, and the live maintenance/
+  // service picture sourced from the SAME cadence anchors that drive the
+  // health bars (computePmCountdown / computeCadenceCountdown) plus the
+  // equipment_maintenance service log. The cadence rows stay editable (tap =
+  // set the last-done date that starts the countdown). The old static "Health
+  // score" is demoted to a small secondary stat — it's a server repair-index,
+  // not part of the PM/Inspection/Deep-clean health logs.
+  const _ageStr = (iso) => {
+    if (!iso) return '';
+    const d = new Date(String(iso).slice(0, 10) + 'T00:00:00');
+    if (isNaN(d)) return '';
+    const months = Math.max(0, Math.floor((Date.now() - d) / (30.44 * 86400000)));
+    const y = Math.floor(months / 12), m = months % 12;
+    return y > 0 ? (y + 'y' + (m ? ' ' + m + 'm' : '')) : (months + 'mo');
+  };
+  const _warrActive = (() => {
+    if (!eq.warranty_until) return null;
+    const d = new Date(String(eq.warranty_until).slice(0, 10) + 'T00:00:00');
+    if (isNaN(d)) return null;
+    const t = new Date(); t.setHours(0, 0, 0, 0);
+    return d >= t;
+  })();
+  // Cadence summary: "last <date> → due <date> · <Nd | overdue Nd>" from a
+  // countdown, or an invite to set it up when there's no real anchor (mirrors
+  // the v177 rule: no fabricated bar/countdown without a real last/next date).
+  const _cadSummary = (cd, lastIso, intervalDays, noun) => {
+    if (cd) {
+      const lastTxt = lastIso ? 'last ' + pmShortDate(String(lastIso).slice(0, 10)) + ' → ' : '';
+      const dueTxt = 'due ' + pmShortDate(cd.nextDate);
+      const cnt = cd.isOverdue
+        ? `<span class="eq-detail-card-unit" style="color:#d24b4b"> · overdue ${Math.abs(cd.remainingDays)}d</span>`
+        : `<span class="eq-detail-card-unit"> · ${cd.remainingDays}d</span>`;
+      return lastTxt + dueTxt + cnt;
+    }
+    return intervalDays
+      ? `<span class="eq-detail-card-unit">every ${intervalDays}d · log ${noun} to start</span>`
+      : '<span class="eq-detail-card-unit">not tracked</span>';
+  };
+  const _pmCd  = computePmCountdown(eq);
+  const _insCd = computeCadenceCountdown(eq, 'last_inspection_date', 'inspection_interval_days');
+  const _dcCd  = computeCadenceCountdown(eq, 'last_deep_clean_date', 'deep_clean_interval_days');
+  const _lastSvc = maintenance.length ? maintenance[0] : null;
+  const _lastSvcVal = _lastSvc
+    ? `${pmShortDate(String(_lastSvc.event_date).slice(0, 10))}<span class="eq-detail-card-unit"> · ${esc((_lastSvc.event_type || 'service').replace(/_/g, ' '))}${_lastSvc.performed_by ? ' · ' + esc(_lastSvc.performed_by) : ''}</span>`
+    : 'No service logged yet';
+
   const lifecycleFields = [
-    { label: 'Install date',    value: fmtDate(eq.install_date),    edit: 'install_date',    type: 'date' },
-    { label: 'Warranty until',  value: fmtDate(eq.warranty_until),  edit: 'warranty_until',  type: 'date' },
-    { label: 'Health score',    value: `${eq.health_score ?? 100}<span class="eq-detail-card-unit">%</span>`, edit: 'health_score', type: 'number', min: 0, max: 100 },
-    { label: 'Last PM',         value: eq.last_pm_date ? fmtDate(eq.last_pm_date) : 'Never logged',  edit: 'last_pm_date', type: 'date', cascade: 'next_pm_date' },
-    // v18.23 — Next PM is now read-only. It auto-derives from
-    // last_pm_date + pm_interval_days (the countdown anchor). To
-    // commit a contractor to a date, use "PM Scheduled" below.
-    { label: 'PM due',          value: eq.next_pm_date ? fmtDate(eq.next_pm_date) : 'Set a Last PM + interval', edit: null },
-    { label: 'PM interval',     value: eq.pm_interval_days ? `${eq.pm_interval_days} days` : '—',    edit: 'pm_interval_days', type: 'number', min: 1, max: 3650 },
-    // v18.23 — Contractor-driven scheduling. Tap opens the schedule
-    // editor (contractor picker + up to 3 phase dates). Distinct from
-    // PM due (auto): this is "Tyler is coming on Jun 18" — an actual
-    // commitment with a name attached. Drives the missed-PM red pill.
-    { label: 'PM scheduled',    value: renderPmScheduledValue(eq.id), edit: 'pm_schedule', type: 'pm_schedule' },
-    { label: 'Services (YTD)',  value: `${eq.services_this_year || 0}${eq.cost_this_year ? ` <span class="eq-detail-card-unit">· $${Math.round(eq.cost_this_year).toLocaleString()}</span>` : ''}`, edit: null },
-    { label: 'Purchase price',  value: eq.purchase_price ? `$${parseFloat(eq.purchase_price).toLocaleString()}` : '—', edit: 'purchase_price', type: 'number', min: 0 },
+    { label: 'Installed',      value: eq.install_date ? `${fmtDate(eq.install_date)}<span class="eq-detail-card-unit"> · ${_ageStr(eq.install_date)}</span>` : '—', edit: 'install_date', type: 'date' },
+    { label: 'Warranty',       value: eq.warranty_until ? `${fmtDate(eq.warranty_until)}<span class="eq-detail-card-unit"${_warrActive ? '' : ' style="color:#d24b4b"'}> · ${_warrActive ? 'active' : 'expired'}</span>` : '—', edit: 'warranty_until', type: 'date' },
+    { label: 'Purchase price', value: eq.purchase_price ? `$${parseFloat(eq.purchase_price).toLocaleString()}` : '—', edit: 'purchase_price', type: 'number', min: 0 },
   ];
+  // Each cadence row is editable on its last-done date (tap → set the anchor
+  // that starts the countdown). PM cascades into next_pm_date. PM scheduled is
+  // the contractor-committed visit (distinct from the auto countdown).
+  const serviceFields = [
+    { label: 'PM',            value: _cadSummary(_pmCd, eq.last_pm_date, eq.pm_interval_days, 'a PM'),                                   edit: 'last_pm_date',           type: 'date', cascade: 'next_pm_date' },
+    { label: 'PM every',      value: eq.pm_interval_days ? `${eq.pm_interval_days} days` : '—',                                          edit: 'pm_interval_days',       type: 'number', min: 1, max: 3650 },
+    { label: 'PM scheduled',  value: renderPmScheduledValue(eq.id),                                                                      edit: 'pm_schedule',            type: 'pm_schedule' },
+    { label: 'Inspection',    value: _cadSummary(_insCd, eq.last_inspection_date, eq.inspection_interval_days, 'an inspection'),         edit: 'last_inspection_date',   type: 'date' },
+    { label: 'Inspect every', value: eq.inspection_interval_days ? `${eq.inspection_interval_days} days` : '—',                          edit: 'inspection_interval_days', type: 'number', min: 1, max: 3650 },
+    { label: 'Deep clean',    value: _cadSummary(_dcCd, eq.last_deep_clean_date, eq.deep_clean_interval_days, 'a deep clean'),           edit: 'last_deep_clean_date',   type: 'date' },
+    { label: 'Clean every',   value: eq.deep_clean_interval_days ? `${eq.deep_clean_interval_days} days` : '—',                          edit: 'deep_clean_interval_days', type: 'number', min: 1, max: 3650 },
+    { label: 'Last service',  value: _lastSvcVal,                                                                                        edit: null },
+    { label: 'Services (YTD)',value: `${eq.services_this_year || 0}${eq.cost_this_year ? ` <span class="eq-detail-card-unit">· $${Math.round(eq.cost_this_year).toLocaleString()}</span>` : ''}`, edit: null },
+  ];
+  const healthDemoted = { label: 'Health index (auto)', value: `<span style="opacity:.55">${eq.health_score ?? 100}%</span>`, edit: 'health_score', type: 'number', min: 0, max: 100 };
 
   const fieldsHTML = (rows) => `
     <div class="eq-detail-card-grid">
@@ -5047,7 +5105,11 @@ function renderOverview(eq, attachments, customFields) {
         ${uiSvg('clipboard', '12px')}
         <span>Lifecycle &amp; Service</span>
       </div>
+      <div class="eq-ls-subhead">Lifecycle</div>
       ${fieldsHTML(lifecycleFields)}
+      <div class="eq-ls-subhead">Maintenance &amp; service</div>
+      ${fieldsHTML(serviceFields)}
+      <div class="eq-ls-demoted">${fieldsHTML([healthDemoted])}</div>
     </div>
 
     ${specKeys.length ? `
@@ -14004,67 +14066,84 @@ function renderIssueCard(issue) {
 
 /** Prompt for a new issue title + description, then insert at status 'reported'. */
 async function promptNewIssue(equipment) {
-  const title = prompt(`What's wrong with ${equipment.name}?\n\n(Brief title — e.g. "won't cool below 45°F")`);
-  if (!title || !title.trim()) return;
-  const description = prompt('More details? (Optional — leave blank to skip)\n\nWhat were you doing when it started? Any error codes or sounds?');
+  // In-app sheet instead of window.prompt(): native prompt()/confirm() are
+  // suppressed in installed PWAs and on mobile browsers, which made "Report a
+  // new issue" silently do nothing. A real form always works.
+  const prior = document.querySelector('.eq-issue-newsheet');
+  if (prior) prior.remove();
+  const sheet = document.createElement('div');
+  sheet.className = 'eq-issue-newsheet';
+  sheet.innerHTML = `
+    <div class="eq-issue-newsheet-backdrop"></div>
+    <div class="eq-issue-newsheet-card" role="dialog" aria-modal="true" aria-label="Report an issue">
+      <div class="eq-issue-newsheet-title">Report an issue</div>
+      <div class="eq-issue-newsheet-sub">${esc(equipment.name || 'Equipment')}${equipment.location ? ' · ' + esc(equipment.location) : ''}</div>
+      <label class="eq-issue-newsheet-label" for="eqIssueTitle">What's wrong?</label>
+      <input class="eq-issue-newsheet-input" id="eqIssueTitle" type="text" maxlength="120" autocomplete="off" placeholder="e.g. Won't cool below 45F">
+      <label class="eq-issue-newsheet-label" for="eqIssueDesc">Details (optional)</label>
+      <textarea class="eq-issue-newsheet-textarea" id="eqIssueDesc" rows="3" placeholder="What were you doing when it started? Error codes, sounds, smells?"></textarea>
+      <div class="eq-issue-newsheet-actions">
+        <button type="button" class="eq-issue-newsheet-btn" data-action="cancel">Cancel</button>
+        <button type="button" class="eq-issue-newsheet-btn is-primary" data-action="save">Report issue</button>
+      </div>
+    </div>`;
+  document.body.appendChild(sheet);
+  const titleEl = sheet.querySelector('#eqIssueTitle');
+  const descEl  = sheet.querySelector('#eqIssueDesc');
+  const saveBtn = sheet.querySelector('[data-action="save"]');
+  const close = () => { if (sheet.parentNode) sheet.parentNode.removeChild(sheet); };
+  setTimeout(() => { try { titleEl.focus(); } catch (_) {} }, 60);
+  sheet.querySelector('.eq-issue-newsheet-backdrop').addEventListener('click', close);
+  sheet.querySelector('[data-action="cancel"]').addEventListener('click', close);
+  titleEl.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); saveBtn.click(); } });
+  titleEl.addEventListener('input', () => titleEl.classList.remove('is-error'));
 
-  const payload = {
-    equipment_id:    equipment.id,
-    title:           title.trim(),
-    description:     description ? description.trim() : null,
-    status:          'reported',
-    reported_at:     new Date().toISOString(),
-    reported_by:     NX.user && NX.user.id ? NX.user.id : null,
-    reported_by_name: NX.user && NX.user.name ? NX.user.name : null,
-  };
-
-  try {
-    const { data, error } = await NX.sb.from('equipment_issues')
-      .insert(payload).select('*').single();
-    if (error) throw error;
-    if (issueTrackerState) {
-      issueTrackerState.issues.unshift(data);
-      renderIssueTracker();
-    }
-    NX.toast && NX.toast('Issue reported', 'info', 1200);
-
-    // ── DOMAIN ORCHESTRATION ──────────────────────────────────────
-    // Mirror the issue onto the kanban board. The card is labeled
-    // `issue:<id>` so when it later moves to Done, board.js's domain
-    // hook can mark this row as repaired. Also returns a proposed
-    // equipment.status change (high-priority issue → 'down').
-    if (NX.domain?.recordEquipmentIssue) {
-      try {
-        const res = await NX.domain.recordEquipmentIssue({
-          issueId: data.id,
-          equipmentId: data.equipment_id,
-          title: data.title,
-          description: data.description,
-          priority: 'high',
-        });
-        if (res?.statusProposal) {
-          const p = res.statusProposal;
-          const STATUS_LABEL = { operational: 'Operational', needs_service: 'Needs Service', down: 'Down' };
-          if (confirm(`${p.reason}\n\nMark ${p.equipmentName} as ${STATUS_LABEL[p.suggestedStatus]}?\n(currently: ${STATUS_LABEL[p.currentStatus] || p.currentStatus})`)) {
-            const did = await NX.domain.applyEquipmentStatusChange({
-              equipmentId: p.equipmentId, newStatus: p.suggestedStatus,
-            });
-            if (did) NX.toast?.(`${p.equipmentName}: ${STATUS_LABEL[p.suggestedStatus]}`, 'success', 1300);
+  saveBtn.addEventListener('click', async () => {
+    const title = (titleEl.value || '').trim();
+    if (!title) { titleEl.classList.add('is-error'); titleEl.focus(); return; }
+    const description = (descEl.value || '').trim() || null;
+    saveBtn.disabled = true; saveBtn.textContent = 'Reporting…';
+    const payload = {
+      equipment_id:     equipment.id,
+      title,
+      description,
+      status:           'reported',
+      reported_at:      new Date().toISOString(),
+      reported_by:      (NX.currentUser && NX.currentUser.id) || (NX.user && NX.user.id) || null,
+      reported_by_name: (NX.currentUser && NX.currentUser.name) || (NX.user && NX.user.name) || null,
+    };
+    try {
+      const { data, error } = await NX.sb.from('equipment_issues').insert(payload).select('*').single();
+      if (error) throw error;
+      close();
+      if (issueTrackerState) { issueTrackerState.issues.unshift(data); renderIssueTracker(); }
+      NX.toast && NX.toast('Issue reported', 'success', 1500);
+      if (NX.domain && NX.domain.recordEquipmentIssue) {
+        try {
+          const res = await NX.domain.recordEquipmentIssue({ issueId: data.id, equipmentId: data.equipment_id, title: data.title, description: data.description, priority: 'high' });
+          if (res && res.statusProposal) {
+            const p = res.statusProposal;
+            const LBL = { operational: 'Operational', needs_service: 'Needs Service', down: 'Down' };
+            const q = p.reason + '\n\nMark ' + p.equipmentName + ' as ' + LBL[p.suggestedStatus] + '?';
+            const ok = (typeof NX.confirm === 'function') ? await NX.confirm(q) : window.confirm(q);
+            if (ok) {
+              const did = await NX.domain.applyEquipmentStatusChange({ equipmentId: p.equipmentId, newStatus: p.suggestedStatus });
+              if (did) NX.toast && NX.toast(p.equipmentName + ': ' + LBL[p.suggestedStatus], 'success', 1300);
+            }
           }
-        }
-      } catch (e) {
-        console.warn('[promptNewIssue] domain hook failed (non-fatal):', e);
+        } catch (e) { console.warn('[promptNewIssue] domain hook failed (non-fatal):', e); }
+      }
+    } catch (e) {
+      console.error('[equipment] promptNewIssue:', e);
+      saveBtn.disabled = false; saveBtn.textContent = 'Report issue';
+      const msg = (e.message || '') + '';
+      if (/relation.*does not exist|table.*does not exist/i.test(msg)) {
+        NX.toast && NX.toast('Issue tracker needs a DB migration', 'warn', 3000);
+      } else {
+        NX.toast && NX.toast('Could not save: ' + msg, 'error');
       }
     }
-  } catch (e) {
-    console.error('[equipment] promptNewIssue:', e);
-    const msg = (e.message || '') + '';
-    if (/relation.*does not exist|table.*does not exist/i.test(msg)) {
-      NX.toast && NX.toast('Issue tracker needs a DB migration — see notes', 'warn', 3000);
-    } else {
-      NX.toast && NX.toast('Could not save: ' + msg, 'error');
-    }
-  }
+  });
 }
 
 /** Transition an issue forward in the lifecycle. */
