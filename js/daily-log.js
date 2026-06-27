@@ -2439,39 +2439,37 @@ async function openDailyLogEmail() {
 // carries its own. Falls back to the venues' default city if an address is
 // missing or won't geocode, so weather always resolves. Never overwrites a
 // manual entry.
-const DEFAULT_COORDS = { lat: 30.2672, lon: -97.7431 };   // Austin, TX — last-resort fallback
+const DEFAULT_COORDS = { lat: 30.2672, lon: -97.7431 };   // Austin, TX - last-resort fallback
 
-// localStorage geocode cache: address string → {lat, lon}. Geocode each
-// address at most once — addresses rarely change and coordinates never do.
-const GEO_CACHE_KEY = 'nexus_geo_cache_v1';
-function _geoGet(addr) { try { return (JSON.parse(localStorage.getItem(GEO_CACHE_KEY) || '{}'))[addr] || null; } catch (_) { return null; } }
-function _geoSet(addr, c) { try { const m = JSON.parse(localStorage.getItem(GEO_CACHE_KEY) || '{}'); m[addr] = c; localStorage.setItem(GEO_CACHE_KEY, JSON.stringify(m)); } catch (_) {} }
-
-// Address → {lat, lon} via Photon (street-level, free, no key, CORS-enabled).
-// Cached. Returns null when there's no usable address (caller falls back).
-async function geocodeAddress(address) {
-  const a = String(address || '').trim();
-  if (!a || a.toUpperCase() === 'NA' || a.length < 4) return null;
-  const cached = _geoGet(a);
-  if (cached && isFinite(cached.lat) && isFinite(cached.lon)) return cached;
-  try {
-    const r = await fetch('https://photon.komoot.io/api/?limit=1&q=' + encodeURIComponent(a), { headers: { 'Accept': 'application/json' } });
-    if (r.ok) {
-      const j = await r.json();
-      const f = j && j.features && j.features[0];
-      const co = f && f.geometry && f.geometry.coordinates;   // GeoJSON [lon, lat]
-      if (Array.isArray(co) && co.length >= 2) {
-        const c = { lat: parseFloat(co[1]), lon: parseFloat(co[0]) };
-        if (isFinite(c.lat) && isFinite(c.lon)) { _geoSet(a, c); return c; }
-      }
-    }
-  } catch (_) { /* offline / blocked — caller uses the city fallback */ }
-  return null;
+// fetch() with a hard timeout so a slow/unreachable provider can NEVER hang the
+// weather flow (the previous Photon geocoder had no timeout and would stall,
+// which is why weather "didn't work"). On timeout it aborts -> caught -> null.
+async function _wfetch(url, ms) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms || 7000);
+  try { return await fetch(url, { signal: ctrl.signal, headers: { 'Accept': 'application/json' } }); }
+  finally { clearTimeout(t); }
 }
 
-// Each location's street address from the `locations` table → state.locAddr
-// keyed by normalized label. Best-effort; weather still resolves (city
-// fallback) if this fails.
+// localStorage cache: place-key -> {lat,lon} for the Open-Meteo fallback only.
+const GEO_CACHE_KEY = 'nexus_geo_cache_v2';
+function _geoGet(k) { try { return (JSON.parse(localStorage.getItem(GEO_CACHE_KEY) || '{}'))[k] || null; } catch (_) { return null; } }
+function _geoSet(k, c) { try { const m = JSON.parse(localStorage.getItem(GEO_CACHE_KEY) || '{}'); m[k] = c; localStorage.setItem(GEO_CACHE_KEY, JSON.stringify(m)); } catch (_) {} }
+
+// A weather query from a street address: prefer the 5-digit ZIP (cleanest -
+// both providers resolve it directly), else "City, ST", else the default city.
+function placeKeyFromAddress(addr) {
+  const a = String(addr || '').trim();
+  if (!a || a.toUpperCase() === 'NA') return 'Austin, TX';
+  const zips = a.match(/\b\d{5}\b/g);          // ZIP = the LAST 5-digit group
+  if (zips) return zips[zips.length - 1];       // (street number comes first)
+  const m = a.match(/([A-Za-z .'-]{2,}),\s*([A-Z]{2})\b/);   // "City, ST"
+  if (m) return m[1].trim() + ', ' + m[2];
+  return a;
+}
+
+// Each location's street address from the `locations` table -> state.locAddr
+// keyed by normalized label. Best-effort.
 async function loadLocationAddresses() {
   state.locAddr = state.locAddr || {};
   try {
@@ -2481,32 +2479,76 @@ async function loadLocationAddresses() {
   return state.locAddr;
 }
 
-// One coordinate → the day's weather as a one-line summary string.
-async function fetchDayWeather(lat, lon) {
-  const url = 'https://api.open-meteo.com/v1/forecast'
-    + '?latitude=' + lat + '&longitude=' + lon
-    + '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum'
-    + '&temperature_unit=fahrenheit&precipitation_unit=inch&timezone=auto&forecast_days=1';
-  const res = await fetch(url);
-  if (!res.ok) return null;
-  const j = await res.json();
-  const dy = j && j.daily;
-  if (!dy || !dy.temperature_2m_max) return null;
-  const hi = dy.temperature_2m_max[0], lo = dy.temperature_2m_min[0];
-  if (hi == null || lo == null) return null;
-  const code = dy.weather_code ? dy.weather_code[0] : null;
-  const precip = (dy.precipitation_sum && dy.precipitation_sum[0]) || 0;
-  const avg = Math.round((hi + lo) / 2);
-  let str = (code != null ? wmoText(code) + ', ' : '')
-    + 'avg ' + avg + '°F (H ' + Math.round(hi) + ' / L ' + Math.round(lo) + ')';
-  if (precip > 0.01) str += ' · ' + precip.toFixed(2) + '" precip';
-  return str;
+// PRIMARY provider: wttr.in - free, no key, CORS-enabled, takes a place/ZIP
+// directly (NO separate geocoding step). Returns a one-line summary or null.
+async function wttrWeather(place) {
+  try {
+    const r = await _wfetch('https://wttr.in/' + encodeURIComponent(place) + '?format=j1', 7000);
+    if (!r.ok) return null;
+    const j = await r.json();
+    const w = j && j.weather && j.weather[0];
+    if (!w || w.avgtempF == null) return null;
+    const noon = (w.hourly || []).find(h => h.time === '1200') || (w.hourly || [])[4] || {};
+    const cur = (j.current_condition || [])[0] || {};
+    const desc = ((noon.weatherDesc && noon.weatherDesc[0] && noon.weatherDesc[0].value)
+      || (cur.weatherDesc && cur.weatherDesc[0] && cur.weatherDesc[0].value) || '').trim();
+    let str = (desc ? desc + ', ' : '') + 'avg ' + w.avgtempF + '°F (H ' + w.maxtempF + ' / L ' + w.mintempF + ')';
+    const rain = parseInt((noon && noon.chanceofrain) || 0, 10);
+    if (rain >= 40) str += ' · ' + rain + '% rain';
+    return str;
+  } catch (_) { return null; }
 }
 
-// Resolve a location's coords (address-based, cached) then fetch its weather.
+// FALLBACK geocoder: Open-Meteo's own geocoding API (reliable, CORS), cached.
+async function geocodePlace(place) {
+  const cached = _geoGet(place);
+  if (cached && isFinite(cached.lat) && isFinite(cached.lon)) return cached;
+  try {
+    const r = await _wfetch('https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&format=json&name=' + encodeURIComponent(place), 7000);
+    if (r.ok) {
+      const j = await r.json();
+      const g = j && j.results && j.results[0];
+      if (g && isFinite(g.latitude) && isFinite(g.longitude)) {
+        const c = { lat: g.latitude, lon: g.longitude };
+        _geoSet(place, c); return c;
+      }
+    }
+  } catch (_) {}
+  return null;
+}
+
+// FALLBACK provider: Open-Meteo forecast for a coordinate.
+async function fetchDayWeather(lat, lon) {
+  try {
+    const url = 'https://api.open-meteo.com/v1/forecast'
+      + '?latitude=' + lat + '&longitude=' + lon
+      + '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum'
+      + '&temperature_unit=fahrenheit&precipitation_unit=inch&timezone=auto&forecast_days=1';
+    const res = await _wfetch(url, 7000);
+    if (!res.ok) return null;
+    const j = await res.json();
+    const dy = j && j.daily;
+    if (!dy || !dy.temperature_2m_max) return null;
+    const hi = dy.temperature_2m_max[0], lo = dy.temperature_2m_min[0];
+    if (hi == null || lo == null) return null;
+    const code = dy.weather_code ? dy.weather_code[0] : null;
+    const precip = (dy.precipitation_sum && dy.precipitation_sum[0]) || 0;
+    const avg = Math.round((hi + lo) / 2);
+    let str = (code != null ? wmoText(code) + ', ' : '')
+      + 'avg ' + avg + '°F (H ' + Math.round(hi) + ' / L ' + Math.round(lo) + ')';
+    if (precip > 0.01) str += ' · ' + precip.toFixed(2) + '" precip';
+    return str;
+  } catch (_) { return null; }
+}
+
+// Resolve a location's weather: wttr.in by ZIP/city first, then Open-Meteo.
+// Always resolves (default city) unless the network is fully down.
 async function weatherForLocationKey(key) {
   const addr = (state.locAddr && state.locAddr[key]) || '';
-  const coords = (await geocodeAddress(addr)) || DEFAULT_COORDS;
+  const place = placeKeyFromAddress(addr);
+  const primary = await wttrWeather(place);
+  if (primary) return primary;
+  const coords = (await geocodePlace(place)) || DEFAULT_COORDS;
   return fetchDayWeather(coords.lat, coords.lon);
 }
 

@@ -14191,7 +14191,9 @@ async function transitionIssueTo(issueId, newStatus) {
       if (res.statusProposal) {
         const p = res.statusProposal;
         const STATUS_LABEL = { operational: 'Operational', needs_service: 'Needs Service', down: 'Down' };
-        if (confirm(`${p.reason}\n\nMark ${p.equipmentName} as ${STATUS_LABEL[p.suggestedStatus]}?\n(currently: ${STATUS_LABEL[p.currentStatus] || p.currentStatus})`)) {
+        const _q = `${p.reason}\n\nMark ${p.equipmentName} as ${STATUS_LABEL[p.suggestedStatus]}?\n(currently: ${STATUS_LABEL[p.currentStatus] || p.currentStatus})`;
+        const _ok = (typeof NX.confirm === 'function') ? await NX.confirm(_q) : window.confirm(_q);
+        if (_ok) {
           const did = await NX.domain.applyEquipmentStatusChange({
             equipmentId: p.equipmentId, newStatus: p.suggestedStatus,
           });
@@ -14206,40 +14208,65 @@ async function transitionIssueTo(issueId, newStatus) {
 
 /** Prompt for ETA datetime then save it on the issue. */
 async function promptIssueEta(issueId) {
-  // Native datetime prompt is gross but fine for v1. Future: bottom-sheet
-  // with a proper datetime picker.
-  const raw = prompt('When is the contractor coming? (e.g. "tomorrow 2pm" or "5/8 9am")');
-  if (!raw || !raw.trim()) return;
-  // Try Date constructor first, then a few common formats.
-  let parsed = new Date(raw);
-  if (isNaN(parsed.getTime())) {
-    // Last-ditch: assume time-only and use today.
-    const today = new Date();
-    parsed = new Date(`${today.toLocaleDateString()} ${raw}`);
-  }
-  if (isNaN(parsed.getTime())) {
-    NX.toast && NX.toast('Could not parse that time', 'warn');
-    return;
-  }
-
-  const update = { eta_at: parsed.toISOString() };
-  // If currently at contractor_called, also advance to eta_set.
+  // In-app sheet with a real datetime picker. Native prompt() is suppressed in
+  // installed PWAs, which made "Set ETA" silently do nothing — and a date
+  // picker beats parsing "tomorrow 2pm" anyway. Reuses the .eq-issue-newsheet CSS.
   const issue = issueTrackerState?.issues.find(i => i.id === issueId);
-  if (issue && issue.status === 'contractor_called') {
-    update.status = 'eta_set';
-    update.eta_set_at = new Date().toISOString();
-  }
+  const prior = document.querySelector('.eq-issue-newsheet');
+  if (prior) prior.remove();
+  const pad = n => String(n).padStart(2, '0');
+  const toLocalInput = d => (d && !isNaN(d))
+    ? (d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()))
+    : '';
+  // Default: existing ETA, else tomorrow 9am.
+  let def;
+  if (issue && issue.eta_at) { def = new Date(issue.eta_at); }
+  else { def = new Date(); def.setDate(def.getDate() + 1); def.setHours(9, 0, 0, 0); }
 
-  const { error } = await NX.sb.from('equipment_issues')
-    .update(update).eq('id', issueId);
-  if (error) {
-    console.error('[equipment] promptIssueEta:', error);
-    NX.toast && NX.toast('Could not save ETA: ' + (error.message || ''), 'error');
-    return;
-  }
-  if (issue) Object.assign(issue, update);
-  renderIssueTracker();
-  NX.toast && NX.toast('ETA saved', 'info', 1100);
+  const sheet = document.createElement('div');
+  sheet.className = 'eq-issue-newsheet';
+  sheet.innerHTML = `
+    <div class="eq-issue-newsheet-backdrop"></div>
+    <div class="eq-issue-newsheet-card" role="dialog" aria-modal="true" aria-label="Set contractor ETA">
+      <div class="eq-issue-newsheet-title">Contractor ETA</div>
+      <div class="eq-issue-newsheet-sub">When is the contractor coming?</div>
+      <label class="eq-issue-newsheet-label" for="eqEtaInput">Date &amp; time</label>
+      <input class="eq-issue-newsheet-input" id="eqEtaInput" type="datetime-local" value="${escAttr(toLocalInput(def))}">
+      <div class="eq-issue-newsheet-actions">
+        <button type="button" class="eq-issue-newsheet-btn" data-action="cancel">Cancel</button>
+        <button type="button" class="eq-issue-newsheet-btn is-primary" data-action="save">Save ETA</button>
+      </div>
+    </div>`;
+  document.body.appendChild(sheet);
+  const inp = sheet.querySelector('#eqEtaInput');
+  const saveBtn = sheet.querySelector('[data-action="save"]');
+  const close = () => { if (sheet.parentNode) sheet.parentNode.removeChild(sheet); };
+  setTimeout(() => { try { inp.focus(); } catch (_) {} }, 60);
+  sheet.querySelector('.eq-issue-newsheet-backdrop').addEventListener('click', close);
+  sheet.querySelector('[data-action="cancel"]').addEventListener('click', close);
+  inp.addEventListener('input', () => inp.classList.remove('is-error'));
+
+  saveBtn.addEventListener('click', async () => {
+    const parsed = inp.value ? new Date(inp.value) : null;
+    if (!parsed || isNaN(parsed.getTime())) { inp.classList.add('is-error'); inp.focus(); return; }
+    saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+    const update = { eta_at: parsed.toISOString() };
+    if (issue && issue.status === 'contractor_called') {
+      update.status = 'eta_set';
+      update.eta_set_at = new Date().toISOString();
+    }
+    const { error } = await NX.sb.from('equipment_issues').update(update).eq('id', issueId);
+    if (error) {
+      console.error('[equipment] promptIssueEta:', error);
+      saveBtn.disabled = false; saveBtn.textContent = 'Save ETA';
+      NX.toast && NX.toast('Could not save ETA: ' + (error.message || ''), 'error');
+      return;
+    }
+    close();
+    if (issue) Object.assign(issue, update);
+    renderIssueTracker();
+    NX.toast && NX.toast('ETA saved', 'success', 1200);
+  });
 }
 
 /**
