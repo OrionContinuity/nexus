@@ -131,8 +131,16 @@
   // desktop as a belt-and-suspenders fallback if Gmail can't open.
   function openDraft(to, subject, body, cc, bcc) {
     if (isDesktop()) {
+      // Open the Gmail tab FIRST and synchronously, as the very first thing in
+      // the click gesture — this is the most popup-safe path. The old code did
+      // a clipboard write + a synthetic anchor.click() first, which cost the
+      // gesture activation, so the FIRST send silently got popup-blocked and
+      // only the second worked. window.open in a real click is trusted.
+      const url = gmailComposeUrl(to, subject, body, cc, bcc);
+      let win = null;
+      try { win = window.open(url, '_blank', 'noopener'); } catch (_) {}
+      if (!win) anchorOpen(url, true);   // fallback if window.open was blocked/null
       try { if (navigator.clipboard) navigator.clipboard.writeText(body || ''); } catch (_) {}
-      anchorOpen(gmailComposeUrl(to, subject, body, cc, bcc), true);
       if (NX.toast) NX.toast('Opening a Gmail draft in a new tab…', 'info');
       return true;
     }

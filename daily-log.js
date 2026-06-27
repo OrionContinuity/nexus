@@ -143,6 +143,11 @@ let state = {
   // equipment has status != 'operational' AND !archived, it appears
   // in every daily log until fixed.
   equipmentDown: [],
+  // v18.32 — full non-archived fleet (all statuses), for the daily-log
+  // Maintenance-health + Warranty stats. Populated by loadEquipmentDown.
+  equipmentHealth: [],
+  // v18.35 — most-recent OPEN equipment_issue per down unit (was a call placed?).
+  openIssuesByEq: {},
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -741,15 +746,33 @@ async function loadEquipmentDown() {
   // returns whatever columns exist and can't fail on a missing one.
   // Archived filtered + sorting done client-side for the same reason.
   try {
+    // Load the FULL non-archived fleet (all statuses) so the daily log can
+    // report Maintenance-health + Warranty stats — not just the down units.
+    // select('*') so a missing optional column never blanks the query.
     const { data, error } = await NX.sb.from('equipment')
-      .select('*')
-      .in('status', NON_OPERATIONAL_STATUSES);
+      .select('*');
     if (error) {
       console.warn('[daily-log] loadEquipmentDown:', error.message);
       return [];
     }
-    const rows = (data || []).filter(eq => eq.archived !== true);
+    const all = (data || []).filter(eq => eq.archived !== true);
+    state.equipmentHealth = all;       // full fleet → health/warranty stats
+    const rows = all.filter(eq => NON_OPERATIONAL_STATUSES.indexOf((eq.status || '').toLowerCase()) !== -1);
     rows.sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
+    // Open work-order / call status for the down units (was a call placed?).
+    // Maps equipment_id → most-recent open issue. Best-effort; never blocks.
+    state.openIssuesByEq = {};
+    try {
+      const downIds = rows.map(e => e.id);
+      if (downIds.length && NX.sb) {
+        const { data: iss } = await NX.sb.from('equipment_issues')
+          .select('equipment_id, status, contractor_name, contractor_called_at, eta_at, reported_at, created_at, priority')
+          .in('equipment_id', downIds)
+          .not('status', 'in', '(repaired,closed,cancelled,invoice_paid)')
+          .order('created_at', { ascending: false });
+        (iss || []).forEach(r => { if (!state.openIssuesByEq[r.equipment_id]) state.openIssuesByEq[r.equipment_id] = r; });
+      }
+    } catch (e) { console.warn('[daily-log] open issues:', e); }
     return rows;
   } catch (e) {
     console.warn('[daily-log] loadEquipmentDown exception:', e);
@@ -1155,8 +1178,10 @@ function render() {
           <span class="dlog-autosend-wrap">
             <button type="button" class="eq-btn eq-btn-secondary dlog-autosend-toggle ${dlogAutoSendOn() ? 'is-on' : ''}" id="dlogAutoSendBtn" title="When on, this log auto-uploads to Drive when you leave the screen — and, if still not sent by the time on the right, it sends automatically. Edits autosave continuously so nothing is lost.">${dlogAutoSendOn() ? '🔁 Auto-send: On' : '🔁 Auto-send: Off'}</button>
             <input type="time" id="dlogAutoSendTime" class="dlog-autosend-time" value="${esc(dlogAutoSendTime())}" title="If not sent by this time, send automatically" ${dlogAutoSendOn() ? '' : 'style="display:none"'}>
+            <span class="dlog-autosend-days" id="dlogAutoSendDays" title="Days auto-send is allowed" ${dlogAutoSendOn() ? '' : 'style="display:none"'}>${['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((dd, i) => `<button type="button" class="dlog-day-pill ${dlogAutoSendDays().indexOf(i + 1) !== -1 ? 'is-on' : ''}" data-day="${i + 1}">${dd}</button>`).join('')}</span>
           </span>
           <button type="button" class="eq-btn eq-btn-secondary" id="dlogEmailBtn" title="${esc(emailBtnTitle)}">${esc(emailBtnLabel)}</button>
+          <button type="button" class="eq-btn eq-btn-secondary" id="dlogEmailEachBtn" title="Open one Gmail draft per location at once — just hit Send on each">✉️ Email each location</button>
           <button type="button" class="eq-btn eq-btn-secondary" id="dlogSaveDraftBtn">Save</button>
           <button type="button" class="eq-btn eq-btn-primary"   id="dlogSubmitBtn">${esc(uploadBtnLabel)}</button>
         </div>
@@ -1180,6 +1205,8 @@ function renderAddLocationControl(d) {
 
 function renderRecentLogsStrip() {
   if (!state.recentLogs || !state.recentLogs.length) return '';
+  const curDate = state.currentLog && state.currentLog.log_date;
+  // Quick chips for the last few days...
   const rows = state.recentLogs.slice(0, 7).map(r => {
     const isOpen = state.currentLog && state.currentLog.id === r.id;
     return `
@@ -1189,9 +1216,18 @@ function renderRecentLogsStrip() {
       </button>
     `;
   }).join('');
+  // ...plus a dropdown to jump to any older submitted log.
+  const opts = state.recentLogs.map(r => {
+    const tag = r.submitted_at ? ' ✓' : ' · draft';
+    return `<option value="${esc(r.log_date)}" ${r.log_date === curDate ? 'selected' : ''}>${esc(friendlyDate(r.log_date))}${tag}</option>`;
+  }).join('');
   return `
     <div class="dlog-recent">
       <span class="dlog-recent-label">RECENT</span>
+      <select class="dlog-recent-select" id="dlogRecentSelect" title="Open an older log" aria-label="Open an older log">
+        <option value="" disabled ${curDate ? '' : 'selected'}>Older logs…</option>
+        ${opts}
+      </select>
       <div class="dlog-recent-strip">${rows}</div>
     </div>
   `;
@@ -1206,7 +1242,10 @@ function renderHeaderSection(d) {
       <div class="dlog-section-body">
         <label class="dlog-field">
           <span class="dlog-field-label">Weather</span>
-          <input type="text" data-path="header.weather" value="${esc(d.header.weather)}" placeholder="e.g. Sunny, 78°F, evening showers">
+          <div class="dlog-weather-row">
+            <input type="text" data-path="header.weather" value="${esc(d.header.weather)}" placeholder="e.g. Sunny, 78°F, evening showers">
+            <button type="button" class="dlog-weather-refresh" id="dlogWeatherRefresh" title="Fetch today's weather now">↻</button>
+          </div>
         </label>
         <label class="dlog-field">
           <span class="dlog-field-label">Significant events or disruptions</span>
@@ -1274,6 +1313,7 @@ function renderLocationSection(loc, idx) {
         <button type="button" class="dlog-loc-remove" data-remove-loc="${idx}" title="Remove this location" aria-label="Remove location ${esc(loc.label)}">×</button>
       </summary>
       <div class="dlog-section-body">
+        <div class="dlog-loc-weather" data-loc-weather="${esc(normLocKey(loc.label))}">${esc((state.weatherByLoc && state.weatherByLoc[normLocKey(loc.label)]) || '')}</div>
         <label class="dlog-field">
           <span class="dlog-field-label">Notes &amp; observations</span>
           <textarea data-path="locations.${idx}.notes" rows="4" placeholder="The shift recap for ${esc(loc.label)} — service, guests, 86s, anything noteworthy…">${esc(loc.notes || '')}</textarea>
@@ -1616,6 +1656,32 @@ function renderEquipmentActivitySection(d) {
 // The slices come from state.ticketSlices (live) unless we're viewing
 // a past submitted log that has a frozen snapshot in data.tickets —
 // in which case we prefer the snapshot for historical accuracy.
+// ─── Card field helpers (shared by the on-screen section + the email body) ──
+function cardAssignee(c) {
+  return (c && (c.assignee || c.assigned_to || c.assigned_name || c.reported_by)) || '';
+}
+function cardDetail(c) {
+  if (!c) return '';
+  let t = String(c.description || c.notes || '').trim();
+  if (!t && Array.isArray(c.comments) && c.comments.length) {
+    const last = c.comments[c.comments.length - 1];
+    t = String((last && (last.text || last.body || last.note || last.message)) || '').trim();
+  }
+  t = t.replace(/\s+/g, ' ');
+  return t.length > 180 ? t.slice(0, 180) + '…' : t;
+}
+// "created Sat Jun 21" for cards NOT made today (i.e. carried over / queued from
+// a weekend) — so the daily email shows when an older open card was created.
+// Empty for today's cards (the log is already dated today).
+function cardCreatedLabel(c) {
+  if (!c || !c.created_at) return '';
+  const dt = new Date(c.created_at);
+  if (isNaN(dt)) return '';
+  const iso = dt.toISOString().slice(0, 10);
+  if (iso >= todayISO()) return '';
+  return 'created ' + dt.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
 function renderTicketsSection(d) {
   // Source preference: LIVE state.ticketSlices for today's editable log.
   // The frozen snapshot (d.tickets) is only used for a PAST SUBMITTED log
@@ -1653,8 +1719,13 @@ function renderTicketsSection(d) {
     const priClass = pri === 'urgent' ? 'bw-pri-urgent' : (pri === 'low' ? 'bw-pri-low' : 'bw-pri-normal');
     const eqName = c.equipment_id ? eqNameById[c.equipment_id] : null;
     const lane = c._laneLabel || laneLabel(c.status);
+    const who = cardAssignee(c);
+    const created = cardCreatedLabel(c);          // "Sat Jun 21" — flags queued/weekend cards
+    const detail = cardDetail(c);                 // description / first comment, if any
     const metaBits = [];
     if (eqName) metaBits.push('🔧 ' + esc(eqName));
+    if (who) metaBits.push('👤 ' + esc(who));
+    if (created) metaBits.push('🗓 ' + esc(created));
     if (lane) metaBits.push(`<span class="dlog-tk-lane dlog-tk-lane-${bucket}">${esc(lane)}</span>`);
     return `
       <div class="dlog-tk-row">
@@ -1662,6 +1733,7 @@ function renderTicketsSection(d) {
         <div class="dlog-tk-main">
           <div class="dlog-tk-title">${esc(c.title || 'Untitled card')}</div>
           <div class="dlog-tk-loc">${metaBits.join(' · ')}</div>
+          ${detail ? `<div class="dlog-tk-detail">${esc(detail)}</div>` : ''}
         </div>
       </div>`;
   };
@@ -1792,6 +1864,10 @@ function wireForm() {
       render();
     });
   });
+  const weatherRefresh = view.querySelector('#dlogWeatherRefresh');
+  if (weatherRefresh) weatherRefresh.addEventListener('click', () => forceWeather());
+  const recentSelect = view.querySelector('#dlogRecentSelect');
+  if (recentSelect) recentSelect.addEventListener('change', () => { if (recentSelect.value) openLogForDate(recentSelect.value); });
   view.querySelectorAll('[data-log-date]').forEach(btn => {
     btn.addEventListener('click', () => openLogForDate(btn.dataset.logDate));
   });
@@ -1959,14 +2035,26 @@ function wireForm() {
   if (submitBtn) submitBtn.addEventListener('click', () => commitSave({ submit: true }));
   const emailBtn = view.querySelector('#dlogEmailBtn');
   if (emailBtn) emailBtn.addEventListener('click', () => openDailyLogEmail());
+  const emailEachBtn = view.querySelector('#dlogEmailEachBtn');
+  if (emailEachBtn) emailEachBtn.addEventListener('click', () => emailEachLocation());
   const autoSendBtn = view.querySelector('#dlogAutoSendBtn');
   const autoSendTime = view.querySelector('#dlogAutoSendTime');
+  const autoSendDays = view.querySelector('#dlogAutoSendDays');
+  if (autoSendDays) autoSendDays.querySelectorAll('[data-day]').forEach(b => b.addEventListener('click', () => {
+    const dow = parseInt(b.dataset.day, 10);
+    let days = dlogAutoSendDays();
+    days = days.indexOf(dow) !== -1 ? days.filter(x => x !== dow) : days.concat(dow).sort((a, c) => a - c);
+    if (!days.length) days = [dow];   // never allow an empty set
+    try { localStorage.setItem('nexus_dlog_autosend_days', JSON.stringify(days)); } catch (_) {}
+    b.classList.toggle('is-on', days.indexOf(dow) !== -1);
+  }));
   if (autoSendBtn) autoSendBtn.addEventListener('click', () => {
     const on = !dlogAutoSendOn();
     try { localStorage.setItem('nexus_dlog_autosend', on ? '1' : '0'); } catch (_) {}
     autoSendBtn.textContent = on ? '🔁 Auto-send: On' : '🔁 Auto-send: Off';
     autoSendBtn.classList.toggle('is-on', on);
     if (autoSendTime) autoSendTime.style.display = on ? '' : 'none';
+    if (autoSendDays) autoSendDays.style.display = on ? '' : 'none';
     if (NX.toast) NX.toast(on
       ? `Auto-send on — uploads to Drive when you leave, or by ${dlogAutoSendTime()} if still unsent`
       : 'Auto-send off — use Upload to send manually', on ? 'success' : 'info', 3800);
@@ -1999,6 +2087,7 @@ function buildDailyLogEmailBody(d, dateStr) {
 
   out.push('Daily Log \u2014 ' + fmtLogDateLong(dateStr));
   if (clean(d.header && d.header.weather)) out.push('Weather: ' + clean(d.header.weather));
+  out.push(RULE());
   out.push('');
 
   if (clean(d.header && d.header.significant_events)) {
@@ -2051,6 +2140,10 @@ function buildDailyLogEmailBody(d, dateStr) {
   const me = (window.NX && (NX.user || NX.currentUser)) ? ((NX.user && NX.user.name) || (NX.currentUser && NX.currentUser.name) || '') : '';
   if (me) out.push(me);
 
+  // Small, unobtrusive brand footer — indented so it reads as a footnote.
+  out.push('');
+  out.push('              powered by NEXUS');
+
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
@@ -2066,6 +2159,10 @@ function dlogLocationReportLines(loc) {
   const out = [];
   const locKey = normLocKey(loc.label);
 
+  // Weather — this location's own, from its address (state.weatherByLoc).
+  const locWx = (state.weatherByLoc && state.weatherByLoc[locKey]) || '';
+  if (locWx) { out.push(SH('Weather')); out.push(locWx); out.push(''); }
+
   // Notes — the shift recap the manager types into this location's note.
   if (clean(loc.notes)) { out.push(SH('Notes')); out.push(clean(loc.notes)); out.push(''); }
 
@@ -2074,12 +2171,122 @@ function dlogLocationReportLines(loc) {
   const down = (state.equipmentDown || []).filter(eq => normLocKey(eq.location) === locKey && eq.archived !== true);
   if (down.length) {
     out.push(SH('Equipment status'));
+    const issByEq = state.openIssuesByEq || {};
+    const shortD = iso => { if (!iso) return ''; const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString([], { month: 'short', day: 'numeric' }); };
+    const etaTxt = iso => {
+      if (!iso) return '';
+      const d = new Date(iso); if (isNaN(d)) return '';
+      const t = new Date(); const sameDay = d.toDateString() === t.toDateString();
+      return sameDay
+        ? ('today ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))
+        : d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    };
     down.forEach(eq => {
       const st = (eq.status || '').replace(/_/g, ' ').trim();
       out.push('\u00b7 ' + (eq.name || 'Equipment') + (st ? ' \u2014 ' + st : ''));
-      if (clean(eq.status_note)) out.push('    ' + clean(eq.status_note));
+      if (clean(eq.status_note)) out.push('    why: ' + clean(eq.status_note));
+      // Has a contractor been called? Surface the open work-order lifecycle.
+      const iss = issByEq[eq.id];
+      if (!iss) {
+        out.push('    call: not logged \u2014 no open work order yet');
+      } else {
+        const s = (iss.status || '').toLowerCase();
+        const who = iss.contractor_name ? ' to ' + clean(iss.contractor_name) : '';
+        if (s === 'reported' || s === 'open' || s === 'new')
+          out.push('    call: NOT placed yet \u2014 reported ' + shortD(iss.reported_at || iss.created_at));
+        else if (s === 'contractor_called' || s === 'called' || s === 'dispatched')
+          out.push('    call: placed' + who + (iss.contractor_called_at ? ' on ' + shortD(iss.contractor_called_at) : '') + (iss.eta_at ? ' \u2014 ETA ' + etaTxt(iss.eta_at) : ''));
+        else if (s === 'eta_set' || s === 'scheduled')
+          out.push('    call: placed' + who + ' \u2014 ETA ' + etaTxt(iss.eta_at));
+        else if (s === 'in_progress' || s === 'on_site')
+          out.push('    call: placed \u2014 contractor on site, repair in progress');
+        else if (s === 'awaiting_parts')
+          out.push('    call: placed \u2014 awaiting parts');
+        else if (s === 'quote_requested' || s === 'awaiting_quote')
+          out.push('    call: placed' + who + ' \u2014 awaiting quote');
+        else
+          out.push('    call: ' + s.replace(/_/g, ' '));
+      }
     });
     out.push('');
+  }
+
+  // Maintenance health + warranties — pulled live from the full fleet
+  // (state.equipmentHealth). Health = PM/inspection/deep-clean due counts;
+  // the Warranties block only renders when this location has units with a
+  // warranty date ("if it has any").
+  const eqAll = (state.equipmentHealth || []).filter(eq => normLocKey(eq.location) === locKey && eq.archived !== true);
+  if (eqAll.length) {
+    const todayD = new Date(); todayD.setHours(0, 0, 0, 0);
+    const soonD = new Date(todayD); soonD.setDate(soonD.getDate() + 14);
+    const nextOf = (lastIso, days) => {
+      const n = parseInt(days, 10);
+      if (!lastIso || !n) return null;
+      const d = new Date(String(lastIso).slice(0, 10) + 'T00:00:00');
+      if (isNaN(d)) return null;
+      d.setDate(d.getDate() + n);
+      return d;
+    };
+    let insO = 0, insS = 0, dcO = 0, dcS = 0, op = 0;
+    const pmItems = [];
+    const shortDate2 = d => d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    eqAll.forEach(eq => {
+      if ((eq.status || 'operational').toLowerCase() === 'operational') op++;
+      const pmNext = eq.next_pm_date
+        ? new Date(String(eq.next_pm_date).slice(0, 10) + 'T00:00:00')
+        : nextOf(eq.last_pm_date, eq.pm_interval_days);
+      if (pmNext && !isNaN(pmNext) && pmNext <= soonD) {
+        const overdue = pmNext < todayD;
+        const days = Math.round((pmNext - todayD) / 86400000);
+        pmItems.push({ name: eq.name || 'Equipment', date: pmNext, overdue, days });
+      }
+      const insNext = nextOf(eq.last_inspection_date, eq.inspection_interval_days);
+      if (insNext) { if (insNext < todayD) insO++; else if (insNext <= soonD) insS++; }
+      const dcNext = nextOf(eq.last_deep_clean_date, eq.deep_clean_interval_days);
+      if (dcNext) { if (dcNext < todayD) dcO++; else if (dcNext <= soonD) dcS++; }
+    });
+    out.push(SH('Maintenance health'));
+    out.push('· ' + eqAll.length + ' unit' + (eqAll.length === 1 ? '' : 's') + ' — ' + op + ' operational');
+    // PM due — itemized: WHICH unit + WHEN it was/is due (not just a count).
+    if (pmItems.length) {
+      pmItems.sort((a, b) => a.date - b.date);
+      const overdueN = pmItems.filter(x => x.overdue).length;
+      out.push('· PM due: ' + pmItems.length + (overdueN ? ' (' + overdueN + ' overdue)' : ''));
+      pmItems.slice(0, 12).forEach(x => {
+        out.push('    ' + x.name + ' — ' + (x.overdue
+          ? ('OVERDUE, was due ' + shortDate2(x.date) + (x.days <= -1 ? ' (' + Math.abs(x.days) + 'd ago)' : ''))
+          : ('due ' + shortDate2(x.date) + (x.days <= 14 ? ' (in ' + x.days + 'd)' : ''))));
+      });
+      if (pmItems.length > 12) out.push('    +' + (pmItems.length - 12) + ' more');
+    }
+    const dueLine = (label, over, soon) => {
+      const t = over + soon;
+      return t ? ('· ' + label + ' due: ' + t + (over ? ' (' + over + ' overdue)' : '')) : null;
+    };
+    [dueLine('Inspections', insO, insS), dueLine('Deep cleans', dcO, dcS)]
+      .filter(Boolean).forEach(l => out.push(l));
+    out.push('');
+
+    // Warranty — prompt ONLY when a unit's warranty is within 90 days of
+    // expiring (the actionable window). No active/expired roll-up; if nothing
+    // is coming due, the email says nothing about warranties.
+    const todayMs = todayD.getTime();
+    const warrSoon = eqAll
+      .filter(eq => eq.warranty_until)
+      .map(eq => {
+        const d = new Date(String(eq.warranty_until).slice(0, 10) + 'T00:00:00');
+        return { name: eq.name || 'Equipment', d, days: Math.round((d.getTime() - todayMs) / 86400000) };
+      })
+      .filter(w => w.d && !isNaN(w.d) && w.days >= 0 && w.days <= 90)
+      .sort((a, b) => a.days - b.days);
+    if (warrSoon.length) {
+      out.push(SH('Warranty due soon'));
+      warrSoon.forEach(w => {
+        const ds = w.d.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
+        out.push('· ' + w.name + ' — warranty ends ' + ds + ' (in ' + w.days + 'd)');
+      });
+      out.push('');
+    }
   }
 
   // Board / work orders — open + in-progress cards on the Board for this
@@ -2089,13 +2296,24 @@ function dlogLocationReportLines(loc) {
   const cards = [].concat(slices.open || [], slices.working || [])
     .filter(c => normLocKey(c.location) === locKey);
   if (cards.length) {
+    // Surface board priority in the digest: urgent first, and tag anything
+    // that isn't "normal" so the manager reading the log sees what's hot.
+    const priRank = p => { const m = { urgent: 0, high: 1, normal: 2, low: 3 }; const k = (p || 'normal').toLowerCase(); return (k in m) ? m[k] : 2; };
+    cards.sort((a, b) => priRank(a.priority) - priRank(b.priority));
     out.push(SH('Board / work orders'));
     cards.forEach(c => {
       const bits = [];
       const eqName = c.equipment_id ? eqNameById[c.equipment_id] : '';
       if (eqName) bits.push('\ud83d\udd27 ' + eqName);
       if (c._laneLabel) bits.push(c._laneLabel);
-      out.push('\u00b7 ' + (c.title || 'Untitled card') + (bits.length ? ' (' + bits.join(', ') + ')' : ''));
+      // age of the card in days, from when it was opened — "12d old"
+      const ageDays = c.created_at ? Math.floor((Date.now() - new Date(c.created_at).getTime()) / 86400000) : null;
+      if (ageDays != null && ageDays >= 0) bits.push(ageDays + 'd old');
+      // Priority tag (from the board card) \u2014 flag anything not "normal".
+      const pri = (c.priority || 'normal').toLowerCase();
+      const priTag = (pri && pri !== 'normal') ? '[' + pri.toUpperCase() + '] ' : '';
+      out.push('\u00b7 ' + priTag + (c.title || 'Untitled card') + (bits.length ? ' (' + bits.join(', ') + ')' : ''));
+      const detail = cardDetail(c); if (detail) out.push('    ' + detail);
     });
     out.push('');
   }
@@ -2129,6 +2347,7 @@ function buildLocationEmailBody(loc, dateStr, d) {
 
   out.push('Daily Log \u2014 ' + (loc.label || 'Location') + ' \u2014 ' + fmtLogDateLong(dateStr));
   if (d && clean(d.header && d.header.weather)) out.push('Weather: ' + clean(d.header.weather));
+  out.push(RULE());
   out.push('');
 
   if (d && clean(d.header && d.header.significant_events)) {
@@ -2144,7 +2363,38 @@ function buildLocationEmailBody(loc, dateStr, d) {
   const me = (window.NX && (NX.user || NX.currentUser)) ? ((NX.user && NX.user.name) || (NX.currentUser && NX.currentUser.name) || '') : '';
   if (me) out.push(me);
 
+  // Small, unobtrusive brand footer — indented so it reads as a footnote.
+  out.push('');
+  out.push('              powered by NEXUS');
+
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// One button → opens a Gmail compose tab for EACH location at once (each
+// pre-filled with that location's recap + its saved recipients). The user just
+// hits Send on each tab. Browsers may block multiple pop-ups the first time —
+// allow pop-ups for the site once and they'll all open thereafter.
+function emailEachLocation() {
+  const log = state.currentLog;
+  const d = hydrateData(log && log.data);
+  const dateStr = (log && log.log_date) || (d.header && d.header.date) || todayISO();
+  if (!Array.isArray(d.locations) || !d.locations.length) { if (NX.toast) NX.toast('No locations to email', 'info'); return; }
+  if (!(window.NX && NX.email && NX.email.gmailComposeUrl)) { if (NX.toast) NX.toast('Email engine not ready — try again', 'error'); return; }
+  let opened = 0, empty = 0;
+  d.locations.forEach(loc => {
+    const body = buildLocationEmailBody(loc, dateStr, d);
+    if (!body || body.split('\n').filter(l => l.trim()).length < 2) { empty++; return; }   // skip empty location
+    const locKey = normLocKey(loc.label);
+    let to = '', cc = [], bcc = [];
+    try { const s = JSON.parse(localStorage.getItem('nx_recip_dlog:' + locKey) || 'null'); if (s) { to = s.to || ''; cc = Array.isArray(s.cc) ? s.cc : []; bcc = Array.isArray(s.bcc) ? s.bcc : []; } } catch (_) {}
+    const subject = 'Daily Log — ' + (loc.label || 'Location') + ' — ' + fmtLogDateLong(dateStr);
+    const url = NX.email.gmailComposeUrl(to, subject, body, cc, bcc);
+    if (window.open(url, '_blank', 'noopener')) opened++;
+  });
+  if (NX.toast) {
+    if (opened) NX.toast('Opened ' + opened + ' Gmail draft' + (opened > 1 ? 's' : '') + ' — hit Send on each' + (empty ? ' (' + empty + ' empty skipped)' : ''), 'success', 5000);
+    else NX.toast(empty ? 'No location has notes yet' : 'Nothing opened — allow pop-ups for this site, then retry', 'info', 5000);
+  }
 }
 
 async function openDailyLogEmail() {
@@ -2190,13 +2440,84 @@ async function openDailyLogEmail() {
   window.location.href = url;
 }
 
-// ── Weather auto-populate ─────────────────────────────────────────────────
-// Once a day, when today's log opens with an empty Weather field, fetch the
-// day's weather for the venues' city (Austin) from Open-Meteo — free, no API
-// key — and fill a one-line summary with the day's average temp. Never
-// overwrites anything you typed; a per-date localStorage flag keeps it to one
-// network call a day. Change WEATHER_COORDS to move the location.
-const WEATHER_COORDS = { lat: 30.2672, lon: -97.7431 };   // Austin, TX
+// ── Weather auto-populate (address-based, per location) ───────────────────
+// Each location carries a street address (the `locations` table). We geocode
+// it once — Photon, a free CORS-enabled OSM geocoder, cached in localStorage —
+// then pull the day's weather from Open-Meteo for those coordinates. The header
+// field shows the active location's weather; each location's email section
+// carries its own. Falls back to the venues' default city if an address is
+// missing or won't geocode, so weather always resolves. Never overwrites a
+// manual entry.
+const DEFAULT_COORDS = { lat: 30.2672, lon: -97.7431 };   // Austin, TX — last-resort fallback
+
+// localStorage geocode cache: address string → {lat, lon}. Geocode each
+// address at most once — addresses rarely change and coordinates never do.
+const GEO_CACHE_KEY = 'nexus_geo_cache_v1';
+function _geoGet(addr) { try { return (JSON.parse(localStorage.getItem(GEO_CACHE_KEY) || '{}'))[addr] || null; } catch (_) { return null; } }
+function _geoSet(addr, c) { try { const m = JSON.parse(localStorage.getItem(GEO_CACHE_KEY) || '{}'); m[addr] = c; localStorage.setItem(GEO_CACHE_KEY, JSON.stringify(m)); } catch (_) {} }
+
+// Address → {lat, lon} via Photon (street-level, free, no key, CORS-enabled).
+// Cached. Returns null when there's no usable address (caller falls back).
+async function geocodeAddress(address) {
+  const a = String(address || '').trim();
+  if (!a || a.toUpperCase() === 'NA' || a.length < 4) return null;
+  const cached = _geoGet(a);
+  if (cached && isFinite(cached.lat) && isFinite(cached.lon)) return cached;
+  try {
+    const r = await fetch('https://photon.komoot.io/api/?limit=1&q=' + encodeURIComponent(a), { headers: { 'Accept': 'application/json' } });
+    if (r.ok) {
+      const j = await r.json();
+      const f = j && j.features && j.features[0];
+      const co = f && f.geometry && f.geometry.coordinates;   // GeoJSON [lon, lat]
+      if (Array.isArray(co) && co.length >= 2) {
+        const c = { lat: parseFloat(co[1]), lon: parseFloat(co[0]) };
+        if (isFinite(c.lat) && isFinite(c.lon)) { _geoSet(a, c); return c; }
+      }
+    }
+  } catch (_) { /* offline / blocked — caller uses the city fallback */ }
+  return null;
+}
+
+// Each location's street address from the `locations` table → state.locAddr
+// keyed by normalized label. Best-effort; weather still resolves (city
+// fallback) if this fails.
+async function loadLocationAddresses() {
+  state.locAddr = state.locAddr || {};
+  try {
+    const { data } = await NX.sb.from('locations').select('label,address').eq('archived', false);
+    (data || []).forEach(r => { if (r && r.label) state.locAddr[normLocKey(r.label)] = (r.address || '').trim(); });
+  } catch (_) {}
+  return state.locAddr;
+}
+
+// One coordinate → the day's weather as a one-line summary string.
+async function fetchDayWeather(lat, lon) {
+  const url = 'https://api.open-meteo.com/v1/forecast'
+    + '?latitude=' + lat + '&longitude=' + lon
+    + '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum'
+    + '&temperature_unit=fahrenheit&precipitation_unit=inch&timezone=auto&forecast_days=1';
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  const j = await res.json();
+  const dy = j && j.daily;
+  if (!dy || !dy.temperature_2m_max) return null;
+  const hi = dy.temperature_2m_max[0], lo = dy.temperature_2m_min[0];
+  if (hi == null || lo == null) return null;
+  const code = dy.weather_code ? dy.weather_code[0] : null;
+  const precip = (dy.precipitation_sum && dy.precipitation_sum[0]) || 0;
+  const avg = Math.round((hi + lo) / 2);
+  let str = (code != null ? wmoText(code) + ', ' : '')
+    + 'avg ' + avg + '°F (H ' + Math.round(hi) + ' / L ' + Math.round(lo) + ')';
+  if (precip > 0.01) str += ' · ' + precip.toFixed(2) + '" precip';
+  return str;
+}
+
+// Resolve a location's coords (address-based, cached) then fetch its weather.
+async function weatherForLocationKey(key) {
+  const addr = (state.locAddr && state.locAddr[key]) || '';
+  const coords = (await geocodeAddress(addr)) || DEFAULT_COORDS;
+  return fetchDayWeather(coords.lat, coords.lon);
+}
 
 function wmoText(code) {
   const m = {
@@ -2212,6 +2533,24 @@ function wmoText(code) {
   return m[code] || 'Mixed conditions';
 }
 
+// Manual "↻" — clears the field + today's cache and re-fetches on demand.
+async function forceWeather() {
+  const log = ensureCurrentLog();
+  if ((log.log_date || todayISO()) !== todayISO()) { if (NX.toast) NX.toast('Weather only fetches for today', 'info'); return; }
+  if (!log.data) log.data = hydrateData(null);
+  if (!log.data.header) log.data.header = {};
+  log.data.header.weather = '';
+  const input = document.querySelector('[data-path="header.weather"]');
+  if (input) input.value = '';
+  state.weatherByLoc = {};   // drop today's cached per-location weather
+  state._weatherDate = null;
+  state.locAddr = null;      // re-read addresses too (in case one changed)
+  if (NX.toast) NX.toast('Fetching weather…', 'info', 1200);
+  await maybeAutoWeather();
+  const got = String((log.data.header && log.data.header.weather) || '').trim();
+  if (NX.toast) NX.toast(got ? 'Weather updated' : 'Could not reach the weather service', got ? 'success' : 'error');
+}
+
 async function maybeAutoWeather() {
   try {
     const log = state.currentLog;
@@ -2220,36 +2559,57 @@ async function maybeAutoWeather() {
     if (dateStr !== todayISO()) return;                       // today's log only
     if (!log.data) log.data = hydrateData(null);
     if (!log.data.header) log.data.header = {};
-    if (String(log.data.header.weather || '').trim()) return; // never overwrite a manual entry
-    // The empty-field check above IS the dedupe — so weather auto-fills EVERY
-    // day the field is blank, instead of being blocked forever by a sticky
-    // localStorage "done" flag (which lost the weather if a save ever failed).
+    // We no longer bail when the header already holds a manual entry — we still
+    // fetch each location's weather below (for the per-location email sections)
+    // and simply skip overwriting the header field itself.
     if (state._weatherFetching) return;
     state._weatherFetching = true;
 
-    const url = 'https://api.open-meteo.com/v1/forecast'
-      + '?latitude=' + WEATHER_COORDS.lat + '&longitude=' + WEATHER_COORDS.lon
-      + '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum'
-      + '&temperature_unit=fahrenheit&precipitation_unit=inch&timezone=auto&forecast_days=1';
-    const res = await fetch(url);
-    if (!res.ok) return;
-    const j = await res.json();
-    const dy = j && j.daily;
-    if (!dy || !dy.temperature_2m_max) return;
-    const hi = dy.temperature_2m_max[0];
-    const lo = dy.temperature_2m_min[0];
-    if (hi == null || lo == null) return;
-    const code = dy.weather_code ? dy.weather_code[0] : null;
-    const precip = (dy.precipitation_sum && dy.precipitation_sum[0]) || 0;
-    const avg = Math.round((hi + lo) / 2);
-    let str = (code != null ? wmoText(code) + ', ' : '')
-      + 'avg ' + avg + '\u00b0F (H ' + Math.round(hi) + ' / L ' + Math.round(lo) + ')';
-    if (precip > 0.01) str += ' \u00b7 ' + precip.toFixed(2) + '" precip';
+    // Reset the per-location weather cache at the start of each new day.
+    const today = todayISO();
+    if (state._weatherDate !== today) { state.weatherByLoc = {}; state._weatherDate = today; }
+    state.weatherByLoc = state.weatherByLoc || {};
 
-    log.data.header.weather = str;
-    const input = document.querySelector('[data-path="header.weather"]');
-    if (input && !input.value.trim()) input.value = str;
-    markDirty();   // quiet autosave so it persists with the rest of the log
+    if (!state.locAddr) await loadLocationAddresses();
+
+    // Fetch each active location's weather from its OWN address (cached/day).
+    // state.weatherByLoc feeds the per-location email sections.
+    const locs = (log.data.locations || []).filter(l => l && l.label);
+    for (const loc of locs) {
+      const key = normLocKey(loc.label);
+      if (state.weatherByLoc[key]) continue;
+      try {
+        const str = await weatherForLocationKey(key);
+        if (str) state.weatherByLoc[key] = str;
+      } catch (_) { /* one location's network hiccup must not block the rest */ }
+    }
+    // Reflect each location's weather into its on-screen section (best-effort —
+    // render() ran before this async fetch, so we fill the placeholders now).
+    locs.forEach(loc => {
+      const k = normLocKey(loc.label);
+      const sp = document.querySelector('[data-loc-weather="' + k + '"]');
+      if (sp && state.weatherByLoc[k]) sp.textContent = state.weatherByLoc[k];
+    });
+    // Always have something to show even before a location is added.
+    if (!state.weatherByLoc.__default) {
+      const str = await fetchDayWeather(DEFAULT_COORDS.lat, DEFAULT_COORDS.lon);
+      if (str) state.weatherByLoc.__default = str;
+    }
+
+    // Header field = the active location's weather (or the first location's, or
+    // the default). Only when blank \u2014 never clobber a manual entry. The empty-
+    // field check IS the dedupe, so it re-fills any day the field is blank.
+    if (!String(log.data.header.weather || '').trim()) {
+      let key = (state.activeLoc && state.activeLoc !== 'all') ? state.activeLoc : null;
+      if (!key || !state.weatherByLoc[key]) key = locs[0] ? normLocKey(locs[0].label) : null;
+      const w = (key && state.weatherByLoc[key]) || state.weatherByLoc.__default || '';
+      if (w) {
+        log.data.header.weather = w;
+        const input = document.querySelector('[data-path="header.weather"]');
+        if (input && !input.value.trim()) input.value = w;
+        markDirty();   // quiet autosave so it persists with the rest of the log
+      }
+    }
   } catch (e) { if (window.NX && NX.debug) NX.debug('dlog.weather', e); /* offline/API hiccup — field stays editable, retries next open */ }
   finally { state._weatherFetching = false; }
 }
@@ -2296,6 +2656,14 @@ function markDirty() {
 //     once in init(). dlogAutoSendOn() reads the per-device toggle. ───────────
 function dlogAutoSendOn() { try { return localStorage.getItem('nexus_dlog_autosend') === '1'; } catch (_) { return false; } }
 function dlogAutoSendTime() { try { return localStorage.getItem('nexus_dlog_autosend_time') || '22:00'; } catch (_) { return '22:00'; } }
+// Master control: which days-of-week auto-send is allowed (1=Sun … 7=Sat).
+// e.g. weekdays-only. Default = every day. A card made on a non-send day stays
+// in the open backlog and rolls into the next allowed day's log/email.
+function dlogAutoSendDays() {
+  try { const v = JSON.parse(localStorage.getItem('nexus_dlog_autosend_days') || 'null'); return (Array.isArray(v) && v.length) ? v : [1, 2, 3, 4, 5, 6, 7]; }
+  catch (_) { return [1, 2, 3, 4, 5, 6, 7]; }
+}
+function dlogDayAllowed(dow) { return dlogAutoSendDays().indexOf(dow) !== -1; }
 function dlogHasContent(d) {
   if (!d) return false;
   return !!((d.header && (d.header.weather || d.header.significant_events)) ||
@@ -2314,10 +2682,11 @@ function wireDlogLifecycle() {
   setInterval(() => {
     try {
       if (!dlogAutoSendOn()) return;
+      if (!dlogDayAllowed(new Date().getDay() + 1)) return;        // master day-control
       const log = state.currentLog;
       if (!log || !log.data) return;
       if ((log.log_date || todayISO()) !== todayISO()) return;     // today only
-      if (log.drive_upload_status === 'uploaded') return;          // already sent
+      if (log.drive_upload_status === 'uploaded') return;          // already sent (never re-sends)
       const now = new Date();
       const hhmm = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
       if (hhmm < dlogAutoSendTime()) return;                        // not yet cutoff
