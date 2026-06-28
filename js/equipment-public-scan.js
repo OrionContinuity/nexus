@@ -2161,7 +2161,7 @@
         </div>
 
         <div class="nx-ps-modal-label">Describe the problem *</div>
-        <textarea class="nx-ps-modal-textarea" id="nxRepDesc" placeholder="What's wrong? When did it start? Any error codes or unusual sounds?"></textarea>
+        <textarea class="nx-ps-modal-textarea" id="nxRepDesc" maxlength="1000" placeholder="What's wrong? When did it start? Any error codes or unusual sounds?"></textarea>
 
         <!-- v18.24 — Photo of the issue. Optional but high-signal; a single
              photo of an error display, leak, or broken part is worth a
@@ -2184,7 +2184,7 @@
         </div>
 
         <div class="nx-ps-modal-label">Your name *</div>
-        <input class="nx-ps-modal-input" id="nxRepName" value="${esc(rememberedName)}" placeholder="So staff know who to follow up with">
+        <input class="nx-ps-modal-input" id="nxRepName" maxlength="80" value="${esc(rememberedName)}" placeholder="So staff know who to follow up with">
 
         <div class="nx-ps-modal-btns">
           <button class="nx-ps-modal-btn nx-ps-modal-btn-cancel" type="button" id="nxRepCancel">Cancel</button>
@@ -2319,7 +2319,7 @@
         // ticket from being created. We just lose the image and surface
         // a console warning.
         let photoUrl = null;
-        if (pendingPhoto) {
+        if (pendingPhoto && pendingPhoto.size <= 12 * 1024 * 1024 && (pendingPhoto.type || '').indexOf('image/') === 0) {
           try {
             send.textContent = 'Uploading photo…';
             const safeName = pendingPhoto.name.replace(/[^a-z0-9.]/gi, '_');
@@ -2486,6 +2486,7 @@
           const logPrefix = isCall ? 'CONTRACTOR CALLED' : 'TICKET';
           const logLoc = eq.location || 'unknown';
           await sb.from('daily_logs').insert({
+            user_name: reporter || null,
             entry: `${logIcon} ${logPrefix} [${priority.toUpperCase()}] by ${reporter} @ ${logLoc}: ${eq.name} — ${problem.slice(0, 160)}${isCall && contact ? ` → calling ${contact.name}` : ''}`
           });
         } catch (logErr) {

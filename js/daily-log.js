@@ -2300,11 +2300,10 @@ function dlogLocationReportLines(loc) {
     cards.sort((a, b) => priRank(a.priority) - priRank(b.priority));
     out.push(SH('Board / work orders'));
     cards.forEach(c => {
-      // Compact: just the to-do (title) + a priority tag. No assignee,
-      // created date, lane, equipment, emoji, or detail.
-      const pri = (c.priority || 'normal').toLowerCase();
-      const priTag = (pri && pri !== 'normal') ? '[' + pri.toUpperCase() + '] ' : '';
-      out.push('\u00b7 ' + priTag + (c.title || 'Untitled card'));
+      // Compact: the to-do (title) + a priority tag on EVERY card (sorted
+      // urgent-first above). No assignee, created date, lane, equipment, emoji.
+      const pri = (c.priority || 'normal').toUpperCase();
+      out.push('\u00b7 [' + pri + '] ' + (c.title || 'Untitled card'));
     });
     out.push('');
   }

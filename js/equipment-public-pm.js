@@ -474,11 +474,11 @@
             </div>
             
             <label class="pm-label">What was done? *</label>
-            <textarea id="pmWork" class="pm-input" rows="4" required 
+            <textarea id="pmWork" class="pm-input" rows="4" maxlength="2000" required 
               placeholder="Cleaned condenser coils, checked refrigerant levels, replaced air filter..."></textarea>
             
             <label class="pm-label">Parts replaced (optional)</label>
-            <textarea id="pmParts" class="pm-input" rows="2" 
+            <textarea id="pmParts" class="pm-input" rows="2" maxlength="1000" 
               placeholder="Air filter (model XYZ-123), Drain pan gasket"></textarea>
             
             <div class="pm-form-row">
@@ -1542,7 +1542,7 @@
           <label class="eq-call-confirm-issue-label" for="pmCallIssue">
             What's the issue? <span class="eq-optional-tag">(required)</span>
           </label>
-          <textarea class="eq-call-confirm-issue" id="pmCallIssue" rows="2" placeholder="e.g., Compressor not cooling, freezing intermittently..."></textarea>
+          <textarea class="eq-call-confirm-issue" id="pmCallIssue" rows="2" maxlength="500" placeholder="e.g., Compressor not cooling, freezing intermittently..."></textarea>
         </div>
         
         <div class="eq-call-confirm-actions">
@@ -1612,6 +1612,7 @@
         }
 
         await NX.sb.from('daily_logs').insert({
+          user_name: callerName || null,
           entry: `[PUBLIC-DISPATCH] ${callerName} called ${contact.name || 'Service'} (${contact.phone || 'no phone'}) for "${issue}" re: ${eq?.name || qrCode}`
         });
       } catch (err) { console.warn('public dispatch log failed:', err); }
