@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v181-email-warranty-90d-daysold';
+const CACHE_NAME = 'nexus-v187-public-scan-hardening';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
@@ -353,8 +353,8 @@ self.addEventListener('fetch', event => {
   if (url.hostname.includes('supabase.co') ||
       url.hostname.includes('anthropic.com') ||
       url.hostname.includes('elevenlabs.io') ||
-      url.hostname.includes('open-meteo.com') ||      // weather — must stay fresh, not stale-cached
-      url.hostname.includes('photon.komoot.io') ||    // address geocoding
+      url.hostname.includes('wttr.in') ||             // weather (primary) — must stay fresh
+      url.hostname.includes('open-meteo.com') ||      // weather/geocode (fallback) — stay fresh
       url.hostname.includes('googleapis.com/gmail')) {
     return; // Let browser handle normally (network only)
   }
