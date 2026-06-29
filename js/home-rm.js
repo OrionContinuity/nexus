@@ -478,28 +478,45 @@
       ${totalOpen > 4 ? `<button class="home-rm-wo-viewall" data-go="issues">View all ${totalOpen} work orders →</button>` : ''}
     `;
 
-    el.querySelectorAll('[data-equipment-id]').forEach(b => {
-      b.addEventListener('click', () => {
-        const eqId = b.getAttribute('data-equipment-id');
-        const isId = b.getAttribute('data-issue-id');
-        // A work order IS a board card — open it on the Board. The board's
-        // show() reads this intent, finds the card tagged issue:<id>, and
-        // opens its detail.
-        if (isId) {
-          NX.boardOpenIntent = { issueId: isId };
-          NXRM.view.switchTo('board');
-          return;
-        }
-        // Fallback (no issue id): open the equipment detail as before.
-        if (!eqId) return;
-        NXRM.view.switchTo('equipment');
-        setTimeout(() => {
-          if (typeof window.eqOpenDetail === 'function') window.eqOpenDetail(eqId, { focusIssue: isId });
-        }, 180);
-      });
+    // NOTE: clicks are handled by a single delegated listener bound once in
+    // init() (see bindWorkOrderClicks). Per-button listeners used to be wired
+    // here, but this section is wiped + re-injected on every home re-render,
+    // so a tap could land on a freshly-rendered button whose listener hadn't
+    // been re-attached yet — which made the Work Orders card feel dead.
+    // Delegation on a stable ancestor survives every re-render.
+  }
+
+  // Delegated click handling for the Work Orders feed. Bound ONCE to the
+  // document so it keeps working no matter how often renderWorkOrders()
+  // replaces the section's markup.
+  let woClicksBound = false;
+  function bindWorkOrderClicks() {
+    if (woClicksBound) return;
+    woClicksBound = true;
+    document.addEventListener('click', (e) => {
+      const viewAll = e.target.closest('.home-rm-wo-viewall');
+      if (viewAll) { NXRM.view.switchTo('issues'); return; }
+
+      const item = e.target.closest('.home-rm-wo-item');
+      if (!item) return;
+
+      const eqId = item.getAttribute('data-equipment-id');
+      const isId = item.getAttribute('data-issue-id');
+      // A work order IS a board card — open it on the Board. The board's
+      // show() reads this intent, finds the card tagged issue:<id>, and
+      // opens its detail.
+      if (isId) {
+        NX.boardOpenIntent = { issueId: isId };
+        NXRM.view.switchTo('board');
+        return;
+      }
+      // Fallback (no issue id): open the equipment detail as before.
+      if (!eqId) return;
+      NXRM.view.switchTo('equipment');
+      setTimeout(() => {
+        if (typeof window.eqOpenDetail === 'function') window.eqOpenDetail(eqId, { focusIssue: isId });
+      }, 180);
     });
-    const viewAll = el.querySelector('[data-go]');
-    if (viewAll) viewAll.addEventListener('click', () => NXRM.view.switchTo('issues'));
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -663,6 +680,7 @@
   });
 
   async function init() {
+    bindWorkOrderClicks();
     await loadAll();
     subscribe();
     watchHome();
