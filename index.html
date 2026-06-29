@@ -4002,6 +4002,26 @@
       <select id="adminVoice" class="admin-field" style="display:none">
         <option value="0">— System default —</option>
       </select>
+
+      <!-- ACTIVE VOICE PICKER — the one place to choose who speaks. Sets
+           nexus_voice_idx by mapping each persona to its registered custom
+           voice (by name). "System" falls back to the device voice. Wired in
+           app.js setupCustomVoices() → renderVoicePicker(). -->
+      <div class="admin-voice-pick-label">Active voice</div>
+      <div class="admin-voice-picker" id="adminVoicePicker" role="group" aria-label="Active voice">
+        <button type="button" class="admin-voice-pick" data-voice-pick="providentia">
+          <span class="avp-name">Providentia</span>
+          <span class="avp-sub">Advisor · reverse</span>
+        </button>
+        <button type="button" class="admin-voice-pick" data-voice-pick="trajan">
+          <span class="avp-name">Trajan</span>
+          <span class="avp-sub">Emperor · obverse</span>
+        </button>
+        <button type="button" class="admin-voice-pick" data-voice-pick="system">
+          <span class="avp-name">System</span>
+          <span class="avp-sub">Device voice</span>
+        </button>
+      </div>
       <div id="voiceTestStatus" class="admin-key-status" style="display:none"></div>
 
       <!-- Voice speed slider — controls TTS playback rate.
