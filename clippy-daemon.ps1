@@ -26,6 +26,8 @@ param(
   [switch]$AllowOnBattery,      # permit installs while on battery (still honours -MinBatteryPct)
   [switch]$IncludeHeavy,        # also provision the large GPU model-gen deps (multi-GB)
   [string]$VisionModel = 'llama3.2-vision',  # Ollama vision model for Scan Plate (use 'moondream' on small disks)
+  [string]$CmdToken = $env:CLIPPY_CMD_TOKEN, # enables "Push update" / remote commands; persisted for the user
+  [switch]$NoAutostart,         # skip registering the logon Scheduled Task
   [switch]$ReportOnly,          # report what would happen; change nothing
   [switch]$EnsureOnly           # provision tools only; skip pulling the model + starting the worker
 )
@@ -194,6 +196,13 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
         Log "[skip] vision model '$VisionModel' — $($g.why). Try -VisionModel moondream (smaller)." 'Yellow'
       }
     }
+    # Persist the command token (enables "Push update" from NEXUS) for the user
+    # so it survives reboots and is picked up by the worker we launch below.
+    if ($CmdToken) {
+      try { [Environment]::SetEnvironmentVariable('CLIPPY_CMD_TOKEN', $CmdToken, 'User') } catch {}
+      $env:CLIPPY_CMD_TOKEN = $CmdToken
+      Log "[ok] command token set — remote 'Push update' enabled" 'Green'
+    }
     # Start the job-poller (idempotent: skip if one is already running).
     $worker = Join-Path $HOMEDIR 'clippy-worker.py'
     $running = Get-CimInstance Win32_Process -EA SilentlyContinue |
@@ -209,6 +218,18 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
         Start-Process -FilePath $py.Source -ArgumentList $worker -WorkingDirectory $HOMEDIR -WindowStyle Hidden | Out-Null
         Log "[ok] clippy-worker started — this node now answers vision jobs" 'Green'
       } else { Log "[next] Python not detected yet — rerun after a new shell." 'Yellow' }
+    }
+
+    # Auto-start on boot: a logon Scheduled Task that re-runs this daemon
+    # (idempotent — it re-provisions + relaunches the worker if it died).
+    if (-not $NoAutostart) {
+      try {
+        $self = $MyInvocation.MyCommand.Path
+        $act  = "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$self`" -EnsureOnly:`$false"
+        & schtasks /Create /TN 'ClippyDaemon' /SC ONLOGON /RL LIMITED /F /TR $act *> $null
+        if ($LASTEXITCODE -eq 0) { Log "[ok] autostart registered (Scheduled Task 'ClippyDaemon', runs at logon)" 'Green' }
+        else { Log "[..] could not register autostart task (non-fatal)" 'Yellow' }
+      } catch { Log "[..] autostart registration skipped: $($_.Exception.Message)" 'Yellow' }
     }
   } else {
     Log "[next] Ollama not installed yet — rerun the daemon (it installs Ollama), then try again." 'Yellow'

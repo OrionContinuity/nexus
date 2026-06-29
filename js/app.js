@@ -1847,8 +1847,6 @@ td.check{background:#F0EDE6 !important}
         }
         // Eager-load Overview stats so there's no "Loading…" flash
         window.loadOverviewStats?.();
-        // Start the live Clippy activity readout (self-refreshes while open).
-        try { this.clippyActivityInto('adminClippyActivity'); } catch(_) {}
       } catch(e) { console.warn('[admin] panel init failed:', e); }
       if (this.isAdmin) {
         keySection.style.display = 'block';

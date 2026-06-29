@@ -29,7 +29,10 @@ Env overrides: NEXUS_SUPABASE_URL, NEXUS_SUPABASE_ANON, OLLAMA_URL,
                CLIPPY_VISION_MODEL, CLIPPY_TEXT_MODEL, CLIPPY_NODE_NAME,
                CLIPPY_CMD_TOKEN (enable command jobs; empty = disabled)
 """
-import os, sys, time, json, socket, subprocess, urllib.request, urllib.error, urllib.parse
+import os, sys, time, json, socket, subprocess, platform, urllib.request, urllib.error, urllib.parse
+
+try: OSDESC = platform.platform()           # e.g. "Windows-11-10.0.22631"
+except Exception: OSDESC = sys.platform
 
 SUPA_URL   = os.environ.get("NEXUS_SUPABASE_URL",  "https://oprsthfxqrdbwdvommpw.supabase.co").rstrip("/")
 SUPA_KEY   = os.environ.get("NEXUS_SUPABASE_ANON", "sb_publishable_rOLSdIG6mIjVLY8JmvrwCA_qfM7Vyk9")
@@ -120,7 +123,8 @@ def sb_heartbeat():
     except Exception:
         pass
     arr.append({"name": NODE, "ts": now, "vision": True, "cmd": bool(CMD_TOKEN),
-                "busy": _state["busy"], "current": _state["current"],
+                "os": OSDESC, "version": "worker-1.0", "busy": _state["busy"], "current": _state["current"],
+                "caps": (["ask", "vision"] + (["cmd"] if CMD_TOKEN else [])),
                 "models": [VISION_MODEL, TEXT_MODEL]})
     h = dict(SB_HEADERS); h["Prefer"] = "resolution=merge-duplicates,return=minimal"
     try:
