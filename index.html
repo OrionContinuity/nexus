@@ -4560,6 +4560,7 @@
 
   // ─── Overview stats loader ────────────────────────────────────────
   let _lastOverviewLoad = 0;
+  let _overviewRetry = null;
   // Timeout wrapper: every Supabase call gets at most 4s before we give
   // up and return null. Prevents the whole overview from hanging when a
   // single table or view is slow/missing.
@@ -4571,13 +4572,20 @@
   }
 
   async function loadOverviewStats() {
+    const sb = window.NX?.sb;
+    // Supabase client not ready yet (admin opened mid-boot, or this fired from
+    // the early syncAdminGating tick). Retry shortly WITHOUT arming the
+    // throttle, so the tiles + sections self-heal instead of sticking on
+    // "—" / "Loading…" forever — which is exactly what was happening.
+    if (!sb) {
+      if (!_overviewRetry) _overviewRetry = setTimeout(() => { _overviewRetry = null; loadOverviewStats(); }, 700);
+      return;
+    }
     // Throttle: don't re-load within 8s
     if (Date.now() - _lastOverviewLoad < 8000) return;
     _lastOverviewLoad = Date.now();
 
     const setText = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = String(val ?? '—'); };
-    const sb = window.NX?.sb;
-    if (!sb) return;
 
     // Each query wrapped in both a timeout AND a try/catch so any single
     // failure (missing table, RLS block, network hang) degrades gracefully.
@@ -4691,6 +4699,17 @@
     _lastOverviewLoad = 0;
     loadOverviewStats();
   });
+
+  // Reload the Overview every time the admin modal opens. This watches the
+  // modal's class directly, so the stats populate on open regardless of
+  // whether app.js's eager call raced the Supabase client. Resets the
+  // throttle so each open gets fresh numbers.
+  const _adminModalEl = document.getElementById('adminModal');
+  if (_adminModalEl && 'MutationObserver' in window) {
+    new MutationObserver(() => {
+      if (_adminModalEl.classList.contains('open')) { _lastOverviewLoad = 0; loadOverviewStats(); }
+    }).observe(_adminModalEl, { attributes: true, attributeFilter: ['class'] });
+  }
 
   // Expose for app.js to call directly when admin modal opens (eager load)
   window.loadOverviewStats = () => { _lastOverviewLoad = 0; loadOverviewStats(); };
