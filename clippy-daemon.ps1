@@ -19,6 +19,19 @@ when the function isn't published.
   powershell -ExecutionPolicy Bypass -File clippy-daemon.ps1 -AllowOnBattery
   powershell -ExecutionPolicy Bypass -File clippy-daemon.ps1 -IncludeHeavy     # large GPU 3D-gen deps too
   powershell -ExecutionPolicy Bypass -File clippy-daemon.ps1 -ReportOnly       # check + report, install nothing
+
+SUPERVISOR MODE (worker as a Clippy slave):
+  With -Supervise the daemon provisions once, then stays up as a persistent
+  supervisor: it keeps clippy-worker.py alive (restarts it if it dies) and every
+  -UpdateEveryMin minutes re-pulls the worker from GitHub and restarts it if it
+  changed. That makes a node SELF-HEALING - a bad worker version recovers on its
+  own instead of stranding the node. The logon autostart task uses this mode.
+
+  Clippy (the master) owns its slave worker by launching the supervisor and
+  passing its own PID; when Clippy exits, the supervisor stops the worker too:
+    powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File clippy-daemon.ps1 -Supervise -ParentPid <ClippyPID> -CmdToken <token>
+  A second supervisor started while one is already running just exits, so the
+  logon task and a Clippy-launched copy never both run a worker.
 #>
 param(
   [int]$MinFreeGB      = 15,    # don't install unless the system drive has at least this much free
@@ -28,6 +41,9 @@ param(
   [string]$VisionModel = 'llama3.2-vision',  # Ollama vision model for Scan Plate (use 'moondream' on small disks)
   [string]$CmdToken = $env:CLIPPY_CMD_TOKEN, # enables "Push update" / remote commands; persisted for the user
   [switch]$NoAutostart,         # skip registering the logon Scheduled Task
+  [switch]$Supervise,           # run as a persistent supervisor (Clippy launches this): keep the worker alive + self-heal from GitHub
+  [int]$ParentPid = 0,          # if > 0, exit (and stop the worker) when this process dies - makes Clippy the master of its slave worker
+  [int]$UpdateEveryMin = 15,    # supervisor: how often to re-pull the worker from GitHub and restart it if it changed
   [switch]$ReportOnly,          # report what would happen; change nothing
   [switch]$EnsureOnly           # provision tools only; skip pulling the model + starting the worker
 )
@@ -35,8 +51,84 @@ $ErrorActionPreference = 'Continue'
 $HOMEDIR  = $PSScriptRoot
 $REF      = 'oprsthfxqrdbwdvommpw'
 $ProgRoot = Join-Path $env:LOCALAPPDATA 'Programs'   # matches the existing supabase/gh layout
+$RAW      = 'https://raw.githubusercontent.com/orioncontinuity/nexus/main'
 
 function Log([string]$m, [string]$c = 'Gray') { Write-Host ((Get-Date -f 'HH:mm:ss') + '  ' + $m) -ForegroundColor $c }
+
+# --- Worker (slave) lifecycle helpers - used by initial start and the supervisor
+function Find-Python {
+  $p = Get-Command pythonw -EA SilentlyContinue
+  if (-not $p) { $p = Get-Command python -EA SilentlyContinue }
+  if (-not $p) { $p = Get-Command python3 -EA SilentlyContinue }
+  return $p
+}
+function Get-WorkerProc {
+  return Get-CimInstance Win32_Process -EA SilentlyContinue |
+         Where-Object { $_.CommandLine -and $_.CommandLine -match 'clippy-worker\.py' }
+}
+function Stop-WorkerProc {
+  Get-WorkerProc | ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force } catch {} }
+}
+function Start-WorkerProc {
+  $worker = Join-Path $HOMEDIR 'clippy-worker.py'
+  if (-not (Test-Path $worker)) { Log "[!!] worker not found at $worker" 'Red'; return $false }
+  $py = Find-Python
+  if (-not $py) { Log "[next] Python not detected yet - rerun after a new shell." 'Yellow'; return $false }
+  $env:CLIPPY_VISION_MODEL = $VisionModel
+  $env:CLIPPY_MANAGED = 'clippy'     # tells the worker it runs as a Clippy-managed slave
+  Start-Process -FilePath $py.Source -ArgumentList $worker -WorkingDirectory $HOMEDIR -WindowStyle Hidden | Out-Null
+  Log "[ok] clippy-worker started" 'Green'
+  return $true
+}
+function Update-NodeFromGitHub {
+  # Pull the latest node scripts into $HOMEDIR. Returns $true if the worker changed.
+  $changed = $false
+  foreach ($f in 'clippy-worker.py', 'clippy-daemon.ps1', 'clippy-update.ps1') {
+    $dst = Join-Path $HOMEDIR $f
+    $tmp = Join-Path $env:TEMP ('nx_' + $f)
+    try {
+      Invoke-WebRequest "$RAW/$f" -OutFile $tmp -UseBasicParsing -TimeoutSec 60
+      $new = (Get-FileHash $tmp -Algorithm SHA256).Hash
+      $old = if (Test-Path $dst) { (Get-FileHash $dst -Algorithm SHA256).Hash } else { '' }
+      if ($new -ne $old) {
+        Copy-Item $tmp $dst -Force
+        if ($f -eq 'clippy-worker.py') { $changed = $true }
+        Log "[upd] refreshed $f" 'Green'
+      }
+      Remove-Item $tmp -Force -EA SilentlyContinue
+    } catch { Log "[..] update fetch $f skipped: $($_.Exception.Message)" 'Yellow' }
+  }
+  return $changed
+}
+function Invoke-Supervisor {
+  # Persistent loop: keep the slave worker alive and self-heal from GitHub.
+  # This is what makes a bad worker version recover automatically instead of
+  # stranding the node (no more "blind worker that can't be updated").
+  Log "[supervise] up - parent=$ParentPid, self-heal every ${UpdateEveryMin}m" 'Cyan'
+  $lastUpd = Get-Date
+  while ($true) {
+    if ($ParentPid -gt 0 -and -not (Get-Process -Id $ParentPid -EA SilentlyContinue)) {
+      Log "[supervise] master (pid $ParentPid) exited - stopping worker" 'Yellow'
+      Stop-WorkerProc
+      break
+    }
+    if (-not (Get-WorkerProc)) {
+      Log "[supervise] worker down - (re)starting" 'Yellow'
+      Start-WorkerProc | Out-Null
+    }
+    if (((Get-Date) - $lastUpd).TotalMinutes -ge $UpdateEveryMin) {
+      $lastUpd = Get-Date
+      if (Update-NodeFromGitHub) {
+        Log "[supervise] new worker pulled - restarting it" 'Green'
+        Stop-WorkerProc
+        Start-Sleep -Seconds 2
+        Start-WorkerProc | Out-Null
+      }
+    }
+    Start-Sleep -Seconds 30
+  }
+  Log "[supervise] exiting" 'Cyan'
+}
 
 # --- Capability probes ------------------------------------------------------
 function Get-FreeGB {
@@ -219,21 +311,11 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
     # Coexist with the legacy v2.4.4 poller: it keeps answering TEXT (qwen3:8b)
     # while the worker specializes in VISION on its own 'vis:' lane. We never
     # stop or disable it - the two run side by side.
-    # Start the job-poller (idempotent: skip if one is already running).
-    $worker = Join-Path $HOMEDIR 'clippy-worker.py'
-    $running = Get-CimInstance Win32_Process -EA SilentlyContinue |
-               Where-Object { $_.CommandLine -and $_.CommandLine -match 'clippy-worker\.py' }
-    if ($running) {
-      Log "[have] clippy-worker already running" 'Green'
-    } elseif (Test-Path $worker) {
-      $py = Get-Command pythonw -EA SilentlyContinue
-      if (-not $py) { $py = Get-Command python -EA SilentlyContinue }
-      if (-not $py) { $py = Get-Command python3 -EA SilentlyContinue }
-      if ($py) {
-        $env:CLIPPY_VISION_MODEL = $VisionModel
-        Start-Process -FilePath $py.Source -ArgumentList $worker -WorkingDirectory $HOMEDIR -WindowStyle Hidden | Out-Null
-        Log "[ok] clippy-worker started - this node now answers vision jobs" 'Green'
-      } else { Log "[next] Python not detected yet - rerun after a new shell." 'Yellow' }
+    # Start the job-poller (idempotent). Under -Supervise the supervisor owns the
+    # worker lifecycle, so let it do the (managed) start in its first loop.
+    if (-not $Supervise) {
+      if (Get-WorkerProc) { Log "[have] clippy-worker already running" 'Green' }
+      else { Start-WorkerProc | Out-Null }
     }
 
     # Auto-start on boot. Copy the scripts to a STABLE home first (this folder
@@ -249,7 +331,7 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
           if (Test-Path $src) { Copy-Item $src (Join-Path $stable $f) -Force -EA SilentlyContinue }
         }
         $stableDaemon = Join-Path $stable 'clippy-daemon.ps1'
-        $act = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $stableDaemon + '"')
+        $act = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $stableDaemon + '" -Supervise')
         $trg = New-ScheduledTaskTrigger -AtLogOn
         $set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
         Register-ScheduledTask -TaskName 'ClippyDaemon' -Action $act -Trigger $trg -Settings $set -Force -ErrorAction Stop | Out-Null
@@ -258,6 +340,22 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
     }
   } else {
     Log "[next] Ollama not installed yet - rerun the daemon (it installs Ollama), then try again." 'Yellow'
+  }
+}
+
+# --- Supervisor mode -------------------------------------------------------
+# Clippy launches this (master) to own its slave worker: keep it alive and
+# self-heal from GitHub. -ParentPid ties the supervisor to Clippy's lifetime.
+# Single-instance via a process check (fail-safe: after a kill+relaunch there is
+# no stale lock to strand us) so the logon task and a Clippy-launched copy do
+# not both run.
+if ($Supervise -and -not $ReportOnly) {
+  $others = Get-CimInstance Win32_Process -EA SilentlyContinue |
+    Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine -match 'clippy-daemon\.ps1' -and $_.CommandLine -match '-Supervise' }
+  if ($others) {
+    Log "[supervise] another supervisor already running (pid $($others[0].ProcessId)) - exiting" 'Yellow'
+  } else {
+    Invoke-Supervisor
   }
 }
 

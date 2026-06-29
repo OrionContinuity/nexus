@@ -45,6 +45,9 @@ NODE       = os.environ.get("CLIPPY_NODE_NAME", socket.gethostname())
 # code execution for anyone. Set CLIPPY_CMD_TOKEN on the node and include the
 # same token in a cmd job to enable it. Empty = command jobs are refused.
 CMD_TOKEN  = os.environ.get("CLIPPY_CMD_TOKEN", "")
+# Set by clippy-daemon.ps1 when it runs the worker as a supervised "slave"
+# (Clippy is the master). Surfaced in the heartbeat so the Tools UI can show it.
+MANAGED    = os.environ.get("CLIPPY_MANAGED", "")
 
 _state = {"busy": False, "current": ""}     # what this node is doing right now
 
@@ -141,7 +144,7 @@ def sb_heartbeat():
     except Exception:
         pass
     arr.append({"name": NODE, "ts": now, "vision": True, "cmd": bool(CMD_TOKEN),
-                "os": OSDESC, "version": "worker-1.1.1-vis", "busy": _state["busy"], "current": _state["current"],
+                "os": OSDESC, "version": "worker-1.1.1-vis", "managed": MANAGED, "busy": _state["busy"], "current": _state["current"],
                 "caps": ((["ask"] if CLAIM_TEXT else []) + ["vision"] + (["cmd"] if CMD_TOKEN else [])),
                 "models": [VISION_MODEL, TEXT_MODEL]})
     h = dict(SB_HEADERS); h["Prefer"] = "resolution=merge-duplicates,return=minimal"
