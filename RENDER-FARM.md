@@ -61,6 +61,23 @@ Multiple Clippy machines pool their GPUs; multiple jobs run in parallel.
 - From anywhere (NEXUS, phone, this chat) the node shows online; jobs route to it. Closing the laptop/phone
   doesn't matter — the bus is the cloud, the GPU is at home.
 
+### 4a. Self-provisioning daemon — `clippy-daemon.ps1`
+A bootstrap that makes a fresh machine able to run the pool by **auto-installing
+the programs it needs (git, Supabase CLI, gh CLI, Python, Ollama; `-IncludeHeavy`
+adds the GPU 3D-gen deps)** — but only when the device can afford it: the system
+drive has free space **and** the machine is on power (AC, or battery above a
+threshold). Low-disk / on-battery → it reports what it *would* install and exits
+without changing anything. Idempotent, so it's safe to run at every boot
+(Task Scheduler / `shell:startup`), or from the DevOps GUI button "Provision node".
+After provisioning it (re)deploys `clippy-pool` when the CLI is logged in — which
+clears the app's "Clippy pool: HTTP Error 404".
+
+```
+powershell -ExecutionPolicy Bypass -File clippy-daemon.ps1            # space+power gated install
+powershell -ExecutionPolicy Bypass -File clippy-daemon.ps1 -ReportOnly  # check only, install nothing
+powershell -ExecutionPolicy Bypass -File clippy-daemon.ps1 -IncludeHeavy -MinFreeGB 25
+```
+
 ---
 
 ## Job schema (extends the existing `job:` row)
