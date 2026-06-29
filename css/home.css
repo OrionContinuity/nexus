@@ -66,6 +66,14 @@
   color: var(--nx-text);
   overflow-x: hidden;
 }
+/* Desktop: the phone-width 640px column leaves a wide dead zone beside the
+   240px sidebar rail (the "doesn't use desktop width" report). Widen the
+   reading column on ≥900px so Home fills the workspace like the other views
+   (R&M pages cap at 880). High-specificity selector so it wins regardless of
+   stylesheet load order (home-soft.css / refresh-2026.css layer over this). */
+@media (min-width: 900px) {
+  #homeView .home-page { max-width: 1040px; }
+}
 
 
 /* ═══ §3  LEDE + INTRO ═════════════════════════════════════════════
