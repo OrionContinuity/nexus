@@ -1,0 +1,5 @@
+~ The classic. `beam` prints; `~` starts a comment.
+beam "Hello from Nexus Code"
+
+node who = "Orion"
+beam "welcome, " + who

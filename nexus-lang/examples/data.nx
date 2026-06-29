@@ -1,0 +1,38 @@
+~ Lists, maps, recursion, and a while-loop (`pulse`).
+
+~ Recursive factorial.
+signal fact(n) {
+  when (n <= 1) { emit 1 }
+  emit n * fact(n - 1)
+}
+beam "5! = " + str(fact(5))
+
+~ A list and a running total with pulse (while).
+node nums = [4, 8, 15, 16, 23, 42]
+node total = 0
+node i = 0
+pulse (i < len(nums)) {
+  total = total + nums[i]
+  i = i + 1
+}
+beam "sum = " + str(total)
+
+~ Maps — model a NEXUS node.
+node task = { title: "scan plate", status: "pending", priority: 3 }
+task.status = "done"
+beam task.title + " -> " + task.status
+
+~ Iterate a map (each yields its keys).
+each k in task {
+  beam k + ": " + str(task[k])
+}
+
+~ Build a list with push + a helper signal.
+signal squares(upto) {
+  node out = []
+  each x in range(1, upto + 1) {
+    push(out, x * x)
+  }
+  emit out
+}
+beam "squares: " + json(squares(6))
