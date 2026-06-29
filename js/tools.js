@@ -220,29 +220,33 @@
         '<div class="nxt-h4">Online nodes</div>' + rows +
         '<button class="nxt-cta" id="nxtPush"' + (nodes.length ? '' : ' disabled') + '>⬆ Push update to ' + nodes.length + ' node' + (nodes.length === 1 ? '' : 's') + '</button>' +
         '<a class="nxt-ghost" href="' + F.updater + '" target="_blank" rel="noopener">View / download the updater script</a>' +
-        '<div class="nxt-note">Command execution is token-gated on each node (the bus is anon-writable, so an open exec channel would be remote code execution). Set <code>CLIPPY_CMD_TOKEN</code> on the node; you\'ll be asked for it once here and it\'s stored on this device only.</div>';
+        '<div class="nxt-note">Command execution is token-gated per node. When a node is provisioned with <code>-CmdToken</code>, the daemon <b>auto-publishes the token to the bus</b>, so Push works here with no manual entry. (Trade-off: the bus is anon-readable, so that makes command-exec reachable by anyone with the site — drop the token to keep it manual.)</div>';
       var pb = document.getElementById('nxtPush');
       if (pb) pb.addEventListener('click', function () { pushUpdate(nodes, pb); });
     });
   }
 
   function pushUpdate(nodes, pb) {
-    var token = localStorage.getItem('nx_clippy_cmd_token') || '';
-    if (!token) {
-      token = (window.prompt('Enter the CLIPPY_CMD_TOKEN set on your nodes (stored on this device only):') || '').trim();
-      if (!token) return;
-      try { localStorage.setItem('nx_clippy_cmd_token', token); } catch (e) {}
-    }
     pb.disabled = true; pb.textContent = 'Pushing…';
-    var cmd = "$u='" + F.updater + "'; $o=\"$env:TEMP\\clippy-update.ps1\"; Invoke-WebRequest $u -OutFile $o; powershell -ExecutionPolicy Bypass -File $o";
-    var ts = Date.now();
-    var posts = nodes.map(function (n, i) {
-      return busPost({ id: 'job:update-' + ts + '-' + i, from_id: 'nexus', data: { status: 'pending', cmd: cmd, token: token, shell: 'powershell', ts: ts } });
+    // Token order: the one the node auto-published to the bus (clippy_cmd) →
+    // this device's saved one → prompt as a last resort.
+    busGet('clippy_cmd').then(function (c) {
+      var token = (c && c.token) || localStorage.getItem('nx_clippy_cmd_token') || '';
+      if (!token) {
+        token = (window.prompt('Enter the CLIPPY_CMD_TOKEN set on your nodes (stored on this device only):') || '').trim();
+        if (!token) { pb.disabled = false; pb.textContent = '⬆ Push update'; return; }
+      }
+      try { localStorage.setItem('nx_clippy_cmd_token', token); } catch (e) {}
+      var cmd = "$u='" + F.updater + "'; $o=\"$env:TEMP\\clippy-update.ps1\"; Invoke-WebRequest $u -OutFile $o; powershell -ExecutionPolicy Bypass -File $o";
+      var ts = Date.now();
+      var posts = nodes.map(function (n, i) {
+        return busPost({ id: 'job:update-' + ts + '-' + i, from_id: 'nexus', data: { status: 'pending', cmd: cmd, token: token, shell: 'powershell', ts: ts } });
+      });
+      Promise.all(posts).then(function () {
+        pb.textContent = '✓ Sent — see Activity';
+        setTimeout(function () { NX.tools.go('activity'); }, 700);
+      }).catch(function () { pb.disabled = false; pb.textContent = '⬆ Retry push'; });
     });
-    Promise.all(posts).then(function () {
-      pb.textContent = '✓ Sent — see Activity';
-      setTimeout(function () { NX.tools.go('activity'); }, 700);
-    }).catch(function () { pb.disabled = false; pb.textContent = '⬆ Retry push'; });
   }
 
   // ─── INSTALL screens (themed) ────────────────────────────────────────────

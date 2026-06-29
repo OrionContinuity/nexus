@@ -15,6 +15,7 @@ $SB = 'https://oprsthfxqrdbwdvommpw.supabase.co'
 if (-not $Key) { Write-Host "Set `$env:SB_SERVICE_KEY to your Supabase service_role key first (see header)." -ForegroundColor Yellow; exit 1 }
 
 $files = @(
+  @{ path = (Join-Path $PSScriptRoot "clippy-update.ps1");                  name = "clippy-update.ps1";       type = "text/plain" }
   @{ path = "C:\Users\Clippy\Desktop\Clippy-for-a-friend.zip";              name = "Clippy-for-a-friend.zip"; type = "application/zip" }
   @{ path = "C:\Users\Clippy\Desktop\OpenTether\OpenTether.apk";            name = "OpenTether.apk";          type = "application/vnd.android.package-archive" }
   @{ path = "C:\Users\Clippy\Desktop\OpenTether Desktop\OpenTether-Windows.zip"; name = "OpenTether-Windows.zip"; type = "application/zip" }
