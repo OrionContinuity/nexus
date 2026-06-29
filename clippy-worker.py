@@ -197,8 +197,8 @@ def sb_heartbeat():
     except Exception:
         pass
     arr.append({"name": NODE, "ts": now, "vision": True, "cmd": bool(CMD_TOKEN),
-                "os": OSDESC, "version": "worker-1.3", "managed": MANAGED, "busy": _state["busy"], "current": _state["current"],
-                "caps": ((["ask"] if CLAIM_TEXT else []) + ["vision"] + (["cmd"] if CMD_TOKEN else [])),
+                "os": OSDESC, "version": "worker-1.4", "managed": MANAGED, "busy": _state["busy"], "current": _state["current"],
+                "caps": ((["ask"] if CLAIM_TEXT else []) + ["vision"] + (["cmd"] if CMD_TOKEN else []) + (["gen"] if GENERATE else [])),
                 "vision_model": ACTIVE_VISION, "models": [VISION_MODEL, TEXT_MODEL],
                 "ram_gb": RAM_GB, "accel": ACCEL, "vscore": VSCORE})
     h = dict(SB_HEADERS); h["Prefer"] = "resolution=merge-duplicates,return=minimal"
@@ -283,6 +283,133 @@ def ollama_generate(model, prompt, system=None, image_b64=None, _retry=True):
         raise RuntimeError("ollama HTTP %s: %s" % (e.code, detail[:200]))
     except urllib.error.URLError as e:
         raise RuntimeError("cannot reach Ollama at %s (%s) - is `ollama serve` running?" % (OLLAMA, e.reason))
+
+
+# ─── Self-written dialog (Clippy creates his own lines) ──────────────────────
+# Clippy's canonical character lives in clippy-character.json. When a local LLM
+# is available, he WRITES NEW lines in his own voice (his brain persona + the
+# scripted corpus as a style seed) and accumulates them in the shared bus row
+# 'clippy_learned' so his repertoire grows across runs (continuity). Strictly
+# additive: if anything fails, the app still falls back to clippy-dialog.json.
+# ON by default but gentle - only when idle, only with a text model already
+# present (never auto-pulls a big model).
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+GENERATE   = os.environ.get("CLIPPY_GENERATE", "1") == "1"
+GEN_EVERY_SECS = int(os.environ.get("CLIPPY_GEN_EVERY", "3600"))
+GEN_MODEL_PREF = [m for m in [os.environ.get("CLIPPY_GEN_MODEL", ""), TEXT_MODEL,
+                              "qwen2.5:7b", "qwen3:8b", "llama3.1"] if m]
+
+
+def _load_json(name):
+    try:
+        with open(os.path.join(SCRIPT_DIR, name), "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        log("character: could not load %s (%s)" % (name, e)); return None
+
+
+CHAR   = _load_json("clippy-character.json") or {}
+DIALOG = _load_json("clippy-dialog.json") or {}
+
+
+def _available_models():
+    try:
+        _, raw = _http("GET", OLLAMA + "/api/tags", {"Content-Type": "application/json"}, timeout=10)
+        return [m.get("name", "") for m in (json.loads(raw or "{}").get("models") or [])]
+    except Exception:
+        return []
+
+
+def _gen_model():
+    """Pick a text model that is ALREADY present (never auto-pull a big one)."""
+    have = _available_models()
+    base = {m.split(":")[0]: m for m in have}     # match 'qwen2.5' -> 'qwen2.5:7b'
+    for pref in GEN_MODEL_PREF:
+        if pref in have:
+            return pref
+        if pref.split(":")[0] in base:
+            return base[pref.split(":")[0]]
+    return None
+
+
+def _gen_system():
+    b = (CHAR.get("brain") or {}).get("promptLines") or []
+    note = (CHAR.get("generation") or {}).get("system") or ""
+    return "\n".join(b) + (("\n\n" + note) if note else "")
+
+
+def generate_lines(category, n=None):
+    """Write fresh in-character one-liners for a category using a local text model."""
+    gen = CHAR.get("generation") or {}
+    if not gen.get("enabled"):
+        return []
+    model = _gen_model()
+    if not model:
+        return []                                 # no present text model -> skip (no pull)
+    params = gen.get("params") or {}
+    n = n or params.get("linesPerRequest", 8)
+    maxc = params.get("maxLineChars", 120)
+    desc = (gen.get("categoryDescriptions") or {}).get(category) or category.replace("_", " ")
+    sample = (DIALOG.get(category) or [])[:6]
+    tmpl = gen.get("promptTemplate") or "Write {n} new one-liners for: {categoryDescription}. Examples: {examples}"
+    prompt = (tmpl.replace("{n}", str(n)).replace("{categoryDescription}", desc)
+                  .replace("{mood}", "in character").replace("{maxLineChars}", str(maxc))
+                  .replace("{examples}", " / ".join(sample)))
+    try:
+        out = ollama_generate(model, prompt, _gen_system())
+    except Exception as e:
+        log("dialog gen failed (%s): %s" % (category, e)); return []
+    lines = []
+    for ln in (out or "").splitlines():
+        s = ln.strip().lstrip("-*0123456789.) ").strip().strip('"').strip()
+        if s and 2 < len(s) <= maxc + 40:
+            lines.append(s)
+    return lines[:n]
+
+
+def store_learned(category, lines):
+    """Accumulate generated lines into bus row id='clippy_learned' (continuity)."""
+    if not lines:
+        return
+    cap = ((CHAR.get("continuity") or {}).get("cap") or {}).get("perCategory", 200)
+    try:
+        _, raw = _http("GET", REST + "?id=eq.clippy_learned&select=data", SB_HEADERS, timeout=15)
+        rows = json.loads(raw or "[]")
+        cur = (rows[0].get("data") if rows else None) or {}
+        if not isinstance(cur, dict):
+            cur = {}
+    except Exception:
+        cur = {}
+    have = cur.get(category) or []
+    seen = set(have); added = 0
+    for l in lines:
+        if l not in seen:
+            have.append(l); seen.add(l); added += 1
+    cur[category] = have[-cap:]
+    h = dict(SB_HEADERS); h["Prefer"] = "resolution=merge-duplicates,return=minimal"
+    try:
+        _http("POST", REST, h, {"id": "clippy_learned", "data": cur, "from_id": NODE}, timeout=15)
+        activity("dialog", "wrote %d new '%s' line(s)" % (added, category))
+        log("dialog: +%d '%s' lines (learned)" % (added, category))
+    except Exception as e:
+        log("store_learned failed: %s" % e)
+
+
+def _generate_loop():
+    cats = list((CHAR.get("generation") or {}).get("categoryDescriptions", {}).keys()) or ["whimsical_idle"]
+    i = 0; first = True
+    while True:
+        time.sleep(90 if first else GEN_EVERY_SECS); first = False   # write a little soon after waking, then hourly
+        if _state["busy"]:
+            continue                              # never compete with a real job
+        cat = cats[i % len(cats)]; i += 1
+        set_state(True, "writing new '%s' lines" % cat)
+        try:
+            store_learned(cat, generate_lines(cat))
+        except Exception as e:
+            log("generate loop error: %s" % e)
+        finally:
+            set_state(False)
 
 
 # ─── Job processing ──────────────────────────────────────────────────────────
@@ -383,6 +510,9 @@ def main():
     sb_heartbeat()      # register immediately so the node shows online without waiting a cycle
     threading.Thread(target=_heartbeat_loop, daemon=True).start()
     warmup()
+    if GENERATE:
+        threading.Thread(target=_generate_loop, daemon=True).start()
+        log("self-dialog generation ON (every %ds, idle-only, present model only)" % GEN_EVERY_SECS)
     while True:
         try:
             for job in sb_get_pending():

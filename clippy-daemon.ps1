@@ -83,7 +83,7 @@ function Start-WorkerProc {
 function Update-NodeFromGitHub {
   # Pull the latest node scripts into $HOMEDIR. Returns which ones changed.
   $res = @{ worker = $false; daemon = $false }
-  foreach ($f in 'clippy-worker.py', 'clippy-daemon.ps1', 'clippy-update.ps1') {
+  foreach ($f in 'clippy-worker.py', 'clippy-daemon.ps1', 'clippy-update.ps1', 'clippy-character.json', 'clippy-dialog.json') {
     $dst = Join-Path $HOMEDIR $f
     $tmp = Join-Path $env:TEMP ('nx_' + $f)
     try {
@@ -94,6 +94,8 @@ function Update-NodeFromGitHub {
         Copy-Item $tmp $dst -Force
         if ($f -eq 'clippy-worker.py')  { $res.worker = $true }
         if ($f -eq 'clippy-daemon.ps1') { $res.daemon = $true }
+        # Character/dialog are data the worker reads at startup - restart it to reload.
+        if ($f -eq 'clippy-character.json' -or $f -eq 'clippy-dialog.json') { $res.worker = $true }
         Log "[upd] refreshed $f" 'Green'
       }
       Remove-Item $tmp -Force -EA SilentlyContinue
@@ -336,7 +338,7 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
         $self = $PSCommandPath; if (-not $self) { $self = $MyInvocation.MyCommand.Path }
         $stable = Join-Path $env:LOCALAPPDATA 'NexusClippy'
         New-Item -ItemType Directory -Force -Path $stable | Out-Null
-        foreach ($f in 'clippy-daemon.ps1', 'clippy-worker.py', 'clippy-update.ps1') {
+        foreach ($f in 'clippy-daemon.ps1', 'clippy-worker.py', 'clippy-update.ps1', 'clippy-character.json', 'clippy-dialog.json') {
           $src = Join-Path $HOMEDIR $f
           if (Test-Path $src) { Copy-Item $src (Join-Path $stable $f) -Force -EA SilentlyContinue }
         }

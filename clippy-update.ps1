@@ -15,7 +15,7 @@ $dir = Join-Path $env:LOCALAPPDATA 'NexusClippy'
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
 $raw = 'https://raw.githubusercontent.com/orioncontinuity/nexus/main'
 
-foreach ($f in 'clippy-worker.py', 'clippy-daemon.ps1', 'clippy-update.ps1') {
+foreach ($f in 'clippy-worker.py', 'clippy-daemon.ps1', 'clippy-update.ps1', 'clippy-character.json', 'clippy-dialog.json') {
   try {
     Invoke-WebRequest "$raw/$f" -OutFile (Join-Path $dir $f) -UseBasicParsing -TimeoutSec 60
     Write-Host "[ok] fetched $f"
