@@ -3633,8 +3633,19 @@ td.check{background:#F0EDE6 !important}
     const _pv = this.getProvider();
     if (_pv === 'clippy') return this.askLocalVision(prompt, base64Data, mimeType);
     if (_pv === 'clippy-pool') {
-      try { return await this.askPool(prompt, { image_b64: base64Data }); }
-      catch (e) { this._lastVisionError = e.message || String(e); return ''; }
+      // Prefer a home Clippy node for the scan, but DON'T let a missing/offline
+      // pool block the scanner: if no node answers (or the pool 404s) fall back
+      // to cloud vision when an Anthropic key is configured, so Scan Plate
+      // always works. Only give up if there's no key to fall back to.
+      try {
+        const out = await this.askPool(prompt, { image_b64: base64Data });
+        if (out) return out;
+        this._lastVisionError = 'Clippy pool returned nothing';
+      } catch (e) {
+        this._lastVisionError = e.message || String(e);
+      }
+      if (!this.getApiKey()) return '';   // no cloud fallback available
+      // else: fall through to the Anthropic vision path below
     }
     const key = this.getApiKey();
     if (!key) {
@@ -3662,6 +3673,7 @@ td.check{background:#F0EDE6 !important}
       }
       const text = data.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
       if (!text) this._lastVisionError = 'The AI returned no text for that image.';
+      else this._lastVisionError = null;   // cloud vision succeeded — clear any earlier pool error
       return text;
     } catch (e) {
       this._lastVisionError = 'AI vision request failed: ' + (e.message || e) +
