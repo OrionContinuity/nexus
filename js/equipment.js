@@ -5042,7 +5042,11 @@ function renderOverview(eq, attachments, customFields, maintenance) {
   const _pmCd  = computePmCountdown(eq);
   const _insCd = computeCadenceCountdown(eq, 'last_inspection_date', 'inspection_interval_days');
   const _dcCd  = computeCadenceCountdown(eq, 'last_deep_clean_date', 'deep_clean_interval_days');
-  const _lastSvc = maintenance.length ? maintenance[0] : null;
+  // "Last service" reflects real service/PM/repair work — NOT anonymous
+  // public status flips (event_type 'status_change', performed_by 'QR scan'),
+  // which would otherwise masquerade as a service here. They remain visible in
+  // the Timeline; they just don't count as the last service.
+  const _lastSvc = maintenance.find(m => m.event_type !== 'status_change') || null;
   const _lastSvcVal = _lastSvc
     ? `${pmShortDate(String(_lastSvc.event_date).slice(0, 10))}<span class="eq-detail-card-unit"> · ${esc((_lastSvc.event_type || 'service').replace(/_/g, ' '))}${_lastSvc.performed_by ? ' · ' + esc(_lastSvc.performed_by) : ''}</span>`
     : 'No service logged yet';
