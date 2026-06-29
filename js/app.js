@@ -3633,19 +3633,12 @@ td.check{background:#F0EDE6 !important}
     const _pv = this.getProvider();
     if (_pv === 'clippy') return this.askLocalVision(prompt, base64Data, mimeType);
     if (_pv === 'clippy-pool') {
-      // Prefer a home Clippy node for the scan, but DON'T let a missing/offline
-      // pool block the scanner: if no node answers (or the pool 404s) fall back
-      // to cloud vision when an Anthropic key is configured, so Scan Plate
-      // always works. Only give up if there's no key to fall back to.
-      try {
-        const out = await this.askPool(prompt, { image_b64: base64Data });
-        if (out) return out;
-        this._lastVisionError = 'Clippy pool returned nothing';
-      } catch (e) {
-        this._lastVisionError = e.message || String(e);
-      }
-      if (!this.getApiKey()) return '';   // no cloud fallback available
-      // else: fall through to the Anthropic vision path below
+      // Pure local pool — NO cloud. A Clippy node runs the vision model and
+      // writes the answer back. If no node answers, surface the error so the
+      // operator brings a node online (every node self-provisions vision via
+      // clippy-daemon.ps1 + clippy-worker.py).
+      try { return await this.askPool(prompt, { image_b64: base64Data }); }
+      catch (e) { this._lastVisionError = e.message || String(e); return ''; }
     }
     const key = this.getApiKey();
     if (!key) {
