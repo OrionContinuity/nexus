@@ -25,8 +25,9 @@ param(
   [int]$MinBatteryPct  = 40,    # when on battery, only install above this charge
   [switch]$AllowOnBattery,      # permit installs while on battery (still honours -MinBatteryPct)
   [switch]$IncludeHeavy,        # also provision the large GPU model-gen deps (multi-GB)
+  [string]$VisionModel = 'llama3.2-vision',  # Ollama vision model for Scan Plate (use 'moondream' on small disks)
   [switch]$ReportOnly,          # report what would happen; change nothing
-  [switch]$EnsureOnly           # provision tools only; skip the clippy-pool deploy step
+  [switch]$EnsureOnly           # provision tools only; skip pulling the model + starting the worker
 )
 $ErrorActionPreference = 'Continue'
 $HOMEDIR  = $PSScriptRoot
@@ -168,6 +169,49 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
     }
   } else {
     Log "[next] Supabase CLI not available yet — rerun after a new shell so PATH picks it up." 'Yellow'
+  }
+}
+
+# ─── Vision model + worker — THIS is what makes Clippy answer Scan Plate ──────
+# Pull a local Ollama vision model (space-gated) and start the job-poller, so
+# every Clippy instance can produce vision answers with no cloud.
+if (-not $EnsureOnly -and -not $ReportOnly) {
+  $ollama = Get-Command ollama -EA SilentlyContinue
+  $ollamaExe = if ($ollama) { $ollama.Source } else { Join-Path $ProgRoot 'Ollama\ollama.exe' }
+  if (Test-Path $ollamaExe) {
+    $estGB = if ($VisionModel -match 'moondream') { 3 } else { 9 }
+    $have = (& $ollamaExe list 2>$null | Select-String -SimpleMatch $VisionModel)
+    if ($have) {
+      Log "[have] vision model '$VisionModel'" 'Green'
+    } else {
+      $g = Test-CanInstall ([double]$estGB)
+      if ($g.ok) {
+        Log "[pull] vision model '$VisionModel' (~$estGB GB) — $($g.why)"
+        & $ollamaExe pull $VisionModel
+        if ($LASTEXITCODE -eq 0) { Log "[ok] vision model ready" 'Green' }
+        else { Log "[!!] model pull failed — see output above" 'Red' }
+      } else {
+        Log "[skip] vision model '$VisionModel' — $($g.why). Try -VisionModel moondream (smaller)." 'Yellow'
+      }
+    }
+    # Start the job-poller (idempotent: skip if one is already running).
+    $worker = Join-Path $HOMEDIR 'clippy-worker.py'
+    $running = Get-CimInstance Win32_Process -EA SilentlyContinue |
+               Where-Object { $_.CommandLine -and $_.CommandLine -match 'clippy-worker\.py' }
+    if ($running) {
+      Log "[have] clippy-worker already running" 'Green'
+    } elseif (Test-Path $worker) {
+      $py = Get-Command pythonw -EA SilentlyContinue
+      if (-not $py) { $py = Get-Command python -EA SilentlyContinue }
+      if (-not $py) { $py = Get-Command python3 -EA SilentlyContinue }
+      if ($py) {
+        $env:CLIPPY_VISION_MODEL = $VisionModel
+        Start-Process -FilePath $py.Source -ArgumentList $worker -WorkingDirectory $HOMEDIR -WindowStyle Hidden | Out-Null
+        Log "[ok] clippy-worker started — this node now answers vision jobs" 'Green'
+      } else { Log "[next] Python not detected yet — rerun after a new shell." 'Yellow' }
+    }
+  } else {
+    Log "[next] Ollama not installed yet — rerun the daemon (it installs Ollama), then try again." 'Yellow'
   }
 }
 

@@ -76,6 +76,24 @@ clears the app's "Clippy pool: HTTP Error 404".
 powershell -ExecutionPolicy Bypass -File clippy-daemon.ps1            # space+power gated install
 powershell -ExecutionPolicy Bypass -File clippy-daemon.ps1 -ReportOnly  # check only, install nothing
 powershell -ExecutionPolicy Bypass -File clippy-daemon.ps1 -IncludeHeavy -MinFreeGB 25
+powershell -ExecutionPolicy Bypass -File clippy-daemon.ps1 -VisionModel moondream  # smaller VLM
+```
+
+### 4b. Vision (Scan Plate) on the node — `clippy-worker.py`
+The app's **Scan Plate** sends the photo as a `job:*` row on the `clippy_sync`
+bus (`js/app.js` `askClaudeVision` → `askPool`, provider = "Clippy pool"). No
+cloud. `clippy-worker.py` is the poller that makes a node answer those jobs:
+
+- Polls `clippy_sync` for pending jobs, claims one (atomic `pending→running`),
+  runs it on a **local Ollama vision model**, writes `{status:"done",result}` back.
+- Self-pulls the vision model on first use if missing, so any node can do vision.
+- Heartbeats `id="clippy_nodes"` so the node shows ONLINE in NEXUS.
+- Stdlib-only (needs just Ollama + a vision model). The daemon installs Ollama,
+  pulls the model, and launches this worker automatically.
+
+```
+python clippy-worker.py
+CLIPPY_VISION_MODEL=moondream python clippy-worker.py
 ```
 
 ---
