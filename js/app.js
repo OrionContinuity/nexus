@@ -3431,26 +3431,12 @@ td.check{background:#F0EDE6 !important}
       if(oCards)overdue=oCards;
       briefing.overdue=overdue;
 
-      // Show overdue banner
-      if(briefing.overdue.length){
-        const n=briefing.overdue.length;
-        const count=n>=20?'20+':n;
-        const banner=document.getElementById('overdueBanner');
-        // Dismissal persists for the DAY (localStorage), not just the DOM —
-        // the old ✕ only set a dataset flag, so the banner came back on
-        // every reload and briefing rerun, which is why it felt naggy.
-        // It re-appears only if the overdue count GROWS past what was
-        // dismissed (new problem = worth interrupting again).
-        const today=new Date().toISOString().slice(0,10);
-        let dis=null; try{dis=JSON.parse(localStorage.getItem('nx_overdue_dismissed')||'null');}catch(_){}
-        const dismissed=dis&&dis.date===today&&n<=dis.count;
-        if(banner&&!dismissed){
-          banner.innerHTML=`<span class="alert-kicker">${count} OVERDUE</span> ${briefing.overdue.slice(0,3).map(c=>c.title).join(', ')}${n>3?' +more':''} <button class="alert-dismiss" onclick="this.parentElement.style.display='none';try{localStorage.setItem('nx_overdue_dismissed',JSON.stringify({date:'${today}',count:${n}}))}catch(_){}">✕</button>`;
-          banner.style.display='';
-        } else if(banner&&dismissed){
-          banner.style.display='none';
-        }
-      }
+      // Overdue banner removed — overdue alerts now surface through the
+      // notification bell instead of a persistent red top banner. We still
+      // compute briefing.overdue above so proactive chat / the brief can use
+      // it, but it no longer renders its own interrupting banner.
+      const overdueBannerEl=document.getElementById('overdueBanner');
+      if(overdueBannerEl)overdueBannerEl.style.display='none';
 
       // Hours worked this week — all staff
       try{
