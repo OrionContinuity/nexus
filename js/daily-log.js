@@ -618,6 +618,15 @@ async function loadTicketSlices(logDate) {
     // Lane label for display: the card's list name, else a status-derived
     // label, else nothing.
     c._laneLabel = listName[c.list_id] || laneLabelFromStatus(c.status) || '';
+    // "Moved today" — the card changed lanes within the log's day window.
+    // last_status_change_at is stamped on every lane move; for brand-new
+    // cards it ≈ created_at, so require a real gap (>60s after creation) to
+    // avoid flagging freshly-created cards as "moved."
+    {
+      const chgMs = c.last_status_change_at ? new Date(c.last_status_change_at).getTime() : 0;
+      const crtMs = c.created_at ? new Date(c.created_at).getTime() : 0;
+      c._movedToday = chgMs >= dayStartMs && chgMs <= dayEndMs && (chgMs - crtMs) > 60000;
+    }
     let bucket = listBucket[c.list_id];
     if (!bucket) {
       // Fallback: use the status field if it was ever set by a move
@@ -2287,23 +2296,31 @@ function dlogLocationReportLines(loc) {
     }
   }
 
-  // Board / work orders — open + in-progress cards on the Board for this
-  // location (the live backlog), pulled straight from kanban_cards.
+  // Work orders — the live Board backlog for this location, grouped by lane
+  // (To Do / In Progress / Done today) so the status reads at a glance. Each
+  // card shows its priority, and cards that changed lanes during the day are
+  // flagged "moved today." Pulled straight from kanban_cards via the slices.
   const slices = state.ticketSlices || {};
-  const eqNameById = state._cardEquipmentNames || {};
-  const cards = [].concat(slices.open || [], slices.working || [])
-    .filter(c => normLocKey(c.location) === locKey);
-  if (cards.length) {
-    // Surface board priority in the digest: urgent first, and tag anything
-    // that isn't "normal" so the manager reading the log sees what's hot.
-    const priRank = p => { const m = { urgent: 0, high: 1, normal: 2, low: 3 }; const k = (p || 'normal').toLowerCase(); return (k in m) ? m[k] : 2; };
-    cards.sort((a, b) => priRank(a.priority) - priRank(b.priority));
-    out.push(SH('Board / work orders'));
-    cards.forEach(c => {
-      // Compact: the to-do (title) + a priority tag on EVERY card (sorted
-      // urgent-first above). No assignee, created date, lane, equipment, emoji.
-      const pri = (c.priority || 'normal').toUpperCase();
-      out.push('\u00b7 [' + pri + '] ' + (c.title || 'Untitled card'));
+  const here = c => normLocKey(c.location) === locKey;
+  const priRank = p => { const m = { urgent: 0, high: 1, normal: 2, low: 3 }; const k = (p || 'normal').toLowerCase(); return (k in m) ? m[k] : 2; };
+  const byPri = (a, b) => priRank(a.priority) - priRank(b.priority);
+  const woGroups = [
+    { label: 'To Do',       cards: (slices.open    || []).filter(here).sort(byPri), showMoved: true },
+    { label: 'In Progress', cards: (slices.working || []).filter(here).sort(byPri), showMoved: true },
+    { label: 'Done today',  cards: (slices.closed  || []).filter(here).sort(byPri), showMoved: false },
+  ].filter(g => g.cards.length);
+  if (woGroups.length) {
+    out.push(SH('Work orders'));
+    woGroups.forEach(g => {
+      out.push(g.label + ' (' + g.cards.length + ')');
+      g.cards.forEach(c => {
+        // "title \u2014 priority[, moved today]". Status is the group header
+        // above, so it isn't repeated per line; "moved today" is omitted from
+        // Done (the "Done today" header already says the card moved today).
+        const tags = [(c.priority || 'normal').toLowerCase()];
+        if (g.showMoved && c._movedToday) tags.push('moved today');
+        out.push('    \u00b7 ' + (c.title || 'Untitled card') + ' \u2014 ' + tags.join(', '));
+      });
     });
     out.push('');
   }
