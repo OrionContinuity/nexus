@@ -29,7 +29,7 @@ Env overrides: NEXUS_SUPABASE_URL, NEXUS_SUPABASE_ANON, OLLAMA_URL,
                CLIPPY_VISION_MODEL, CLIPPY_TEXT_MODEL, CLIPPY_NODE_NAME,
                CLIPPY_CMD_TOKEN (enable command jobs; empty = disabled)
 """
-import os, sys, time, json, socket, subprocess, platform, urllib.request, urllib.error, urllib.parse
+import os, sys, time, json, socket, subprocess, platform, threading, urllib.request, urllib.error, urllib.parse
 
 try: OSDESC = platform.platform()           # e.g. "Windows-11-10.0.22631"
 except Exception: OSDESC = sys.platform
@@ -37,12 +37,14 @@ except Exception: OSDESC = sys.platform
 SUPA_URL   = os.environ.get("NEXUS_SUPABASE_URL",  "https://oprsthfxqrdbwdvommpw.supabase.co").rstrip("/")
 SUPA_KEY   = os.environ.get("NEXUS_SUPABASE_ANON", "sb_publishable_rOLSdIG6mIjVLY8JmvrwCA_qfM7Vyk9")
 OLLAMA     = os.environ.get("OLLAMA_URL", "http://localhost:11434").rstrip("/")
-VISION_MODEL = os.environ.get("CLIPPY_VISION_MODEL", "llama3.2-vision")
-# Fallback if the preferred vision model's architecture isn't supported by this
-# node's (older) Ollama - e.g. llama3.2-vision is 'mllama' and needs Ollama
-# >= 0.4. llava loads on practically any Ollama, so Scan Plate keeps working
-# without forcing an upgrade on every node.
-FALLBACK_VISION_MODEL = os.environ.get("CLIPPY_FALLBACK_VISION_MODEL", "llava")
+# Default to llava: it's reliable across Ollama builds and light enough for a
+# RAM-constrained laptop. (llama3.2-vision = 'mllama' fails to load on some
+# current Ollama builds, and heavier models like minicpm-v thrash a low-RAM
+# box.) Override per node with CLIPPY_VISION_MODEL.
+VISION_MODEL = os.environ.get("CLIPPY_VISION_MODEL", "llava")
+# Last-resort fallback if the chosen vision model can't load (e.g. an 'mllama'
+# arch error, or out-of-memory). moondream is tiny, so it loads almost anywhere.
+FALLBACK_VISION_MODEL = os.environ.get("CLIPPY_FALLBACK_VISION_MODEL", "moondream")
 # The vision model actually serving answers (may differ from VISION_MODEL if we
 # had to fall back). Surfaced in the heartbeat so the UI shows what's really used.
 ACTIVE_VISION = VISION_MODEL
@@ -152,7 +154,7 @@ def sb_heartbeat():
     except Exception:
         pass
     arr.append({"name": NODE, "ts": now, "vision": True, "cmd": bool(CMD_TOKEN),
-                "os": OSDESC, "version": "worker-1.2", "managed": MANAGED, "busy": _state["busy"], "current": _state["current"],
+                "os": OSDESC, "version": "worker-1.2.1", "managed": MANAGED, "busy": _state["busy"], "current": _state["current"],
                 "caps": ((["ask"] if CLAIM_TEXT else []) + ["vision"] + (["cmd"] if CMD_TOKEN else [])),
                 "vision_model": ACTIVE_VISION, "models": [VISION_MODEL, TEXT_MODEL]})
     h = dict(SB_HEADERS); h["Prefer"] = "resolution=merge-duplicates,return=minimal"
@@ -223,13 +225,15 @@ def ollama_generate(model, prompt, system=None, image_b64=None, _retry=True):
         if _retry and ("not found" in low or e.code == 404):
             ollama_pull(model)
             return ollama_generate(model, prompt, system, image_b64, _retry=False)
-        # Vision model architecture unsupported by this (older) Ollama
-        # (e.g. llama3.2-vision = 'mllama', needs Ollama >= 0.4) -> fall back to
-        # a widely-supported vision model so Scan Plate still works.
+        # Vision model can't load on this node - unsupported arch (e.g.
+        # llama3.2-vision = 'mllama') or out-of-memory on a low-RAM box -> fall
+        # back to the tiny model so Scan Plate still works.
         if (_retry and image_b64 and model != FALLBACK_VISION_MODEL
-                and ("unknown model architecture" in low or "mllama" in low)):
-            log("vision model '%s' unsupported by this Ollama -> falling back to '%s'" % (model, FALLBACK_VISION_MODEL))
-            activity("job", "vision model unsupported here; using " + FALLBACK_VISION_MODEL)
+                and ("unknown model architecture" in low or "mllama" in low
+                     or "out of memory" in low or "cannot allocate" in low
+                     or "failed to load" in low or "insufficient memory" in low)):
+            log("vision model '%s' can't load here -> falling back to '%s'" % (model, FALLBACK_VISION_MODEL))
+            activity("job", "vision model unavailable here; using " + FALLBACK_VISION_MODEL)
             ollama_pull(FALLBACK_VISION_MODEL)
             return ollama_generate(FALLBACK_VISION_MODEL, prompt, system, image_b64, _retry=False)
         raise RuntimeError("ollama HTTP %s: %s" % (e.code, detail[:200]))
@@ -319,14 +323,23 @@ def warmup():
         set_state(False)
 
 
+def _heartbeat_loop():
+    """Heartbeat on its OWN thread so the node stays ONLINE even while the main
+    loop is busy in a long vision inference or a long command (those can take
+    minutes on a slow box). Without this, a single slow job makes the node drop
+    off the registry."""
+    while True:
+        try: sb_heartbeat()
+        except Exception: pass
+        time.sleep(HEARTBEAT_SECS)
+
+
 def main():
     log("clippy-worker up - node='%s' vision='%s' bus=%s ollama=%s" % (NODE, VISION_MODEL, SUPA_URL, OLLAMA))
     sb_heartbeat()      # register immediately so the node shows online without waiting a cycle
+    threading.Thread(target=_heartbeat_loop, daemon=True).start()
     warmup()
-    last_hb = 0
     while True:
-        if time.time() - last_hb >= HEARTBEAT_SECS:
-            sb_heartbeat(); last_hb = time.time()
         try:
             for job in sb_get_pending():
                 process(job)
