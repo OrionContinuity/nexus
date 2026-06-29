@@ -5063,8 +5063,8 @@ function renderOverview(eq, attachments, customFields, maintenance) {
     { label: 'Inspect every', value: eq.inspection_interval_days ? `${eq.inspection_interval_days} days` : '—',                          edit: 'inspection_interval_days', type: 'number', min: 1, max: 3650 },
     { label: 'Deep clean',    value: _cadSummary(_dcCd, eq.last_deep_clean_date, eq.deep_clean_interval_days, 'a deep clean'),           edit: 'last_deep_clean_date',   type: 'date' },
     { label: 'Clean every',   value: eq.deep_clean_interval_days ? `${eq.deep_clean_interval_days} days` : '—',                          edit: 'deep_clean_interval_days', type: 'number', min: 1, max: 3650 },
-    { label: 'Last service',  value: _lastSvcVal,                                                                                        edit: null },
-    { label: 'Services (YTD)',value: `${eq.services_this_year || 0}${eq.cost_this_year ? ` <span class="eq-detail-card-unit">· $${Math.round(eq.cost_this_year).toLocaleString()}</span>` : ''}`, edit: null },
+    { label: 'Last service',  value: _lastSvc ? _lastSvcVal : 'No service logged yet<span class="eq-detail-card-unit"> · tap to log</span>',                  edit: null, action: `NX.modules.equipment.logService('${eq.id}')` },
+    { label: 'Services (YTD)',value: `${eq.services_this_year || 0}${eq.cost_this_year ? ` <span class="eq-detail-card-unit">· $${Math.round(eq.cost_this_year).toLocaleString()}</span>` : ''}`, edit: null, action: `NX.modules.equipment.logService('${eq.id}')` },
   ];
   const healthDemoted = { label: 'Health index (auto)', value: `<span style="opacity:.55">${eq.health_score ?? 100}%</span>`, edit: 'health_score', type: 'number', min: 0, max: 100 };
 
@@ -5074,12 +5074,19 @@ function renderOverview(eq, attachments, customFields, maintenance) {
         // Accept legacy [label, value] tuples too for back-compat.
         const f = Array.isArray(row) ? { label: row[0], value: row[1], edit: null } : row;
         const editable = !!f.edit;
+        // A row may instead carry an `action` (inline JS) that fires on tap —
+        // used for "Last service" / "Services (YTD)" → open the Log Service
+        // sheet, so logging is discoverable right where the value is shown.
+        const actionable = !editable && !!f.action;
         const dataAttrs = editable
           ? ` data-edit-field="${esc(f.edit)}" data-edit-type="${esc(f.type || 'text')}" data-edit-label="${esc(f.label)}" data-eq-id="${esc(eq.id)}"${f.min != null ? ` data-edit-min="${f.min}"` : ''}${f.max != null ? ` data-edit-max="${f.max}"` : ''}${f.cascade ? ` data-edit-cascade="${esc(f.cascade)}"` : ''} role="button" tabindex="0"`
-          : '';
+          : (actionable ? ` onclick="${f.action}" role="button" tabindex="0"` : '');
+        const affordance = editable
+          ? ' <span style="opacity:0.4; font-size:9px">✎</span>'
+          : (actionable ? ' <span style="opacity:0.5; font-size:11px; color:var(--nx-gold)">＋</span>' : '');
         return `
-          <div class="eq-detail-card-field${editable ? ' is-editable' : ''}"${dataAttrs}>
-            <div class="eq-detail-card-field-label">${f.label}${editable ? ' <span style="opacity:0.4; font-size:9px">✎</span>' : ''}</div>
+          <div class="eq-detail-card-field${(editable || actionable) ? ' is-editable' : ''}"${dataAttrs}>
+            <div class="eq-detail-card-field-label">${f.label}${affordance}</div>
             <div class="eq-detail-card-field-value">${f.value}</div>
           </div>
         `;
