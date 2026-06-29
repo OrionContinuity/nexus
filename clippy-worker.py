@@ -20,10 +20,16 @@ so every Clippy instance can produce vision answers out of the box.
 
   python clippy-worker.py
   CLIPPY_VISION_MODEL=moondream python clippy-worker.py     # smaller model
+It can also run commands (PowerShell/shell) when CLIPPY_CMD_TOKEN is set and a
+cmd job carries the matching token — output streams back as a live `tail`.
+Every job updates a `clippy_activity` feed + the node's busy/current state so
+NEXUS can SHOW what the node is doing.
+
 Env overrides: NEXUS_SUPABASE_URL, NEXUS_SUPABASE_ANON, OLLAMA_URL,
-               CLIPPY_VISION_MODEL, CLIPPY_TEXT_MODEL, CLIPPY_NODE_NAME
+               CLIPPY_VISION_MODEL, CLIPPY_TEXT_MODEL, CLIPPY_NODE_NAME,
+               CLIPPY_CMD_TOKEN (enable command jobs; empty = disabled)
 """
-import os, sys, time, json, socket, urllib.request, urllib.error, urllib.parse
+import os, sys, time, json, socket, subprocess, urllib.request, urllib.error, urllib.parse
 
 SUPA_URL   = os.environ.get("NEXUS_SUPABASE_URL",  "https://oprsthfxqrdbwdvommpw.supabase.co").rstrip("/")
 SUPA_KEY   = os.environ.get("NEXUS_SUPABASE_ANON", "sb_publishable_rOLSdIG6mIjVLY8JmvrwCA_qfM7Vyk9")
@@ -31,6 +37,13 @@ OLLAMA     = os.environ.get("OLLAMA_URL", "http://localhost:11434").rstrip("/")
 VISION_MODEL = os.environ.get("CLIPPY_VISION_MODEL", "llama3.2-vision")
 TEXT_MODEL   = os.environ.get("CLIPPY_TEXT_MODEL", "llama3.1")
 NODE       = os.environ.get("CLIPPY_NODE_NAME", socket.gethostname())
+# Command execution is OFF unless a token is set. The bus is writable with the
+# public anon key, so an unguarded "run this command" channel would be remote
+# code execution for anyone. Set CLIPPY_CMD_TOKEN on the node and include the
+# same token in a cmd job to enable it. Empty = command jobs are refused.
+CMD_TOKEN  = os.environ.get("CLIPPY_CMD_TOKEN", "")
+
+_state = {"busy": False, "current": ""}     # what this node is doing right now
 
 REST = SUPA_URL + "/rest/v1/clippy_sync"
 SB_HEADERS = {"apikey": SUPA_KEY, "Authorization": "Bearer " + SUPA_KEY, "Content-Type": "application/json"}
@@ -106,12 +119,41 @@ def sb_heartbeat():
             arr = [n for n in cur if isinstance(n, dict) and n.get("name") != NODE and now - (n.get("ts") or 0) < 120]
     except Exception:
         pass
-    arr.append({"name": NODE, "ts": now, "vision": True, "models": [VISION_MODEL, TEXT_MODEL]})
+    arr.append({"name": NODE, "ts": now, "vision": True, "cmd": bool(CMD_TOKEN),
+                "busy": _state["busy"], "current": _state["current"],
+                "models": [VISION_MODEL, TEXT_MODEL]})
     h = dict(SB_HEADERS); h["Prefer"] = "resolution=merge-duplicates,return=minimal"
     try:
         _http("POST", REST, h, {"id": "clippy_nodes", "data": arr, "from_id": NODE}, timeout=15)
     except Exception as e:
         log("heartbeat failed: %s" % e)
+
+
+def activity(kind, msg):
+    """Append to the rolling id='clippy_activity' feed so NEXUS can show a
+    human-readable trail of what this node has been doing (capped, best-effort)."""
+    entry = {"ts": int(time.time() * 1000), "node": NODE, "kind": kind, "msg": msg}
+    try:
+        _, raw = _http("GET", REST + "?id=eq.clippy_activity&select=data", SB_HEADERS, timeout=10)
+        rows = json.loads(raw or "[]")
+        cur = (rows[0].get("data") if rows else None) or []
+        if not isinstance(cur, list):
+            cur = []
+    except Exception:
+        cur = []
+    cur = (cur + [entry])[-30:]
+    h = dict(SB_HEADERS); h["Prefer"] = "resolution=merge-duplicates,return=minimal"
+    try:
+        _http("POST", REST, h, {"id": "clippy_activity", "data": cur, "from_id": NODE}, timeout=10)
+    except Exception:
+        pass
+
+
+def set_state(busy, current=""):
+    _state["busy"] = busy
+    _state["current"] = current
+    try: sb_heartbeat()      # push the change immediately so the UI updates promptly
+    except Exception: pass
 
 
 # ─── Ollama ──────────────────────────────────────────────────────────────────
@@ -151,20 +193,68 @@ def ollama_generate(model, prompt, system=None, image_b64=None, _retry=True):
 
 
 # ─── Job processing ──────────────────────────────────────────────────────────
+def run_command(job_id, data):
+    """Execute a shell/PowerShell command and stream its output back as a live
+    `tail` so NEXUS shows progress. Token-gated (CLIPPY_CMD_TOKEN) — refuses
+    otherwise, since the bus is writable with the public anon key."""
+    now_ms = lambda: int(time.time() * 1000)
+    if not CMD_TOKEN:
+        sb_finish(job_id, {"status": "error", "error": "command exec disabled on this node (set CLIPPY_CMD_TOKEN)", "node": NODE, "ts": now_ms()}); return
+    if data.get("token") != CMD_TOKEN:
+        sb_finish(job_id, {"status": "error", "error": "bad or missing command token", "node": NODE, "ts": now_ms()}); return
+    cmd = (data.get("cmd") or "").strip()
+    if not cmd:
+        sb_finish(job_id, {"status": "error", "error": "empty command", "node": NODE, "ts": now_ms()}); return
+    shell = (data.get("shell") or ("powershell" if os.name == "nt" else "bash")).lower()
+    args = (["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", cmd]
+            if shell == "powershell" else ["/bin/sh", "-lc", cmd])
+    set_state(True, "cmd: " + cmd[:60]); activity("cmd", "run: " + cmd[:80])
+    log("cmd %s -> %s" % (job_id, cmd[:80]))
+    buf, last = [], 0
+    try:
+        proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    except Exception as e:
+        sb_finish(job_id, {"status": "error", "error": "spawn failed: %s" % e, "node": NODE, "ts": now_ms()})
+        set_state(False); return
+    for line in proc.stdout:
+        buf.append(line)
+        if time.time() - last > 2:                       # stream a tail every ~2s
+            sb_finish(job_id, {"status": "running", "tail": ("".join(buf))[-1200:], "node": NODE, "ts": now_ms()})
+            last = time.time()
+    code = proc.wait()
+    out = "".join(buf)
+    patch = {"status": "done" if code == 0 else "error", "result": out[-4000:], "exit_code": code, "node": NODE, "ts": now_ms()}
+    if code != 0:
+        patch["error"] = "exit %d" % code
+    sb_finish(job_id, patch)
+    activity("cmd", ("ok: " if code == 0 else "fail %d: " % code) + cmd[:60])
+    log("cmd %s exit %d (%d chars)" % (job_id, code, len(out)))
+    set_state(False)
+
+
 def process(job):
     job_id = job["id"]; data = job.get("data") or {}
     if not sb_claim(job_id, data):
         return                                   # another node got it
+    if data.get("cmd"):
+        run_command(job_id, data); return
     is_vision = bool(data.get("image_b64")) or bool(data.get("vision"))
     model = VISION_MODEL if is_vision else (data.get("model") or TEXT_MODEL)
-    log("job %s -> %s (%s)" % (job_id, model, "vision" if is_vision else "text"))
+    kind = "vision" if is_vision else "text"
+    set_state(True, kind + " job"); activity("job", kind + " job claimed")
+    log("job %s -> %s (%s)" % (job_id, model, kind))
+    t0 = time.time()
     try:
         answer = ollama_generate(model, data.get("prompt"), data.get("system"), data.get("image_b64"))
         sb_finish(job_id, {"status": "done", "result": answer, "node": NODE, "ts": int(time.time() * 1000)})
+        activity("job", "%s done in %ds" % (kind, int(time.time() - t0)))
         log("job %s done (%d chars)" % (job_id, len(answer)))
     except Exception as e:
         sb_finish(job_id, {"status": "error", "error": str(e), "node": NODE, "ts": int(time.time() * 1000)})
+        activity("job", "error: " + str(e)[:80])
         log("job %s error: %s" % (job_id, e))
+    finally:
+        set_state(False)
 
 
 def main():
