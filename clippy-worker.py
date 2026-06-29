@@ -79,12 +79,17 @@ def _http(method, url, headers=None, body=None, timeout=180):
 def sb_get_pending():
     # Poll our vision lane ('vis:') AND the shared 'job:' lane (for cmd jobs).
     # Vision rides 'vis:' so the legacy v2.4.4 poller never sees it -> no race.
-    url = REST + "?or=(id.like.vis:*,id.like.job:*)&select=id,data"
-    try:
-        _, raw = _http("GET", url, SB_HEADERS, timeout=20)
-        rows = json.loads(raw or "[]")
-    except Exception as e:
-        log("bus read failed: %s" % e); return []
+    # Two plain GETs with the proven `id=like.X:*` syntax rather than one
+    # or=(...) logical filter, which PostgREST rejects in some forms (a bad
+    # filter returns [] silently and the node goes blind to all jobs).
+    rows = []
+    for pref in ("vis:", "job:"):
+        url = REST + "?id=like." + pref + "*&select=id,data"
+        try:
+            _, raw = _http("GET", url, SB_HEADERS, timeout=20)
+            rows += json.loads(raw or "[]")
+        except Exception as e:
+            log("bus read failed (%s): %s" % (pref, e))
     now = time.time() * 1000
     out = []
     for row in rows:
