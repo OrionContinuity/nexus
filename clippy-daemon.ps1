@@ -1,17 +1,17 @@
 <#
-clippy-daemon.ps1 — Clippy / render-farm node bootstrap daemon.
+clippy-daemon.ps1 - Clippy / render-farm node bootstrap daemon.
 
 Makes the Clippy pool actually FUNCTION on a machine by auto-installing the
-programs the worker needs — but ONLY when the device can afford it:
+programs the worker needs - but ONLY when the device can afford it:
 the system drive has enough free space AND the machine is on power (AC, or a
 healthy battery above a threshold). On a low-disk or on-battery laptop it does
-nothing destructive — it logs what it WOULD install, says why it skipped, and
+nothing destructive - it logs what it WOULD install, says why it skipped, and
 exits 0.
 
 Idempotent: anything already present is left alone, so it is safe to run at
 every boot (Task Scheduler / shell:startup). After provisioning it will, if the
 Supabase CLI is present AND logged in, (re)deploy the `clippy-pool` Edge
-Function — which is what clears the "Clippy pool: HTTP Error 404" the app shows
+Function - which is what clears the "Clippy pool: HTTP Error 404" the app shows
 when the function isn't published.
 
   powershell -ExecutionPolicy Bypass -File clippy-daemon.ps1
@@ -38,7 +38,7 @@ $ProgRoot = Join-Path $env:LOCALAPPDATA 'Programs'   # matches the existing supa
 
 function Log([string]$m, [string]$c = 'Gray') { Write-Host ((Get-Date -f 'HH:mm:ss') + '  ' + $m) -ForegroundColor $c }
 
-# ─── Capability probes ──────────────────────────────────────────────────────
+# --- Capability probes ------------------------------------------------------
 function Get-FreeGB {
   try { $d = Get-PSDrive -Name ($env:SystemDrive.TrimEnd(':')) -EA Stop; return [math]::Round($d.Free / 1GB, 1) }
   catch { return -1 }
@@ -51,7 +51,7 @@ function Get-PowerState {
     $onAC = ($p.PowerLineStatus -eq 'Online')
     $pct  = if ([int]$p.BatteryChargeStatus -band 128) { -1 } else { [int]([math]::Round($p.BatteryLifePercent * 100)) }
     return @{ OnAC = $onAC; Battery = $pct }
-  } catch { return @{ OnAC = $true; Battery = -1 } }   # unknown → assume desktop on AC
+  } catch { return @{ OnAC = $true; Battery = -1 } }   # unknown -> assume desktop on AC
 }
 
 $freeGB    = Get-FreeGB
@@ -59,9 +59,9 @@ $power     = Get-PowerState
 $hasWinget = [bool](Get-Command winget -EA SilentlyContinue)
 
 $batteryTxt = if ($power.Battery -lt 0) { 'no battery (desktop/AC)' } else { "$($power.Battery)% " + $(if ($power.OnAC) { '(charging/AC)' } else { '(on battery)' }) }
-Log "clippy-daemon — free disk ${freeGB} GB on $($env:SystemDrive) | power: $batteryTxt | winget: $(if($hasWinget){'yes'}else{'no'})" 'Cyan'
+Log "clippy-daemon - free disk ${freeGB} GB on $($env:SystemDrive) | power: $batteryTxt | winget: $(if($hasWinget){'yes'}else{'no'})" 'Cyan'
 
-# ─── The install gate: SPACE and POWER ──────────────────────────────────────
+# --- The install gate: SPACE and POWER --------------------------------------
 function Test-CanInstall([double]$needGB = 0) {
   $needTotal = $MinFreeGB + $needGB
   if ($freeGB -ge 0 -and $freeGB -lt $needTotal) {
@@ -74,9 +74,9 @@ function Test-CanInstall([double]$needGB = 0) {
   return @{ ok = $true; why = ("on battery {0}%" -f $power.Battery) }
 }
 
-# ─── Direct installer fallbacks (used when winget is unavailable) ────────────
+# --- Direct installer fallbacks (used when winget is unavailable) ------------
 function Install-SupabaseDirect {
-  # Latest release tarball → extract supabase.exe into %LOCALAPPDATA%\Programs\supabase\
+  # Latest release tarball -> extract supabase.exe into %LOCALAPPDATA%\Programs\supabase\
   $dest = Join-Path $ProgRoot 'supabase'
   $tmp  = Join-Path $env:TEMP 'supabase_dl'
   $null = New-Item -ItemType Directory -Force -Path $dest, $tmp
@@ -90,10 +90,10 @@ function Install-SupabaseDirect {
   Remove-Item $tmp -Recurse -Force -EA SilentlyContinue
 }
 
-# ─── Required programs (data-driven) ────────────────────────────────────────
-#   Test   — already present? (skip if true)   Winget — preferred package id
-#   Direct — scriptblock fallback              EstGB  — footprint for the space check
-#   Heavy  — only attempted with -IncludeHeavy
+# --- Required programs (data-driven) ----------------------------------------
+#   Test   - already present? (skip if true)   Winget - preferred package id
+#   Direct - scriptblock fallback              EstGB  - footprint for the space check
+#   Heavy  - only attempted with -IncludeHeavy
 $tools = @(
   @{ Name = 'git';          EstGB = 0.5; Winget = 'Git.Git';            Test = { [bool](Get-Command git -EA SilentlyContinue) } }
   @{ Name = 'Supabase CLI'; EstGB = 0.2; Winget = 'Supabase.CLI';       Direct = { Install-SupabaseDirect };
@@ -134,27 +134,27 @@ function Install-One($tool) {
   return $false
 }
 
-# ─── Provision loop ─────────────────────────────────────────────────────────
+# --- Provision loop ---------------------------------------------------------
 $installed = 0; $skipped = 0; $present = 0; $failed = 0
 foreach ($t in $tools) {
   if ($t.Heavy -and -not $IncludeHeavy) { continue }
   if (& $t.Test) { Log "[have] $($t.Name)" 'Green'; $present++; continue }
 
   $gate = Test-CanInstall ([double]$t.EstGB)
-  if (-not $gate.ok) { Log "[skip] $($t.Name) — $($gate.why)" 'Yellow'; $skipped++; continue }
-  if ($ReportOnly)   { Log "[would install] $($t.Name) (~$($t.EstGB) GB) — $($gate.why)" 'Cyan'; $skipped++; continue }
+  if (-not $gate.ok) { Log "[skip] $($t.Name) - $($gate.why)" 'Yellow'; $skipped++; continue }
+  if ($ReportOnly)   { Log "[would install] $($t.Name) (~$($t.EstGB) GB) - $($gate.why)" 'Cyan'; $skipped++; continue }
 
-  Log "[install] $($t.Name) (~$($t.EstGB) GB) — $($gate.why)"
+  Log "[install] $($t.Name) (~$($t.EstGB) GB) - $($gate.why)"
   try {
     if (Install-One $t) {
       if (& $t.Test) { Log "[ok] $($t.Name)" 'Green'; $installed++ }
-      else { Log "[!!] $($t.Name) installed but not detected — may need a new shell / PATH refresh" 'Yellow'; $failed++ }
+      else { Log "[!!] $($t.Name) installed but not detected - may need a new shell / PATH refresh" 'Yellow'; $failed++ }
     } else { $failed++ }
   } catch { Log "[!!] $($t.Name) failed: $($_.Exception.Message)" 'Red'; $failed++ }
 }
-Log "provision summary — present:$present installed:$installed skipped:$skipped failed:$failed" 'Cyan'
+Log "provision summary - present:$present installed:$installed skipped:$skipped failed:$failed" 'Cyan'
 
-# ─── Make the function go: (re)deploy clippy-pool if we can ──────────────────
+# --- Make the function go: (re)deploy clippy-pool if we can ------------------
 if (-not $EnsureOnly -and -not $ReportOnly) {
   $sb = Join-Path $ProgRoot 'supabase\supabase.exe'
   if (-not (Test-Path $sb)) { $cmd = Get-Command supabase -EA SilentlyContinue; if ($cmd) { $sb = $cmd.Source } }
@@ -163,18 +163,18 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
     if ($LASTEXITCODE -eq 0) {
       Log "[..] deploying clippy-pool (clears the app's 'HTTP Error 404')"
       & $sb functions deploy clippy-pool --project-ref $REF
-      if ($LASTEXITCODE -eq 0) { Log "[ok] clippy-pool deployed → https://$REF.supabase.co/functions/v1/clippy-pool" 'Green' }
-      else { Log "[!!] clippy-pool deploy failed — see output above" 'Red' }
+      if ($LASTEXITCODE -eq 0) { Log "[ok] clippy-pool deployed -> https://$REF.supabase.co/functions/v1/clippy-pool" 'Green' }
+      else { Log "[!!] clippy-pool deploy failed - see output above" 'Red' }
     } else {
       Log "[next] Supabase CLI present but not logged in. Run once (token stays on this PC):" 'Yellow'
-      Log "       & `"$sb`" login" 'Yellow'
+      Log ("       " + $sb + " login") 'Yellow'
     }
   } else {
-    Log "[next] Supabase CLI not available yet — rerun after a new shell so PATH picks it up." 'Yellow'
+    Log "[next] Supabase CLI not available yet - rerun after a new shell so PATH picks it up." 'Yellow'
   }
 }
 
-# ─── Vision model + worker — THIS is what makes Clippy answer Scan Plate ──────
+# --- Vision model + worker - THIS is what makes Clippy answer Scan Plate ------
 # Pull a local Ollama vision model (space-gated) and start the job-poller, so
 # every Clippy instance can produce vision answers with no cloud.
 if (-not $EnsureOnly -and -not $ReportOnly) {
@@ -188,12 +188,12 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
     } else {
       $g = Test-CanInstall ([double]$estGB)
       if ($g.ok) {
-        Log "[pull] vision model '$VisionModel' (~$estGB GB) — $($g.why)"
+        Log "[pull] vision model '$VisionModel' (~$estGB GB) - $($g.why)"
         & $ollamaExe pull $VisionModel
         if ($LASTEXITCODE -eq 0) { Log "[ok] vision model ready" 'Green' }
-        else { Log "[!!] model pull failed — see output above" 'Red' }
+        else { Log "[!!] model pull failed - see output above" 'Red' }
       } else {
-        Log "[skip] vision model '$VisionModel' — $($g.why). Try -VisionModel moondream (smaller)." 'Yellow'
+        Log "[skip] vision model '$VisionModel' - $($g.why). Try -VisionModel moondream (smaller)." 'Yellow'
       }
     }
     # Persist the command token (enables "Push update" from NEXUS) for the user
@@ -201,10 +201,10 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
     if ($CmdToken) {
       try { [Environment]::SetEnvironmentVariable('CLIPPY_CMD_TOKEN', $CmdToken, 'User') } catch {}
       $env:CLIPPY_CMD_TOKEN = $CmdToken
-      Log "[ok] command token set — remote 'Push update' enabled" 'Green'
+      Log "[ok] command token set - remote 'Push update' enabled" 'Green'
       # Publish the token to the bus so NEXUS auto-fills it (no manual entry).
       # NOTE: the bus is readable with the public anon key, so this trades the
-      # token's secrecy for convenience — anyone with the site can then send
+      # token's secrecy for convenience - anyone with the site can then send
       # commands to this node. Skip (don't pass -CmdToken / unset it) if you
       # want command-exec to stay manual-token-only.
       try {
@@ -213,7 +213,7 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
         $ms   = [int64]([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())
         $body = @{ id = 'clippy_cmd'; from_id = $env:COMPUTERNAME; data = @{ token = $CmdToken; node = $env:COMPUTERNAME; ts = $ms } } | ConvertTo-Json -Depth 5
         Invoke-RestMethod -Uri 'https://oprsthfxqrdbwdvommpw.supabase.co/rest/v1/clippy_sync' -Method Post -Headers $hdr -Body $body -TimeoutSec 15 | Out-Null
-        Log "[ok] command token published to bus — NEXUS Push needs no manual entry" 'Green'
+        Log "[ok] command token published to bus - NEXUS Push needs no manual entry" 'Green'
       } catch { Log "[..] token publish skipped: $($_.Exception.Message)" 'Yellow' }
     }
     # Start the job-poller (idempotent: skip if one is already running).
@@ -229,12 +229,12 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
       if ($py) {
         $env:CLIPPY_VISION_MODEL = $VisionModel
         Start-Process -FilePath $py.Source -ArgumentList $worker -WorkingDirectory $HOMEDIR -WindowStyle Hidden | Out-Null
-        Log "[ok] clippy-worker started — this node now answers vision jobs" 'Green'
-      } else { Log "[next] Python not detected yet — rerun after a new shell." 'Yellow' }
+        Log "[ok] clippy-worker started - this node now answers vision jobs" 'Green'
+      } else { Log "[next] Python not detected yet - rerun after a new shell." 'Yellow' }
     }
 
     # Auto-start on boot: a logon Scheduled Task that re-runs this daemon
-    # (idempotent — it re-provisions + relaunches the worker if it died).
+    # (idempotent - it re-provisions + relaunches the worker if it died).
     if (-not $NoAutostart) {
       try {
         $self = $MyInvocation.MyCommand.Path
@@ -245,7 +245,7 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
       } catch { Log "[..] autostart registration skipped: $($_.Exception.Message)" 'Yellow' }
     }
   } else {
-    Log "[next] Ollama not installed yet — rerun the daemon (it installs Ollama), then try again." 'Yellow'
+    Log "[next] Ollama not installed yet - rerun the daemon (it installs Ollama), then try again." 'Yellow'
   }
 }
 

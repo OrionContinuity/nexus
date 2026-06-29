@@ -1,7 +1,7 @@
 <#
-clippy-update.ps1 — self-update a Clippy node to the latest NEXUS node software.
+clippy-update.ps1 - self-update a Clippy node to the latest NEXUS node software.
 
-This is what NEXUS "Tools → Push update" ships: it lives in the Supabase
+This is what NEXUS "Tools -> Push update" ships: it lives in the Supabase
 `installers` bucket; each node downloads it and runs it (PowerShell). It pulls
 the latest clippy-worker.py + clippy-daemon.ps1 from the repo, stops the old
 worker, then re-provisions + relaunches via the daemon (which keeps Ollama + the
@@ -33,6 +33,6 @@ $daemon = Join-Path $dir 'clippy-daemon.ps1'
 if (Test-Path $daemon) {
   & powershell -ExecutionPolicy Bypass -File $daemon
 } else {
-  Write-Host "[!!] daemon not present after fetch — check network / repo URL"
+  Write-Host "[!!] daemon not present after fetch - check network / repo URL"
 }
 Write-Host "[done] clippy node updated"
