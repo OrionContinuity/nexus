@@ -43,6 +43,9 @@ VISION_MODEL = os.environ.get("CLIPPY_VISION_MODEL", "llama3.2-vision")
 # >= 0.4. llava loads on practically any Ollama, so Scan Plate keeps working
 # without forcing an upgrade on every node.
 FALLBACK_VISION_MODEL = os.environ.get("CLIPPY_FALLBACK_VISION_MODEL", "llava")
+# The vision model actually serving answers (may differ from VISION_MODEL if we
+# had to fall back). Surfaced in the heartbeat so the UI shows what's really used.
+ACTIVE_VISION = VISION_MODEL
 TEXT_MODEL   = os.environ.get("CLIPPY_TEXT_MODEL", "llama3.1")
 NODE       = os.environ.get("CLIPPY_NODE_NAME", socket.gethostname())
 # Command execution is OFF unless a token is set. The bus is writable with the
@@ -149,9 +152,9 @@ def sb_heartbeat():
     except Exception:
         pass
     arr.append({"name": NODE, "ts": now, "vision": True, "cmd": bool(CMD_TOKEN),
-                "os": OSDESC, "version": "worker-1.1.1-vis", "managed": MANAGED, "busy": _state["busy"], "current": _state["current"],
+                "os": OSDESC, "version": "worker-1.2", "managed": MANAGED, "busy": _state["busy"], "current": _state["current"],
                 "caps": ((["ask"] if CLAIM_TEXT else []) + ["vision"] + (["cmd"] if CMD_TOKEN else [])),
-                "models": [VISION_MODEL, TEXT_MODEL]})
+                "vision_model": ACTIVE_VISION, "models": [VISION_MODEL, TEXT_MODEL]})
     h = dict(SB_HEADERS); h["Prefer"] = "resolution=merge-duplicates,return=minimal"
     try:
         _http("POST", REST, h, {"id": "clippy_nodes", "data": arr, "from_id": NODE}, timeout=15)
@@ -208,6 +211,8 @@ def ollama_generate(model, prompt, system=None, image_b64=None, _retry=True):
         body["images"] = [image_b64]            # Ollama wants raw base64 (no data: prefix)
     try:
         _, raw = _http("POST", OLLAMA + "/api/generate", {"Content-Type": "application/json"}, body, timeout=300)
+        if image_b64:
+            globals()["ACTIVE_VISION"] = model     # remember the vision model that actually worked
         return (json.loads(raw).get("response") or "").strip()
     except urllib.error.HTTPError as e:
         detail = ""
@@ -297,8 +302,27 @@ def process(job):
         set_state(False)
 
 
+def warmup():
+    """Warm the vision model on startup so the first real Scan Plate is fast,
+    and so the arch-fallback (to llava on older Ollama) resolves now rather than
+    on a user-facing job. Best-effort; a failure here never stops the worker."""
+    tiny = ("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+            "+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC")   # 1x1 png
+    try:
+        set_state(True, "warming up vision (%s)" % VISION_MODEL)
+        ollama_generate(VISION_MODEL, "Reply with: ok", None, tiny)
+        log("vision model warm -> %s" % ACTIVE_VISION)
+        activity("node", "vision ready (%s)" % ACTIVE_VISION)
+    except Exception as e:
+        log("warmup skipped: %s" % e)
+    finally:
+        set_state(False)
+
+
 def main():
     log("clippy-worker up - node='%s' vision='%s' bus=%s ollama=%s" % (NODE, VISION_MODEL, SUPA_URL, OLLAMA))
+    sb_heartbeat()      # register immediately so the node shows online without waiting a cycle
+    warmup()
     last_hb = 0
     while True:
         if time.time() - last_hb >= HEARTBEAT_SECS:

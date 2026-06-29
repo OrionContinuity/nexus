@@ -81,8 +81,8 @@ function Start-WorkerProc {
   return $true
 }
 function Update-NodeFromGitHub {
-  # Pull the latest node scripts into $HOMEDIR. Returns $true if the worker changed.
-  $changed = $false
+  # Pull the latest node scripts into $HOMEDIR. Returns which ones changed.
+  $res = @{ worker = $false; daemon = $false }
   foreach ($f in 'clippy-worker.py', 'clippy-daemon.ps1', 'clippy-update.ps1') {
     $dst = Join-Path $HOMEDIR $f
     $tmp = Join-Path $env:TEMP ('nx_' + $f)
@@ -92,13 +92,14 @@ function Update-NodeFromGitHub {
       $old = if (Test-Path $dst) { (Get-FileHash $dst -Algorithm SHA256).Hash } else { '' }
       if ($new -ne $old) {
         Copy-Item $tmp $dst -Force
-        if ($f -eq 'clippy-worker.py') { $changed = $true }
+        if ($f -eq 'clippy-worker.py')  { $res.worker = $true }
+        if ($f -eq 'clippy-daemon.ps1') { $res.daemon = $true }
         Log "[upd] refreshed $f" 'Green'
       }
       Remove-Item $tmp -Force -EA SilentlyContinue
     } catch { Log "[..] update fetch $f skipped: $($_.Exception.Message)" 'Yellow' }
   }
-  return $changed
+  return $res
 }
 function Invoke-Supervisor {
   # Persistent loop: keep the slave worker alive and self-heal from GitHub.
@@ -118,7 +119,16 @@ function Invoke-Supervisor {
     }
     if (((Get-Date) - $lastUpd).TotalMinutes -ge $UpdateEveryMin) {
       $lastUpd = Get-Date
-      if (Update-NodeFromGitHub) {
+      $u = Update-NodeFromGitHub
+      if ($u.daemon) {
+        # The daemon itself changed - apply it by relaunching through the updater
+        # (it kills leftovers and starts a fresh supervisor from the new file),
+        # so daemon-level improvements self-heal too, not just the worker.
+        Log "[supervise] daemon updated - relaunching via updater" 'Green'
+        Start-Process -FilePath 'powershell.exe' -ArgumentList ('-ExecutionPolicy Bypass -WindowStyle Hidden -File "' + (Join-Path $HOMEDIR 'clippy-update.ps1') + '"') -WindowStyle Hidden
+        break
+      }
+      if ($u.worker) {
         Log "[supervise] new worker pulled - restarting it" 'Green'
         Stop-WorkerProc
         Start-Sleep -Seconds 2
