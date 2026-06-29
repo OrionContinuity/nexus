@@ -2255,13 +2255,24 @@
     }
     const found = chatMatch(text);
     if (!found) {
-      bubble(pickFromPool('chat_no_match'), { autoHide: 5000, eyebrow: 'HMM' });
-      mood('confused', 4500);
-      // After confusion, raise the chance of a drift follow-up — he tries
-      // to recover with an off-topic thought.
-      setTimeout(() => {
-        if (Math.random() < 0.35) shareRandomThought({ tag: 'recovery' });
-      }, 5500);
+      // No scripted match -> let his LLM brain answer IN CHARACTER (if a
+      // provider is reachable). Falls back to the scripted "no match" line when
+      // there's no model -> original NEXUS behavior. Nothing blocks the UI.
+      bubble(pickFromPool('chat_thinking') || 'Hmm, let me think...', { autoHide: 12000, eyebrow: 'THINKING' });
+      mood('thinking', 4000);
+      askClippyBrain(text).then(ans => {
+        if (ans) {
+          bubble(ans, { autoHide: 8000, eyebrow: '' });
+        } else {
+          bubble(pickFromPool('chat_no_match'), { autoHide: 5000, eyebrow: 'HMM' });
+          mood('confused', 4500);
+          // After confusion, raise the chance of a drift follow-up — he tries
+          // to recover with an off-topic thought.
+          setTimeout(() => {
+            if (Math.random() < 0.35) shareRandomThought({ tag: 'recovery' });
+          }, 5500);
+        }
+      });
       return;
     }
     const match = found.rule;
@@ -2459,6 +2470,8 @@
       days_known: daysKnown(),
       stage: familiarityStage(),
     };
+    // His own in-character LLM brain first (cloud / pool / local via NX.askClaude).
+    try { const a = await askClippyBrain(question); if (a) return a; } catch (e) {}
     try {
       if (window.NX && window.NX.brain && typeof window.NX.brain.askQuestion === 'function') {
         return await window.NX.brain.askQuestion(question, ctx);
@@ -5428,6 +5441,55 @@
       console.error('[clippy] dialog load failed:', e);
       state.dialog = {};
     }
+    // Canonical character (persona for his LLM brain) — single source of truth.
+    try { const r = await fetch('clippy-character.json'); state.character = await r.json(); }
+    catch (e) { state.character = null; }
+    // Mix in the lines he's written himself (continuity), then keep them fresh.
+    mergeLearned();
+    if (!state._learnedTimer) state._learnedTimer = setInterval(mergeLearned, 300000);
+  }
+
+  // Pull Clippy's self-written lines from the bus (id='clippy_learned') and fold
+  // them into the live dialog pools, so pickFromPool speaks them alongside the
+  // hand-written corpus. Additive + best-effort: if the bus is unreachable, he
+  // just uses the scripted lines (original behavior).
+  async function mergeLearned() {
+    try {
+      const app = (typeof NX !== 'undefined' && NX) || (typeof window !== 'undefined' && window.NX) || null;
+      const sb = app && app.sb;
+      if (!sb || !state.dialog) return;
+      const { data } = await sb.from('clippy_sync').select('data').eq('id', 'clippy_learned').maybeSingle();
+      const learned = data && data.data;
+      if (!learned || typeof learned !== 'object') return;
+      let added = 0;
+      Object.keys(learned).forEach(cat => {
+        const lines = Array.isArray(learned[cat]) ? learned[cat] : [];
+        if (!lines.length) return;
+        const base = state.dialog[cat] = state.dialog[cat] || [];
+        const seen = new Set(base);
+        lines.forEach(l => { if (l && typeof l === 'string' && !seen.has(l)) { base.push(l); seen.add(l); added++; } });
+      });
+      if (added) console.log('[clippy] folded in', added, 'self-written line(s)');
+    } catch (e) {}
+  }
+
+  // Clippy's LLM brain, IN CHARACTER. Routes through the app's provider-aware
+  // router (NX.askClaude → cloud / clippy-pool / local). Returns null on any
+  // failure or when no provider is reachable → callers fall back to scripted
+  // lines (the original NEXUS behavior).
+  async function askClippyBrain(question) {
+    try {
+      const NXa = (typeof NX !== 'undefined' && NX) || (typeof window !== 'undefined' && window.NX) || null;
+      if (!NXa || typeof NXa.askClaude !== 'function') return null;
+      const ch = state.character;
+      let system = ch && ch.chatPersona;
+      if (!system) return null;
+      const name = (state.preferences && state.preferences.user_name) || 'friend';
+      system = system.replace(/\{name\}/g, name);
+      const ans = await NXa.askClaude(system, [{ role: 'user', content: String(question || '').slice(0, 500) }], 220);
+      const out = ans && String(ans).replace(/\[confidence:[^\]]*\]/gi, '').trim();
+      return out || null;
+    } catch (e) { return null; }
   }
 
 
