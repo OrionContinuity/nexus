@@ -141,7 +141,7 @@ def sb_heartbeat():
     except Exception:
         pass
     arr.append({"name": NODE, "ts": now, "vision": True, "cmd": bool(CMD_TOKEN),
-                "os": OSDESC, "version": "worker-1.1-vis", "busy": _state["busy"], "current": _state["current"],
+                "os": OSDESC, "version": "worker-1.1.1-vis", "busy": _state["busy"], "current": _state["current"],
                 "caps": ((["ask"] if CLAIM_TEXT else []) + ["vision"] + (["cmd"] if CMD_TOKEN else [])),
                 "models": [VISION_MODEL, TEXT_MODEL]})
     h = dict(SB_HEADERS); h["Prefer"] = "resolution=merge-duplicates,return=minimal"
