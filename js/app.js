@@ -3819,10 +3819,26 @@ td.check{background:#F0EDE6 !important}
     // race is structurally impossible rather than merely won by polling fast.
     // Text jobs stay on 'job:' so the legacy brain (qwen3) keeps serving them.
     const id = (opts.image_b64 ? 'vis:' : 'job:') + rid;
+    // Strongest-node routing for vision: when more than one vision node is
+    // online, tag the job with the strongest (highest vscore, idle preferred).
+    // Workers let that node claim first and fail over after a short grace, so
+    // the beefy box does the heavy Scan Plate work and a busy/offline node
+    // never strands the job. With one node this is a no-op.
+    let prefer = null;
+    if (opts.image_b64) {
+      try {
+        const vnodes = (await this.clippyPoolNodes()).filter(n => n && n.vscore != null);
+        if (vnodes.length > 1) {
+          vnodes.sort((a, b) => (((b.vscore || 0) - (b.busy ? 1e6 : 0)) - ((a.vscore || 0) - (a.busy ? 1e6 : 0))));
+          prefer = vnodes[0].name || vnodes[0].id || null;
+        }
+      } catch (_) {}
+    }
     const job = {
       status: 'pending', prompt: String(prompt || ''),
       system: opts.system || null, image_b64: opts.image_b64 || null,
       vision: !!opts.image_b64, model: this.getClippyModel() || null, ts: Date.now(),
+      prefer: prefer, prefer_ms: prefer ? Date.now() : null,
     };
     await this.sb.from('clippy_sync').upsert({ id, data: job, from_id: 'nexus' }, { onConflict: 'id' });
     const timeoutMs = opts.timeoutMs || 90000;

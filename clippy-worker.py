@@ -34,6 +34,40 @@ import os, sys, time, json, socket, subprocess, platform, threading, urllib.requ
 try: OSDESC = platform.platform()           # e.g. "Windows-11-10.0.22631"
 except Exception: OSDESC = sys.platform
 
+
+def _total_ram_gb():
+    """Total physical RAM in GB (Windows via ctypes; 0 if unknown). Pure stdlib."""
+    try:
+        import ctypes
+        class _MS(ctypes.Structure):
+            _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                        ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                        ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                        ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                        ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+        m = _MS(); m.dwLength = ctypes.sizeof(_MS)
+        ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m))
+        return round(m.ullTotalPhys / (1024.0 ** 3), 1)
+    except Exception:
+        return 0.0
+
+
+def _has_nvidia():
+    """True if an NVIDIA GPU is present (nvidia-smi runs). NVIDIA/CUDA is what
+    most accelerates Ollama, so it's the accelerator that earns the big score."""
+    try:
+        subprocess.run(["nvidia-smi"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=6)
+        return True
+    except Exception:
+        return False
+
+
+RAM_GB = _total_ram_gb()
+ACCEL  = "nvidia" if _has_nvidia() else "cpu"
+# Vision strength score the app uses to route a vision job to the STRONGEST
+# online node: a CUDA GPU dominates; among similar nodes, more RAM wins.
+VSCORE = int(RAM_GB) + (100 if ACCEL == "nvidia" else 0)
+
 SUPA_URL   = os.environ.get("NEXUS_SUPABASE_URL",  "https://oprsthfxqrdbwdvommpw.supabase.co").rstrip("/")
 SUPA_KEY   = os.environ.get("NEXUS_SUPABASE_ANON", "sb_publishable_rOLSdIG6mIjVLY8JmvrwCA_qfM7Vyk9")
 OLLAMA     = os.environ.get("OLLAMA_URL", "http://localhost:11434").rstrip("/")
@@ -67,6 +101,10 @@ SB_HEADERS = {"apikey": SUPA_KEY, "Authorization": "Bearer " + SUPA_KEY, "Conten
 POLL_SECS = 1                     # vision rides its own 'vis:' lane (no race); 1s keeps latency low + request volume modest
 HEARTBEAT_SECS = 30
 JOB_MAX_AGE_MS = 120_000          # ignore jobs older than this (NEXUS has given up)
+# Strongest-node routing: the app tags a vision job with the strongest online
+# node in 'prefer'. Other nodes hold off this long so the preferred node claims
+# first; after the grace, anyone may take it (failover if it's busy/offline).
+PREFER_GRACE_MS = 4000
 # Coexist with the legacy v2.4.4 poller (qwen3:8b) instead of fighting it.
 # Vision jobs ride a separate 'vis:' id prefix that the legacy poller never
 # queries (it polls 'job:%'), so vision can't be raced/clobbered. On the shared
@@ -111,6 +149,11 @@ def sb_get_pending():
             continue
         if now - (d.get("ts") or 0) > JOB_MAX_AGE_MS:
             continue
+        # Strongest-node routing: if this job prefers ANOTHER node, hold off until
+        # the grace passes (then take it - failover if the preferred node didn't).
+        pref = d.get("prefer")
+        if pref and pref != NODE and (now - (d.get("prefer_ms") or d.get("ts") or 0)) < PREFER_GRACE_MS:
+            continue
         # Vision specialist: ignore pure-text jobs so the legacy brain answers
         # them (it has the preferred text model). We still take vision + cmd.
         is_text = not (d.get("image_b64") or d.get("vision") or d.get("cmd"))
@@ -154,9 +197,10 @@ def sb_heartbeat():
     except Exception:
         pass
     arr.append({"name": NODE, "ts": now, "vision": True, "cmd": bool(CMD_TOKEN),
-                "os": OSDESC, "version": "worker-1.2.1", "managed": MANAGED, "busy": _state["busy"], "current": _state["current"],
+                "os": OSDESC, "version": "worker-1.3", "managed": MANAGED, "busy": _state["busy"], "current": _state["current"],
                 "caps": ((["ask"] if CLAIM_TEXT else []) + ["vision"] + (["cmd"] if CMD_TOKEN else [])),
-                "vision_model": ACTIVE_VISION, "models": [VISION_MODEL, TEXT_MODEL]})
+                "vision_model": ACTIVE_VISION, "models": [VISION_MODEL, TEXT_MODEL],
+                "ram_gb": RAM_GB, "accel": ACCEL, "vscore": VSCORE})
     h = dict(SB_HEADERS); h["Prefer"] = "resolution=merge-duplicates,return=minimal"
     try:
         _http("POST", REST, h, {"id": "clippy_nodes", "data": arr, "from_id": NODE}, timeout=15)

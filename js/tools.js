@@ -160,6 +160,7 @@
           '<div class="nxt-kv">' +
             kv('OS', n.os) + kv('Host', n.role) + kv('Version', n.version) +
             kv('Managed by', n.managed) + kv('Vision', n.vision_model) + kv('Model', n.model) +
+            kv('RAM', n.ram_gb ? n.ram_gb + ' GB' : '') + kv('Accel', n.accel) + kv('Strength', n.vscore) +
             kv('GPU', n.gpu) + kv('CUDA', n.cuda == null ? '' : (n.cuda ? 'yes' : 'no')) +
             kv('CPU', n.cpu_pct != null ? n.cpu_pct + '%' : '') + kv('RAM', n.ram_pct != null ? n.ram_pct + '%' : '') +
             kv('Jobs done', n.jobs_done) + kv('Power', n.power) +
