@@ -575,6 +575,51 @@
 }
 .admin-voice-pick.is-active .avp-name { color: var(--nx-gold) !important; }
 
+/* Live Clippy activity panel — nodes, in-flight jobs, recent feed. */
+.clippy-activity { margin: 8px 0 4px; display: flex; flex-direction: column; gap: 6px; }
+.clippy-act-empty { font-size: 11px; color: var(--nx-muted); padding: 8px 0; }
+.clippy-act-head {
+  font-family: var(--nx-font-mono); font-size: 9.5px; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--nx-gold); margin: 4px 2px 0;
+}
+.clippy-act-node {
+  border: 1px solid var(--nx-highlight-faint); border-radius: 10px;
+  background: var(--nx-surface-2); padding: 8px 10px;
+}
+.clippy-act-node.is-busy { border-color: var(--nx-gold-line-2); background: var(--nx-gold-faint); }
+.clippy-act-node-top { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--nx-text); }
+.clippy-act-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--nx-muted); flex-shrink: 0; }
+.clippy-act-node.is-busy .clippy-act-dot { background: var(--nx-green); box-shadow: 0 0 6px var(--nx-green); }
+.clippy-act-badge {
+  margin-left: auto; font-size: 9.5px; font-family: var(--nx-font-mono);
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--nx-muted);
+}
+.clippy-act-node.is-busy .clippy-act-badge { color: var(--nx-green); }
+.clippy-act-cur { font-size: 11.5px; color: var(--nx-text); margin-top: 3px; }
+.clippy-act-tele { font-family: var(--nx-font-mono); font-size: 10px; color: var(--nx-faint); margin-top: 3px; }
+.clippy-act-job {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+  font-size: 11.5px; color: var(--nx-text);
+  border: 1px solid var(--nx-highlight-tint); border-radius: 8px; padding: 6px 8px;
+}
+.clippy-act-jk {
+  font-family: var(--nx-font-mono); font-size: 9px; text-transform: uppercase;
+  padding: 1px 6px; border-radius: 999px; border: 1px solid var(--nx-gold-line);
+  color: var(--nx-gold);
+}
+.clippy-act-jk-vision { color: var(--nx-purple); border-color: var(--nx-purple); }
+.clippy-act-jk-cmd    { color: var(--nx-red); border-color: var(--nx-red-line); }
+.clippy-act-js   { color: var(--nx-muted); }
+.clippy-act-jage { margin-left: auto; font-family: var(--nx-font-mono); font-size: 10px; color: var(--nx-faint); }
+.clippy-act-tail {
+  flex-basis: 100%; font-family: var(--nx-font-mono); font-size: 10px;
+  color: var(--nx-faint); white-space: pre-wrap; word-break: break-word;
+  background: var(--nx-surface-1); border-radius: 6px; padding: 4px 6px; margin-top: 2px;
+}
+.clippy-act-feed { font-size: 11px; color: var(--nx-muted); display: flex; gap: 6px; }
+.clippy-act-fage { font-family: var(--nx-font-mono); font-size: 10px; color: var(--nx-faint); flex-shrink: 0; min-width: 28px; }
+.clippy-act-fmsg { color: var(--nx-text); }
+
 /* Voice speed slider — sits below the voice row, controls TTS rate */
 .admin-voice-speed-row {
   display: flex !important;

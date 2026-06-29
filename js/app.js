@@ -1847,6 +1847,8 @@ td.check{background:#F0EDE6 !important}
         }
         // Eager-load Overview stats so there's no "Loading…" flash
         window.loadOverviewStats?.();
+        // Start the live Clippy activity readout (self-refreshes while open).
+        try { this.clippyActivityInto('adminClippyActivity'); } catch(_) {}
       } catch(e) { console.warn('[admin] panel init failed:', e); }
       if (this.isAdmin) {
         keySection.style.display = 'block';
@@ -3861,6 +3863,79 @@ td.check{background:#F0EDE6 !important}
       + (a.inFlight ? ' · ' + a.inFlight + ' in flight' : '')
       + (a.lastNode ? ' · last: ' + a.lastNode : '');
     node.style.color = 'var(--green)';
+  },
+  // Live Clippy activity panel — which nodes are online, what each is doing
+  // RIGHT NOW, in-flight jobs (with a tail of progress), and a recent feed.
+  // Self-refreshes (~3s) while the admin modal is open so the operator can SEE
+  // Clippy working instead of being blind to it. Reads the bus only.
+  _clippyActGen: 0,
+  async clippyActivityInto(el) {
+    const node = typeof el === 'string' ? document.getElementById(el) : el;
+    if (!node || !this.sb) return;
+    const myGen = ++this._clippyActGen;
+    const esc = s => String(s == null ? '' : s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    const ago = ms => { const s = Math.max(0, Math.round((Date.now() - ms) / 1000)); return s < 60 ? s + 's' : Math.round(s / 60) + 'm'; };
+    let nodes = [], jobs = [], feed = [];
+    try {
+      const [nRes, jRes, aRes] = await Promise.all([
+        this.clippyPoolNodes(),
+        this.sb.from('clippy_sync').select('id,data').like('id', 'job:%'),
+        this.sb.from('clippy_sync').select('data').eq('id', 'clippy_activity').maybeSingle(),
+      ]);
+      nodes = nRes || [];
+      jobs = ((jRes && jRes.data) || []).map(r => r.data).filter(Boolean);
+      const a = aRes && aRes.data && aRes.data.data;
+      if (Array.isArray(a)) feed = a;
+    } catch (_) {}
+    if (myGen !== this._clippyActGen) return;   // superseded by a newer refresh
+
+    const now = Date.now();
+    const kindOf = d => d.cmd ? 'cmd' : ((d.vision || d.image_b64) ? 'vision' : 'text');
+    const live = jobs.filter(d => ['pending', 'claimed', 'running'].includes(d.status) && (now - (d.ts || 0) < 180000));
+
+    let html = '';
+    if (!nodes.length) {
+      html = '<div class="clippy-act-empty">● No Clippy nodes online — start the poller on a PC.</div>';
+    } else {
+      html += `<div class="clippy-act-head">${nodes.length} node${nodes.length > 1 ? 's' : ''} online</div>`;
+      html += nodes.map(n => {
+        const nid = n.id || n.name || 'node';
+        const jb = live.find(d => d.node === nid && d.status !== 'pending');
+        const busy = !!jb || !!n.busy;
+        const cur = n.current || (jb ? (kindOf(jb) + ' job') : '');
+        const tele = [n.model, n.cpu_pct != null ? 'cpu ' + n.cpu_pct + '%' : null,
+                      n.ram_pct != null ? 'ram ' + n.ram_pct + '%' : null,
+                      n.jobs_done != null ? n.jobs_done + ' done' : null].filter(Boolean).join(' · ');
+        return `<div class="clippy-act-node ${busy ? 'is-busy' : ''}">
+          <div class="clippy-act-node-top"><span class="clippy-act-dot"></span><b>${esc(nid)}</b><span class="clippy-act-badge">${busy ? 'working' : 'idle'}</span></div>
+          ${cur ? `<div class="clippy-act-cur">▸ ${esc(cur)}</div>` : ''}
+          ${tele ? `<div class="clippy-act-tele">${esc(tele)}</div>` : ''}
+        </div>`;
+      }).join('');
+    }
+    if (live.length) {
+      html += `<div class="clippy-act-head">In flight (${live.length})</div>`;
+      html += live.map(d => {
+        const tail = d.tail || d.progress || '';
+        return `<div class="clippy-act-job">
+          <span class="clippy-act-jk clippy-act-jk-${kindOf(d)}">${kindOf(d)}</span>
+          <span class="clippy-act-js">${esc(d.status)}</span>
+          <span class="clippy-act-jage">${ago(d.ts || now)}</span>
+          ${tail ? `<div class="clippy-act-tail">${esc(String(tail).slice(-200))}</div>` : ''}
+        </div>`;
+      }).join('');
+    }
+    if (feed.length) {
+      html += '<div class="clippy-act-head">Recent</div>' + feed.slice(-8).reverse().map(f =>
+        `<div class="clippy-act-feed"><span class="clippy-act-fage">${f.ts ? ago(f.ts) : ''}</span> <span class="clippy-act-fmsg">${esc(f.msg || f.kind || '')}</span></div>`
+      ).join('');
+    }
+    node.innerHTML = html;
+
+    const modal = document.getElementById('adminModal');
+    if (modal && modal.classList.contains('open')) {
+      setTimeout(() => { if (myGen === this._clippyActGen) this.clippyActivityInto(node); }, 3000);
+    }
   },
   // List Clippy's available LLMs — best effort. Tries a /models endpoint, then
   // an Ollama-style /api/tags, then falls back to what /health advertises
