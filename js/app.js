@@ -3885,10 +3885,31 @@ td.check{background:#F0EDE6 !important}
       return;
     }
     const a = await this.poolActivity();
-    node.textContent = '● ' + nodes.length + ' node' + (nodes.length > 1 ? 's' : '') + ' online'
+    const esc = s => String(s == null ? '' : s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    // Vision nodes carry a vscore; the strongest (idle preferred) is the leader
+    // that Scan Plate routes to — mirror askPool's selection so this readout
+    // shows exactly which node will answer.
+    const vnodes = nodes.filter(n => n && n.vscore != null)
+      .sort((x, y) => (((y.vscore || 0) - (y.busy ? 1e6 : 0)) - ((x.vscore || 0) - (x.busy ? 1e6 : 0))));
+    const nm = n => esc(n.name || n.id || '?');
+    let html = '<div style="color:var(--green)">● ' + nodes.length + ' node' + (nodes.length > 1 ? 's' : '') + ' online'
       + (a.inFlight ? ' · ' + a.inFlight + ' in flight' : '')
-      + (a.lastNode ? ' · last: ' + a.lastNode : '');
-    node.style.color = 'var(--green)';
+      + (a.lastNode ? ' · last: ' + esc(a.lastNode) : '') + '</div>';
+    if (vnodes.length) {
+      const lead = vnodes[0];
+      html += '<div style="margin-top:4px;font-size:11px;color:var(--muted)">Vision → <b style="color:var(--accent)">' + nm(lead) + '</b> '
+        + esc(lead.vision_model || 'llava')
+        + (lead.ram_gb ? ' · ' + esc(lead.ram_gb) + 'GB' : '')
+        + (lead.accel ? ' · ' + esc(lead.accel) : '')
+        + ' · str ' + (lead.vscore || 0)
+        + (lead.busy ? ' · busy' : '') + '</div>';
+      if (vnodes.length > 1) {
+        html += '<div style="margin-top:2px;font-size:10px;color:var(--muted);opacity:.8">backup: '
+          + vnodes.slice(1).map(n => nm(n) + ' (str ' + (n.vscore || 0) + ')').join(', ') + '</div>';
+      }
+    }
+    node.innerHTML = html;
+    node.style.color = '';
   },
   // Live Clippy activity panel — which nodes are online, what each is doing
   // RIGHT NOW, in-flight jobs (with a tail of progress), and a recent feed.
