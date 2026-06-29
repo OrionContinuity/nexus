@@ -5063,8 +5063,8 @@ function renderOverview(eq, attachments, customFields, maintenance) {
     { label: 'Inspect every', value: eq.inspection_interval_days ? `${eq.inspection_interval_days} days` : '—',                          edit: 'inspection_interval_days', type: 'number', min: 1, max: 3650 },
     { label: 'Deep clean',    value: _cadSummary(_dcCd, eq.last_deep_clean_date, eq.deep_clean_interval_days, 'a deep clean'),           edit: 'last_deep_clean_date',   type: 'date' },
     { label: 'Clean every',   value: eq.deep_clean_interval_days ? `${eq.deep_clean_interval_days} days` : '—',                          edit: 'deep_clean_interval_days', type: 'number', min: 1, max: 3650 },
-    { label: 'Last service',  value: _lastSvc ? _lastSvcVal : 'No service logged yet<span class="eq-detail-card-unit"> · tap to log</span>',                  edit: null, action: `NX.modules.equipment.logService('${eq.id}')` },
-    { label: 'Services (YTD)',value: `${eq.services_this_year || 0}${eq.cost_this_year ? ` <span class="eq-detail-card-unit">· $${Math.round(eq.cost_this_year).toLocaleString()}</span>` : ''}`, edit: null, action: `NX.modules.equipment.logService('${eq.id}')` },
+    { label: 'Last service',  value: _lastSvc ? `${_lastSvcVal}<span class="eq-detail-card-unit"> · tap for all</span>` : 'No service logged yet<span class="eq-detail-card-unit"> · tap to log</span>', edit: null, action: `NX.modules.equipment.showDetailTab('timeline')` },
+    { label: 'Services (YTD)',value: `${eq.services_this_year || 0}${eq.cost_this_year ? ` <span class="eq-detail-card-unit">· $${Math.round(eq.cost_this_year).toLocaleString()}</span>` : ''}`, edit: null, action: `NX.modules.equipment.showDetailTab('timeline')` },
   ];
   const healthDemoted = { label: 'Health index (auto)', value: `<span style="opacity:.55">${eq.health_score ?? 100}%</span>`, edit: 'health_score', type: 'number', min: 0, max: 100 };
 
@@ -5263,11 +5263,17 @@ function renderTimeline(eq, maint, pending) {
         ${m.symptoms ? `<div class="eq-timeline-detail"><b>Symptoms:</b> ${esc(m.symptoms)}</div>` : ''}
         ${m.root_cause ? `<div class="eq-timeline-detail"><b>Root cause:</b> ${esc(m.root_cause)}</div>` : ''}
       </div>
-      <button class="eq-timeline-del" onclick="NX.modules.equipment.deleteMaintenance('${m.id}', '${eq.id}')" title="Delete">${uiSvg('close', '14px')}</button>
+      <div class="eq-timeline-actions">
+        <button class="eq-timeline-edit" onclick="NX.modules.equipment.logService('${eq.id}', '${m.id}')" title="Edit">${uiSvg('pen', '14px')}</button>
+        <button class="eq-timeline-del" onclick="NX.modules.equipment.deleteMaintenance('${m.id}', '${eq.id}')" title="Delete">${uiSvg('close', '14px')}</button>
+      </div>
     </div>
   `).join('');
 
   return `
+    <div class="eq-timeline-bar">
+      <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.logService('${eq.id}')">+ Log service</button>
+    </div>
     <div class="eq-timeline">
       ${pendingHtml}
       ${approvedHtml}
@@ -5863,9 +5869,29 @@ function schedulePmFromOverflow(equipId) {
   if (typeof openBulkPmSchedule === 'function') openBulkPmSchedule();
 }
 
-function logService(equipId) {
+// Programmatically switch the open equipment detail modal to a tab
+// (overview/timeline/activity/parts/manual/intel/qr). Reuses the tab's own
+// click handler so lazy-loaded panels still hydrate. Used by the Overview's
+// "Last service / Services (YTD)" rows to jump to the full service history.
+function showDetailTab(tabName) {
+  const modal = document.getElementById('eqModal');
+  if (!modal) return;
+  const tab = modal.querySelector(`.eq-tab[data-tab="${tabName}"]`);
+  if (tab) tab.click();
+}
+
+async function logService(equipId, editId) {
   const eq = equipment.find(e => e.id === equipId);
   if (!eq) return;
+
+  // Edit mode: pull the existing service record so the form is pre-filled.
+  let ev = {};
+  if (editId) {
+    try {
+      const { data } = await NX.sb.from('equipment_maintenance').select('*').eq('id', editId).single();
+      if (data) ev = data;
+    } catch (e) { NX.toast && NX.toast('Could not load that service', 'error'); }
+  }
 
   const modal = document.getElementById('eqServiceModal') || (() => {
     const m = document.createElement('div');
@@ -5876,13 +5902,17 @@ function logService(equipId) {
   })();
 
   const today = new Date().toISOString().slice(0, 10);
+  const types = [['repair','Repair'],['pm','Preventive Maintenance'],['inspection','Inspection'],['install','Install'],['recall','Recall']];
+  const curType = ev.event_type || 'repair';
+  const av = (v) => esc(v == null ? '' : String(v));          // safe value/text
+  const dval = (d) => d ? String(d).slice(0, 10) : '';        // ISO date → yyyy-mm-dd
 
   modal.innerHTML = `
     <div class="eq-detail-bg" onclick="NX.modules.equipment.closeService()"></div>
     <div class="eq-detail eq-edit">
       <div class="eq-detail-head">
         <button class="eq-close" onclick="NX.modules.equipment.closeService()">${uiSvg("close", "16px")}</button>
-        <h2>Log Service — ${esc(eq.name)}</h2>
+        <h2>${editId ? 'Edit Service' : 'Log Service'} — ${esc(eq.name)}</h2>
       </div>
       <div class="eq-detail-body">
         <form class="eq-form" id="eqServiceForm">
@@ -5890,60 +5920,57 @@ function logService(equipId) {
             <div class="eq-form-group">
               <label>Type</label>
               <select name="event_type">
-                <option value="repair">Repair</option>
-                <option value="pm">Preventive Maintenance</option>
-                <option value="inspection">Inspection</option>
-                <option value="install">Install</option>
-                <option value="recall">Recall</option>
+                ${types.map(([v, l]) => `<option value="${v}"${v === curType ? ' selected' : ''}>${l}</option>`).join('')}
               </select>
             </div>
             <div class="eq-form-group">
               <label>Date *</label>
-              <input type="date" name="event_date" value="${today}" required>
+              <input type="date" name="event_date" value="${dval(ev.event_date) || today}" required>
             </div>
           </div>
           <div class="eq-form-group">
             <label>What was done? *</label>
-            <textarea name="description" rows="3" required placeholder="Replaced condenser fan motor..."></textarea>
+            <textarea name="description" rows="3" required placeholder="Replaced condenser fan motor...">${av(ev.description)}</textarea>
           </div>
           <div class="eq-form-row">
             <div class="eq-form-group">
               <label>Performed By</label>
-              <input name="performed_by" placeholder="Austin Air & Ice / Tyler">
+              <input name="performed_by" placeholder="Austin Air & Ice / Tyler" value="${av(ev.performed_by)}">
             </div>
             <div class="eq-form-group">
               <label>Cost ($)</label>
-              <input type="number" step="0.01" name="cost" placeholder="450.00">
+              <input type="number" step="0.01" name="cost" placeholder="450.00" value="${av(ev.cost)}">
             </div>
           </div>
           <div class="eq-form-row">
             <div class="eq-form-group">
               <label>Downtime (hours)</label>
-              <input type="number" step="0.5" name="downtime_hours">
+              <input type="number" step="0.5" name="downtime_hours" value="${av(ev.downtime_hours)}">
             </div>
             <div class="eq-form-group">
               <label>Labor Hours</label>
-              <input type="number" step="0.5" name="labor_hours">
+              <input type="number" step="0.5" name="labor_hours" value="${av(ev.labor_hours)}">
             </div>
           </div>
           <div class="eq-form-group">
             <label>Symptoms</label>
-            <textarea name="symptoms" rows="2" placeholder="What was wrong?"></textarea>
+            <textarea name="symptoms" rows="2" placeholder="What was wrong?">${av(ev.symptoms)}</textarea>
           </div>
           <div class="eq-form-group">
             <label>Root Cause</label>
-            <textarea name="root_cause" rows="2" placeholder="What did they find?"></textarea>
+            <textarea name="root_cause" rows="2" placeholder="What did they find?">${av(ev.root_cause)}</textarea>
           </div>
           <div class="eq-form-group">
             <label>Next PM Due (optional)</label>
-            <input type="date" name="next_pm_due">
+            <input type="date" name="next_pm_due" value="${dval(ev.next_pm_due)}">
           </div>
           <div class="eq-form-group">
-            <label><input type="checkbox" name="warranty_claim"> Warranty claim</label>
+            <label><input type="checkbox" name="warranty_claim"${ev.warranty_claim ? ' checked' : ''}> Warranty claim</label>
           </div>
           <div class="eq-form-actions">
+            ${editId ? `<button type="button" class="eq-btn eq-btn-danger" onclick="NX.modules.equipment.deleteMaintenance('${editId}','${equipId}')">Delete</button>` : ''}
             <button type="button" class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.closeService()">Cancel</button>
-            <button type="submit" class="eq-btn eq-btn-primary">Log Service</button>
+            <button type="submit" class="eq-btn eq-btn-primary">${editId ? 'Save Changes' : 'Log Service'}</button>
           </div>
         </form>
       </div>
@@ -5969,10 +5996,15 @@ function logService(equipId) {
     // counts are decremented and reorder cards are auto-created.
     const persistMaintenance = async () => {
       try {
-        const { error } = await NX.sb.from('equipment_maintenance').insert(data);
+        // next_pm_due is an equipment field, not a maintenance column — keep
+        // it out of the row write, then apply it to the equipment separately.
+        const { next_pm_due, ...row } = data;
+        const { error } = editId
+          ? await NX.sb.from('equipment_maintenance').update(row).eq('id', editId)
+          : await NX.sb.from('equipment_maintenance').insert(row);
         if (error) throw error;
-        if (data.next_pm_due) {
-          await NX.sb.from('equipment').update({ next_pm_date: data.next_pm_due }).eq('id', equipId);
+        if (next_pm_due) {
+          await NX.sb.from('equipment').update({ next_pm_date: next_pm_due }).eq('id', equipId);
         }
 
         // v18.20 — When event_type='pm', also update equipment.last_pm_date
@@ -6002,7 +6034,7 @@ function logService(equipId) {
 
         try { await NX.sb.rpc('recompute_health_score', { eq_id: equipId }); } catch(e){}
 
-        NX.toast && NX.toast('Service logged ✓', 'success');
+        NX.toast && NX.toast(editId ? 'Service updated ✓' : 'Service logged ✓', 'success');
         // equipment_service syslog → now handled by Postgres trigger on equipment_maintenance INSERT
 
         closeService();
@@ -6037,8 +6069,11 @@ async function deleteMaintenance(id, equipId) {
   try {
     await NX.sb.from('equipment_maintenance').delete().eq('id', id);
     NX.toast && NX.toast('Deleted ✓', 'success');
+    closeService();                 // close the edit sheet if the delete came from it
+    try { await NX.sb.rpc('recompute_health_score', { eq_id: equipId }); } catch(e){}
+    await loadEquipment();          // refresh YTD count / aggregates
     openDetail(equipId);
-  } catch(e) { console.error(e); }
+  } catch(e) { console.error(e); NX.toast && NX.toast('Delete failed', 'error'); }
 }
 
 /* ─── Parts CRUD ─── */
@@ -20688,6 +20723,7 @@ const __nxeExports = {
 
   // Service log + parts
   logService,
+  showDetailTab,
   exportToResQ,
   closeService,
   deleteMaintenance,
