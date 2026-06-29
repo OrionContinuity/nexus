@@ -18,7 +18,10 @@
     otApk:  BASE + 'OpenTether.apk',
     otWin:  BASE + 'OpenTether-Windows.zip',
     otQR:   BASE + 'OpenTether-QR.png',
-    updater: BASE + 'clippy-update.ps1',     // the self-update script nodes download + run
+    // The self-update script nodes download + run. Served straight from the
+    // repo (always present, no manual upload). Swap to the Supabase installers
+    // bucket (BASE + 'clippy-update.ps1') once you've uploaded it there.
+    updater: 'https://raw.githubusercontent.com/orioncontinuity/nexus/main/clippy-update.ps1',
   };
 
   // ─── bus over REST (anon key; clippy_sync is anon-readable) ──────────────
