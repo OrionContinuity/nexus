@@ -222,34 +222,49 @@
         '<div class="nxt-info" style="margin-top:0">' + (latest ? ('v<b>' + esc(latest) + '</b>' + (rel.notes ? ' — ' + esc(rel.notes) : '')) : 'No release recorded yet. Upload <code>clippy-update.ps1</code> + the build to the <b>installers</b> bucket and set a <code>clippy_release</code> row.') + '</div>' +
         '<div class="nxt-h4">Online nodes</div>' + rows +
         '<button class="nxt-cta" id="nxtPush"' + (nodes.length ? '' : ' disabled') + '>⬆ Push update to ' + nodes.length + ' node' + (nodes.length === 1 ? '' : 's') + '</button>' +
+        '<button class="nxt-ghost" id="nxtStopOld"' + (nodes.length ? '' : ' disabled') + '>⏻ Stop legacy v2.4.4 poller on all nodes</button>' +
         '<a class="nxt-ghost" href="' + F.updater + '" target="_blank" rel="noopener">View / download the updater script</a>' +
         '<div class="nxt-note">Command execution is token-gated per node. When a node is provisioned with <code>-CmdToken</code>, the daemon <b>auto-publishes the token to the bus</b>, so Push works here with no manual entry. (Trade-off: the bus is anon-readable, so that makes command-exec reachable by anyone with the site — drop the token to keep it manual.)</div>';
       var pb = document.getElementById('nxtPush');
       if (pb) pb.addEventListener('click', function () { pushUpdate(nodes, pb); });
+      var so = document.getElementById('nxtStopOld');
+      if (so) so.addEventListener('click', function () { stopOldPoller(nodes, so); });
     });
   }
 
-  function pushUpdate(nodes, pb) {
-    pb.disabled = true; pb.textContent = 'Pushing…';
-    // Token order: the one the node auto-published to the bus (clippy_cmd) →
-    // this device's saved one → prompt as a last resort.
+  // Resolve the cmd token (bus-published → saved → prompt), then run cb(token).
+  function withToken(cb, onCancel) {
     busGet('clippy_cmd').then(function (c) {
       var token = (c && c.token) || localStorage.getItem('nx_clippy_cmd_token') || '';
-      if (!token) {
-        token = (window.prompt('Enter the CLIPPY_CMD_TOKEN set on your nodes (stored on this device only):') || '').trim();
-        if (!token) { pb.disabled = false; pb.textContent = '⬆ Push update'; return; }
-      }
+      if (!token) token = (window.prompt('Enter the CLIPPY_CMD_TOKEN set on your nodes (stored on this device only):') || '').trim();
+      if (!token) { if (onCancel) onCancel(); return; }
       try { localStorage.setItem('nx_clippy_cmd_token', token); } catch (e) {}
-      var cmd = "$u='" + F.updater + "'; $o=\"$env:TEMP\\clippy-update.ps1\"; Invoke-WebRequest $u -OutFile $o; powershell -ExecutionPolicy Bypass -File $o";
-      var ts = Date.now();
-      var posts = nodes.map(function (n, i) {
-        return busPost({ id: 'job:update-' + ts + '-' + i, from_id: 'nexus', data: { status: 'pending', cmd: cmd, token: token, shell: 'powershell', ts: ts } });
-      });
-      Promise.all(posts).then(function () {
-        pb.textContent = '✓ Sent — see Activity';
-        setTimeout(function () { NX.tools.go('activity'); }, 700);
-      }).catch(function () { pb.disabled = false; pb.textContent = '⬆ Retry push'; });
+      cb(token);
     });
+  }
+  function sendCmd(nodes, cmd, idPrefix, token) {
+    var ts = Date.now();
+    return Promise.all(nodes.map(function (n, i) {
+      return busPost({ id: 'job:' + idPrefix + '-' + ts + '-' + i, from_id: 'nexus', data: { status: 'pending', cmd: cmd, token: token, shell: 'powershell', ts: ts } });
+    }));
+  }
+  function pushUpdate(nodes, pb) {
+    pb.disabled = true; pb.textContent = 'Pushing…';
+    withToken(function (token) {
+      var cmd = "$u='" + F.updater + "'; $o=\"$env:TEMP\\clippy-update.ps1\"; Invoke-WebRequest $u -OutFile $o; powershell -ExecutionPolicy Bypass -File $o";
+      sendCmd(nodes, cmd, 'update', token).then(function () {
+        pb.textContent = '✓ Sent — see Activity'; setTimeout(function () { NX.tools.go('activity'); }, 700);
+      }).catch(function () { pb.disabled = false; pb.textContent = '⬆ Retry push'; });
+    }, function () { pb.disabled = false; pb.textContent = '⬆ Push update'; });
+  }
+  function stopOldPoller(nodes, so) {
+    so.disabled = true; so.textContent = 'Stopping…';
+    withToken(function (token) {
+      var cmd = "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine -match 'clippy_brain' } | ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force; \"stopped $($_.ProcessId)\" } catch {} }; 'old poller stopped'";
+      sendCmd(nodes, cmd, 'stopold', token).then(function () {
+        so.textContent = '✓ Sent — see Activity'; setTimeout(function () { NX.tools.go('activity'); }, 700);
+      }).catch(function () { so.disabled = false; so.textContent = '⏻ Stop legacy v2.4.4 poller'; });
+    }, function () { so.disabled = false; so.textContent = '⏻ Stop legacy v2.4.4 poller'; });
   }
 
   // ─── INSTALL screens (themed) ────────────────────────────────────────────

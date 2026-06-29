@@ -28,6 +28,7 @@ param(
   [string]$VisionModel = 'llama3.2-vision',  # Ollama vision model for Scan Plate (use 'moondream' on small disks)
   [string]$CmdToken = $env:CLIPPY_CMD_TOKEN, # enables "Push update" / remote commands; persisted for the user
   [switch]$NoAutostart,         # skip registering the logon Scheduled Task
+  [switch]$KeepOldPoller,       # don't stop the legacy v2.4.4 clippy_brain poller
   [switch]$ReportOnly,          # report what would happen; change nothing
   [switch]$EnsureOnly           # provision tools only; skip pulling the model + starting the worker
 )
@@ -215,6 +216,14 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
         Invoke-RestMethod -Uri 'https://oprsthfxqrdbwdvommpw.supabase.co/rest/v1/clippy_sync' -Method Post -Headers $hdr -Body $body -TimeoutSec 15 | Out-Null
         Log "[ok] command token published to bus - NEXUS Push needs no manual entry" 'Green'
       } catch { Log "[..] token publish skipped: $($_.Exception.Message)" 'Yellow' }
+    }
+    # Stop the OLD v2.4.4 poller (clippy_brain) so it doesn't race worker-1.0 and
+    # 400 every vision job. worker-1.0 is the single node software going forward.
+    if (-not $KeepOldPoller) {
+      $old = Get-CimInstance Win32_Process -EA SilentlyContinue |
+             Where-Object { $_.CommandLine -and $_.CommandLine -match 'clippy_brain' }
+      foreach ($p in $old) { try { Stop-Process -Id $p.ProcessId -Force; Log "[ok] stopped old poller (pid $($p.ProcessId))" 'Green' } catch {} }
+      if (-not $old) { Log "[ok] no old poller running" 'Green' }
     }
     # Start the job-poller (idempotent: skip if one is already running).
     $worker = Join-Path $HOMEDIR 'clippy-worker.py'
