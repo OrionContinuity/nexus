@@ -38,6 +38,11 @@ SUPA_URL   = os.environ.get("NEXUS_SUPABASE_URL",  "https://oprsthfxqrdbwdvommpw
 SUPA_KEY   = os.environ.get("NEXUS_SUPABASE_ANON", "sb_publishable_rOLSdIG6mIjVLY8JmvrwCA_qfM7Vyk9")
 OLLAMA     = os.environ.get("OLLAMA_URL", "http://localhost:11434").rstrip("/")
 VISION_MODEL = os.environ.get("CLIPPY_VISION_MODEL", "llama3.2-vision")
+# Fallback if the preferred vision model's architecture isn't supported by this
+# node's (older) Ollama - e.g. llama3.2-vision is 'mllama' and needs Ollama
+# >= 0.4. llava loads on practically any Ollama, so Scan Plate keeps working
+# without forcing an upgrade on every node.
+FALLBACK_VISION_MODEL = os.environ.get("CLIPPY_FALLBACK_VISION_MODEL", "llava")
 TEXT_MODEL   = os.environ.get("CLIPPY_TEXT_MODEL", "llama3.1")
 NODE       = os.environ.get("CLIPPY_NODE_NAME", socket.gethostname())
 # Command execution is OFF unless a token is set. The bus is writable with the
@@ -208,10 +213,20 @@ def ollama_generate(model, prompt, system=None, image_b64=None, _retry=True):
         detail = ""
         try: detail = e.read().decode("utf-8", "replace")
         except Exception: pass
+        low = detail.lower()
         # Model not installed yet -> pull it once, then retry.
-        if _retry and ("not found" in detail.lower() or e.code == 404):
+        if _retry and ("not found" in low or e.code == 404):
             ollama_pull(model)
             return ollama_generate(model, prompt, system, image_b64, _retry=False)
+        # Vision model architecture unsupported by this (older) Ollama
+        # (e.g. llama3.2-vision = 'mllama', needs Ollama >= 0.4) -> fall back to
+        # a widely-supported vision model so Scan Plate still works.
+        if (_retry and image_b64 and model != FALLBACK_VISION_MODEL
+                and ("unknown model architecture" in low or "mllama" in low)):
+            log("vision model '%s' unsupported by this Ollama -> falling back to '%s'" % (model, FALLBACK_VISION_MODEL))
+            activity("job", "vision model unsupported here; using " + FALLBACK_VISION_MODEL)
+            ollama_pull(FALLBACK_VISION_MODEL)
+            return ollama_generate(FALLBACK_VISION_MODEL, prompt, system, image_b64, _retry=False)
         raise RuntimeError("ollama HTTP %s: %s" % (e.code, detail[:200]))
     except urllib.error.URLError as e:
         raise RuntimeError("cannot reach Ollama at %s (%s) - is `ollama serve` running?" % (OLLAMA, e.reason))
