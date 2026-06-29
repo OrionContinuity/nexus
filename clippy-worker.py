@@ -51,9 +51,15 @@ _state = {"busy": False, "current": ""}     # what this node is doing right now
 REST = SUPA_URL + "/rest/v1/clippy_sync"
 SB_HEADERS = {"apikey": SUPA_KEY, "Authorization": "Bearer " + SUPA_KEY, "Content-Type": "application/json"}
 
-POLL_SECS = 2
+POLL_SECS = 1                     # vision rides its own 'vis:' lane (no race); 1s keeps latency low + request volume modest
 HEARTBEAT_SECS = 30
 JOB_MAX_AGE_MS = 120_000          # ignore jobs older than this (NEXUS has given up)
+# Coexist with the legacy v2.4.4 poller (qwen3:8b) instead of fighting it.
+# Vision jobs ride a separate 'vis:' id prefix that the legacy poller never
+# queries (it polls 'job:%'), so vision can't be raced/clobbered. On the shared
+# 'job:' lane this worker takes only cmd jobs and leaves TEXT to the legacy
+# brain. Set CLIPPY_CLAIM_TEXT=1 to also answer text (e.g. no legacy poller).
+CLAIM_TEXT = os.environ.get("CLIPPY_CLAIM_TEXT", "0") == "1"
 _pulled = set()                   # models we've already ensured locally this run
 
 
@@ -71,7 +77,9 @@ def _http(method, url, headers=None, body=None, timeout=180):
 
 # ─── Supabase bus ────────────────────────────────────────────────────────────
 def sb_get_pending():
-    url = REST + "?id=like.job:*&select=id,data"
+    # Poll our vision lane ('vis:') AND the shared 'job:' lane (for cmd jobs).
+    # Vision rides 'vis:' so the legacy v2.4.4 poller never sees it -> no race.
+    url = REST + "?or=(id.like.vis:*,id.like.job:*)&select=id,data"
     try:
         _, raw = _http("GET", url, SB_HEADERS, timeout=20)
         rows = json.loads(raw or "[]")
@@ -84,6 +92,11 @@ def sb_get_pending():
         if d.get("status") != "pending":
             continue
         if now - (d.get("ts") or 0) > JOB_MAX_AGE_MS:
+            continue
+        # Vision specialist: ignore pure-text jobs so the legacy brain answers
+        # them (it has the preferred text model). We still take vision + cmd.
+        is_text = not (d.get("image_b64") or d.get("vision") or d.get("cmd"))
+        if is_text and not CLAIM_TEXT:
             continue
         out.append(row)
     return out
@@ -123,8 +136,8 @@ def sb_heartbeat():
     except Exception:
         pass
     arr.append({"name": NODE, "ts": now, "vision": True, "cmd": bool(CMD_TOKEN),
-                "os": OSDESC, "version": "worker-1.0", "busy": _state["busy"], "current": _state["current"],
-                "caps": (["ask", "vision"] + (["cmd"] if CMD_TOKEN else [])),
+                "os": OSDESC, "version": "worker-1.1-vis", "busy": _state["busy"], "current": _state["current"],
+                "caps": ((["ask"] if CLAIM_TEXT else []) + ["vision"] + (["cmd"] if CMD_TOKEN else [])),
                 "models": [VISION_MODEL, TEXT_MODEL]})
     h = dict(SB_HEADERS); h["Prefer"] = "resolution=merge-duplicates,return=minimal"
     try:
@@ -242,7 +255,7 @@ def process(job):
         return                                   # another node got it
     if data.get("cmd"):
         run_command(job_id, data); return
-    is_vision = bool(data.get("image_b64")) or bool(data.get("vision"))
+    is_vision = job_id.startswith("vis:") or bool(data.get("image_b64")) or bool(data.get("vision"))
     model = VISION_MODEL if is_vision else (data.get("model") or TEXT_MODEL)
     kind = "vision" if is_vision else "text"
     set_state(True, kind + " job"); activity("job", kind + " job claimed")
