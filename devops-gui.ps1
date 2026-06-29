@@ -94,6 +94,7 @@ $suHint=New-Object Windows.Forms.Label; $suHint.Location='14,184'; $suHint.Size=
 $suHint.Text="Login once (paste the token from Account > Access Tokens), then Deploy clippy-pool publishes the cross-machine Clippy fan-out.`r`n`r`nUpload installers needs the SERVICE-ROLE key (Project Settings > API) - it creates the public 'installers' bucket and uploads OpenTether + Clippy so the Tools buttons work."
 $su.Controls.Add($suHint)
 
+Btn $form "Provision node (auto-install)" 14 344 220 { RunConsole 'clippy-daemon' "& '$HOMEDIR\clippy-daemon.ps1'" $HOMEDIR } $true | Out-Null
 Btn $form "Clear log" 640 344 100 { $log.Clear() } | Out-Null
 
 function Refresh-Status {
