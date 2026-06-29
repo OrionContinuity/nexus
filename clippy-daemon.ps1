@@ -233,15 +233,24 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
       } else { Log "[next] Python not detected yet - rerun after a new shell." 'Yellow' }
     }
 
-    # Auto-start on boot: a logon Scheduled Task that re-runs this daemon
-    # (idempotent - it re-provisions + relaunches the worker if it died).
+    # Auto-start on boot. Copy the scripts to a STABLE home first (this folder
+    # may be a throwaway clone), then register a logon task pointing there.
+    # Battery-friendly so it still runs on a laptop that's unplugged.
     if (-not $NoAutostart) {
       try {
-        $self = $MyInvocation.MyCommand.Path
-        $act  = "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$self`" -EnsureOnly:`$false"
-        & schtasks /Create /TN 'ClippyDaemon' /SC ONLOGON /RL LIMITED /F /TR $act *> $null
-        if ($LASTEXITCODE -eq 0) { Log "[ok] autostart registered (Scheduled Task 'ClippyDaemon', runs at logon)" 'Green' }
-        else { Log "[..] could not register autostart task (non-fatal)" 'Yellow' }
+        $self = $PSCommandPath; if (-not $self) { $self = $MyInvocation.MyCommand.Path }
+        $stable = Join-Path $env:LOCALAPPDATA 'NexusClippy'
+        New-Item -ItemType Directory -Force -Path $stable | Out-Null
+        foreach ($f in 'clippy-daemon.ps1', 'clippy-worker.py', 'clippy-update.ps1') {
+          $src = Join-Path $HOMEDIR $f
+          if (Test-Path $src) { Copy-Item $src (Join-Path $stable $f) -Force -EA SilentlyContinue }
+        }
+        $stableDaemon = Join-Path $stable 'clippy-daemon.ps1'
+        $act = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $stableDaemon + '"')
+        $trg = New-ScheduledTaskTrigger -AtLogOn
+        $set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+        Register-ScheduledTask -TaskName 'ClippyDaemon' -Action $act -Trigger $trg -Settings $set -Force -ErrorAction Stop | Out-Null
+        Log "[ok] autostart registered (logon task 'ClippyDaemon' -> $stable)" 'Green'
       } catch { Log "[..] autostart registration skipped: $($_.Exception.Message)" 'Yellow' }
     }
   } else {
