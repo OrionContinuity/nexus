@@ -224,6 +224,20 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
              Where-Object { $_.CommandLine -and $_.CommandLine -match 'clippy_brain' }
       foreach ($p in $old) { try { Stop-Process -Id $p.ProcessId -Force; Log "[ok] stopped old poller (pid $($p.ProcessId))" 'Green' } catch {} }
       if (-not $old) { Log "[ok] no old poller running" 'Green' }
+      # Stop it relaunching: disable any non-ours clippy Scheduled Task + neuter
+      # startup shortcuts/cmd that mention clippy/clippy_brain. Otherwise it
+      # comes back on next login and races worker-1.0 again.
+      try {
+        Get-ScheduledTask -EA SilentlyContinue |
+          Where-Object { $_.TaskName -match 'clippy' -and $_.TaskName -ne 'ClippyDaemon' -and $_.State -ne 'Disabled' } |
+          ForEach-Object { try { Disable-ScheduledTask -TaskName $_.TaskName -EA SilentlyContinue | Out-Null; Log "[ok] disabled old autostart task '$($_.TaskName)'" 'Green' } catch {} }
+      } catch {}
+      try {
+        $startup = [Environment]::GetFolderPath('Startup')
+        Get-ChildItem $startup -EA SilentlyContinue |
+          Where-Object { $_.Name -match 'clippy' -or $_.Name -match 'clippy_brain' } |
+          ForEach-Object { try { Rename-Item $_.FullName ($_.FullName + '.disabled') -Force -EA SilentlyContinue; Log "[ok] disabled startup item '$($_.Name)'" 'Green' } catch {} }
+      } catch {}
     }
     # Start the job-poller (idempotent: skip if one is already running).
     $worker = Join-Path $HOMEDIR 'clippy-worker.py'
