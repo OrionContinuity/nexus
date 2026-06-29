@@ -3633,12 +3633,19 @@ td.check{background:#F0EDE6 !important}
     const _pv = this.getProvider();
     if (_pv === 'clippy') return this.askLocalVision(prompt, base64Data, mimeType);
     if (_pv === 'clippy-pool') {
-      // Pure local pool — NO cloud. A Clippy node runs the vision model and
-      // writes the answer back. If no node answers, surface the error so the
-      // operator brings a node online (every node self-provisions vision via
-      // clippy-daemon.ps1 + clippy-worker.py).
-      try { return await this.askPool(prompt, { image_b64: base64Data }); }
-      catch (e) { this._lastVisionError = e.message || String(e); return ''; }
+      // Pure local pool — NO cloud. Vision jobs ride the 'vis:' id prefix (see
+      // askPool), which the legacy text poller (qwen3:8b, polls 'job:%') can't
+      // see — so it can't grab one and 400 it. Only our vision worker
+      // (clippy-worker.py, llama3.2-vision) claims 'vis:' rows. A 'vis:' error
+      // can therefore only be our own worker hiccupping, so retry: each askPool
+      // mints a fresh 'vis:' row. Attempt 0 is generous (cold model load).
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const out = await this.askPool(prompt, { image_b64: base64Data, timeoutMs: attempt === 0 ? 45000 : 30000 });
+          if (out) { this._lastVisionError = null; return out; }
+        } catch (e) { this._lastVisionError = e.message || String(e); }
+      }
+      return '';
     }
     const key = this.getApiKey();
     if (!key) {
@@ -3806,7 +3813,12 @@ td.check{background:#F0EDE6 !important}
     if (!this.sb) throw new Error('Clippy pool needs the Supabase connection.');
     const rid = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
               : (Date.now() + '-' + Math.random().toString(36).slice(2));
-    const id = 'job:' + rid;
+    // Vision jobs go on a SEPARATE id prefix the legacy v2.4.4 poller never
+    // queries (it polls id like 'job:%'). That makes vision work invisible to
+    // it, so it can't grab a vision job, 400 on it, and write 'error' — the
+    // race is structurally impossible rather than merely won by polling fast.
+    // Text jobs stay on 'job:' so the legacy brain (qwen3) keeps serving them.
+    const id = (opts.image_b64 ? 'vis:' : 'job:') + rid;
     const job = {
       status: 'pending', prompt: String(prompt || ''),
       system: opts.system || null, image_b64: opts.image_b64 || null,

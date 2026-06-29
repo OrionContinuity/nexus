@@ -28,7 +28,6 @@ param(
   [string]$VisionModel = 'llama3.2-vision',  # Ollama vision model for Scan Plate (use 'moondream' on small disks)
   [string]$CmdToken = $env:CLIPPY_CMD_TOKEN, # enables "Push update" / remote commands; persisted for the user
   [switch]$NoAutostart,         # skip registering the logon Scheduled Task
-  [switch]$KeepOldPoller,       # don't stop the legacy v2.4.4 clippy_brain poller
   [switch]$ReportOnly,          # report what would happen; change nothing
   [switch]$EnsureOnly           # provision tools only; skip pulling the model + starting the worker
 )
@@ -217,28 +216,9 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
         Log "[ok] command token published to bus - NEXUS Push needs no manual entry" 'Green'
       } catch { Log "[..] token publish skipped: $($_.Exception.Message)" 'Yellow' }
     }
-    # Stop the OLD v2.4.4 poller (clippy_brain) so it doesn't race worker-1.0 and
-    # 400 every vision job. worker-1.0 is the single node software going forward.
-    if (-not $KeepOldPoller) {
-      $old = Get-CimInstance Win32_Process -EA SilentlyContinue |
-             Where-Object { $_.CommandLine -and $_.CommandLine -match 'clippy_brain' }
-      foreach ($p in $old) { try { Stop-Process -Id $p.ProcessId -Force; Log "[ok] stopped old poller (pid $($p.ProcessId))" 'Green' } catch {} }
-      if (-not $old) { Log "[ok] no old poller running" 'Green' }
-      # Stop it relaunching: disable any non-ours clippy Scheduled Task + neuter
-      # startup shortcuts/cmd that mention clippy/clippy_brain. Otherwise it
-      # comes back on next login and races worker-1.0 again.
-      try {
-        Get-ScheduledTask -EA SilentlyContinue |
-          Where-Object { $_.TaskName -match 'clippy' -and $_.TaskName -ne 'ClippyDaemon' -and $_.State -ne 'Disabled' } |
-          ForEach-Object { try { Disable-ScheduledTask -TaskName $_.TaskName -EA SilentlyContinue | Out-Null; Log "[ok] disabled old autostart task '$($_.TaskName)'" 'Green' } catch {} }
-      } catch {}
-      try {
-        $startup = [Environment]::GetFolderPath('Startup')
-        Get-ChildItem $startup -EA SilentlyContinue |
-          Where-Object { $_.Name -match 'clippy' -or $_.Name -match 'clippy_brain' } |
-          ForEach-Object { try { Rename-Item $_.FullName ($_.FullName + '.disabled') -Force -EA SilentlyContinue; Log "[ok] disabled startup item '$($_.Name)'" 'Green' } catch {} }
-      } catch {}
-    }
+    # Coexist with the legacy v2.4.4 poller: it keeps answering TEXT (qwen3:8b)
+    # while the worker specializes in VISION on its own 'vis:' lane. We never
+    # stop or disable it - the two run side by side.
     # Start the job-poller (idempotent: skip if one is already running).
     $worker = Join-Path $HOMEDIR 'clippy-worker.py'
     $running = Get-CimInstance Win32_Process -EA SilentlyContinue |
