@@ -22,16 +22,24 @@ foreach ($f in 'clippy-worker.py', 'clippy-daemon.ps1', 'clippy-update.ps1') {
   } catch { Write-Host "[!!] fetch $f failed: $($_.Exception.Message)" }
 }
 
-# Stop any running worker so the fresh one takes over.
+# Stop any running supervisor + worker so the fresh ones take over.
 Get-CimInstance Win32_Process -EA SilentlyContinue |
-  Where-Object { $_.CommandLine -and $_.CommandLine -match 'clippy-worker\.py' } |
+  Where-Object { $_.CommandLine -and ($_.CommandLine -match 'clippy-daemon\.ps1' -or $_.CommandLine -match 'clippy-worker\.py') } |
   ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force } catch {} }
+Start-Sleep -Seconds 2
 
-# Re-provision + relaunch (installs/keeps Ollama + vision model, starts worker,
-# registers logon autostart). CLIPPY_CMD_TOKEN is read from the environment.
+# Relaunch the daemon as a detached, self-healing SUPERVISOR: it re-provisions
+# (keeps Ollama + the vision model), starts the worker as a Clippy-managed
+# slave, registers logon autostart, and from then on keeps the worker fresh
+# from GitHub on its own - so a bad worker version recovers without a manual
+# pull. Detached (Start-Process) so this updater can exit. CLIPPY_CMD_TOKEN is
+# read from the environment.
 $daemon = Join-Path $dir 'clippy-daemon.ps1'
 if (Test-Path $daemon) {
-  & powershell -ExecutionPolicy Bypass -File $daemon
+  Start-Process -FilePath 'powershell.exe' `
+    -ArgumentList ('-ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $daemon + '" -Supervise') `
+    -WorkingDirectory $dir -WindowStyle Hidden
+  Write-Host "[ok] self-healing supervisor relaunched"
 } else {
   Write-Host "[!!] daemon not present after fetch - check network / repo URL"
 }
