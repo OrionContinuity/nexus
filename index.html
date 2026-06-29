@@ -3990,10 +3990,8 @@
           <b>Pool</b> lets your phone use the LLM on your PC. Run the poller on that PC
           (<code>tools/clippy-poller/run-clippy-poller.bat</code>), then tap <b>Check Clippy</b>.
         </div>
-        <!-- Live Clippy activity — nodes online, what each is doing right now,
-             in-flight jobs, and a recent feed. Populated + auto-refreshed by
-             app.js clippyActivityInto() while this panel is open. -->
-        <div id="adminClippyActivity" class="clippy-activity"></div>
+        <!-- Live Clippy activity now lives in the Tools hub (tap Tools → Activity). -->
+        <button id="adminOpenTools" class="admin-save-btn" style="margin-top:4px;padding:6px 12px;font-size:11px;background:transparent;color:var(--accent);border:1px solid rgba(200,164,78,0.3)" onclick="window.NX&&window.NX.tools&&window.NX.tools.open()">Open Tools → live Clippy activity</button>
       </div>
       <!-- Voice selector — hidden control. The legacy dropdown lives
            on as the underlying state mechanism (writes to nexus_voice_idx
