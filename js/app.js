@@ -2534,8 +2534,82 @@ td.check{background:#F0EDE6 !important}
       });
     });
 
+    // ─── ACTIVE VOICE PICKER ──────────────────────────────────────
+    // The single, visible control for choosing who speaks: Providentia,
+    // Trajan, or the device's System voice. Maps each persona to its
+    // registered custom-voice index (by name) and ensures the entry exists
+    // (upserting from PERSONAS) so selection works even if a voice was never
+    // "brought to life" via the cards below.
+    const picker = document.getElementById('adminVoicePicker');
+    const renderVoicePicker = () => {
+      if (!picker) return;
+      const customs = load();
+      const savedIdx = parseInt(localStorage.getItem('nexus_voice_idx') || '0');
+      let activeKey = 'system';
+      if (savedIdx >= 20 && savedIdx < 20 + customs.length) {
+        const nm = (customs[savedIdx - 20] || {}).name;
+        if (nm === PERSONAS.providentia.name) activeKey = 'providentia';
+        else if (nm === PERSONAS.trajan.name) activeKey = 'trajan';
+      }
+      picker.querySelectorAll('.admin-voice-pick').forEach(b => {
+        const on = b.dataset.voicePick === activeKey;
+        b.classList.toggle('is-active', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+    };
+    const selectVoice = async (key) => {
+      let finalIdx = 0;
+      if (key === 'providentia' || key === 'trajan') {
+        const persona = PERSONAS[key];
+        const customs = load();
+        let i = customs.findIndex(v => v.name === persona.name);
+        if (i < 0) {
+          // Persona not registered yet — upsert from the canonical PERSONAS
+          // definition so the choice works immediately.
+          customs.push({
+            id: persona.voiceId, name: persona.name, blurb: persona.blurb,
+            stability: persona.stability, similarity: persona.similarity,
+            style: persona.style, speed: persona.speed, systemPrefix: persona.systemPrefix,
+          });
+          save(customs);
+          i = customs.findIndex(v => v.name === persona.name);
+        }
+        finalIdx = 20 + i;
+      }
+      localStorage.setItem('nexus_voice_idx', String(finalIdx));
+      if (this.config) this.config.voice_idx = finalIdx;
+      this._rebuildVoiceSelect();
+      const sel = document.getElementById('adminVoice');
+      if (sel) sel.value = String(finalIdx);
+      // Let preferences.js mirror the change to Supabase user_preferences.
+      try { window.dispatchEvent(new CustomEvent('nx-voice-idx-change', { detail: { idx: finalIdx } })); } catch (_) {}
+      try { await this.sb.from('nexus_config').update({ voice_idx: finalIdx }).eq('id', 1); } catch (_) {}
+      renderVoicePicker();
+      characters.forEach(c => renderCharacterState(c));
+      const label = key === 'system' ? 'System voice' : PERSONAS[key].name;
+      const vs = document.getElementById('voiceTestStatus');
+      if (vs) { vs.style.display = ''; vs.textContent = `✓ ${label} selected`; vs.style.color = 'var(--green)'; }
+      // Speak a short confirmation in the chosen persona (System uses no
+      // ElevenLabs key, so it stays silent here).
+      if (key !== 'system') {
+        const persona = PERSONAS[key];
+        const line = key === 'providentia' ? 'Providentia speaks.' : 'Trajan speaks.';
+        setTimeout(() => this.testCustomVoice({
+          id: persona.voiceId, name: persona.name, stability: persona.stability,
+          similarity: persona.similarity, style: persona.style, speed: persona.speed,
+        }, line), 250);
+      }
+    };
+    if (picker && !picker._wired) {
+      picker._wired = true;
+      picker.querySelectorAll('.admin-voice-pick').forEach(b => {
+        b.addEventListener('click', () => selectVoice(b.dataset.voicePick));
+      });
+    }
+
     // ─── INITIAL RENDER ───────────────────────────────────────────
     this._rebuildVoiceSelect();
+    renderVoicePicker();
     characters.forEach(c => renderCharacterState(c));
   },
 

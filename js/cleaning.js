@@ -5671,7 +5671,13 @@
   function renderLite(list) {
     list.innerHTML = '';
     const cfg = liteConfig();
-    const zones = liteZones();
+    // Daily zone cards only make sense for zones that have at least one DAILY
+    // task. Zones whose tasks are all periodic (e.g. "Every 2 weeks", "Every
+    // month", "Garden") rendered as empty "No tasks in this zone" cards up top
+    // even though their work already lives in "Periodic & deep cleans" below —
+    // pure clutter. Drop them from the daily list (they still surface in the
+    // periodic group via renderPeriodicGroup).
+    const zones = liteZones().filter(z => z.tasks.some(t => DAILY_TYPES.has(t.frequency_type)));
     const wrap = document.createElement('div');
     wrap.className = 'cleanlite';
 

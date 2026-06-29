@@ -5499,8 +5499,16 @@
 
     // Apply saved position if available
     if (state.preferences.position_x != null && state.preferences.position_y != null) {
-      shell.style.left   = state.preferences.position_x + 'px';
-      shell.style.top    = state.preferences.position_y + 'px';
+      let px = state.preferences.position_x;
+      const py = state.preferences.position_y;
+      // Desktop: a position saved on the left would sit on top of the fixed
+      // 240px sidebar rail (the rail is anchored to the viewport there). Snap
+      // the assistant back to the right side so it never covers the nav.
+      if (window.innerWidth >= 900 && px < 252) {
+        px = window.innerWidth - 92 - 24;
+      }
+      shell.style.left   = px + 'px';
+      shell.style.top    = py + 'px';
       shell.style.right  = 'auto';
       shell.style.bottom = 'auto';
     }
@@ -5580,7 +5588,9 @@
       const newTop  = e.clientY - drag.offsetY;
       const maxX = window.innerWidth  - 60;
       const maxY = window.innerHeight - 60;
-      shell.style.left   = Math.max(0, Math.min(maxX, newLeft)) + 'px';
+      // Desktop: don't let the assistant be dragged onto the 240px sidebar rail.
+      const minX = window.innerWidth >= 900 ? 240 : 0;
+      shell.style.left   = Math.max(minX, Math.min(maxX, newLeft)) + 'px';
       shell.style.top    = Math.max(0, Math.min(maxY, newTop))  + 'px';
       shell.style.right  = 'auto';
       shell.style.bottom = 'auto';
@@ -6139,7 +6149,9 @@
       top = rect.bottom + 24;
       tailBelow = true;
     }
-    left = Math.max(8, Math.min(window.innerWidth  - eRect.width  - 8, left));
+    // Desktop: keep the bubble clear of the fixed 240px sidebar rail.
+    const minLeft = window.innerWidth >= 900 ? 252 : 8;
+    left = Math.max(minLeft, Math.min(window.innerWidth  - eRect.width  - 8, left));
     el.style.top  = top  + 'px';
     el.style.left = left + 'px';
     // Clear all tail classes, then set the right one

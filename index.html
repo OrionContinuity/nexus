@@ -4002,6 +4002,26 @@
       <select id="adminVoice" class="admin-field" style="display:none">
         <option value="0">— System default —</option>
       </select>
+
+      <!-- ACTIVE VOICE PICKER — the one place to choose who speaks. Sets
+           nexus_voice_idx by mapping each persona to its registered custom
+           voice (by name). "System" falls back to the device voice. Wired in
+           app.js setupCustomVoices() → renderVoicePicker(). -->
+      <div class="admin-voice-pick-label">Active voice</div>
+      <div class="admin-voice-picker" id="adminVoicePicker" role="group" aria-label="Active voice">
+        <button type="button" class="admin-voice-pick" data-voice-pick="providentia">
+          <span class="avp-name">Providentia</span>
+          <span class="avp-sub">Advisor · reverse</span>
+        </button>
+        <button type="button" class="admin-voice-pick" data-voice-pick="trajan">
+          <span class="avp-name">Trajan</span>
+          <span class="avp-sub">Emperor · obverse</span>
+        </button>
+        <button type="button" class="admin-voice-pick" data-voice-pick="system">
+          <span class="avp-name">System</span>
+          <span class="avp-sub">Device voice</span>
+        </button>
+      </div>
       <div id="voiceTestStatus" class="admin-key-status" style="display:none"></div>
 
       <!-- Voice speed slider — controls TTS playback rate.
@@ -4540,6 +4560,7 @@
 
   // ─── Overview stats loader ────────────────────────────────────────
   let _lastOverviewLoad = 0;
+  let _overviewRetry = null;
   // Timeout wrapper: every Supabase call gets at most 4s before we give
   // up and return null. Prevents the whole overview from hanging when a
   // single table or view is slow/missing.
@@ -4551,13 +4572,20 @@
   }
 
   async function loadOverviewStats() {
+    const sb = window.NX?.sb;
+    // Supabase client not ready yet (admin opened mid-boot, or this fired from
+    // the early syncAdminGating tick). Retry shortly WITHOUT arming the
+    // throttle, so the tiles + sections self-heal instead of sticking on
+    // "—" / "Loading…" forever — which is exactly what was happening.
+    if (!sb) {
+      if (!_overviewRetry) _overviewRetry = setTimeout(() => { _overviewRetry = null; loadOverviewStats(); }, 700);
+      return;
+    }
     // Throttle: don't re-load within 8s
     if (Date.now() - _lastOverviewLoad < 8000) return;
     _lastOverviewLoad = Date.now();
 
     const setText = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = String(val ?? '—'); };
-    const sb = window.NX?.sb;
-    if (!sb) return;
 
     // Each query wrapped in both a timeout AND a try/catch so any single
     // failure (missing table, RLS block, network hang) degrades gracefully.
@@ -4671,6 +4699,17 @@
     _lastOverviewLoad = 0;
     loadOverviewStats();
   });
+
+  // Reload the Overview every time the admin modal opens. This watches the
+  // modal's class directly, so the stats populate on open regardless of
+  // whether app.js's eager call raced the Supabase client. Resets the
+  // throttle so each open gets fresh numbers.
+  const _adminModalEl = document.getElementById('adminModal');
+  if (_adminModalEl && 'MutationObserver' in window) {
+    new MutationObserver(() => {
+      if (_adminModalEl.classList.contains('open')) { _lastOverviewLoad = 0; loadOverviewStats(); }
+    }).observe(_adminModalEl, { attributes: true, attributeFilter: ['class'] });
+  }
 
   // Expose for app.js to call directly when admin modal opens (eager load)
   window.loadOverviewStats = () => { _lastOverviewLoad = 0; loadOverviewStats(); };

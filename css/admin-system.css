@@ -523,6 +523,58 @@
 }
 .admin-test-voice-btn:hover { background: var(--nx-gold-soft) !important; }
 
+/* Active voice picker — segmented control: Providentia · Trajan · System.
+   Token-driven so it reads correctly in both dark and light themes. */
+.admin-voice-pick-label {
+  font-family: var(--nx-font-mono) !important;
+  font-size: var(--nx-text-xs) !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  color: var(--nx-muted) !important;
+  margin: 4px 2px 8px !important;
+}
+.admin-voice-picker {
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: var(--nx-space-2) !important;
+  margin-bottom: 8px !important;
+}
+.admin-voice-pick {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 3px !important;
+  padding: 12px 8px !important;
+  min-height: 58px !important;
+  border-radius: var(--nx-radius-tight) !important;
+  border: 1px solid var(--nx-highlight-faint) !important;
+  background: var(--nx-surface-2) !important;
+  color: var(--nx-text) !important;
+  cursor: pointer !important;
+  text-align: center !important;
+  transition: border-color var(--nx-press), background var(--nx-press), transform var(--nx-press) !important;
+}
+.admin-voice-pick:hover { border-color: var(--nx-gold-line-2) !important; }
+.admin-voice-pick:active { transform: scale(0.98) !important; }
+.admin-voice-pick .avp-name {
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 650 !important;
+  color: var(--nx-text) !important;
+}
+.admin-voice-pick .avp-sub {
+  font-size: 10px !important;
+  letter-spacing: 0.02em !important;
+  color: var(--nx-muted) !important;
+}
+.admin-voice-pick.is-active {
+  border-color: var(--nx-gold) !important;
+  background: var(--nx-gold-faint) !important;
+  box-shadow: 0 0 0 1px var(--nx-gold-line-2) inset !important;
+}
+.admin-voice-pick.is-active .avp-name { color: var(--nx-gold) !important; }
+
 /* Voice speed slider — sits below the voice row, controls TTS rate */
 .admin-voice-speed-row {
   display: flex !important;
@@ -719,7 +771,7 @@
   width: 100% !important;
   min-height: 70px !important;
   padding: 10px 12px !important;
-  background: rgba(0, 0, 0, 0.20) !important;
+  background: var(--nx-surface-1) !important;
   border: 1px solid var(--nx-highlight-tint) !important;
   border-radius: 12px !important;
   font-family: 'Times New Roman', Georgia, serif !important;
@@ -830,7 +882,7 @@
   color: var(--nx-faint) !important;
   line-height: 1.6 !important;
   padding: 10px 12px !important;
-  background: rgba(0, 0, 0, 0.15) !important;
+  background: var(--nx-surface-1) !important;
   border-radius: 12px !important;
   border: 1px dashed var(--nx-highlight-tint) !important;
 }
