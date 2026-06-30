@@ -158,7 +158,7 @@ public class ClippyComp : Form {
     var first = new Timer(); first.Interval = 35000;
     first.Tick += delegate (object s, EventArgs ev) { first.Stop(); SendSight(); };
     first.Start();
-    var eyes = new Timer(); eyes.Interval = 240000; // ~every 4 min
+    var eyes = new Timer(); eyes.Interval = 360000; // ~every 6 min (CPU vision is ~90s)
     eyes.Tick += delegate (object s, EventArgs ev) { SendSight(); };
     eyes.Start();
     var t = Setup();
