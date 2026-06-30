@@ -515,13 +515,13 @@
             <div class="pm-sig-hint">Sign with your finger above</div>
           </div>
           
+          <div class="pm-logger-tip">
+            <span class="pm-tip-icon">${svg('shield', 1)}</span> Your submission goes to a review queue before it appears on the equipment record.
+          </div>
+
           <div class="pm-logger-actions">
             <button type="button" class="pm-cancel-btn" id="pmCancelBtn">Cancel</button>
             <button type="submit" class="pm-submit-btn" id="pmSubmitBtn">Submit Log</button>
-          </div>
-          
-          <div class="pm-logger-tip">
-            <span class="pm-tip-icon">${svg('shield', 1)}</span> Your submission goes to a review queue before it appears on the equipment record.
           </div>
         </form>
       </div>
