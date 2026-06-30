@@ -3861,6 +3861,41 @@ td.check{background:#F0EDE6 !important}
       this.sb.from('clippy_sync').update({ data: { status: 'expired', ts: Date.now() } }).eq('id', id).then(() => {}, () => {});
     }
   },
+  // Atelier: ask a Blender-capable node to render an idea in 3D. Routes to the
+  // strongest 'art' node (failover via the same prefer/grace as vision). Returns
+  // { image:<base64 png>, caption } or throws (caller falls back to a sketch).
+  async renderViaPool(idea, opts = {}) {
+    if (!this.sb) throw new Error('Clippy pool needs the Supabase connection.');
+    const rid = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+              : (Date.now() + '-' + Math.random().toString(36).slice(2));
+    const id = 'art:' + rid;
+    let prefer = null;
+    try {
+      const arts = (await this.clippyPoolNodes()).filter(n => n && (n.caps || []).indexOf('art') >= 0);
+      if (arts.length > 1) {
+        arts.sort((a, b) => (((b.vscore || 0) - (b.busy ? 1e6 : 0)) - ((a.vscore || 0) - (a.busy ? 1e6 : 0))));
+        prefer = arts[0].name || arts[0].id || null;
+      }
+    } catch (_) {}
+    const job = { status: 'pending', render: String(idea || '').slice(0, 300), ts: Date.now(),
+                  prefer: prefer, prefer_ms: prefer ? Date.now() : null };
+    await this.sb.from('clippy_sync').upsert({ id, data: job, from_id: 'nexus' }, { onConflict: 'id' });
+    const timeoutMs = opts.timeoutMs || 200000;
+    const deadline = Date.now() + timeoutMs;
+    try {
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 2000));
+        const { data } = await this.sb.from('clippy_sync').select('data').eq('id', id).maybeSingle();
+        const d = data && data.data;
+        if (d && d.status === 'done') return { image: d.image_b64 || null, caption: d.result || '' };
+        if (d && d.status === 'error') throw new Error('Clippy atelier: ' + (d.error || 'render failed'));
+      }
+      throw new Error('Clippy atelier: no node rendered it in time — is a node with Blender online?');
+    } finally {
+      this.sb.from('clippy_sync').delete().eq('id', id).then(() => {}, () => {});
+      this.sb.from('clippy_sync').update({ data: { status: 'expired', ts: Date.now() } }).eq('id', id).then(() => {}, () => {});
+    }
+  },
   // Live pool job activity for the admin readout: jobs in flight + who last answered.
   async poolActivity() {
     if (!this.sb) return { inFlight: 0, lastNode: null };
