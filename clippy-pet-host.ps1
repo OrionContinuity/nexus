@@ -38,7 +38,7 @@ if ([Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
 $others = Get-CimInstance Win32_Process -EA SilentlyContinue |
   Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and
                  $_.CommandLine -match 'clippy-pet-host\.ps1' -and
-                 $_.CommandLine -match '(?i)-File' }
+                 $_.CommandLine -notmatch '(?i)-Command' }
 if ($others) { Log "another host already running (pid $($others[0].ProcessId)) - exiting"; return }
 
 # --- Ensure the WebView2 .NET SDK DLLs (runtime is already installed) ---------
