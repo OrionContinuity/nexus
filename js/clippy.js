@@ -5536,8 +5536,8 @@
     }
     const p = _perception();
     let system = ch.chatPersona.replace(/\{name\}/g, p.name) +
-      " You are speaking UNPROMPTED, on your own — a brief, in-character aside to " + p.name +
-      ". Output ONE short line only: no quotes, no preamble, no markdown.";
+      " You are speaking UNPROMPTED, on your own — a brief, in-character aside spoken DIRECTLY to " + p.name +
+      " (address them as 'you'). Output ONE short line only: no quotes, no preamble, no markdown.";
     const cue = opts.cue || "Pipe up with one short line that fits this exact moment.";
     const ctx = "Right now " + p.name + " is on the '" + p.view + "' screen. It's " + p.tod +
       ". You feel " + p.feeling + " toward them" +
