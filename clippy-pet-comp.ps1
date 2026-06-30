@@ -1,5 +1,13 @@
 <#
-clippy-pet-comp.ps1 - the TRUE-TRANSPARENCY desktop pet host.
+clippy-pet-comp.ps1 - the TRUE-TRANSPARENCY desktop pet host.  ** GhostGlass **
+
+GhostGlass = a full-screen, truly-transparent, always-on-top layer that you can
+click straight THROUGH everywhere... except it "solidifies" under your cursor
+exactly where Clippy is, so he (and his Yes/No buttons) stay clickable while the
+rest of your desktop is fully usable. The trick: WS_EX_LAYERED held together
+with WS_EX_NOREDIRECTIONBITMAP (DComp per-pixel alpha), the layer forced fully
+opaque (LWA_ALPHA 255) so DComp's own alpha is what shows, and a 25ms cursor
+poll that toggles WS_EX_TRANSPARENT off only while the pointer is over him.
 
 Hosts the exact NEXUS web Clippy (clippy-pet.html) in a DirectComposition
 visual with genuine per-pixel alpha - so his glow and fireflies fade straight
@@ -112,14 +120,14 @@ public class ClippyComp : Form {
   CoreWebView2CompositionController _ctl;
 
   public ClippyComp(){
+    var wa = Screen.PrimaryScreen.WorkingArea;   // GhostGlass: full screen, click-through everywhere but on him
+    Wv = wa.Width; Hv = wa.Height;
     this.FormBorderStyle = FormBorderStyle.None;
     this.ShowInTaskbar   = false;
     this.TopMost         = true;
     this.StartPosition   = FormStartPosition.Manual;
+    this.Left = wa.Left; this.Top = wa.Top;
     this.Width = Wv; this.Height = Hv;
-    var wa = Screen.PrimaryScreen.WorkingArea;   // corner window: only this box is a click "dead zone"
-    this.Left = wa.Right - Wv - 12;
-    this.Top  = wa.Bottom - Hv - 12;
   }
   protected override CreateParams CreateParams {
     // NOREDIRECTIONBITMAP -> DComp transparency; LAYERED -> lets WS_EX_TRANSPARENT
@@ -226,9 +234,9 @@ public class ClippyComp : Form {
   // the (full-screen) window to just him - the rest stays click-through.
   const string ReporterJs = @"(function(){ try {
   var w=window.chrome&&window.chrome.webview; if(!w) return;
-  if(!document.getElementById('pet-style')){var st=document.createElement('style');st.id='pet-style';st.textContent='#clippy-shell{right:80px!important;bottom:90px!important;}';(document.head||document.documentElement).appendChild(st);}
+  if(!document.getElementById('pet-style')){var st=document.createElement('style');st.id='pet-style';st.textContent='#clippy-shell{right:60px!important;bottom:64px!important;}';(document.head||document.documentElement).appendChild(st);}
   var SEL='#clippy-shell,.clippy-bubble';
-  var PAD=40,last='';
+  var PAD=2,last='';   // tight click radius - hugs the orb itself
   function vis(el){try{var r=el.getBoundingClientRect();return r.width>2&&r.height>2&&el.getClientRects().length>0;}catch(e){return false;}}
   function tick(){try{var vw=window.innerWidth,vh=window.innerHeight,o=[];document.querySelectorAll(SEL).forEach(function(el){if(!vis(el))return;var r=el.getBoundingClientRect();var orb=(el.id==='clippy-shell');var x=r.left,y=r.top,x2=r.left+r.width,y2=r.top+r.height;if(orb){x-=PAD;y-=PAD;x2+=PAD;y2+=PAD;}x=Math.max(0,x);y=Math.max(0,y);x2=Math.min(vw,x2);y2=Math.min(vh,y2);o.push({x:Math.round(x),y:Math.round(y),w:Math.round(x2-x),h:Math.round(y2-y),c:orb?1:0});});var s=JSON.stringify(o);if(s!==last){last=s;w.postMessage('rects '+s);}}catch(e){}}
   setInterval(tick,100);tick();setTimeout(tick,500);setTimeout(tick,1500);
