@@ -1754,7 +1754,7 @@
       response: 'B-bzzt! It was nothing!' },
     // Self-directed
     { pat: /\b(who are you|what are you|your name)\b/i,
-      response: () => `I'm Trajan. Glowing orb. Roman-inspired. Companion to ${state.preferences.user_name || 'you'}.`,
+      response: () => `I'm Clippy! A glowing little orb. I serve Trajan and Providentia, and I look after ${state.preferences.user_name || 'you'}. Bzzt.`,
       mood: 'happy' },
     { pat: /\b(how old|when did we|your age|how long)\b/i,
       response: () => `We've known each other ${daysKnown()} days. Stage ${familiarityStage()} familiarity.`,
