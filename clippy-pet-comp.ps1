@@ -72,6 +72,7 @@ $cs = @'
 using System;
 using System.Drawing;
 using System.IO;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -117,16 +118,25 @@ public class ClippyComp : Form {
   protected override CreateParams CreateParams {
     get { var cp = base.CreateParams; cp.ExStyle |= 0x00200000 /* WS_EX_NOREDIRECTIONBITMAP */; return cp; }
   }
-  protected override void OnHandleCreated(EventArgs e){
-    base.OnHandleCreated(e);
-    // Until the page reports Clippy's rects, clip to a corner so the full screen
-    // isn't an invisible click trap.
-    try {
-      var gp = new System.Drawing.Drawing2D.GraphicsPath();
-      gp.AddEllipse(Wv - 230, Hv - 230, 220, 220);
-      this.Region = new System.Drawing.Region(gp);
-    } catch {}
-    var t = Setup();
+  protected override void OnHandleCreated(EventArgs e){ base.OnHandleCreated(e); var t = Setup(); }
+
+  // Clippy's current on-screen rects (client coords); used by WM_NCHITTEST so the
+  // window is click-through EXCEPT over him. No window Region - a Region forces an
+  // opaque redirection surface and kills the DComp transparency (dark disc).
+  volatile int[][] _hit;
+  bool OverClippy(int x, int y){
+    var h = _hit; if (h == null) return false;
+    foreach (var r in h) {
+      int rx = r[0], ry = r[1], rw = r[2], rh = r[3];
+      if (rw <= 0 || rh <= 0) continue;
+      if (r[4] == 1) {
+        double cx = rx + rw / 2.0, cy = ry + rh / 2.0, nx = (x - cx) / (rw / 2.0), ny = (y - cy) / (rh / 2.0);
+        if (nx * nx + ny * ny <= 1.0) return true;
+      } else {
+        if (x >= rx - 8 && x <= rx + rw + 8 && y >= ry - 8 && y <= ry + rh + 8) return true;
+      }
+    }
+    return false;
   }
 
   async Task Setup(){
@@ -198,34 +208,26 @@ public class ClippyComp : Form {
 
   void ApplyRects(string json){
     try {
-      var path = new System.Drawing.Drawing2D.GraphicsPath();
-      int n = 0;
+      var list = new List<int[]>();
       var ms = Regex.Matches(json, @"\{""x"":(-?\d+),""y"":(-?\d+),""w"":(\d+),""h"":(\d+),""c"":(\d)\}");
       foreach (Match mt in ms) {
         int x = int.Parse(mt.Groups[1].Value), y = int.Parse(mt.Groups[2].Value),
             wd = int.Parse(mt.Groups[3].Value), ht = int.Parse(mt.Groups[4].Value), c = int.Parse(mt.Groups[5].Value);
         if (wd <= 1 || ht <= 1) continue;
-        path.StartFigure();
-        if (c == 1) { path.AddEllipse(x, y, wd, ht); }
-        else {
-          int g = 8, d = 22, rx = x - g, ry = y - g, rw = wd + 2 * g, rh = ht + 2 * g;
-          if (d > rw) d = rw; if (d > rh) d = rh;
-          path.AddArc(rx, ry, d, d, 180, 90);
-          path.AddArc(rx + rw - d, ry, d, d, 270, 90);
-          path.AddArc(rx + rw - d, ry + rh - d, d, d, 0, 90);
-          path.AddArc(rx, ry + rh - d, d, d, 90, 90);
-          path.CloseFigure();
-        }
-        n++;
+        list.Add(new int[] { x, y, wd, ht, c });
       }
-      if (n > 0) {
-        var rgn = new System.Drawing.Region(path);
-        if (this.IsHandleCreated) this.BeginInvoke((MethodInvoker)delegate () { try { this.Region = rgn; } catch {} });
-      }
+      _hit = list.ToArray();
     } catch (Exception ex) { L("rects err: " + ex.Message); }
   }
 
   protected override void WndProc(ref Message m){
+    if (m.Msg == 0x84) { // WM_NCHITTEST - click-through everywhere except over Clippy
+      int lp = (int)m.LParam.ToInt64();
+      int sx = (short)(lp & 0xFFFF), sy = (short)((lp >> 16) & 0xFFFF);
+      var p = this.PointToClient(new Point(sx, sy));
+      m.Result = OverClippy(p.X, p.Y) ? (IntPtr)1 /*HTCLIENT*/ : (IntPtr)(-1) /*HTTRANSPARENT*/;
+      return;
+    }
     if (_ctl != null && m.Msg >= 0x200 && m.Msg <= 0x209) {
       try { ForwardMouse(m.Msg, m.WParam, m.LParam); } catch {}
     }
