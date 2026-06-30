@@ -334,9 +334,11 @@ def _gen_model():
 
 
 def _gen_system():
-    b = (CHAR.get("brain") or {}).get("promptLines") or []
+    # Trajan's OWN voice (chatPersona), NOT the NEXUS goddess persona - he is her
+    # assistant, not her, so his self-written lines must sound like him.
+    persona = (CHAR.get("chatPersona") or "").replace("{name}", "your friend")
     note = (CHAR.get("generation") or {}).get("system") or ""
-    return "\n".join(b) + (("\n\n" + note) if note else "")
+    return persona + (("\n\n" + note) if note else "")
 
 
 def generate_lines(category, n=None):
