@@ -14,8 +14,8 @@
      • Photo upload (multi)
      • PDF invoice upload  
      • Finger-drawn signature
-     • Honeypot anti-spam
-     • All submissions go to pending_review queue
+     • Honeypot anti-spam (flags bots; doesn't gate anyone)
+     • No approval step — every submission records on the equipment immediately
    
    Mass PM workflow:
      1. Scan a QR code → land on equipment screen
@@ -516,7 +516,7 @@
           </div>
           
           <div class="pm-logger-tip">
-            <span class="pm-tip-icon">${svg('shield', 1)}</span> Your submission goes to a review queue before it appears on the equipment record.
+            <span class="pm-tip-icon">${svg('shield', 1)}</span> This is recorded on the equipment right away — no review step.
           </div>
 
           <div class="pm-logger-actions">
@@ -769,14 +769,15 @@
         cost_amount: parseFloat(modal.querySelector('#pmCost').value) || null,
         next_service_date: modal.querySelector('#pmNext').value || null,
         submitted_user_agent: navigator.userAgent.slice(0, 500),
-        flagged_spam: !!honeypot.trim(),  // Honeypot tripped
-        // Self-approval: contractor submissions mainstream immediately —
-        // maintenance history, PM-cadence advance, health score all run on
-        // submit (see applyApprovalEffects below). Honeypot-flagged
-        // submissions stay 'pending' for human review instead.
-        review_status: honeypot.trim() ? 'pending' : 'approved',
-        reviewed_at: honeypot.trim() ? null : new Date().toISOString(),
-        reviewed_by: honeypot.trim() ? null : 'Auto (self-approved)'
+        flagged_spam: !!honeypot.trim(),  // Honeypot tripped — recorded as a flag only
+        // No approval step: every submission is recorded on the equipment
+        // immediately (maintenance history, PM-cadence advance, health score all
+        // run on submit — see applyApprovalEffects below). The honeypot still
+        // flags obvious bots so their effects can be skipped, but nothing waits
+        // in a review queue.
+        review_status: 'approved',
+        reviewed_at: new Date().toISOString(),
+        reviewed_by: 'Auto (no approval needed)'
       };
 
       if (!data.contractor_name || !data.work_performed) {
