@@ -788,10 +788,12 @@ function openPmLogger(equipId) {
           </div>
         </div>
 
-        <div style="padding: 4px 16px;">
-          <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:1.2px; color:var(--nx-faint); margin-bottom:6px">Performed by</label>
-          <input type="text" id="pmPerformedBy" value="${esc(performedBy)}" placeholder="Tyler from Austin Air & Ice"
+        <div style="padding: 4px 16px; position:relative;">
+          <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:1.2px; color:var(--nx-faint); margin-bottom:6px">Performed by <span style="text-transform:none; letter-spacing:0; color:var(--nx-faint)">— your vendors</span></label>
+          <input type="text" id="pmPerformedBy" value="${esc(performedBy)}" placeholder="Search your vendors…" autocomplete="off"
             style="width:100%; padding:10px 12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:var(--nx-text); font-size:14px;">
+          <div id="pmVendorMenu" style="display:none; position:absolute; left:16px; right:16px; top:100%; margin-top:2px; z-index:60; max-height:240px; overflow-y:auto; background:var(--nx-surface-1,#161a24); border:1px solid rgba(255,255,255,0.14); border-radius:10px; box-shadow:0 14px 34px rgba(0,0,0,0.55);"></div>
+          <div id="pmVendorHint" style="font-size:10px; margin-top:5px; min-height:12px;"></div>
         </div>
 
         <div style="padding: 8px 16px;">
@@ -831,7 +833,64 @@ function openPmLogger(equipId) {
 
     overlay.querySelector('#pmExpected').addEventListener('change', (e) => { expected = e.target.value; render(); });
     overlay.querySelector('#pmActual').addEventListener('change', (e) => { actual = e.target.value; render(); });
-    overlay.querySelector('#pmPerformedBy').addEventListener('input', (e) => { performedBy = e.target.value; });
+    // Performed-by is a VENDOR picker: search the vendors you've made, or create
+    // a new one inline. The chosen name is written to equipment_maintenance
+    // .performed_by, which is what feeds the vendor's history (vendors.js).
+    (function setupVendorPicker() {
+      const input = overlay.querySelector('#pmPerformedBy');
+      const menu  = overlay.querySelector('#pmVendorMenu');
+      const hint  = overlay.querySelector('#pmVendorHint');
+      if (!input || !menu) return;
+      const all = () => { try { return (window.NXVendors && window.NXVendors.getAll && window.NXVendors.getAll()) || []; } catch (_) { return []; } };
+      const vname = (v) => ((v && (v.company || v.name)) || '').trim();
+      const matchVendor = (n) => all().find(v => vname(v).toLowerCase() === String(n || '').toLowerCase().trim());
+      const setHint = () => {
+        if (!performedBy) { hint.innerHTML = '<span style="color:var(--nx-faint)">Pick a vendor so this PM lands in their history.</span>'; return; }
+        hint.innerHTML = matchVendor(performedBy)
+          ? '<span style="color:#7bd88f">● Linked to vendor — shows in their history</span>'
+          : '<span style="color:#d4a44e">● New vendor — will be created on save</span>';
+      };
+      const close = () => { menu.style.display = 'none'; };
+      const open = () => {
+        const list = all();
+        const q = (input.value || '').toLowerCase().trim();
+        const hits = list.filter(v => vname(v).toLowerCase().includes(q)).slice(0, 40);
+        let html = '';
+        hits.forEach(v => {
+          const cat = v.category ? ' · ' + esc(v.category) : '';
+          html += '<div class="pm-vendor-opt" data-name="' + esc(vname(v)) + '" style="padding:11px 14px; cursor:pointer; border-bottom:1px solid rgba(255,255,255,0.05); font-size:14px; color:var(--nx-text)">' + esc(vname(v)) + '<span style="color:var(--nx-faint); font-size:11px">' + cat + '</span></div>';
+        });
+        const typed = (input.value || '').trim();
+        if (typed && !matchVendor(typed)) {
+          html += '<div class="pm-vendor-create" data-name="' + esc(typed) + '" style="padding:11px 14px; cursor:pointer; color:var(--nx-gold); font-size:14px; font-weight:600">＋ Create vendor &ldquo;' + esc(typed) + '&rdquo;</div>';
+        }
+        if (!html) html = '<div style="padding:12px 14px; color:var(--nx-faint); font-size:12px">' + (list.length ? 'No matches.' : 'No vendors yet — type a name to create one.') + '</div>';
+        menu.innerHTML = html;
+        menu.style.display = 'block';
+      };
+      input.addEventListener('focus', open);
+      input.addEventListener('input', () => { performedBy = input.value.trim(); setHint(); open(); });
+      menu.addEventListener('click', async (e) => {
+        const opt = e.target.closest('.pm-vendor-opt');
+        const cre = e.target.closest('.pm-vendor-create');
+        if (opt) { performedBy = opt.getAttribute('data-name'); input.value = performedBy; close(); setHint(); return; }
+        if (cre) {
+          const nm = (cre.getAttribute('data-name') || '').trim(); if (!nm) return;
+          cre.textContent = 'Creating…';
+          try {
+            if (window.NX && NX.sb) {
+              await NX.sb.from('vendors').insert({ company: nm, active: true });
+              if (window.NXVendors && window.NXVendors.refresh) { try { await window.NXVendors.refresh(); } catch (_) {} }
+            }
+            performedBy = nm; input.value = nm; close(); setHint();
+            NX.toast && NX.toast('Vendor “' + nm + '” created', 'success', 1800);
+          } catch (_) { NX.toast && NX.toast('Could not create vendor', 'warn', 2000); }
+          return;
+        }
+      });
+      overlay.addEventListener('click', (e) => { if (!e.target.closest('#pmVendorMenu') && e.target !== input) close(); });
+      setHint();
+    })();
     overlay.querySelector('#pmCost').addEventListener('input', (e) => { cost = e.target.value; });
     overlay.querySelector('#pmNotes').addEventListener('input', (e) => { notes = e.target.value; });
 
@@ -876,6 +935,21 @@ function openPmLogger(equipId) {
         invoiceAttachmentId = attRow.id;
       }
 
+      // Ensure the performer is one of your vendors so this PM feeds their
+      // history (vendors.js matches equipment_maintenance.performed_by by name).
+      const perfName = (performedBy || '').trim();
+      if (perfName && NX.sb) {
+        try {
+          let known = [];
+          try { known = (window.NXVendors && window.NXVendors.getAll && window.NXVendors.getAll()) || []; } catch (_) {}
+          const has = known.some(v => ((v.company || v.name) || '').toLowerCase().trim() === perfName.toLowerCase());
+          if (!has) {
+            await NX.sb.from('vendors').insert({ company: perfName, active: true });
+            if (window.NXVendors && window.NXVendors.refresh) { try { await window.NXVendors.refresh(); } catch (_) {} }
+          }
+        } catch (_) { /* non-fatal — the PM still logs with the name */ }
+      }
+
       // Step 2: Insert maintenance row
       const maintRow = {
         equipment_id: equipId,
@@ -883,7 +957,7 @@ function openPmLogger(equipId) {
         event_date: actual,
         expected_pm_date: expected || null,
         description: notes || 'PM performed',
-        performed_by: performedBy || null,
+        performed_by: perfName || null,
         cost: cost ? parseFloat(cost) : null,
       };
       if (invoiceAttachmentId) maintRow.invoice_attachment_id = invoiceAttachmentId;
