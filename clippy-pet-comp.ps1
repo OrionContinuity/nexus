@@ -199,7 +199,7 @@ public class ClippyComp : Form {
   const string ReporterJs = @"(function(){ try {
   var w=window.chrome&&window.chrome.webview; if(!w) return;
   if(!document.getElementById('pet-style')){var st=document.createElement('style');st.id='pet-style';st.textContent='#clippy-shell{right:54px!important;bottom:60px!important;}';(document.head||document.documentElement).appendChild(st);}
-  var SEL='#clippy-shell,.clippy-bubble,.clippy-palette,.clippy-game-overlay,.clippy-gacha-overlay,.clippy-panel,.clippy-card';
+  var SEL='#clippy-shell,.clippy-bubble';
   var PAD=46,last='';
   function vis(el){try{var r=el.getBoundingClientRect();return r.width>2&&r.height>2&&el.getClientRects().length>0;}catch(e){return false;}}
   function tick(){try{var vw=window.innerWidth,vh=window.innerHeight,o=[];document.querySelectorAll(SEL).forEach(function(el){if(!vis(el))return;var r=el.getBoundingClientRect();var orb=(el.id==='clippy-shell');var x=r.left,y=r.top,x2=r.left+r.width,y2=r.top+r.height;if(orb){x-=PAD;y-=PAD;x2+=PAD;y2+=PAD;}x=Math.max(0,x);y=Math.max(0,y);x2=Math.min(vw,x2);y2=Math.min(vh,y2);o.push({x:Math.round(x),y:Math.round(y),w:Math.round(x2-x),h:Math.round(y2-y),c:orb?1:0});});var s=JSON.stringify(o);if(s!==last){last=s;w.postMessage('rects '+s);}}catch(e){}}
@@ -217,6 +217,9 @@ public class ClippyComp : Form {
         list.Add(new int[] { x, y, wd, ht, c });
       }
       _hit = list.ToArray();
+      string dbg = "rects n=" + list.Count;
+      foreach (var r in list) dbg += " [" + r[0] + "," + r[1] + " " + r[2] + "x" + r[3] + " c" + r[4] + "]";
+      L(dbg);
     } catch (Exception ex) { L("rects err: " + ex.Message); }
   }
 
