@@ -841,7 +841,27 @@ function openPmLogger(equipId) {
       const menu  = overlay.querySelector('#pmVendorMenu');
       const hint  = overlay.querySelector('#pmVendorHint');
       if (!input || !menu) return;
-      const all = () => { try { return (window.NXVendors && window.NXVendors.getAll && window.NXVendors.getAll()) || []; } catch (_) { return []; } };
+      let vendorCache = null;
+      const all = () => {
+        if (vendorCache && vendorCache.length) return vendorCache;
+        try { return (window.NXVendors && window.NXVendors.getAll && window.NXVendors.getAll()) || []; } catch (_) { return []; }
+      };
+      // The NXVendors in-memory cache is only warm once the Vendors page has
+      // loaded — opening Log PM directly leaves it empty, so the picker showed
+      // no vendors. Warm it ourselves (refresh the module, else read the table).
+      async function ensureVendors() {
+        if (all().length) return;
+        try { if (window.NXVendors && NXVendors.refresh) await NXVendors.refresh(); } catch (_) {}
+        if (!all().length && NX.sb) {
+          try {
+            const { data } = await NX.sb.from('vendors')
+              .select('id, company, name, category, is_preferred, active')
+              .eq('active', true).order('company');
+            vendorCache = data || [];
+          } catch (_) {}
+        }
+        if (document.activeElement === input || menu.style.display === 'block') open();
+      }
       const vname = (v) => ((v && (v.company || v.name)) || '').trim();
       const matchVendor = (n) => all().find(v => vname(v).toLowerCase() === String(n || '').toLowerCase().trim());
       const setHint = () => {
@@ -881,6 +901,7 @@ function openPmLogger(equipId) {
             if (window.NX && NX.sb) {
               await NX.sb.from('vendors').insert({ company: nm, active: true });
               if (window.NXVendors && window.NXVendors.refresh) { try { await window.NXVendors.refresh(); } catch (_) {} }
+              vendorCache = null;   // force re-read so the new vendor is in the list
             }
             performedBy = nm; input.value = nm; close(); setHint();
             NX.toast && NX.toast('Vendor “' + nm + '” created', 'success', 1800);
@@ -890,6 +911,7 @@ function openPmLogger(equipId) {
       });
       overlay.addEventListener('click', (e) => { if (!e.target.closest('#pmVendorMenu') && e.target !== input) close(); });
       setHint();
+      ensureVendors();   // warm the vendor list even if the Vendors page hasn't been opened
     })();
     overlay.querySelector('#pmCost').addEventListener('input', (e) => { cost = e.target.value; });
     overlay.querySelector('#pmNotes').addEventListener('input', (e) => { notes = e.target.value; });
