@@ -1450,16 +1450,27 @@
   async function applyApprovalEffects(log) {
     if (!log || !log.equipment_id) return;
     try {
-      await NX.sb.from('equipment_maintenance').insert({
+      // Column-tolerant insert: equipment_maintenance has no `notes` column on
+      // some installs (and may drift), and a single rejected column used to
+      // throw the WHOLE insert away — silently dropping every approved PM from
+      // history. Now we drop any unknown column the DB rejects and retry, so
+      // the maintenance record is always created.
+      let row = {
         equipment_id: log.equipment_id,
         event_date: log.service_date,
         event_type: log.service_type,
-        description: log.work_performed + (log.parts_replaced ? '\n\nParts: ' + log.parts_replaced : ''),
+        description: (log.work_performed || 'PM performed') + (log.parts_replaced ? '\n\nParts: ' + log.parts_replaced : '') + (log.contractor_phone ? '\n\nPhone: ' + log.contractor_phone : ''),
         performed_by: log.contractor_name + (log.contractor_company ? ' (' + log.contractor_company + ')' : ''),
         cost: log.cost_amount,
-        notes: `Submitted via QR scan. Phone: ${log.contractor_phone || 'n/a'}.`,
         pm_log_id: log.id || null  // Link so Timeline detail modal can pull photos/PDF/signature
-      });
+      };
+      for (let i = 0; i < 8; i++) {
+        const { error } = await NX.sb.from('equipment_maintenance').insert(row);
+        if (!error) break;
+        const m = /column "?([a-z_]+)"?.*does not exist/i.exec(error.message || '');
+        if (m && m[1] && (m[1] in row)) { delete row[m[1]]; continue; }
+        console.warn('[pm] maintenance record failed', error); break;
+      }
     } catch (e) { console.warn('[pm] maintenance record failed', e); }
     // Re-sync brain
     try { if (NX.eqBrainSync?.syncOne) NX.eqBrainSync.syncOne(log.equipment_id); } catch (_) {}
