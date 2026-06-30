@@ -79,6 +79,7 @@ try { [Reflection.Assembly]::LoadFrom($coreDll) | Out-Null; Log "Core.dll loaded
 $cs = @'
 using System;
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -153,6 +154,13 @@ public class ClippyComp : Form {
       } catch {}
     };
     tmr.Start();
+    // Sight: a first peek ~35s after he's up, then an occasional glance.
+    var first = new Timer(); first.Interval = 35000;
+    first.Tick += delegate (object s, EventArgs ev) { first.Stop(); SendSight(); };
+    first.Start();
+    var eyes = new Timer(); eyes.Interval = 240000; // ~every 4 min
+    eyes.Tick += delegate (object s, EventArgs ev) { SendSight(); };
+    eyes.Start();
     var t = Setup();
   }
 
@@ -235,12 +243,44 @@ public class ClippyComp : Form {
   const string ReporterJs = @"(function(){ try {
   var w=window.chrome&&window.chrome.webview; if(!w) return;
   if(!document.getElementById('pet-style')){var st=document.createElement('style');st.id='pet-style';st.textContent='#clippy-shell{right:60px!important;bottom:64px!important;}';(document.head||document.documentElement).appendChild(st);}
+  if(!window.__petSight){window.__petSight=1;w.addEventListener('message',function(ev){try{var d=ev.data;if(typeof d==='string'&&d.slice(0,4)==='see:'){var b=d.slice(4);if(window.NX&&NX.clippy&&NX.clippy.seeSurroundings)NX.clippy.seeSurroundings(b);}}catch(e){}});}
   var SEL='#clippy-shell,.clippy-bubble';
   var PAD=2,last='';   // tight click radius - hugs the orb itself
   function vis(el){try{var r=el.getBoundingClientRect();return r.width>2&&r.height>2&&el.getClientRects().length>0;}catch(e){return false;}}
   function tick(){try{var vw=window.innerWidth,vh=window.innerHeight,o=[];document.querySelectorAll(SEL).forEach(function(el){if(!vis(el))return;var r=el.getBoundingClientRect();var orb=(el.id==='clippy-shell');var x=r.left,y=r.top,x2=r.left+r.width,y2=r.top+r.height;if(orb){x-=PAD;y-=PAD;x2+=PAD;y2+=PAD;}x=Math.max(0,x);y=Math.max(0,y);x2=Math.min(vw,x2);y2=Math.min(vh,y2);o.push({x:Math.round(x),y:Math.round(y),w:Math.round(x2-x),h:Math.round(y2-y),c:orb?1:0});});var s=JSON.stringify(o);if(s!==last){last=s;w.postMessage('rects '+s);}}catch(e){}}
   setInterval(tick,100);tick();setTimeout(tick,500);setTimeout(tick,1500);
 } catch(e){} })();";
+
+  // Clippy's eyes: grab the desktop, shrink it, hand it to the page (which runs
+  // it past the vision model and makes him riff). Capture is plain GDI; we post
+  // it to our OWN webview (no network here) so it stays a local hand-off.
+  static ImageCodecInfo _jpg;
+  void SendSight(){
+    try {
+      if (_ctl == null) return;
+      var b = Screen.PrimaryScreen.Bounds;
+      string b64;
+      using (var full = new Bitmap(b.Width, b.Height))
+      using (var g = Graphics.FromImage(full)) {
+        g.CopyFromScreen(0, 0, 0, 0, new Size(b.Width, b.Height));
+        int tw = 760; int th = (int)(b.Height * 760.0 / b.Width);
+        using (var small = new Bitmap(tw, th))
+        using (var g2 = Graphics.FromImage(small)) {
+          g2.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+          g2.DrawImage(full, 0, 0, tw, th);
+          if (_jpg == null) { foreach (var c in ImageCodecInfo.GetImageEncoders()) if (c.MimeType == "image/jpeg") _jpg = c; }
+          var ep = new EncoderParameters(1);
+          ep.Param[0] = new EncoderParameter(Encoder.Quality, 40L);
+          using (var ms = new MemoryStream()) {
+            small.Save(ms, _jpg, ep);
+            b64 = Convert.ToBase64String(ms.ToArray());
+          }
+        }
+      }
+      _ctl.CoreWebView2.PostWebMessageAsString("see:" + b64);
+      L("sight sent (" + b64.Length + " b64)");
+    } catch (Exception ex) { L("sight err: " + ex.Message); }
+  }
 
   void ApplyRects(string json){
     try {

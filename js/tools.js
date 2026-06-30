@@ -275,18 +275,22 @@
   }
   function screenClippy(host) {
     host.innerHTML = '<div class="nxt-hero"><div class="big">📎</div><div><h3>Clippy</h3>' +
-        '<p>An offline AI desktop buddy (local Ollama brain) — and a worker node in your NEXUS pool that answers chat + vision jobs.</p></div></div>' +
+        '<p>The <b>exact</b> NEXUS Clippy — same body, same moods, same voice — living on your desktop as a true-transparent floating buddy (<b>GhostGlass</b>), and a self-healing worker node in your pool. He thinks, builds, sees, and writes his own lines.</p></div></div>' +
       '<div class="nxt-dls">' + dl(F.clippy, '🖥 Download for Windows', '.zip · one-time setup', 'pri') + '</div>' +
-      '<div class="nxt-h4">Every function</div><div class="nxt-feat">' +
-        feat('💬', 'Offline chat', 'A local LLM (Ollama) — no cloud, no account, no API key.') +
-        feat('👀', 'Vision', 'Reads photos (Scan Plate) with a local vision model — image never leaves the LAN.') +
-        feat('🐝', 'Joins the hive', 'Registers into your Clippy pool so NEXUS uses its brain + GPU.') +
-        feat('🧠', 'Remembers you', 'Persistent memory across restarts.') +
+      '<div class="nxt-h4">Everything he can do</div><div class="nxt-feat">' +
+        feat('👻', 'GhostGlass desktop', 'Floats with a real transparent glow — click straight through to your desktop everywhere except on him. He roams your whole screen.') +
+        feat('🖱', 'Clicks &amp; is clickable', 'A full desktop daemon: his orb and his Yes/No buttons respond, the rest of your screen stays yours.') +
+        feat('👀', 'He can SEE', 'Peeks at your actual screen with a local vision model and riffs funny, in-character commentary on what he finds — himself included.') +
+        feat('💬', 'Writes his own lines', 'No canned script — he composes dialogue on the fly from a local LLM (Ollama), reading the moment and how he feels about you.') +
+        feat('🎨', 'Makes art &amp; 3D', 'Sketches SVGs and sculpts real Blender renders on the node\'s GPU/CPU (the Atelier).') +
+        feat('🧠', 'Vision + chat for the pool', 'Joins the hive — NEXUS routes chat, vision (Scan Plate) and render jobs to his brain. Picks the strongest node.') +
+        feat('💖', 'Remembers &amp; bonds', 'Persistent memory, moods and a growing bond across restarts.') +
+        feat('♾', 'Self-healing', 'A supervisor keeps his worker + desktop body alive and auto-updates them from NEXUS — a bad version recovers on its own.') +
       '</div>' +
       '<div class="nxt-h4">Set up</div><div class="nxt-steps">' +
         '<div class="nxt-step">Unzip anywhere.</div>' +
-        '<div class="nxt-step">Run <b>INSTALL-CLIPPY.cmd</b> (pulls Ollama + a local model).</div>' +
-        '<div class="nxt-step">Double-click <b>clippy.cmd</b> — Clippy floats onto your desktop.</div></div>';
+        '<div class="nxt-step">Run <b>INSTALL-CLIPPY.cmd</b> (pulls Ollama + local models; registers auto-start).</div>' +
+        '<div class="nxt-step">Clippy floats onto your desktop and joins the pool — kept alive and updated automatically from here.</div></div>';
   }
 
   // ─── router ──────────────────────────────────────────────────────────────

@@ -5550,6 +5550,42 @@
     const fb = pickFromPool(opts.pool || 'random_thoughts');
     if (fb) bubble(fb, { autoHide: 6000, eyebrow: opts.eyebrow || '💭' });
   }
+  // ─── SIGHT: Clippy peeks at his surroundings and riffs ──────────────────
+  // The desktop host (GhostGlass) hands him a screenshot of the actual desktop
+  // (base64 JPEG via WebMessage). He runs it past the vision model, then reacts
+  // with ONE funny, in-character line about what he sees — himself included.
+  // Pet-only in practice; a no-op when no vision-capable provider is reachable.
+  async function seeSurroundings(b64) {
+    try {
+      if (!b64) return;
+      const app = _appHandle();
+      if (!app || typeof app.askClaudeVision !== 'function') return;
+      if (state.bubble || state.chatOpen || state.dragging) return;   // don't barge in
+      mood('curious', 3500);
+      const desc = await app.askClaudeVision(
+        "This is a screenshot of a computer desktop. In ONE vivid, concrete sentence describe what's on it — the apps/windows, the wallpaper, and especially any small glowing blue orb mascot floating on the screen.",
+        b64);
+      if (!desc) return;
+      const ch = state.character;
+      const p = _perception();
+      if (state.selfAuthored === false || typeof app.askClaude !== 'function' || !(ch && ch.chatPersona)) {
+        bubble("I spy: " + String(desc).slice(0, 130), { autoHide: 8000, eyebrow: '👀' });
+        return;
+      }
+      const system = ch.chatPersona.replace(/\{name\}/g, p.name) +
+        " You just PEEKED at " + p.name + "'s screen with your own little eyes — you're the glowing blue orb floating on it. " +
+        "React to what you saw with ONE short, funny, in-character line spoken straight to them (address them as 'you'). " +
+        "No quotes, no preamble, no markdown.";
+      const ctx = "What you just saw on the screen: " + String(desc).slice(0, 400);
+      let line = null;
+      try {
+        const out = await app.askClaude(system, [{ role: 'user', content: ctx }], 90);
+        line = out && String(out).replace(/\[confidence:[^\]]*\]/gi, '').replace(/^["']+|["']+$/g, '').trim();
+      } catch (e) {}
+      bubble(line || ("I spy: " + String(desc).slice(0, 120)), { autoHide: 9000, eyebrow: '👀' });
+    } catch (e) {}
+  }
+
   // By DEFAULT Clippy lives a little on his own — small actions and lines he
   // composes IN THE MOMENT about what you're doing. Gentle + guarded: never
   // interrupts a bubble, an open chat, a drag, or a hidden tab.
@@ -9270,6 +9306,7 @@
     init,
     summon,
     bubble, actionBubble,
+    seeSurroundings,                // v: desktop pet sight — react to a screenshot
     play, mood,
     sleep, wake,
     setCostume,
