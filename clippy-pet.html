@@ -128,6 +128,20 @@
     habits: null, interests: null, galaxy: null, brain: null, preferredPersona: null,
     _isPet: true
   };
+
+  // ── pet input diagnostics — record load + every pointerdown to the bus, so
+  //    we can tell whether pointer input is actually reaching the page (vs the
+  //    transparent host window swallowing it). Writes one row, id clippy_petdiag.
+  function petDiag(ev) {
+    try { if (sb) sb.from('clippy_sync').upsert({ id: 'clippy_petdiag', data: ev, from_id: 'pet' }, { onConflict: 'id' }).then(function () {}, function () {}); } catch (e) {}
+  }
+  petDiag({ event: 'load', w: window.innerWidth, h: window.innerHeight, ua: (navigator.userAgent || '').slice(0, 80), ts: Date.now() });
+  document.addEventListener('pointerdown', function (e) {
+    var t = e.target;
+    var btn = (t && t.closest) ? t.closest('.clippy-bubble-btn, button, .clippy-shell, .clippy-orb') : null;
+    petDiag({ event: 'pointerdown', x: e.clientX, y: e.clientY, tag: t ? t.tagName : '?',
+              onBtn: !!btn, label: btn ? (btn.textContent || '').trim().slice(0, 40) : null, ts: Date.now() });
+  }, true);
 })();
 </script>
 <!-- The exact same Clippy as NEXUS web -->
