@@ -1212,6 +1212,7 @@ function render() {
           </span>
           <button type="button" class="eq-btn eq-btn-secondary" id="dlogEmailBtn" title="${esc(emailBtnTitle)}">${esc(emailBtnLabel)}</button>
           <button type="button" class="eq-btn eq-btn-secondary" id="dlogEmailEachBtn" title="Open one Gmail draft per location at once — just hit Send on each">✉️ Email each location</button>
+          <button type="button" class="eq-btn eq-btn-secondary" id="dlogCopyRichBtn" title="Copy a rich version with Clippy's face — then paste into your Gmail draft (⌘/Ctrl+V)">📋 Copy with Clippy</button>
           <button type="button" class="eq-btn eq-btn-secondary" id="dlogSaveDraftBtn">Save</button>
           <button type="button" class="eq-btn eq-btn-primary"   id="dlogSubmitBtn">${esc(uploadBtnLabel)}</button>
         </div>
@@ -2104,6 +2105,8 @@ function wireForm() {
   if (emailBtn) emailBtn.addEventListener('click', () => openDailyLogEmail());
   const emailEachBtn = view.querySelector('#dlogEmailEachBtn');
   if (emailEachBtn) emailEachBtn.addEventListener('click', () => emailEachLocation());
+  const copyRichBtn = view.querySelector('#dlogCopyRichBtn');
+  if (copyRichBtn) copyRichBtn.addEventListener('click', () => copyDailyLogRich());
   const autoSendBtn = view.querySelector('#dlogAutoSendBtn');
   const autoSendTime = view.querySelector('#dlogAutoSendTime');
   const autoSendDays = view.querySelector('#dlogAutoSendDays');
@@ -2601,6 +2604,142 @@ function emailEachLocation() {
     if (opened) NX.toast('Opened ' + opened + ' Gmail draft' + (opened > 1 ? 's' : '') + ' — hit Send on each' + (empty ? ' (' + empty + ' empty skipped)' : ''), 'success', 5000);
     else NX.toast(empty ? 'No location has notes yet' : 'Nothing opened — allow pop-ups for this site, then retry', 'info', 5000);
   }
+}
+
+// ── Rich "Copy for Gmail" path ───────────────────────────────────────────
+// The send flow opens a Gmail compose URL / mailto, both PLAIN TEXT — they
+// can't carry HTML or an image. So to get Clippy's real (vector) face into a
+// sent report we build a styled HTML version, copy it to the clipboard as
+// text/html, and the user pastes it into their Gmail draft (Gmail keeps the
+// formatting + the face as an inline image). No backend, no API keys.
+
+// Compact version of Clippy's app face (the glowing blue orb) — small and
+// self-contained so it rasterizes cleanly for the clipboard.
+const CLIPPY_FACE_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 120 120">' +
+  '<circle cx="60" cy="62" r="42" fill="#4cb6ff"/>' +
+  '<circle cx="60" cy="62" r="42" fill="none" stroke="#2e8de0" stroke-width="3"/>' +
+  '<ellipse cx="46" cy="56" rx="9" ry="11" fill="#ffffff"/>' +
+  '<ellipse cx="74" cy="56" rx="9" ry="11" fill="#ffffff"/>' +
+  '<circle cx="48" cy="58" r="5" fill="#0a1f6e"/>' +
+  '<circle cx="76" cy="58" r="5" fill="#0a1f6e"/>' +
+  '<circle cx="49.6" cy="56" r="1.6" fill="#ffffff"/>' +
+  '<circle cx="77.6" cy="56" r="1.6" fill="#ffffff"/>' +
+  '<path d="M38 44 q8 -5 16 -1" stroke="#2e8de0" stroke-width="2.5" fill="none" stroke-linecap="round"/>' +
+  '<path d="M66 43 q8 -4 16 1" stroke="#2e8de0" stroke-width="2.5" fill="none" stroke-linecap="round"/>' +
+  '<circle cx="37" cy="70" r="6" fill="#ff9bbb" opacity="0.7"/>' +
+  '<circle cx="83" cy="70" r="6" fill="#ff9bbb" opacity="0.7"/>' +
+  '<path d="M50 76 q10 9 20 0" stroke="#0a1f6e" stroke-width="2.5" fill="none" stroke-linecap="round"/>' +
+  '</svg>';
+
+// Rasterize an SVG string to a PNG data URL (Gmail's paste sanitizer keeps a
+// data-URI <img>, but strips raw inline <svg>). Resolves null on any failure.
+function dlogSvgToPngDataUrl(svg, size) {
+  return new Promise(resolve => {
+    try {
+      const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const c = document.createElement('canvas');
+          c.width = size; c.height = size;
+          c.getContext('2d').drawImage(img, 0, 0, size, size);
+          URL.revokeObjectURL(url);
+          resolve(c.toDataURL('image/png'));
+        } catch (e) { URL.revokeObjectURL(url); resolve(null); }
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+      img.src = url;
+    } catch (e) { resolve(null); }
+  });
+}
+
+// Turn the plain-text report body into light, email-safe HTML: section
+// headers (── LABEL ──) become bold kickers, the 45-dash rule becomes an
+// <hr>, "· " lines become bullets, indented sub-lines stay indented.
+function dlogPlainToHtml(plain) {
+  const out = [];
+  String(plain).split('\n').forEach(raw => {
+    const line = raw.replace(/\s+$/, '');
+    if (line === '') { out.push('<div style="height:8px"></div>'); return; }
+    if (line.indexOf('─') !== -1) {            // contains box-drawing dashes
+      const inner = line.replace(/─/g, '').trim();
+      if (!inner) { out.push('<hr style="border:none;border-top:1px solid #d7dbe0;margin:14px 0">'); return; }
+      out.push('<div style="font-weight:600;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:#2e8de0;margin:16px 0 6px">' + esc(inner) + '</div>');
+      return;
+    }
+    if (line.indexOf('· ') === 0) {            // "· bullet"
+      out.push('<div style="margin:2px 0 2px 4px">• ' + esc(line.slice(2)) + '</div>');
+      return;
+    }
+    if (/^\s{2,}/.test(raw)) {                      // indented sub-line
+      out.push('<div style="margin:0 0 2px 18px;color:#5a616b;font-size:13px">' + esc(line.trim()) + '</div>');
+      return;
+    }
+    out.push('<div style="margin:2px 0">' + esc(line) + '</div>');
+  });
+  return out.join('');
+}
+
+// Wrap the body in a styled container with Clippy's face on top.
+function dlogReportHtml(plain, pngUrl) {
+  const face = pngUrl
+    ? '<div style="margin:0 0 6px"><img src="' + pngUrl + '" width="64" height="64" alt="Clippy" style="display:block;border:0;width:64px;height:64px"></div>'
+    : '';
+  return '<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;color:#2b2f36;max-width:640px">' +
+    face + dlogPlainToHtml(plain) + '</div>';
+}
+
+// Copy rich (text/html) + plain to the clipboard, with an execCommand fallback
+// for browsers without the async ClipboardItem API.
+async function dlogCopyRich(html, plain) {
+  try {
+    if (navigator.clipboard && window.ClipboardItem) {
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/html': new Blob([html], { type: 'text/html' }),
+        'text/plain': new Blob([plain], { type: 'text/plain' }),
+      })]);
+      return true;
+    }
+  } catch (e) { /* fall through */ }
+  try {
+    const holder = document.createElement('div');
+    holder.setAttribute('contenteditable', 'true');
+    holder.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+    holder.innerHTML = html;
+    document.body.appendChild(holder);
+    const range = document.createRange();
+    range.selectNodeContents(holder);
+    const sel = window.getSelection();
+    sel.removeAllRanges(); sel.addRange(range);
+    const ok = document.execCommand('copy');
+    sel.removeAllRanges(); holder.remove();
+    return ok;
+  } catch (e) { return false; }
+}
+
+// Build the current report (Overview or selected location), render it as HTML
+// with Clippy's face, and copy it for pasting into a Gmail draft.
+async function copyDailyLogRich() {
+  const log = state.currentLog;
+  const d = hydrateData(log && log.data);
+  const dateStr = (log && log.log_date) || (d.header && d.header.date) || todayISO();
+  let plain;
+  const locKey = state.activeLoc;
+  if (locKey && locKey !== 'all') {
+    const loc = (d.locations || []).find(l => normLocKey(l.label) === locKey);
+    if (!loc) { NX.toast && NX.toast('That location has no notes yet', 'info'); return; }
+    plain = buildLocationEmailBody(loc, dateStr, d);
+  } else {
+    plain = buildDailyLogEmailBody(d, dateStr);
+  }
+  if (!plain || plain.split('\n').filter(l => l.trim()).length < 2) {
+    NX.toast && NX.toast('This log is empty — add some notes first', 'info'); return;
+  }
+  const png = await dlogSvgToPngDataUrl(CLIPPY_FACE_SVG, 144);
+  const ok = await dlogCopyRich(dlogReportHtml(plain, png), plain);
+  if (ok) NX.toast && NX.toast('Copied with Clippy 📎 — paste into your Gmail draft (⌘/Ctrl+V)', 'success', 5000);
+  else NX.toast && NX.toast('Copy blocked by the browser — try the Email button instead', 'error', 4000);
 }
 
 async function openDailyLogEmail() {
