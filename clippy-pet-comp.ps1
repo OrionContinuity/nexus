@@ -88,6 +88,11 @@ public class ClippyComp : Form {
 
   [DllImport("d3d11.dll")] static extern int D3D11CreateDevice(IntPtr a,int dt,IntPtr s,uint f,IntPtr fl,uint nfl,uint sdk,out IntPtr dev,out int outFl,out IntPtr ctx);
   [DllImport("dcomp.dll")] static extern int DCompositionCreateDevice(IntPtr dxgi, ref Guid iid, out IntPtr dev);
+  [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT p);
+  [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr h, int i);
+  [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr h, int i, int v);
+  [StructLayout(LayoutKind.Sequential)] struct POINT { public int X; public int Y; }
+  const int GWL_EXSTYLE = -20, WS_EX_TRANSPARENT = 0x20;
 
   [ComImport, Guid("C37EA93A-E7AA-450D-B16F-9746CB0407F3"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
   interface IDCompositionDevice {
@@ -116,9 +121,27 @@ public class ClippyComp : Form {
     this.Width = Wv; this.Height = Hv;
   }
   protected override CreateParams CreateParams {
-    get { var cp = base.CreateParams; cp.ExStyle |= 0x00200000 /* WS_EX_NOREDIRECTIONBITMAP */; return cp; }
+    get { var cp = base.CreateParams; cp.ExStyle |= 0x00200000 /* NOREDIRECTIONBITMAP */ | 0x08000000 /* NOACTIVATE */; return cp; }
   }
-  protected override void OnHandleCreated(EventArgs e){ base.OnHandleCreated(e); var t = Setup(); }
+  protected override void OnHandleCreated(EventArgs e){
+    base.OnHandleCreated(e);
+    // Start fully click-through; a timer toggles it off only over Clippy.
+    try { SetWindowLong(this.Handle, GWL_EXSTYLE, GetWindowLong(this.Handle, GWL_EXSTYLE) | WS_EX_TRANSPARENT); } catch {}
+    var tmr = new Timer(); tmr.Interval = 30;
+    tmr.Tick += delegate (object s, EventArgs ev) {
+      try {
+        POINT pt; if (!GetCursorPos(out pt)) return;
+        var c = this.PointToClient(new Point(pt.X, pt.Y));
+        bool over = OverClippy(c.X, c.Y);
+        int ex = GetWindowLong(this.Handle, GWL_EXSTYLE);
+        bool through = (ex & WS_EX_TRANSPARENT) != 0;
+        if (over && through) SetWindowLong(this.Handle, GWL_EXSTYLE, ex & ~WS_EX_TRANSPARENT);
+        else if (!over && !through) SetWindowLong(this.Handle, GWL_EXSTYLE, ex | WS_EX_TRANSPARENT);
+      } catch {}
+    };
+    tmr.Start();
+    var t = Setup();
+  }
 
   // Clippy's current on-screen rects (client coords); used by WM_NCHITTEST so the
   // window is click-through EXCEPT over him. No window Region - a Region forces an
@@ -224,13 +247,6 @@ public class ClippyComp : Form {
   }
 
   protected override void WndProc(ref Message m){
-    if (m.Msg == 0x84) { // WM_NCHITTEST - click-through everywhere except over Clippy
-      int lp = (int)m.LParam.ToInt64();
-      int sx = (short)(lp & 0xFFFF), sy = (short)((lp >> 16) & 0xFFFF);
-      var p = this.PointToClient(new Point(sx, sy));
-      m.Result = OverClippy(p.X, p.Y) ? (IntPtr)1 /*HTCLIENT*/ : (IntPtr)(-1) /*HTTRANSPARENT*/;
-      return;
-    }
     if (_ctl != null && m.Msg >= 0x200 && m.Msg <= 0x209) {
       try { ForwardMouse(m.Msg, m.WParam, m.LParam); } catch {}
     }
