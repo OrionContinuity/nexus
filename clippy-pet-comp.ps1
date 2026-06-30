@@ -64,6 +64,10 @@ $env:Path = $sdk + ';' + $env:Path
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
+# Load the WebView2 Core assembly by identity so the compiled host can bind to it
+# (the SDK folder isn't a .NET probing path - PATH only helps the native loader).
+try { [Reflection.Assembly]::LoadFrom($coreDll) | Out-Null; Log "Core.dll loaded" } catch { Log "Core.dll load failed: $($_.Exception.Message)" }
+
 $cs = @'
 using System;
 using System.Drawing;
@@ -187,7 +191,20 @@ public class ClippyComp : Form {
 try {
   Add-Type -ReferencedAssemblies @($coreDll, 'System.Windows.Forms', 'System.Drawing') -TypeDefinition $cs -ErrorAction Stop
   Log "C# host compiled"
-} catch { Log "C# compile FAILED: $($_.Exception.Message)"; return }
+} catch {
+  Log "C# compile FAILED: $($_.Exception.Message)"
+  $ex = $_.Exception
+  while ($ex) {
+    if ($ex.PSObject.Properties['LoaderExceptions'] -and $ex.LoaderExceptions) {
+      foreach ($le in $ex.LoaderExceptions) { Log ("  loaderex: " + $le.Message) }
+    }
+    if ($ex.PSObject.Properties['Errors'] -and $ex.Errors) {
+      foreach ($er in $ex.Errors) { Log ("  cscerr: " + $er.ErrorText + " (line " + $er.Line + ")") }
+    }
+    $ex = $ex.InnerException
+  }
+  return
+}
 
 [ClippyComp]::LogPath  = $log
 [ClippyComp]::UserData = $env:WEBVIEW2_USER_DATA_FOLDER
