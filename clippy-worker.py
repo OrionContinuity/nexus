@@ -486,7 +486,11 @@ def _mat(name, rgba):
     try: m.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = rgba
     except Exception: pass
     return m
-# --- generated scene ---
+# --- generated scene (sandboxed: a runtime error falls back, never aborts) ---
+try:
+%s
+except Exception as _berr:
+    print("clippy scene body error:", _berr)
 %s
 # --- end generated scene ---
 if not any(o.type == 'CAMERA' for o in scene.objects):
@@ -550,17 +554,23 @@ def run_render(job_id, data):
     set_state(True, "sculpting: " + idea[:48]); activity("art", "sculpting: " + idea[:60])
     log("render %s -> %s" % (job_id, idea[:80]))
     body = _render_scene_code(idea) or _RENDER_FALLBACK
+    def _indent(code):
+        return "\n".join((("    " + ln) if ln.strip() else ln) for ln in code.splitlines()) or "    pass"
     work = tempfile.mkdtemp(prefix="clippy_art_")
     out_png = os.path.join(work, "out.png")
     script = os.path.join(work, "scene.py")
     try:
         with open(script, "w", encoding="utf-8") as f:
-            f.write(_RENDER_HARNESS % (out_png.replace("\\", "\\\\"), body))
+            f.write(_RENDER_HARNESS % (out_png.replace("\\", "\\\\"), _indent(body), _indent(_RENDER_FALLBACK)))
         t0 = time.time()
         proc = subprocess.Popen([blender, "--background", "--factory-startup", "--python", script],
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         last = 0
         for line in proc.stdout:
+            if time.time() - t0 > 240:                       # hard cap so a hung render can't pin the worker
+                try: proc.kill()
+                except Exception: pass
+                break
             if time.time() - last > 3:
                 sb_finish(job_id, {"status": "running", "tail": line.strip()[-160:], "node": NODE, "ts": now_ms()})
                 last = time.time()
