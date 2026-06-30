@@ -11140,6 +11140,12 @@ async function openFullEditor(equipId) {
       </div>
 
       <div class="eq-detail-actions">
+        ${(eq.archived_at || eq.archived) ? `
+          <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.restoreEquipment('${equipId}'); NX.modules.equipment.closeFullEdit();" style="color:#3a7;border-color:#3a7">${uiSvg("check","14px")} Restore from log</button>
+        ` : `
+          <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.closeFullEdit(); NX.modules.equipment.archiveEquipment('${equipId}');" style="color:#c44;border-color:#c44">${uiSvg("trash","14px")} Send to log</button>
+        `}
+        <span style="flex:1"></span>
         <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.closeFullEdit()">Cancel</button>
         <button class="eq-btn eq-btn-primary" id="eqFullSave">${uiSvg("check", "14px")} Save All Changes</button>
       </div>
