@@ -73,6 +73,7 @@ using System;
 using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
@@ -104,19 +105,29 @@ public class ClippyComp : Form {
   CoreWebView2CompositionController _ctl;
 
   public ClippyComp(){
+    var wa = Screen.PrimaryScreen.WorkingArea;
+    Wv = wa.Width; Hv = wa.Height;          // fill the whole detected screen
     this.FormBorderStyle = FormBorderStyle.None;
     this.ShowInTaskbar   = false;
     this.TopMost         = true;
     this.StartPosition   = FormStartPosition.Manual;
+    this.Left = wa.Left; this.Top = wa.Top;
     this.Width = Wv; this.Height = Hv;
-    var wa = Screen.PrimaryScreen.WorkingArea;
-    this.Left = wa.Right - Wv - 24;
-    this.Top  = wa.Bottom - Hv - 24;
   }
   protected override CreateParams CreateParams {
     get { var cp = base.CreateParams; cp.ExStyle |= 0x00200000 /* WS_EX_NOREDIRECTIONBITMAP */; return cp; }
   }
-  protected override void OnHandleCreated(EventArgs e){ base.OnHandleCreated(e); var t = Setup(); }
+  protected override void OnHandleCreated(EventArgs e){
+    base.OnHandleCreated(e);
+    // Until the page reports Clippy's rects, clip to a corner so the full screen
+    // isn't an invisible click trap.
+    try {
+      var gp = new System.Drawing.Drawing2D.GraphicsPath();
+      gp.AddEllipse(Wv - 230, Hv - 230, 220, 220);
+      this.Region = new System.Drawing.Region(gp);
+    } catch {}
+    var t = Setup();
+  }
 
   async Task Setup(){
     try {
@@ -160,11 +171,58 @@ public class ClippyComp : Form {
         _ctl.CoreWebView2.Settings.IsStatusBarEnabled = false;
         _ctl.CoreWebView2.Settings.AreDevToolsEnabled = true;
       } catch (Exception se) { L("settings warn: " + se.Message); }
-      _ctl.CoreWebView2.NavigationCompleted += delegate(object s2, CoreWebView2NavigationCompletedEventArgs a2) { L("nav done success=" + a2.IsSuccess); };
+      _ctl.CoreWebView2.WebMessageReceived += delegate(object sw, CoreWebView2WebMessageReceivedEventArgs aw) {
+        try { string mm = aw.TryGetWebMessageAsString(); if (mm != null && mm.StartsWith("rects ")) ApplyRects(mm.Substring(6)); } catch {}
+      };
+      _ctl.CoreWebView2.NavigationCompleted += delegate(object s2, CoreWebView2NavigationCompletedEventArgs a2) {
+        L("nav done success=" + a2.IsSuccess);
+        try { var ig = _ctl.CoreWebView2.ExecuteScriptAsync(ReporterJs); } catch (Exception ie) { L("inject err: " + ie.Message); }
+      };
       _ctl.CoreWebView2.Navigate(Url);
     } catch (Exception ex) {
       L("setup EX: " + ex.GetType().Name + ": " + ex.Message);
     }
+  }
+
+  // Injected into the page: report Clippy's on-screen rects so the host can clip
+  // the (full-screen) window to just him - the rest stays click-through.
+  const string ReporterJs = @"(function(){ try {
+  var w=window.chrome&&window.chrome.webview; if(!w) return;
+  if(!document.getElementById('pet-style')){var st=document.createElement('style');st.id='pet-style';st.textContent='#clippy-shell{right:54px!important;bottom:60px!important;}';(document.head||document.documentElement).appendChild(st);}
+  var SEL='#clippy-shell,.clippy-bubble,.clippy-palette,.clippy-game-overlay,.clippy-gacha-overlay,.clippy-panel,.clippy-card';
+  var PAD=46,last='';
+  function vis(el){try{var r=el.getBoundingClientRect();return r.width>2&&r.height>2&&el.getClientRects().length>0;}catch(e){return false;}}
+  function tick(){try{var vw=window.innerWidth,vh=window.innerHeight,o=[];document.querySelectorAll(SEL).forEach(function(el){if(!vis(el))return;var r=el.getBoundingClientRect();var orb=(el.id==='clippy-shell');var x=r.left,y=r.top,x2=r.left+r.width,y2=r.top+r.height;if(orb){x-=PAD;y-=PAD;x2+=PAD;y2+=PAD;}x=Math.max(0,x);y=Math.max(0,y);x2=Math.min(vw,x2);y2=Math.min(vh,y2);o.push({x:Math.round(x),y:Math.round(y),w:Math.round(x2-x),h:Math.round(y2-y),c:orb?1:0});});var s=JSON.stringify(o);if(s!==last){last=s;w.postMessage('rects '+s);}}catch(e){}}
+  setInterval(tick,100);tick();setTimeout(tick,500);setTimeout(tick,1500);
+} catch(e){} })();";
+
+  void ApplyRects(string json){
+    try {
+      var path = new System.Drawing.Drawing2D.GraphicsPath();
+      int n = 0;
+      var ms = Regex.Matches(json, @"\{""x"":(-?\d+),""y"":(-?\d+),""w"":(\d+),""h"":(\d+),""c"":(\d)\}");
+      foreach (Match mt in ms) {
+        int x = int.Parse(mt.Groups[1].Value), y = int.Parse(mt.Groups[2].Value),
+            wd = int.Parse(mt.Groups[3].Value), ht = int.Parse(mt.Groups[4].Value), c = int.Parse(mt.Groups[5].Value);
+        if (wd <= 1 || ht <= 1) continue;
+        path.StartFigure();
+        if (c == 1) { path.AddEllipse(x, y, wd, ht); }
+        else {
+          int g = 8, d = 22, rx = x - g, ry = y - g, rw = wd + 2 * g, rh = ht + 2 * g;
+          if (d > rw) d = rw; if (d > rh) d = rh;
+          path.AddArc(rx, ry, d, d, 180, 90);
+          path.AddArc(rx + rw - d, ry, d, d, 270, 90);
+          path.AddArc(rx + rw - d, ry + rh - d, d, d, 0, 90);
+          path.AddArc(rx, ry + rh - d, d, d, 90, 90);
+          path.CloseFigure();
+        }
+        n++;
+      }
+      if (n > 0) {
+        var rgn = new System.Drawing.Region(path);
+        if (this.IsHandleCreated) this.BeginInvoke((MethodInvoker)delegate () { try { this.Region = rgn; } catch {} });
+      }
+    } catch (Exception ex) { L("rects err: " + ex.Message); }
   }
 
   protected override void WndProc(ref Message m){
