@@ -80,10 +80,26 @@ function Start-WorkerProc {
   Log "[ok] clippy-worker started" 'Green'
   return $true
 }
+function Get-PetProc {
+  return Get-CimInstance Win32_Process -EA SilentlyContinue |
+         Where-Object { $_.CommandLine -and $_.CommandLine -match 'clippy-pet-comp\.ps1' -and $_.CommandLine -notmatch '(?i)-Command' }
+}
+function Stop-PetProc {
+  Get-PetProc | ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force } catch {} }
+}
+function Start-PetProc {
+  # Launch the GhostGlass desktop pet (the floating web Clippy). Needs -STA. The
+  # script has its own single-instance guard, so a double launch is harmless.
+  $pet = Join-Path $HOMEDIR 'clippy-pet-comp.ps1'
+  if (-not (Test-Path $pet)) { Log "[..] pet host not present yet (clippy-pet-comp.ps1)" 'Yellow'; return $false }
+  Start-Process powershell -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -File "' + $pet + '"') -WindowStyle Hidden | Out-Null
+  Log "[ok] clippy pet (GhostGlass) started" 'Green'
+  return $true
+}
 function Update-NodeFromGitHub {
   # Pull the latest node scripts into $HOMEDIR. Returns which ones changed.
-  $res = @{ worker = $false; daemon = $false }
-  foreach ($f in 'clippy-worker.py', 'clippy-daemon.ps1', 'clippy-update.ps1', 'clippy-character.json', 'clippy-dialog.json') {
+  $res = @{ worker = $false; daemon = $false; pet = $false }
+  foreach ($f in 'clippy-worker.py', 'clippy-daemon.ps1', 'clippy-update.ps1', 'clippy-character.json', 'clippy-dialog.json', 'clippy-pet-comp.ps1') {
     $dst = Join-Path $HOMEDIR $f
     $tmp = Join-Path $env:TEMP ('nx_' + $f)
     try {
@@ -94,6 +110,7 @@ function Update-NodeFromGitHub {
         Copy-Item $tmp $dst -Force
         if ($f -eq 'clippy-worker.py')  { $res.worker = $true }
         if ($f -eq 'clippy-daemon.ps1') { $res.daemon = $true }
+        if ($f -eq 'clippy-pet-comp.ps1') { $res.pet = $true }
         # Character/dialog are data the worker reads at startup - restart it to reload.
         if ($f -eq 'clippy-character.json' -or $f -eq 'clippy-dialog.json') { $res.worker = $true }
         Log "[upd] refreshed $f" 'Green'
@@ -119,6 +136,10 @@ function Invoke-Supervisor {
       Log "[supervise] worker down - (re)starting" 'Yellow'
       Start-WorkerProc | Out-Null
     }
+    if (-not (Get-PetProc)) {
+      Log "[supervise] pet down - (re)starting" 'Yellow'
+      Start-PetProc | Out-Null
+    }
     if (((Get-Date) - $lastUpd).TotalMinutes -ge $UpdateEveryMin) {
       $lastUpd = Get-Date
       $u = Update-NodeFromGitHub
@@ -135,6 +156,12 @@ function Invoke-Supervisor {
         Stop-WorkerProc
         Start-Sleep -Seconds 2
         Start-WorkerProc | Out-Null
+      }
+      if ($u.pet) {
+        Log "[supervise] new pet pulled - restarting it" 'Green'
+        Stop-PetProc
+        Start-Sleep -Seconds 2
+        Start-PetProc | Out-Null
       }
     }
     Start-Sleep -Seconds 30
@@ -330,6 +357,9 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
     if (-not $Supervise) {
       if (Get-WorkerProc) { Log "[have] clippy-worker already running" 'Green' }
       else { Start-WorkerProc | Out-Null }
+      # Bring the desktop buddy up right away too (idempotent: it self-guards).
+      if (Get-PetProc) { Log "[have] clippy pet already running" 'Green' }
+      else { Start-PetProc | Out-Null }
     }
 
     # Auto-start on boot. Copy the scripts to a STABLE home first (this folder
@@ -340,7 +370,7 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
         $self = $PSCommandPath; if (-not $self) { $self = $MyInvocation.MyCommand.Path }
         $stable = Join-Path $env:LOCALAPPDATA 'NexusClippy'
         New-Item -ItemType Directory -Force -Path $stable | Out-Null
-        foreach ($f in 'clippy-daemon.ps1', 'clippy-worker.py', 'clippy-update.ps1', 'clippy-character.json', 'clippy-dialog.json') {
+        foreach ($f in 'clippy-daemon.ps1', 'clippy-worker.py', 'clippy-update.ps1', 'clippy-character.json', 'clippy-dialog.json', 'clippy-pet-comp.ps1') {
           $src = Join-Path $HOMEDIR $f
           if (Test-Path $src) { Copy-Item $src (Join-Path $stable $f) -Force -EA SilentlyContinue }
         }

@@ -15,16 +15,16 @@ $dir = Join-Path $env:LOCALAPPDATA 'NexusClippy'
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
 $raw = 'https://raw.githubusercontent.com/orioncontinuity/nexus/main'
 
-foreach ($f in 'clippy-worker.py', 'clippy-daemon.ps1', 'clippy-update.ps1', 'clippy-character.json', 'clippy-dialog.json') {
+foreach ($f in 'clippy-worker.py', 'clippy-daemon.ps1', 'clippy-update.ps1', 'clippy-character.json', 'clippy-dialog.json', 'clippy-pet-comp.ps1') {
   try {
     Invoke-WebRequest "$raw/$f" -OutFile (Join-Path $dir $f) -UseBasicParsing -TimeoutSec 60
     Write-Host "[ok] fetched $f"
   } catch { Write-Host "[!!] fetch $f failed: $($_.Exception.Message)" }
 }
 
-# Stop any running supervisor + worker so the fresh ones take over.
+# Stop any running supervisor + worker + pet so the fresh ones take over.
 Get-CimInstance Win32_Process -EA SilentlyContinue |
-  Where-Object { $_.CommandLine -and ($_.CommandLine -match 'clippy-daemon\.ps1' -or $_.CommandLine -match 'clippy-worker\.py') } |
+  Where-Object { $_.CommandLine -and ($_.CommandLine -match 'clippy-daemon\.ps1' -or $_.CommandLine -match 'clippy-worker\.py' -or ($_.CommandLine -match 'clippy-pet-comp\.ps1' -and $_.CommandLine -notmatch '(?i)-Command')) } |
   ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force } catch {} }
 Start-Sleep -Seconds 2
 
