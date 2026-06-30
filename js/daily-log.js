@@ -2151,13 +2151,14 @@ function fmtLogDateLong(dateStr) {
 // day's report stays stable (no reshuffle every time you reopen the draft),
 // but it rotates day to day so the managers don't get the same line forever.
 const DLOG_QUIPS = [
-  'Hope the coffee’s hot and the walk-ins are cold. ☕❄️',
-  'Everything we touched, fixed, and side-eyed today. 👀',
-  'We checked the things so you don’t have to. ✅',
-  'Keeping your second home in fighting shape. 🛠️',
-  'Another day of quietly keeping the lights on. 💡',
-  'No drama is the goal — here’s the proof. 📋',
-  'Fresh from the field: your daily dose of done. 🌿',
+  'It looks like you’re running a restaurant! 📎 Want a hand? Too late — already handled.',
+  'It looks like you read the whole report. I’m genuinely emotional about it. 📎',
+  'It looks like everything’s still standing. Don’t jinx it. 📎',
+  'It looks like you survived another shift! Same time tomorrow? 📎',
+  'It looks like you’re hunting for problems. None today. You’re welcome. 📎',
+  'It looks like a quiet day. I checked twice, then a third time. 📎',
+  'It looks like you needed a paperclip. You always need a paperclip. 📎',
+  'It looks like the walk-in is cold and the coffee is hot. My work here is done. 📎',
 ];
 function dlogEmailGreeting(label, dateStr) {
   const day = fmtLogDateLong(dateStr);
@@ -2180,12 +2181,13 @@ function buildDailyLogEmailBody(d, dateStr) {
   const clean = s => String(s == null ? '' : s).trim();
   const out = [];
 
-  out.push('Daily Log \u2014 ' + fmtLogDateLong(dateStr));
-  if (clean(d.header && d.header.weather)) out.push('Weather: ' + clean(d.header.weather));
-  out.push(RULE());
-  out.push('');
+  // No title line here \u2014 the email subject already carries "Daily Log \u2014 <date>",
+  // and the greeting restates the day, so repeating it up top was redundant.
   dlogEmailGreeting(null, dateStr).forEach(l => out.push(l));
-  const _bodyStart = out.length;   // mark where section content begins (after greeting)
+  // Weather now lives in the body (was a header line). Placed before _bodyStart
+  // so it's ambient context and a weather-only report still reads as "Quiet day".
+  if (clean(d.header && d.header.weather)) { out.push(SH('Weather')); out.push(clean(d.header.weather)); out.push(''); }
+  const _bodyStart = out.length;   // section content begins here (after greeting + weather)
 
   if (clean(d.header && d.header.significant_events)) {
     out.push(SH('Significant events'));
@@ -2534,16 +2536,15 @@ function buildLocationEmailBody(loc, dateStr, d) {
   const RULE = () => (window.NX && NX.email) ? NX.email.rule() : '-----------------------------------';
   const out = [];
 
-  out.push('Daily Log \u2014 ' + (loc.label || 'Location') + ' \u2014 ' + fmtLogDateLong(dateStr));
-  // Weather once, in the header \u2014 prefer this location's own reading, fall back
-  // to the day-level weather. (The per-location WEATHER section was removed so
-  // weather no longer appears twice.)
-  const _hdrWx = (state.weatherByLoc && state.weatherByLoc[normLocKey(loc.label)]) || (d && d.header && d.header.weather) || '';
-  if (clean(_hdrWx)) out.push('Weather: ' + clean(_hdrWx));
-  out.push(RULE());
-  out.push('');
+  // No title line here \u2014 the subject already says "Daily Log \u2014 <Location> \u2014 <date>"
+  // and the greeting restates both, so repeating it up top was redundant.
   dlogEmailGreeting(loc.label || 'Location', dateStr).forEach(l => out.push(l));
-  const _bodyStart = out.length;   // mark where section content begins (after greeting)
+  // Weather now lives in the body \u2014 prefer this location's own reading, fall
+  // back to the day-level weather. Placed before _bodyStart so a weather-only
+  // report still reads as "Quiet day".
+  const _hdrWx = (state.weatherByLoc && state.weatherByLoc[normLocKey(loc.label)]) || (d && d.header && d.header.weather) || '';
+  if (clean(_hdrWx)) { out.push(SH('Weather')); out.push(clean(_hdrWx)); out.push(''); }
+  const _bodyStart = out.length;   // section content begins here (after greeting + weather)
 
   if (d && clean(d.header && d.header.significant_events)) {
     out.push(SH('Significant events'));
