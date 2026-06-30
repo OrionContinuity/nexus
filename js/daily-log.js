@@ -2146,6 +2146,34 @@ function fmtLogDateLong(dateStr) {
   } catch (_) { return dateStr || ''; }
 }
 
+// Warm, lightly-funny intro that opens the emailed daily log. The closing
+// quip is picked deterministically from the date so regenerating the same
+// day's report stays stable (no reshuffle every time you reopen the draft),
+// but it rotates day to day so the managers don't get the same line forever.
+const DLOG_QUIPS = [
+  'Hope the coffee’s hot and the walk-ins are cold. ☕❄️',
+  'Everything we touched, fixed, and side-eyed today. 👀',
+  'We checked the things so you don’t have to. ✅',
+  'Keeping your second home in fighting shape. 🛠️',
+  'Another day of quietly keeping the lights on. 💡',
+  'No drama is the goal — here’s the proof. 📋',
+  'Fresh from the field: your daily dose of done. 🌿',
+];
+function dlogEmailGreeting(label, dateStr) {
+  const day = fmtLogDateLong(dateStr);
+  const s = String(dateStr || '');
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  const quip = DLOG_QUIPS[h % DLOG_QUIPS.length];
+  const where = label ? (label + ' — your second home') : 'your second homes';
+  return [
+    'Hi Team 👋',
+    'Here’s the daily report for ' + where + ' (' + day + ').',
+    quip,
+    '',
+  ];
+}
+
 function buildDailyLogEmailBody(d, dateStr) {
   const SH = (l, s) => (window.NX && NX.email) ? NX.email.sectionHeader(l, s) : ('--- ' + String(l).toUpperCase() + ' ---');
   const RULE = () => (window.NX && NX.email) ? NX.email.rule() : '-----------------------------------';
@@ -2156,6 +2184,7 @@ function buildDailyLogEmailBody(d, dateStr) {
   if (clean(d.header && d.header.weather)) out.push('Weather: ' + clean(d.header.weather));
   out.push(RULE());
   out.push('');
+  dlogEmailGreeting(null, dateStr).forEach(l => out.push(l));
 
   if (clean(d.header && d.header.significant_events)) {
     out.push(SH('Significant events'));
@@ -2233,9 +2262,9 @@ function buildDailyLogEmailBody(d, dateStr) {
   const me = (window.NX && (NX.user || NX.currentUser)) ? ((NX.user && NX.user.name) || (NX.currentUser && NX.currentUser.name) || '') : '';
   if (me) out.push(me);
 
-  // Small, unobtrusive brand footer — indented so it reads as a footnote.
+  // Tiny, quiet brand footnote — lowercase and flush so it barely registers.
   out.push('');
-  out.push('              powered by NEXUS');
+  out.push('· powered by nexus');
 
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
@@ -2463,6 +2492,7 @@ function buildLocationEmailBody(loc, dateStr, d) {
   if (d && clean(d.header && d.header.weather)) out.push('Weather: ' + clean(d.header.weather));
   out.push(RULE());
   out.push('');
+  dlogEmailGreeting(loc.label || 'Location', dateStr).forEach(l => out.push(l));
 
   if (d && clean(d.header && d.header.significant_events)) {
     out.push(SH('Significant events'));
@@ -2477,9 +2507,9 @@ function buildLocationEmailBody(loc, dateStr, d) {
   const me = (window.NX && (NX.user || NX.currentUser)) ? ((NX.user && NX.user.name) || (NX.currentUser && NX.currentUser.name) || '') : '';
   if (me) out.push(me);
 
-  // Small, unobtrusive brand footer — indented so it reads as a footnote.
+  // Tiny, quiet brand footnote — lowercase and flush so it barely registers.
   out.push('');
-  out.push('              powered by NEXUS');
+  out.push('· powered by nexus');
 
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
