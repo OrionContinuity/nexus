@@ -94,18 +94,17 @@ $form.Width = $W; $form.Height = $H
 $form.Left = $wa.Right - $W - 24
 $form.Top  = $wa.Bottom - $H - 24
 Log ("formrect left=$($form.Left) top=$($form.Top) w=$W h=$H")
-$form.BackColor = [System.Drawing.Color]::FromArgb(13, 15, 24)   # near-black backdrop
-if (-not $Solid) {
-  # Color-key transparency: pixels of BackColor become invisible + click-through.
-  $form.AllowTransparency = $true
-  $form.TransparencyKey   = $form.BackColor
-}
-Log ("window mode: " + $(if ($Solid) { 'SOLID (opaque)' } else { 'transparent (color-key)' }))
+# Backing colour - only shown *inside* the clip region where the page is
+# transparent. We keep the region hugging Clippy's solid body so it barely shows.
+$form.BackColor = [System.Drawing.Color]::FromArgb(10, 12, 18)
+$script:Form  = $form
+$script:Solid = [bool]$Solid
+if ($Solid) { Log "window mode: SOLID (opaque rectangle)" }
+else        { Log "window mode: floating (region-clipped, input-safe)" }
 
 $wv = New-Object Microsoft.Web.WebView2.WinForms.WebView2
 $wv.Dock = 'Fill'
-# In transparent mode the page's transparent areas fall through to the keyed
-# BackColor; in solid mode they show the dark backdrop directly.
+# Transparent page background so the region clip is all that defines the shape.
 $wv.DefaultBackgroundColor = $(if ($Solid) { $form.BackColor } else { [System.Drawing.Color]::Transparent })
 $form.Controls.Add($wv)
 
@@ -116,16 +115,65 @@ $env:Path = $sdk + ';' + $env:Path   # so WebView2Loader.dll resolves
 
 $script:Url = $Url
 $script:WvBg = $wv.DefaultBackgroundColor
-# Injected into every loaded page: reports page state + each click straight to
-# the host log via chrome.webview.postMessage (no Supabase / CORS in the path).
+
+# Clip the window to just Clippy's visible content. The page streams the screen
+# rects of the orb + any open bubble/panel; we union them into a Region so the
+# rest of the window is truly outside the window (transparent + click-through),
+# while everything inside stays opaque and CLICKABLE (no color-key = input works).
+$script:ApplyRects = {
+  param($json)
+  try {
+    $arr = $json | ConvertFrom-Json
+    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $n = 0
+    foreach ($r in $arr) {
+      $x = [int]$r.x; $y = [int]$r.y; $wd = [int]$r.w; $ht = [int]$r.h
+      if ($wd -le 1 -or $ht -le 1) { continue }
+      $path.StartFigure()
+      if ($r.c -eq 1) {
+        # the orb - inset circle so only its solid body is inside the region
+        $pad = [single]([Math]::Max(2, [Math]::Min($wd, $ht) * 0.04))
+        $path.AddEllipse([single]($x + $pad), [single]($y + $pad), [single]($wd - 2 * $pad), [single]($ht - 2 * $pad))
+      } else {
+        # bubble / panel - rounded rect hugging it (+pad for tail & shadow)
+        $g = 8; $d = [single]22
+        $rx = [single]($x - $g); $ry = [single]($y - $g); $rw = [single]($wd + 2 * $g); $rh = [single]($ht + 2 * $g)
+        if ($d -gt $rw) { $d = $rw }; if ($d -gt $rh) { $d = $rh }
+        $path.AddArc($rx, $ry, $d, $d, [single]180, [single]90)
+        $path.AddArc(($rx + $rw - $d), $ry, $d, $d, [single]270, [single]90)
+        $path.AddArc(($rx + $rw - $d), ($ry + $rh - $d), $d, $d, [single]0, [single]90)
+        $path.AddArc($rx, ($ry + $rh - $d), $d, $d, [single]90, [single]90)
+        $path.CloseFigure()
+      }
+      $n++
+    }
+    if ($n -gt 0) { $script:Form.Region = New-Object System.Drawing.Region($path) }
+  } catch { Log ('rects err: ' + $_.Exception.Message) }
+}
+
+# Injected into every loaded page: reports content rects (for the clip region) +
+# clicks, straight to the host via chrome.webview.postMessage (no Supabase path).
 $script:ReporterJs = @'
 (function(){ try {
   var w = window.chrome && window.chrome.webview; if(!w) return;
-  w.postMessage('injected supa='+(typeof window.supabase)+' nxsb='+(!!(window.NX&&window.NX.sb))+' shell='+(!!document.querySelector('.clippy-shell'))+' host='+(!!document.querySelector('#clippy-host')));
-  function rep(){ var sh=document.querySelector('.clippy-shell')||document.querySelector('#clippy-host'); if(sh){ var r=sh.getBoundingClientRect(); w.postMessage('shellrect x='+Math.round(r.left)+' y='+Math.round(r.top)+' w='+Math.round(r.width)+' h='+Math.round(r.height)); } }
-  rep(); setTimeout(rep, 2500);
+  w.postMessage('injected supa='+(typeof window.supabase)+' nxsb='+(!!(window.NX&&window.NX.sb))+' shell='+(!!document.querySelector('#clippy-shell')));
+  var SEL = '#clippy-shell,.clippy-bubble,.clippy-palette,.clippy-game-overlay,.clippy-gacha-overlay,.clippy-panel,.clippy-card';
+  function vis(el){ try { var r=el.getBoundingClientRect(); return r.width>2 && r.height>2 && el.getClientRects().length>0; } catch(e){ return false; } }
+  var last='';
+  function tick(){
+    try {
+      var out=[];
+      document.querySelectorAll(SEL).forEach(function(el){
+        if(!vis(el)) return; var r=el.getBoundingClientRect();
+        out.push({x:Math.round(r.left),y:Math.round(r.top),w:Math.round(r.width),h:Math.round(r.height),c:(el.id==='clippy-shell')?1:0});
+      });
+      var s=JSON.stringify(out);
+      if(s!==last){ last=s; w.postMessage('rects '+s); }
+    } catch(e){}
+  }
+  setInterval(tick,120); tick(); setTimeout(tick,400); setTimeout(tick,1500);
   document.addEventListener('pointerdown', function(e){
-    var b=(e.target&&e.target.closest)?e.target.closest('button,.clippy-bubble-btn,.clippy-shell,.clippy-orb'):null;
+    var b=(e.target&&e.target.closest)?e.target.closest('button,.clippy-bubble-btn,#clippy-shell'):null;
     w.postMessage('click x='+e.clientX+' y='+e.clientY+' tag='+(e.target?e.target.tagName:'?')+' btn='+(b?('['+((b.textContent||'').trim().slice(0,30))+']'):'no'));
   }, true);
 } catch(err){} })();
@@ -138,7 +186,13 @@ $initDone = {
       $s.CoreWebView2.Settings.IsStatusBarEnabled = $false
       $s.CoreWebView2.Settings.AreDevToolsEnabled = $true
       $s.DefaultBackgroundColor = $script:WvBg
-      $s.CoreWebView2.add_WebMessageReceived({ param($a,$b) try { Log ('webmsg: ' + $b.TryGetWebMessageAsString()) } catch { Log 'webmsg: <parse error>' } })
+      $s.CoreWebView2.add_WebMessageReceived({ param($a,$b)
+        try {
+          $m = $b.TryGetWebMessageAsString()
+          if ($m -like 'rects *') { if (-not $script:Solid) { & $script:ApplyRects ($m.Substring(6)) } }
+          else { Log ('webmsg: ' + $m) }
+        } catch { Log 'webmsg: <parse error>' }
+      })
       $s.CoreWebView2.add_NavigationCompleted({ param($a,$b)
         Log ('nav done: success=' + $b.IsSuccess + ' status=' + $b.WebErrorStatus)
         try { $a.ExecuteScriptAsync($script:ReporterJs) | Out-Null } catch { Log ('inject err: ' + $_.Exception.Message) }
