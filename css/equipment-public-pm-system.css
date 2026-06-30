@@ -329,13 +329,24 @@
   margin-top: 2px !important;
 }
 
+/* Card layout discipline: every section keeps its size; ONLY the form scrolls.
+   Without min-height:0 a flex child won't shrink below its content, so the form
+   overflowed and its content collided with the sections above/below (the
+   "barely usable" mess on mobile). */
+.pm-logger-card > *:not(.pm-logger-form) { flex-shrink: 0 !important; }
+
 /* Form scroll area */
 .pm-logger-form {
-  flex: 1 !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
   overflow-y: auto !important;
   padding: 20px 22px 24px !important;
   -webkit-overflow-scrolling: touch !important;
   background: var(--pm-bg) !important;
+}
+/* On phones, keep the unit checklist from eating the whole sheet. */
+@media (max-width: 599px) {
+  .pm-logger-mass-list { max-height: 168px !important; }
 }
 
 /* Form sections — separated by spacing, not heavy hrules */
@@ -495,9 +506,17 @@ select.pm-input {
 .pm-logger-actions {
   display: flex !important;
   gap: 12px !important;
-  padding-top: 20px !important;
+  /* Sticky, SOLID footer pinned to the bottom of the scrolling form so the
+     buttons never overlap (or show through) the fields above, and Submit is
+     always reachable on a small phone. Full-bleed to the card edges. */
+  position: sticky !important;
+  bottom: 0 !important;
+  z-index: 6 !important;
+  margin: 16px -22px -24px !important;     /* cancel the form's 22px/24px padding */
+  padding: 14px 22px calc(14px + env(safe-area-inset-bottom)) !important;
   border-top: 1px solid var(--pm-border) !important;
-  margin-top: 20px !important;
+  background: var(--pm-bg) !important;
+  box-shadow: 0 -10px 24px -8px rgba(0, 0, 0, 0.45) !important;
 }
 .pm-cancel-btn {
   flex: 1 !important;
