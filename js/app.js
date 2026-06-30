@@ -46,6 +46,16 @@ const NX = {
   // Optional specific Clippy LLM (empty = let Clippy pick his default). Only
   // takes effect once Clippy's /ask honors a `model` field; sent regardless.
   getClippyModel() { return this.config?.clippy_model || localStorage.getItem('nexus_clippy_model') || ''; },
+  // Does the ACTIVE provider require an Anthropic cloud key? Only the
+  // 'anthropic' provider does — 'clippy' and 'clippy-pool' answer from a
+  // local/pooled LLM with no key. UI gates must use this instead of a bare
+  // getApiKey() check, or selecting Clippy/pool still demands a key it
+  // doesn't need (and chat dead-ends with "add your Anthropic API key").
+  aiNeedsKey() { return this.getProvider() === 'anthropic'; },
+  // True when the active provider is ready to answer: cloud needs a key,
+  // Clippy/pool are always considered configured (reachability is probed
+  // separately via Check Clippy / poolStatus).
+  aiReady() { return this.aiNeedsKey() ? !!this.getApiKey() : true; },
 
   // Roles
   isAdmin: false,
