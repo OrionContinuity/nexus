@@ -2318,13 +2318,12 @@ function dlogLocationReportLines(loc) {
       if (gi > 0) out.push('');
       out.push(g.label + ' (' + g.cards.length + ')');
       g.cards.forEach(c => {
-        // Front-load an uppercase priority tag so elevated work pops and the
-        // column stays scannable. "normal" is the baseline, so it's left
-        // untagged rather than repeated on every line (that repetition was the
-        // clutter). Status is the group header; "moved today" is omitted from
-        // Done (the "Done today" header already implies it moved today).
+        // Front-load an uppercase priority tag on every card so the priority
+        // reads at a glance and the tags line up into a scannable column.
+        // Status is the group header; "moved today" is omitted from Done (the
+        // "Done today" header already implies it moved today).
         const pri = (c.priority || 'normal').toLowerCase();
-        const tag = pri !== 'normal' ? '[' + pri.toUpperCase() + '] ' : '';
+        const tag = '[' + pri.toUpperCase() + '] ';
         const moved = (g.showMoved && c._movedToday) ? '  (moved today)' : '';
         out.push('    \u00b7 ' + tag + (c.title || 'Untitled card') + moved);
       });
