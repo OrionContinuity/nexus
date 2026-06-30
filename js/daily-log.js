@@ -2144,9 +2144,10 @@ function buildDailyLogEmailBody(d, dateStr) {
   const me = (window.NX && (NX.user || NX.currentUser)) ? ((NX.user && NX.user.name) || (NX.currentUser && NX.currentUser.name) || '') : '';
   if (me) out.push(me);
 
-  // Small, unobtrusive brand footer — indented so it reads as a footnote.
+  // Quiet brand footnote — left-aligned lowercase fine print so it reads
+  // small under the signature (was a large, centered-looking indented line).
   out.push('');
-  out.push('              powered by NEXUS');
+  out.push('powered by nexus');
 
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
@@ -2311,15 +2312,21 @@ function dlogLocationReportLines(loc) {
   ].filter(g => g.cards.length);
   if (woGroups.length) {
     out.push(SH('Work orders'));
-    woGroups.forEach(g => {
+    woGroups.forEach((g, gi) => {
+      // Blank line between lanes so To Do / In Progress / Done today read as
+      // distinct blocks instead of one run-on list.
+      if (gi > 0) out.push('');
       out.push(g.label + ' (' + g.cards.length + ')');
       g.cards.forEach(c => {
-        // "title \u2014 priority[, moved today]". Status is the group header
-        // above, so it isn't repeated per line; "moved today" is omitted from
-        // Done (the "Done today" header already says the card moved today).
-        const tags = [(c.priority || 'normal').toLowerCase()];
-        if (g.showMoved && c._movedToday) tags.push('moved today');
-        out.push('    \u00b7 ' + (c.title || 'Untitled card') + ' \u2014 ' + tags.join(', '));
+        // Front-load an uppercase priority tag so elevated work pops and the
+        // column stays scannable. "normal" is the baseline, so it's left
+        // untagged rather than repeated on every line (that repetition was the
+        // clutter). Status is the group header; "moved today" is omitted from
+        // Done (the "Done today" header already implies it moved today).
+        const pri = (c.priority || 'normal').toLowerCase();
+        const tag = pri !== 'normal' ? '[' + pri.toUpperCase() + '] ' : '';
+        const moved = (g.showMoved && c._movedToday) ? '  (moved today)' : '';
+        out.push('    \u00b7 ' + tag + (c.title || 'Untitled card') + moved);
       });
     });
     out.push('');
@@ -2370,9 +2377,10 @@ function buildLocationEmailBody(loc, dateStr, d) {
   const me = (window.NX && (NX.user || NX.currentUser)) ? ((NX.user && NX.user.name) || (NX.currentUser && NX.currentUser.name) || '') : '';
   if (me) out.push(me);
 
-  // Small, unobtrusive brand footer — indented so it reads as a footnote.
+  // Quiet brand footnote — left-aligned lowercase fine print so it reads
+  // small under the signature (was a large, centered-looking indented line).
   out.push('');
-  out.push('              powered by NEXUS');
+  out.push('powered by nexus');
 
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
