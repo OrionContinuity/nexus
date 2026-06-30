@@ -204,12 +204,6 @@
       </button>`).join('');
     el.innerHTML = `
       ${heroHtml}
-      ${hero.length === 0 ? `
-      <button class="home-rm-tile is-hero" data-go="issues" onclick="event.stopPropagation();NX.openWorkOrders&&NX.openWorkOrders()"
-        style="grid-column:1/-1;min-height:72px;display:flex;align-items:center;gap:14px;text-align:left">
-        <div style="font-size:26px;color:var(--nx-green)">✓</div>
-        <div style="font-size:17px;font-weight:650;color:var(--nx-text-strong)">All clear — nothing needs you right now</div>
-      </button>` : ''}
       <button class="home-rm-tile" data-go="spend">
         <div class="home-rm-tile-num">${fmt.money(state.spendMTD)}</div>
         <div class="home-rm-tile-lbl">Spent this month</div>
@@ -573,15 +567,9 @@
     const page = home.querySelector('.home-page');
     if (!page) return false;
 
-    // 1. Trajan's read — after .home-intro
-    if (!page.querySelector('.home-rm-read')) {
-      const intro = page.querySelector('.home-intro, #homeIntro');
-      if (intro) {
-        const el = document.createElement('div');
-        el.className = 'home-rm-read';
-        intro.insertAdjacentElement('afterend', el);
-      }
-    }
+    // 1. Trajan's read (the italic persona line under the greeting) — removed
+    //    at the user's request. Any pre-existing element is cleared below.
+    page.querySelectorAll('.home-rm-read').forEach(n => n.remove());
 
     // 2. R&M tiles — after #homeGlance
     if (!page.querySelector('.home-rm-tiles')) {
