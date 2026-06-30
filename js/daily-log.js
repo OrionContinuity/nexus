@@ -2184,15 +2184,17 @@ function buildDailyLogEmailBody(d, dateStr) {
     out.push('');
   });
 
-  // PMs Logged — preventive maintenance performed on this date, sourced live
-  // from equipment_maintenance (state.pmsToday). Grouped by location, each
-  // line shows the equipment and the vendor / person who performed it. Skipped
-  // entirely on days with no PMs so the report stays clean.
-  const pms = state.pmsToday || [];
-  if (pms.length) {
-    out.push(SH('PMs logged', String(pms.length)));
+  // PMs performed today now render inside each location's own block above
+  // (dlogLocationReportLines). This catch-all only lists PMs whose equipment
+  // location doesn't match any location section in the report, so a PM at an
+  // un-listed location is never silently dropped from the full-day digest.
+  const matchedLocs = new Set((d.locations || []).map(l => normLocKey(l.label)));
+  const orphanPms = (state.pmsToday || []).filter(p =>
+    !matchedLocs.has(normLocKey((p.equipment && p.equipment.location) || '')));
+  if (orphanPms.length) {
+    out.push(SH('PMs logged', String(orphanPms.length)));
     const pmGroups = {};
-    pms.forEach(p => {
+    orphanPms.forEach(p => {
       const loc = (p.equipment && p.equipment.location) || 'Unspecified location';
       (pmGroups[loc] = pmGroups[loc] || []).push(p);
     });
@@ -2337,6 +2339,24 @@ function dlogLocationReportLines(loc) {
         else
           out.push('    call: ' + s.replace(/_/g, ' '));
       }
+    });
+    out.push('');
+  }
+
+  // PMs performed today at THIS location — preventive maintenance actually
+  // completed on this date (state.pmsToday), each with the equipment and who
+  // did it. Distinct from "Maintenance health" below, which is what's DUE.
+  // Lives here so it rides along in both the per-location email and each
+  // location's block of the full-day digest.
+  const pmsHere = (state.pmsToday || []).filter(p =>
+    normLocKey((p.equipment && p.equipment.location) || '') === locKey);
+  if (pmsHere.length) {
+    out.push(SH('PMs logged'));
+    pmsHere.forEach(p => {
+      const eqName = (p.equipment && p.equipment.name) || ('Equipment ' + String(p.equipment_id || '').slice(0, 8));
+      const who = clean(p.performed_by) || 'unassigned';
+      const cost = (p.cost != null && !isNaN(p.cost) && Number(p.cost) > 0) ? ' — $' + Math.round(Number(p.cost)).toLocaleString() : '';
+      out.push('· ' + eqName + ' — by ' + who + cost);
     });
     out.push('');
   }
