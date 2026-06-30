@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Clippy</title>
+<!--
+  clippy-pet.html — the standalone DESKTOP PET.
+  It loads the EXACT same web Clippy (css/clippy.css + js/clippy.js + clippy.svg
+  + the canonical character) with a minimal NX stub, so the desktop buddy and
+  the NEXUS web buddy are literally the same SVG body, the same actions/moves,
+  and the same personality — auto-updating from the deployed site. A transparent
+  WebView2 window (face/clippy-pet.ps1) hosts this page, always-on-top.
+  His brain talks to the local offline Clippy brain on http://localhost:4242,
+  and falls back to the Supabase pool when it isn't up.
+-->
+<link rel="stylesheet" href="css/clippy.css">
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: transparent; overflow: hidden; }
+  /* The pet IS the buddy — let the host fill the transparent window. */
+  #clippy-host { inset: 0 !important; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+<script>
+/* ── Minimal NX stub: just enough for the web Clippy to run as a desktop pet ── */
+(function () {
+  var SUPA_URL = 'https://oprsthfxqrdbwdvommpw.supabase.co';
+  var SUPA_KEY = 'sb_publishable_rOLSdIG6mIjVLY8JmvrwCA_qfM7Vyk9';
+  var LOCAL_BRAIN = 'http://localhost:4242';     // the offline Clippy brain on this PC
+
+  var sb = null;
+  try { sb = window.supabase.createClient(SUPA_URL, SUPA_KEY); } catch (e) {}
+
+  function rid() {
+    return (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+      : (Date.now() + '-' + Math.random().toString(36).slice(2));
+  }
+  function flatten(messages) {
+    return (messages || []).map(function (m) {
+      var c = m && m.content;
+      if (Array.isArray(c)) c = c.map(function (b) { return typeof b === 'string' ? b : (b.text || ''); }).join('\n');
+      return (m.role === 'assistant' ? 'Assistant: ' : 'User: ') + (c == null ? '' : c);
+    }).join('\n\n');
+  }
+  // Enqueue a bus job and poll for the answer a Clippy node writes back.
+  async function askPool(prompt, opts) {
+    opts = opts || {};
+    if (!sb) throw new Error('no bus');
+    var id = (opts.image_b64 ? 'vis:' : 'job:') + rid();
+    var job = { status: 'pending', prompt: String(prompt || ''), system: opts.system || null,
+                image_b64: opts.image_b64 || null, vision: !!opts.image_b64, ts: Date.now() };
+    await sb.from('clippy_sync').upsert({ id: id, data: job, from_id: 'pet' }, { onConflict: 'id' });
+    var deadline = Date.now() + (opts.timeoutMs || 45000);
+    try {
+      while (Date.now() < deadline) {
+        await new Promise(function (r) { setTimeout(r, 1500); });
+        var res = await sb.from('clippy_sync').select('data').eq('id', id).maybeSingle();
+        var d = res.data && res.data.data;
+        if (d && d.status === 'done') return d.result || '';
+        if (d && d.status === 'error') throw new Error(d.error || 'pool error');
+      }
+      throw new Error('pool timeout');
+    } finally {
+      sb.from('clippy_sync').delete().eq('id', id).then(function () {}, function () {});
+    }
+  }
+  // His brain: prefer the LOCAL offline brain (:4242), fall back to the pool.
+  async function askClaude(system, messages, maxTokens) {
+    var prompt = flatten(messages);
+    try {
+      var ctrl = new AbortController();
+      var t = setTimeout(function () { ctrl.abort(); }, 30000);
+      var r = await fetch(LOCAL_BRAIN + '/ask', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctrl.signal,
+        body: JSON.stringify({ prompt: prompt, system: system, max_tokens: maxTokens || 220 })
+      });
+      clearTimeout(t);
+      if (r.ok) {
+        var j = await r.json().catch(function () { return {}; });
+        var ans = j.response || j.answer || j.text || j.result || '';
+        if (ans) return String(ans).trim();
+      }
+    } catch (e) { /* local brain down → pool */ }
+    return await askPool(prompt, { system: system, timeoutMs: 45000 });
+  }
+  async function renderViaPool(idea, opts) {
+    opts = opts || {};
+    if (!sb) throw new Error('no bus');
+    var id = 'art:' + rid();
+    await sb.from('clippy_sync').upsert({ id: id, data: { status: 'pending', render: String(idea || '').slice(0, 300), ts: Date.now() }, from_id: 'pet' }, { onConflict: 'id' });
+    var deadline = Date.now() + (opts.timeoutMs || 200000);
+    try {
+      while (Date.now() < deadline) {
+        await new Promise(function (r) { setTimeout(r, 2000); });
+        var res = await sb.from('clippy_sync').select('data').eq('id', id).maybeSingle();
+        var d = res.data && res.data.data;
+        if (d && d.status === 'done') return { image: d.image_b64 || null, caption: d.result || '' };
+        if (d && d.status === 'error') throw new Error(d.error || 'render failed');
+      }
+      throw new Error('render timeout');
+    } finally { sb.from('clippy_sync').delete().eq('id', id).then(function () {}, function () {}); }
+  }
+  async function clippyPoolNodes() {
+    if (!sb) return [];
+    try {
+      var res = await sb.from('clippy_sync').select('data').eq('id', 'clippy_nodes').maybeSingle();
+      var arr = res.data && Array.isArray(res.data.data) ? res.data.data : [];
+      var now = Date.now() / 1000;
+      return arr.filter(function (n) { return n && (now - (n.ts || 0) < 120); });
+    } catch (e) { return []; }
+  }
+
+  // The stub. Everything clippy.js touches; optional systems are benign no-ops.
+  window.NX = {
+    sb: sb, supabase: window.supabase, currentUser: { name: 'friend' },
+    getProvider: function () { return 'clippy-pool'; },
+    getApiKey: function () { return ''; },
+    getModel: function () { return 'claude-opus-4-8'; },
+    getClippyModel: function () { return null; },
+    _flattenMessages: flatten,
+    askClaude: askClaude, askPool: askPool, renderViaPool: renderViaPool,
+    clippyPoolNodes: clippyPoolNodes,
+    askClaudeVision: async function (prompt, b64) { try { return await askPool(prompt, { image_b64: b64, timeoutMs: 45000 }); } catch (e) { return ''; } },
+    askBrain: function (q) { return askClaude(null, [{ role: 'user', content: q }], 220); },
+    switchTo: function () {}, toast: function () {},
+    habits: null, interests: null, galaxy: null, brain: null, preferredPersona: null,
+    _isPet: true
+  };
+})();
+</script>
+<!-- The exact same Clippy as NEXUS web -->
+<script src="js/clippy.js" defer></script>
+<script src="js/clippy-gacha.js" defer></script>
+<script src="js/clippy-games.js" defer></script>
+</body>
+</html>
