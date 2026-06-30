@@ -1,0 +1,7 @@
+{
+  "_note": "Default AI model selection for NEXUS. This is the committed 'save file' for the model picker. It loads at startup as the fallback default, so a fresh device or a cleared browser starts on this selection without re-picking in Admin. A per-device choice made in Admin (stored in localStorage) overrides these values. To change the shipped default, edit this file and commit it.",
+  "ai_provider": "clippy-pool",
+  "model": "claude-sonnet-4-6",
+  "clippy_model": "",
+  "clippy_endpoint": "http://localhost:4242"
+}

@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v187-public-scan-hardening';
+const CACHE_NAME = 'nexus-v188-model-save-file';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
@@ -362,6 +362,7 @@ self.addEventListener('fetch', event => {
   // ─── NETWORK-FIRST for JS / CSS / HTML ──────────────────────────
   // Always try latest code. Fall back to cache only if offline.
   const isCode = /\.(js|css|html)($|\?)/.test(url.pathname) ||
+                 /model-config\.json($|\?)/.test(url.pathname) ||  // model "save file" — must reflect edits, like code
                  url.pathname === '/' ||
                  url.pathname.endsWith('/nexus/') ||
                  url.pathname.endsWith('/nexus');

@@ -34,18 +34,52 @@ const NX = {
   getGoogleClientId() { return this.config?.google_client_id || localStorage.getItem('nexus_google_client_id') || this.GOOGLE_CLIENT_ID; },
   getTrelloKey() { return this.config?.trello_key || localStorage.getItem('nexus_trello_key') || ''; },
   getTrelloToken() { return this.config?.trello_token || localStorage.getItem('nexus_trello_token') || ''; },
-  getModel() { return this.config?.model || localStorage.getItem('nexus_model') || 'claude-sonnet-4-6'; },
+  getModel() { return this.config?.model || localStorage.getItem('nexus_model') || this.modelDefaults?.model || 'claude-sonnet-4-6'; },
   // AI provider — 'anthropic' (Claude API, default) or 'clippy' (the Clippy
   // HTTP API = ClippyPC's offline brain, default :4242). Device-local
   // (localStorage), since the endpoint is localhost on THIS machine. The
   // token is optional, only needed if Clippy sets api_token (the /act route
   // can drive the mouse, so it's worth gating).
-  getProvider() { return this.config?.ai_provider || localStorage.getItem('nexus_ai_provider') || 'anthropic'; },
-  getClippyEndpoint() { return String(this.config?.clippy_endpoint || localStorage.getItem('nexus_clippy_endpoint') || 'http://localhost:4242').replace(/\/+$/, ''); },
-  getClippyToken() { return this.config?.clippy_token || localStorage.getItem('nexus_clippy_token') || ''; },
+  getProvider() { return this.config?.ai_provider || localStorage.getItem('nexus_ai_provider') || this.modelDefaults?.ai_provider || 'anthropic'; },
+  getClippyEndpoint() { return String(this.config?.clippy_endpoint || localStorage.getItem('nexus_clippy_endpoint') || this.modelDefaults?.clippy_endpoint || 'http://localhost:4242').replace(/\/+$/, ''); },
+  getClippyToken() { return this.config?.clippy_token || localStorage.getItem('nexus_clippy_token') || this.modelDefaults?.clippy_token || ''; },
   // Optional specific Clippy LLM (empty = let Clippy pick his default). Only
   // takes effect once Clippy's /ask honors a `model` field; sent regardless.
-  getClippyModel() { return this.config?.clippy_model || localStorage.getItem('nexus_clippy_model') || ''; },
+  getClippyModel() { return this.config?.clippy_model || localStorage.getItem('nexus_clippy_model') || this.modelDefaults?.clippy_model || ''; },
+
+  // Committed default model selection, loaded from /model-config.json at boot
+  // (see _loadModelDefaults). Sits BELOW localStorage in every getter's
+  // fallback chain: a per-device Admin pick still wins, but a fresh device or
+  // a cleared browser falls back to this shipped "save file" instead of the
+  // hardcoded 'anthropic'/Sonnet defaults. null until the fetch resolves;
+  // optional chaining in the getters keeps that safe.
+  modelDefaults: null,
+  async _loadModelDefaults() {
+    if (this.modelDefaults) return this.modelDefaults;
+    try {
+      // Relative URL → resolves under the app's base path (e.g.
+      // /nexus/model-config.json on GitHub Pages). Cached like any static asset.
+      const resp = await fetch('model-config.json', { cache: 'no-cache' });
+      if (resp.ok) {
+        const data = await resp.json();
+        // Keep only the known model-selection keys; ignore _note / extras.
+        this.modelDefaults = {
+          ai_provider: data.ai_provider,
+          model: data.model,
+          clippy_model: data.clippy_model,
+          clippy_endpoint: data.clippy_endpoint,
+          clippy_token: data.clippy_token,
+        };
+        console.log('NEXUS: model-config.json defaults loaded', this.modelDefaults);
+      } else {
+        this.modelDefaults = {};
+      }
+    } catch (e) {
+      console.warn('NEXUS: model-config.json not loaded —', e.message);
+      this.modelDefaults = {};
+    }
+    return this.modelDefaults;
+  },
   // Does the ACTIVE provider require an Anthropic cloud key? Only the
   // 'anthropic' provider does — 'clippy' and 'clippy-pool' answer from a
   // local/pooled LLM with no key. UI gates must use this instead of a bare
@@ -615,6 +649,9 @@ const NX = {
   },
 
   async _loadConfigAndStart() {
+    // Load the committed model-selection "save file" first so getProvider/
+    // getModel have their fallback defaults before anything reads them.
+    await this._loadModelDefaults();
     // Load NON-SECRET config. SECURITY: the base nexus_config table holds the
     // Anthropic/ElevenLabs/Trello secrets and must be locked to anon (the
     // publishable key is public). We read the `nexus_config_public` VIEW, which
