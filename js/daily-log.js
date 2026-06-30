@@ -331,6 +331,26 @@ async function loadEquipmentLocations() {
 // equipment_events so the existing render path handles them uniformly.
 // This ties the parallel R&M and tickets ecosystems together in the
 // daily log's activity view without merging the underlying tables.
+// PMs performed on a given date — straight from equipment_maintenance (which
+// always has performed_by + cost), joined to equipment for name + location, so
+// the daily log can show "PMs logged today" grouped by location and by who.
+async function loadPmsForDate(logDate) {
+  if (!NX.sb || !logDate) return [];
+  try {
+    let { data, error } = await NX.sb.from('equipment_maintenance')
+      .select('id, equipment_id, event_date, performed_by, cost, description, equipment:equipment_id(name, location)')
+      .eq('event_type', 'pm').eq('event_date', logDate)
+      .order('id', { ascending: false });
+    if (error) {   // FK embed not available — fall back to flat columns
+      const r = await NX.sb.from('equipment_maintenance')
+        .select('id, equipment_id, event_date, performed_by, cost, description')
+        .eq('event_type', 'pm').eq('event_date', logDate);
+      data = r.data || [];
+    }
+    return data || [];
+  } catch (_) { return []; }
+}
+
 async function loadEquipmentActivity(logDate) {
   if (!NX.sb || !logDate) return [];
   const dayStart = `${logDate}T00:00:00.000Z`;
@@ -1175,6 +1195,7 @@ function render() {
             ${renderHeaderSection(d)}
             ${renderPlanningSection(d)}
             ${renderEquipmentStatusSection(d)}
+            ${renderPmsSection()}
             ${renderEquipmentActivitySection(d)}
             ${renderVendorActivitySection(d)}
             ${renderTicketsSection(d)}
@@ -1536,6 +1557,48 @@ function renderVendorActivitySection(d) {
       </div>
     </details>
   `;
+}
+
+// "PMs Logged Today" — preventive maintenance performed on this date, grouped
+// by location, each showing the equipment and the vendor who did it. Sourced
+// from equipment_maintenance (state.pmsToday). Hidden on days with no PMs.
+function renderPmsSection() {
+  const pms = state.pmsToday || [];
+  if (!pms.length) return '';
+  const groups = {};
+  pms.forEach(p => {
+    const loc = (p.equipment && p.equipment.location) || 'Unspecified location';
+    (groups[loc] = groups[loc] || []).push(p);
+  });
+  const body = Object.keys(groups).sort().map(loc => {
+    const rows = groups[loc].map(p => {
+      const eqName = (p.equipment && p.equipment.name) || ('Equipment ' + String(p.equipment_id || '').slice(0, 8));
+      const who = p.performed_by ? esc(p.performed_by) : '<span style="color:var(--nx-faint)">no vendor</span>';
+      const cost = (p.cost != null && !isNaN(p.cost) && Number(p.cost) > 0) ? ' · $' + Math.round(Number(p.cost)).toLocaleString() : '';
+      return `
+        <div class="dlog-act-row${p.equipment_id ? ' dlog-eqjump' : ''}"${p.equipment_id ? ` data-eq-id="${esc(p.equipment_id)}" role="button" tabindex="0" style="cursor:pointer" title="Open ${esc(eqName)}"` : ''}>
+          <span class="dlog-act-pill dlog-act-pill-pm"></span>
+          <div class="dlog-act-main">
+            <div class="dlog-act-line"><b>${esc(eqName)}</b></div>
+            <div class="dlog-act-detail">by ${who}${cost}</div>
+          </div>
+        </div>`;
+    }).join('');
+    return `<div style="margin-bottom:8px">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:1.2px;color:var(--nx-gold);font-weight:600;margin:8px 2px 4px">${esc(loc)} <span style="color:var(--nx-faint)">· ${groups[loc].length}</span></div>
+        ${rows}
+      </div>`;
+  }).join('');
+  return `
+    <details class="dlog-section" open>
+      <summary class="dlog-section-header">
+        <span class="dlog-section-title">PMs Logged Today</span>
+        <span class="dlog-section-count">${pms.length}</span>
+      </summary>
+      <div class="dlog-section-body">
+        <div class="dlog-act-list">${body}</div>
+      </div>
+    </details>`;
 }
 
 // v18.32 Phase 3b — Equipment activity card.
@@ -2884,14 +2947,16 @@ async function openLogForDate(iso) {
   // Load the log + the day's equipment activity in parallel. The activity
   // feed is live (re-queried every time) — the snapshot only gets frozen
   // into data.equipment_activity at upload time.
-  const [existing, activity, slices, vendors, vendorIssues, eqDown] = await Promise.all([
+  const [existing, activity, slices, vendors, vendorIssues, eqDown, pms] = await Promise.all([
     loadLog(iso),
     loadEquipmentActivity(iso),
     loadTicketSlices(iso),
     loadVendors(),
     loadVendorOpenIssueCounts(),
     loadEquipmentDown(),
+    loadPmsForDate(iso),
   ]);
+  state.pmsToday = pms;
   state.equipmentActivity = activity;
   state.ticketSlices = slices;
   await loadCardEquipmentNames(slices);
@@ -2927,7 +2992,7 @@ async function init() {
   // the return value).
   wireDlogLifecycle();   // flush-on-leave autosave + auto-send (idempotent)
   const today = todayISO();
-  const [rs, todayRow, _locations, activity, slices, vendors, vendorIssues, eqDown] = await Promise.all([
+  const [rs, todayRow, _locations, activity, slices, vendors, vendorIssues, eqDown, pms] = await Promise.all([
     loadRecentLogs(),
     loadLog(today),
     loadEquipmentLocations().catch(() => []),
@@ -2936,8 +3001,10 @@ async function init() {
     loadVendors(),
     loadVendorOpenIssueCounts(),
     loadEquipmentDown(),
+    loadPmsForDate(today),
   ]);
   state.recentLogs = rs;
+  state.pmsToday = pms || [];
   state.equipmentActivity = activity || [];
   state.ticketSlices = slices;
   await loadCardEquipmentNames(slices);
@@ -2962,7 +3029,7 @@ async function show() {
   // Re-sync recent + current + activity + tickets on every view activation
   // in case data changed from another device/session
   const date = (state.currentLog && state.currentLog.log_date) || todayISO();
-  const [rs, current, activity, slices, vendors, vendorIssues, eqDown] = await Promise.all([
+  const [rs, current, activity, slices, vendors, vendorIssues, eqDown, pms] = await Promise.all([
     loadRecentLogs(),
     loadLog(date),
     loadEquipmentActivity(date),
@@ -2970,8 +3037,10 @@ async function show() {
     loadVendors(),
     loadVendorOpenIssueCounts(),
     loadEquipmentDown(),
+    loadPmsForDate(date),
   ]);
   state.recentLogs = rs;
+  state.pmsToday = pms || [];
   state.equipmentActivity = activity || [];
   state.ticketSlices = slices;
   await loadCardEquipmentNames(slices);
