@@ -2184,6 +2184,30 @@ function buildDailyLogEmailBody(d, dateStr) {
     out.push('');
   });
 
+  // PMs Logged — preventive maintenance performed on this date, sourced live
+  // from equipment_maintenance (state.pmsToday). Grouped by location, each
+  // line shows the equipment and the vendor / person who performed it. Skipped
+  // entirely on days with no PMs so the report stays clean.
+  const pms = state.pmsToday || [];
+  if (pms.length) {
+    out.push(SH('PMs logged', String(pms.length)));
+    const pmGroups = {};
+    pms.forEach(p => {
+      const loc = (p.equipment && p.equipment.location) || 'Unspecified location';
+      (pmGroups[loc] = pmGroups[loc] || []).push(p);
+    });
+    Object.keys(pmGroups).sort().forEach(loc => {
+      out.push(loc + ':');
+      pmGroups[loc].forEach(p => {
+        const eqName = (p.equipment && p.equipment.name) || ('Equipment ' + String(p.equipment_id || '').slice(0, 8));
+        const who = clean(p.performed_by) || 'unassigned';
+        const cost = (p.cost != null && !isNaN(p.cost) && Number(p.cost) > 0) ? ' — $' + Math.round(Number(p.cost)).toLocaleString() : '';
+        out.push('· ' + eqName + ' — by ' + who + cost);
+      });
+    });
+    out.push('');
+  }
+
   if (clean(d.vendor_activity_notes)) {
     out.push(SH('Vendor activity'));
     out.push(clean(d.vendor_activity_notes));
