@@ -198,7 +198,7 @@ def sb_heartbeat():
     except Exception:
         pass
     arr.append({"name": NODE, "ts": now, "vision": True, "cmd": bool(CMD_TOKEN),
-                "os": OSDESC, "version": "worker-1.5", "managed": MANAGED, "busy": _state["busy"], "current": _state["current"],
+                "os": OSDESC, "version": "worker-1.6", "managed": MANAGED, "busy": _state["busy"], "current": _state["current"],
                 "caps": ((["ask"] if CLAIM_TEXT else []) + ["vision"] + (["cmd"] if CMD_TOKEN else []) + (["gen"] if GENERATE else []) + (["art"] if HAS_BLENDER else [])),
                 "vision_model": ACTIVE_VISION, "models": [VISION_MODEL, TEXT_MODEL],
                 "ram_gb": RAM_GB, "accel": ACCEL, "vscore": VSCORE})
@@ -296,7 +296,7 @@ def ollama_generate(model, prompt, system=None, image_b64=None, _retry=True):
 # present (never auto-pulls a big model).
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 GENERATE   = os.environ.get("CLIPPY_GENERATE", "1") == "1"
-GEN_EVERY_SECS = int(os.environ.get("CLIPPY_GEN_EVERY", "3600"))
+GEN_EVERY_SECS = int(os.environ.get("CLIPPY_GEN_EVERY", "1200"))
 GEN_MODEL_PREF = [m for m in [os.environ.get("CLIPPY_GEN_MODEL", ""), TEXT_MODEL,
                               "qwen2.5:7b", "qwen3:8b", "llama3.1"] if m]
 
@@ -400,11 +400,11 @@ def store_learned(category, lines):
 
 def _generate_loop():
     cats = list((CHAR.get("generation") or {}).get("categoryDescriptions", {}).keys()) or ["whimsical_idle"]
-    i = 0; first = True
+    i = 0
+    time.sleep(90)                                # settle after waking, then write regularly
     while True:
-        time.sleep(90 if first else GEN_EVERY_SECS); first = False   # write a little soon after waking, then hourly
         if _state["busy"]:
-            continue                              # never compete with a real job
+            time.sleep(60); continue              # busy now - check back soon, don't skip a whole interval
         cat = cats[i % len(cats)]; i += 1
         set_state(True, "writing new '%s' lines" % cat)
         try:
@@ -413,6 +413,7 @@ def _generate_loop():
             log("generate loop error: %s" % e)
         finally:
             set_state(False)
+        time.sleep(GEN_EVERY_SECS)
 
 
 # ─── Job processing ──────────────────────────────────────────────────────────
