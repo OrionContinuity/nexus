@@ -91,6 +91,7 @@ public class ClippyComp : Form {
   [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT p);
   [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr h, int i);
   [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr h, int i, int v);
+  [DllImport("user32.dll")] static extern bool SetLayeredWindowAttributes(IntPtr h, uint key, byte alpha, uint flags);
   [StructLayout(LayoutKind.Sequential)] struct POINT { public int X; public int Y; }
   const int GWL_EXSTYLE = -20, WS_EX_TRANSPARENT = 0x20;
 
@@ -121,9 +122,31 @@ public class ClippyComp : Form {
     this.Top  = wa.Bottom - Hv - 12;
   }
   protected override CreateParams CreateParams {
-    get { var cp = base.CreateParams; cp.ExStyle |= 0x00200000 /* NOREDIRECTIONBITMAP */; return cp; }
+    // NOREDIRECTIONBITMAP -> DComp transparency; LAYERED -> lets WS_EX_TRANSPARENT
+    // actually pass clicks through. Experiment: do they coexist?
+    get { var cp = base.CreateParams; cp.ExStyle |= 0x00200000 | 0x00080000 /* WS_EX_LAYERED */; return cp; }
   }
-  protected override void OnHandleCreated(EventArgs e){ base.OnHandleCreated(e); var t = Setup(); }
+  protected override void OnHandleCreated(EventArgs e){
+    base.OnHandleCreated(e);
+    // Keep the layer fully opaque so DComp's own per-pixel alpha is what shows.
+    try { SetLayeredWindowAttributes(this.Handle, 0, 255, 0x2 /*LWA_ALPHA*/); } catch {}
+    // Click-through by default; the timer clears it only while the cursor is on him.
+    try { SetWindowLong(this.Handle, GWL_EXSTYLE, GetWindowLong(this.Handle, GWL_EXSTYLE) | WS_EX_TRANSPARENT); } catch {}
+    var tmr = new Timer(); tmr.Interval = 25;
+    tmr.Tick += delegate (object s, EventArgs ev) {
+      try {
+        POINT pt; if (!GetCursorPos(out pt)) return;
+        var c = this.PointToClient(new Point(pt.X, pt.Y));
+        bool over = OverClippy(c.X, c.Y);
+        int ex = GetWindowLong(this.Handle, GWL_EXSTYLE);
+        bool through = (ex & WS_EX_TRANSPARENT) != 0;
+        if (over && through) SetWindowLong(this.Handle, GWL_EXSTYLE, ex & ~WS_EX_TRANSPARENT);
+        else if (!over && !through) SetWindowLong(this.Handle, GWL_EXSTYLE, ex | WS_EX_TRANSPARENT);
+      } catch {}
+    };
+    tmr.Start();
+    var t = Setup();
+  }
 
   // Clippy's current on-screen rects (client coords); used by WM_NCHITTEST so the
   // window is click-through EXCEPT over him. No window Region - a Region forces an
@@ -202,7 +225,13 @@ public class ClippyComp : Form {
   // Injected into the page: report Clippy's on-screen rects so the host can clip
   // the (full-screen) window to just him - the rest stays click-through.
   const string ReporterJs = @"(function(){ try {
+  var w=window.chrome&&window.chrome.webview; if(!w) return;
   if(!document.getElementById('pet-style')){var st=document.createElement('style');st.id='pet-style';st.textContent='#clippy-shell{right:80px!important;bottom:90px!important;}';(document.head||document.documentElement).appendChild(st);}
+  var SEL='#clippy-shell,.clippy-bubble';
+  var PAD=40,last='';
+  function vis(el){try{var r=el.getBoundingClientRect();return r.width>2&&r.height>2&&el.getClientRects().length>0;}catch(e){return false;}}
+  function tick(){try{var vw=window.innerWidth,vh=window.innerHeight,o=[];document.querySelectorAll(SEL).forEach(function(el){if(!vis(el))return;var r=el.getBoundingClientRect();var orb=(el.id==='clippy-shell');var x=r.left,y=r.top,x2=r.left+r.width,y2=r.top+r.height;if(orb){x-=PAD;y-=PAD;x2+=PAD;y2+=PAD;}x=Math.max(0,x);y=Math.max(0,y);x2=Math.min(vw,x2);y2=Math.min(vh,y2);o.push({x:Math.round(x),y:Math.round(y),w:Math.round(x2-x),h:Math.round(y2-y),c:orb?1:0});});var s=JSON.stringify(o);if(s!==last){last=s;w.postMessage('rects '+s);}}catch(e){}}
+  setInterval(tick,100);tick();setTimeout(tick,500);setTimeout(tick,1500);
 } catch(e){} })();";
 
   void ApplyRects(string json){
@@ -216,9 +245,6 @@ public class ClippyComp : Form {
         list.Add(new int[] { x, y, wd, ht, c });
       }
       _hit = list.ToArray();
-      string dbg = "rects n=" + list.Count;
-      foreach (var r in list) dbg += " [" + r[0] + "," + r[1] + " " + r[2] + "x" + r[3] + " c" + r[4] + "]";
-      L(dbg);
     } catch (Exception ex) { L("rects err: " + ex.Message); }
   }
 
