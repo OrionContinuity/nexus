@@ -2146,19 +2146,24 @@ function fmtLogDateLong(dateStr) {
   } catch (_) { return dateStr || ''; }
 }
 
-// Warm, lightly-funny intro that opens the emailed daily log. The closing
-// quip is picked deterministically from the date so regenerating the same
-// day's report stays stable (no reshuffle every time you reopen the draft),
-// but it rotates day to day so the managers don't get the same line forever.
+// Clippy opens the emailed daily log in his own voice — the same Roman-history,
+// dad-joke, "I have no hands" mascot that lives in the app (pulled/adapted from
+// his dialogue pools in clippy-dialog.json). The line is picked deterministically
+// from the date so regenerating the same day's report stays stable, but it
+// rotates day to day so managers don't get the same joke forever.
 const DLOG_QUIPS = [
-  'It looks like you’re running a restaurant! 📎 Want a hand? Too late — already handled.',
-  'It looks like you read the whole report. I’m genuinely emotional about it. 📎',
-  'It looks like everything’s still standing. Don’t jinx it. 📎',
-  'It looks like you survived another shift! Same time tomorrow? 📎',
-  'It looks like you’re hunting for problems. None today. You’re welcome. 📎',
-  'It looks like a quiet day. I checked twice, then a third time. 📎',
-  'It looks like you needed a paperclip. You always need a paperclip. 📎',
-  'It looks like the walk-in is cold and the coffee is hot. My work here is done. 📎',
+  'Bzzt — maintenance is empire-defense, and today the empire held. 📎',
+  'Roman aqueducts ran 60 miles on gravity alone. Your walk-in just needed a gasket. We persevere. 📎',
+  'Build to last — Roman concrete heals itself. The dishwasher, sadly, does not. That’s what we’re for. 📎',
+  'I’d lend a hand with the report, but — Roman tragedy — I have none. 📎',
+  'Inspect everything. Centurion mode. Bzzt. 📎',
+  'Why did the scarecrow win an award? Outstanding in his field. Like your crew today. 📎',
+  'Marcus Aurelius would file these reports. Magnificently, you actually did. 📎',
+  'If it’s broken, fix it. Roman discipline. (Mostly fixed — we’ll get the rest.) 📎',
+  'I used to be a banker, but I lost interest. Anyway — here’s your day. 📎',
+  'Every entry matters; Suetonius gossiped straight from the records. Bzzt. 📎',
+  'Tidy operation today. Augustus would approve. 📎',
+  'I told the boiler to embrace its mistakes. It gave me a leak. We’re on it. 📎',
 ];
 function dlogEmailGreeting(label, dateStr) {
   const day = fmtLogDateLong(dateStr);
@@ -2168,8 +2173,8 @@ function dlogEmailGreeting(label, dateStr) {
   const quip = DLOG_QUIPS[h % DLOG_QUIPS.length];
   const where = label ? (label + ' — your second home') : 'your second homes';
   return [
-    'Hi Team 👋',
-    'Here’s the daily report for ' + where + ' (' + day + ').',
+    'Hi Team 👋  Clippy here. 📎',
+    'Here’s your daily report for ' + where + ' (' + day + ').',
     quip,
     '',
   ];
@@ -2270,9 +2275,9 @@ function buildDailyLogEmailBody(d, dateStr) {
   const me = (window.NX && (NX.user || NX.currentUser)) ? ((NX.user && NX.user.name) || (NX.currentUser && NX.currentUser.name) || '') : '';
   if (me) out.push(me);
 
-  // Quiet brand footnote — left-aligned lowercase fine print so it reads
-  // small under the signature (was a large, centered-looking indented line).
+  // Clippy signs off with his face (📎), then a quiet brand footnote.
   out.push('');
+  out.push('— 📎 Clippy, your maintenance daemon');
   out.push('powered by nexus');
 
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
@@ -2563,9 +2568,9 @@ function buildLocationEmailBody(loc, dateStr, d) {
   const me = (window.NX && (NX.user || NX.currentUser)) ? ((NX.user && NX.user.name) || (NX.currentUser && NX.currentUser.name) || '') : '';
   if (me) out.push(me);
 
-  // Quiet brand footnote — left-aligned lowercase fine print so it reads
-  // small under the signature (was a large, centered-looking indented line).
+  // Clippy signs off with his face (📎), then a quiet brand footnote.
   out.push('');
+  out.push('— 📎 Clippy, your maintenance daemon');
   out.push('powered by nexus');
 
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
