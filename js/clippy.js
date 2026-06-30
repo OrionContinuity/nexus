@@ -5504,9 +5504,55 @@
   function expressAction() {
     try { play(_SELF_ACTIONS[Math.floor(Math.random() * _SELF_ACTIONS.length)]); } catch (e) {}
   }
-  // By DEFAULT Clippy lives a little on his own — small actions and his own
-  // lines, with no prompt. Gentle + guarded: never interrupts a bubble, an
-  // open chat, a drag, or a hidden tab.
+  // What screen the user is on right now (so he can comment on what they do).
+  function _currentView() {
+    try {
+      const el = document.querySelector('.nav-tab.active[data-view], .bnav-btn.active[data-view]');
+      return (el && el.getAttribute('data-view')) || 'the app';
+    } catch (e) { return 'the app'; }
+  }
+  // How Clippy perceives the user right now: what they're doing + how he feels.
+  function _perception() {
+    const name = (state.preferences && state.preferences.user_name) || 'their friend';
+    let feeling = 'neutral', days = 0;
+    try { feeling = dominantFeeling(); } catch (e) {}
+    try { days = daysKnown(); } catch (e) {}
+    const h = new Date().getHours();
+    const tod = h < 11 ? 'morning' : h < 17 ? 'afternoon' : h < 22 ? 'evening' : 'late night';
+    return { name, feeling, days, view: _currentView(), tod };
+  }
+  // Compose a fresh line ON THE FLY from his LLM brain — reading what the user
+  // is doing and how he feels about them — instead of pulling a canned line.
+  // Bubbles it; on any failure (no brain reachable) falls back to a scripted
+  // line so he's never silent.
+  async function speakOnTheFly(opts) {
+    opts = opts || {};
+    const app = _appHandle();
+    const ch = state.character;
+    if (state.selfAuthored === false || !app || typeof app.askClaude !== 'function' || !(ch && ch.chatPersona)) {
+      const l = pickFromPool(opts.pool || 'random_thoughts');
+      if (l) bubble(l, { autoHide: 6000, eyebrow: opts.eyebrow || '💭' });
+      return;
+    }
+    const p = _perception();
+    let system = ch.chatPersona.replace(/\{name\}/g, p.name) +
+      " You are speaking UNPROMPTED, on your own — a brief, in-character aside to " + p.name +
+      ". Output ONE short line only: no quotes, no preamble, no markdown.";
+    const cue = opts.cue || "Pipe up with one short line that fits this exact moment.";
+    const ctx = "Right now " + p.name + " is on the '" + p.view + "' screen. It's " + p.tod +
+      ". You feel " + p.feeling + " toward them" +
+      (p.days ? " (you've known them " + p.days + " day" + (p.days === 1 ? "" : "s") + ")" : "") + ". " + cue;
+    try {
+      const out = await app.askClaude(system, [{ role: 'user', content: ctx }], 90);
+      const line = out && String(out).replace(/\[confidence:[^\]]*\]/gi, '').replace(/^["']+|["']+$/g, '').trim();
+      if (line) { bubble(line, { autoHide: 7000, eyebrow: opts.eyebrow || '' }); return; }
+    } catch (e) {}
+    const fb = pickFromPool(opts.pool || 'random_thoughts');
+    if (fb) bubble(fb, { autoHide: 6000, eyebrow: opts.eyebrow || '💭' });
+  }
+  // By DEFAULT Clippy lives a little on his own — small actions and lines he
+  // composes IN THE MOMENT about what you're doing. Gentle + guarded: never
+  // interrupts a bubble, an open chat, a drag, or a hidden tab.
   function startSelfDriven() {
     if (state._selfDrivenTimer || state.selfAuthored === false) return;
     state._selfDrivenTimer = setInterval(() => {
@@ -5514,8 +5560,8 @@
         if (state.selfAuthored === false) return;
         if (typeof document !== 'undefined' && document.hidden) return;
         if (!state.shell || state.bubble || state.chatOpen || state.dragging) return;
-        if (Math.random() < 0.65) expressAction();           // mostly a small, quiet action
-        else shareRandomThought({ tag: 'self' });            // sometimes one of his own lines
+        if (Math.random() < 0.55) expressAction();           // mostly a small, quiet action
+        else speakOnTheFly();                                // a fresh line, made on the fly
       } catch (e) {}
     }, 75000);                                               // ~every 75s
   }
