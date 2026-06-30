@@ -15,8 +15,8 @@ WebView2 .NET SDK DLLs once (cached next to the region host).
 #>
 param(
   [string]$Url = 'https://orioncontinuity.github.io/nexus/clippy-pet.html',
-  [int]$W = 380,
-  [int]$H = 460
+  [int]$W = 460,
+  [int]$H = 560
 )
 $ErrorActionPreference = 'Continue'
 $home0 = $env:USERPROFILE
@@ -111,37 +111,19 @@ public class ClippyComp : Form {
   CoreWebView2CompositionController _ctl;
 
   public ClippyComp(){
-    var wa = Screen.PrimaryScreen.WorkingArea;
-    Wv = wa.Width; Hv = wa.Height;          // fill the whole detected screen
     this.FormBorderStyle = FormBorderStyle.None;
     this.ShowInTaskbar   = false;
     this.TopMost         = true;
     this.StartPosition   = FormStartPosition.Manual;
-    this.Left = wa.Left; this.Top = wa.Top;
     this.Width = Wv; this.Height = Hv;
+    var wa = Screen.PrimaryScreen.WorkingArea;   // corner window: only this box is a click "dead zone"
+    this.Left = wa.Right - Wv - 12;
+    this.Top  = wa.Bottom - Hv - 12;
   }
   protected override CreateParams CreateParams {
-    get { var cp = base.CreateParams; cp.ExStyle |= 0x00200000 /* NOREDIRECTIONBITMAP */ | 0x08000000 /* NOACTIVATE */; return cp; }
+    get { var cp = base.CreateParams; cp.ExStyle |= 0x00200000 /* NOREDIRECTIONBITMAP */; return cp; }
   }
-  protected override void OnHandleCreated(EventArgs e){
-    base.OnHandleCreated(e);
-    // Start fully click-through; a timer toggles it off only over Clippy.
-    try { SetWindowLong(this.Handle, GWL_EXSTYLE, GetWindowLong(this.Handle, GWL_EXSTYLE) | WS_EX_TRANSPARENT); } catch {}
-    var tmr = new Timer(); tmr.Interval = 30;
-    tmr.Tick += delegate (object s, EventArgs ev) {
-      try {
-        POINT pt; if (!GetCursorPos(out pt)) return;
-        var c = this.PointToClient(new Point(pt.X, pt.Y));
-        bool over = OverClippy(c.X, c.Y);
-        int ex = GetWindowLong(this.Handle, GWL_EXSTYLE);
-        bool through = (ex & WS_EX_TRANSPARENT) != 0;
-        if (over && through) SetWindowLong(this.Handle, GWL_EXSTYLE, ex & ~WS_EX_TRANSPARENT);
-        else if (!over && !through) SetWindowLong(this.Handle, GWL_EXSTYLE, ex | WS_EX_TRANSPARENT);
-      } catch {}
-    };
-    tmr.Start();
-    var t = Setup();
-  }
+  protected override void OnHandleCreated(EventArgs e){ base.OnHandleCreated(e); var t = Setup(); }
 
   // Clippy's current on-screen rects (client coords); used by WM_NCHITTEST so the
   // window is click-through EXCEPT over him. No window Region - a Region forces an
@@ -220,13 +202,7 @@ public class ClippyComp : Form {
   // Injected into the page: report Clippy's on-screen rects so the host can clip
   // the (full-screen) window to just him - the rest stays click-through.
   const string ReporterJs = @"(function(){ try {
-  var w=window.chrome&&window.chrome.webview; if(!w) return;
-  if(!document.getElementById('pet-style')){var st=document.createElement('style');st.id='pet-style';st.textContent='#clippy-shell{right:54px!important;bottom:60px!important;}';(document.head||document.documentElement).appendChild(st);}
-  var SEL='#clippy-shell,.clippy-bubble';
-  var PAD=46,last='';
-  function vis(el){try{var r=el.getBoundingClientRect();return r.width>2&&r.height>2&&el.getClientRects().length>0;}catch(e){return false;}}
-  function tick(){try{var vw=window.innerWidth,vh=window.innerHeight,o=[];document.querySelectorAll(SEL).forEach(function(el){if(!vis(el))return;var r=el.getBoundingClientRect();var orb=(el.id==='clippy-shell');var x=r.left,y=r.top,x2=r.left+r.width,y2=r.top+r.height;if(orb){x-=PAD;y-=PAD;x2+=PAD;y2+=PAD;}x=Math.max(0,x);y=Math.max(0,y);x2=Math.min(vw,x2);y2=Math.min(vh,y2);o.push({x:Math.round(x),y:Math.round(y),w:Math.round(x2-x),h:Math.round(y2-y),c:orb?1:0});});var s=JSON.stringify(o);if(s!==last){last=s;w.postMessage('rects '+s);}}catch(e){}}
-  setInterval(tick,100);tick();setTimeout(tick,500);setTimeout(tick,1500);
+  if(!document.getElementById('pet-style')){var st=document.createElement('style');st.id='pet-style';st.textContent='#clippy-shell{right:80px!important;bottom:90px!important;}';(document.head||document.documentElement).appendChild(st);}
 } catch(e){} })();";
 
   void ApplyRects(string json){
