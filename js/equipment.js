@@ -789,7 +789,7 @@ function openPmLogger(equipId) {
         </div>
 
         <div style="padding: 4px 16px; position:relative;">
-          <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:1.2px; color:var(--nx-faint); margin-bottom:6px">Performed by <span style="text-transform:none; letter-spacing:0; color:var(--nx-faint)">— your vendors</span></label>
+          <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:1.2px; color:var(--nx-gold); margin-bottom:6px">Performed by * <span style="text-transform:none; letter-spacing:0; color:var(--nx-faint)">— your vendors</span></label>
           <input type="text" id="pmPerformedBy" value="${esc(performedBy)}" placeholder="Search your vendors…" autocomplete="off"
             style="width:100%; padding:10px 12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:var(--nx-text); font-size:14px;">
           <div id="pmVendorMenu" style="display:none; position:absolute; left:16px; right:16px; top:100%; margin-top:2px; z-index:60; max-height:240px; overflow-y:auto; background:var(--nx-surface-1,#161a24); border:1px solid rgba(255,255,255,0.14); border-radius:10px; box-shadow:0 14px 34px rgba(0,0,0,0.55);"></div>
@@ -906,6 +906,12 @@ function openPmLogger(equipId) {
 
   const save = async () => {
     if (!actual) { NX.toast && NX.toast('Actual date is required', 'warn', 1500); return; }
+    if (!(performedBy || '').trim()) {
+      NX.toast && NX.toast('Pick a vendor (or create one) for "Performed by"', 'warn', 2200);
+      const pb = overlay.querySelector('#pmPerformedBy');
+      if (pb) { pb.focus(); pb.style.borderColor = 'var(--nx-gold)'; }
+      return;
+    }
     if (!NX.sb) { NX.toast && NX.toast('Database unavailable', 'error', 2000); return; }
 
     const saveBtn = overlay.querySelector('[data-action="save"]');
