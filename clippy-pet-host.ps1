@@ -93,6 +93,7 @@ $form.StartPosition   = 'Manual'
 $form.Width = $W; $form.Height = $H
 $form.Left = $wa.Right - $W - 24
 $form.Top  = $wa.Bottom - $H - 24
+Log ("formrect left=$($form.Left) top=$($form.Top) w=$W h=$H")
 $form.BackColor = [System.Drawing.Color]::FromArgb(13, 15, 24)   # near-black backdrop
 if (-not $Solid) {
   # Color-key transparency: pixels of BackColor become invisible + click-through.
@@ -115,6 +116,20 @@ $env:Path = $sdk + ';' + $env:Path   # so WebView2Loader.dll resolves
 
 $script:Url = $Url
 $script:WvBg = $wv.DefaultBackgroundColor
+# Injected into every loaded page: reports page state + each click straight to
+# the host log via chrome.webview.postMessage (no Supabase / CORS in the path).
+$script:ReporterJs = @'
+(function(){ try {
+  var w = window.chrome && window.chrome.webview; if(!w) return;
+  w.postMessage('injected supa='+(typeof window.supabase)+' nxsb='+(!!(window.NX&&window.NX.sb))+' shell='+(!!document.querySelector('.clippy-shell'))+' host='+(!!document.querySelector('#clippy-host')));
+  function rep(){ var sh=document.querySelector('.clippy-shell')||document.querySelector('#clippy-host'); if(sh){ var r=sh.getBoundingClientRect(); w.postMessage('shellrect x='+Math.round(r.left)+' y='+Math.round(r.top)+' w='+Math.round(r.width)+' h='+Math.round(r.height)); } }
+  rep(); setTimeout(rep, 2500);
+  document.addEventListener('pointerdown', function(e){
+    var b=(e.target&&e.target.closest)?e.target.closest('button,.clippy-bubble-btn,.clippy-shell,.clippy-orb'):null;
+    w.postMessage('click x='+e.clientX+' y='+e.clientY+' tag='+(e.target?e.target.tagName:'?')+' btn='+(b?('['+((b.textContent||'').trim().slice(0,30))+']'):'no'));
+  }, true);
+} catch(err){} })();
+'@
 $initDone = {
   param($s, $e)
   try {
@@ -123,6 +138,11 @@ $initDone = {
       $s.CoreWebView2.Settings.IsStatusBarEnabled = $false
       $s.CoreWebView2.Settings.AreDevToolsEnabled = $true
       $s.DefaultBackgroundColor = $script:WvBg
+      $s.CoreWebView2.add_WebMessageReceived({ param($a,$b) try { Log ('webmsg: ' + $b.TryGetWebMessageAsString()) } catch { Log 'webmsg: <parse error>' } })
+      $s.CoreWebView2.add_NavigationCompleted({ param($a,$b)
+        Log ('nav done: success=' + $b.IsSuccess + ' status=' + $b.WebErrorStatus)
+        try { $a.ExecuteScriptAsync($script:ReporterJs) | Out-Null } catch { Log ('inject err: ' + $_.Exception.Message) }
+      })
       Log "core init ok - navigating to $script:Url"
       $s.CoreWebView2.Navigate($script:Url)
     } else { Log "core init FAILED: $($e.InitializationException)" }
