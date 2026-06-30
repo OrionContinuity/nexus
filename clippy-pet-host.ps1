@@ -131,9 +131,8 @@ $script:ApplyRects = {
       if ($wd -le 1 -or $ht -le 1) { continue }
       $path.StartFigure()
       if ($r.c -eq 1) {
-        # the orb - inset circle so only its solid body is inside the region
-        $pad = [single]([Math]::Max(2, [Math]::Min($wd, $ht) * 0.04))
-        $path.AddEllipse([single]($x + $pad), [single]($y + $pad), [single]($wd - 2 * $pad), [single]($ht - 2 * $pad))
+        # the orb - circle over the padded rect (page already added the glow halo)
+        $path.AddEllipse([single]$x, [single]$y, [single]$wd, [single]$ht)
       } else {
         # bubble / panel - rounded rect hugging it (+pad for tail & shadow)
         $g = 8; $d = [single]22
@@ -156,16 +155,28 @@ $script:ApplyRects = {
 $script:ReporterJs = @'
 (function(){ try {
   var w = window.chrome && window.chrome.webview; if(!w) return;
+  // Give the orb breathing room inside the small pet window so its glow +
+  // fireflies aren't clipped by the window edge (web Clippy sits in a corner).
+  if(!document.getElementById('pet-style')){
+    var st=document.createElement('style'); st.id='pet-style';
+    st.textContent='#clippy-shell{right:64px!important;bottom:70px!important;}';
+    (document.head||document.documentElement).appendChild(st);
+  }
   w.postMessage('injected supa='+(typeof window.supabase)+' nxsb='+(!!(window.NX&&window.NX.sb))+' shell='+(!!document.querySelector('#clippy-shell')));
   var SEL = '#clippy-shell,.clippy-bubble,.clippy-palette,.clippy-game-overlay,.clippy-gacha-overlay,.clippy-panel,.clippy-card';
+  var ORB_PAD = 46;  // px of glow/firefly halo to keep around the orb
   function vis(el){ try { var r=el.getBoundingClientRect(); return r.width>2 && r.height>2 && el.getClientRects().length>0; } catch(e){ return false; } }
   var last='';
   function tick(){
     try {
-      var out=[];
+      var vw=window.innerWidth, vh=window.innerHeight, out=[];
       document.querySelectorAll(SEL).forEach(function(el){
         if(!vis(el)) return; var r=el.getBoundingClientRect();
-        out.push({x:Math.round(r.left),y:Math.round(r.top),w:Math.round(r.width),h:Math.round(r.height),c:(el.id==='clippy-shell')?1:0});
+        var orb=(el.id==='clippy-shell');
+        var x=r.left, y=r.top, x2=r.left+r.width, y2=r.top+r.height;
+        if(orb){ x-=ORB_PAD; y-=ORB_PAD; x2+=ORB_PAD; y2+=ORB_PAD; }
+        x=Math.max(0,x); y=Math.max(0,y); x2=Math.min(vw,x2); y2=Math.min(vh,y2);
+        out.push({x:Math.round(x),y:Math.round(y),w:Math.round(x2-x),h:Math.round(y2-y),c:orb?1:0});
       });
       var s=JSON.stringify(out);
       if(s!==last){ last=s; w.postMessage('rects '+s); }
