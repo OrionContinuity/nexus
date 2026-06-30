@@ -14,7 +14,9 @@ caches the DLLs) - the WebView2 *runtime* is already on the machine. Logs to
 param(
   [string]$Url = 'https://orioncontinuity.github.io/nexus/clippy-pet.html',
   [int]$W = 380,
-  [int]$H = 460
+  [int]$H = 460,
+  [switch]$Solid   # opaque window (no color-key transparency) - guarantees clicks
+                   # reach WebView2; used to confirm/avoid the transparent-input bug
 )
 $ErrorActionPreference = 'Continue'
 $home0 = $env:USERPROFILE
@@ -27,7 +29,8 @@ Log "=== pet-host starting (pid $PID, apartment=$([Threading.Thread]::CurrentThr
 # WinForms needs STA. If we're MTA (some hosts), relaunch ourselves -STA.
 if ([Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
   Log "not STA - relaunching with -STA"
-  Start-Process powershell -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -File "' + $PSCommandPath + '" -Url "' + $Url + '"') -WindowStyle Hidden
+  $extra = ''; if ($Solid) { $extra = ' -Solid' }
+  Start-Process powershell -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -File "' + $PSCommandPath + '" -Url "' + $Url + '"' + $extra) -WindowStyle Hidden
   return
 }
 
@@ -90,13 +93,19 @@ $form.StartPosition   = 'Manual'
 $form.Width = $W; $form.Height = $H
 $form.Left = $wa.Right - $W - 24
 $form.Top  = $wa.Bottom - $H - 24
-$form.BackColor = [System.Drawing.Color]::FromArgb(10, 11, 16)   # near-black; key for transparency
-$form.AllowTransparency = $true
-$form.TransparencyKey   = $form.BackColor
+$form.BackColor = [System.Drawing.Color]::FromArgb(13, 15, 24)   # near-black backdrop
+if (-not $Solid) {
+  # Color-key transparency: pixels of BackColor become invisible + click-through.
+  $form.AllowTransparency = $true
+  $form.TransparencyKey   = $form.BackColor
+}
+Log ("window mode: " + $(if ($Solid) { 'SOLID (opaque)' } else { 'transparent (color-key)' }))
 
 $wv = New-Object Microsoft.Web.WebView2.WinForms.WebView2
 $wv.Dock = 'Fill'
-$wv.DefaultBackgroundColor = [System.Drawing.Color]::Transparent
+# In transparent mode the page's transparent areas fall through to the keyed
+# BackColor; in solid mode they show the dark backdrop directly.
+$wv.DefaultBackgroundColor = $(if ($Solid) { $form.BackColor } else { [System.Drawing.Color]::Transparent })
 $form.Controls.Add($wv)
 
 # Cache/profile so it can run offline once cached and keeps state.
@@ -105,6 +114,7 @@ $env:WEBVIEW2_USER_DATA_FOLDER = $udf
 $env:Path = $sdk + ';' + $env:Path   # so WebView2Loader.dll resolves
 
 $script:Url = $Url
+$script:WvBg = $wv.DefaultBackgroundColor
 $initDone = {
   param($s, $e)
   try {
@@ -112,7 +122,7 @@ $initDone = {
       $s.CoreWebView2.Settings.AreDefaultContextMenusEnabled = $false
       $s.CoreWebView2.Settings.IsStatusBarEnabled = $false
       $s.CoreWebView2.Settings.AreDevToolsEnabled = $true
-      $s.DefaultBackgroundColor = [System.Drawing.Color]::Transparent
+      $s.DefaultBackgroundColor = $script:WvBg
       Log "core init ok - navigating to $script:Url"
       $s.CoreWebView2.Navigate($script:Url)
     } else { Log "core init FAILED: $($e.InitializationException)" }
