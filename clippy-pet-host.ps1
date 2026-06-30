@@ -50,11 +50,21 @@ if (-not (Test-Path $coreDll) -or -not (Test-Path $wfDll) -or -not (Test-Path $l
     $ex = Join-Path $env:TEMP 'wv2_ex'
     if (Test-Path $ex) { Remove-Item $ex -Recurse -Force -EA SilentlyContinue }
     Expand-Archive $nupkg -DestinationPath $ex -Force
-    # net45 managed DLLs + win-x64 native loader
-    Copy-Item (Join-Path $ex 'lib\net45\Microsoft.Web.WebView2.Core.dll')     $coreDll -Force
-    Copy-Item (Join-Path $ex 'lib\net45\Microsoft.Web.WebView2.WinForms.dll') $wfDll   -Force
-    Copy-Item (Join-Path $ex 'runtimes\win-x64\native\WebView2Loader.dll')    $loader  -Force
-    Log "WebView2 SDK ready"
+    # Find the managed DLLs (prefer a .NET Framework build for Windows PowerShell)
+    # + the win-x64 native loader - wherever the package version put them.
+    $coreSrc = Get-ChildItem $ex -Recurse -Filter 'Microsoft.Web.WebView2.Core.dll'     -EA SilentlyContinue | Where-Object { $_.FullName -match '\\net4' } | Select-Object -First 1
+    $wfSrc   = Get-ChildItem $ex -Recurse -Filter 'Microsoft.Web.WebView2.WinForms.dll' -EA SilentlyContinue | Where-Object { $_.FullName -match '\\net4' } | Select-Object -First 1
+    if (-not $coreSrc) { $coreSrc = Get-ChildItem $ex -Recurse -Filter 'Microsoft.Web.WebView2.Core.dll'     -EA SilentlyContinue | Select-Object -First 1 }
+    if (-not $wfSrc)   { $wfSrc   = Get-ChildItem $ex -Recurse -Filter 'Microsoft.Web.WebView2.WinForms.dll' -EA SilentlyContinue | Select-Object -First 1 }
+    $ldSrc   = Get-ChildItem $ex -Recurse -Filter 'WebView2Loader.dll' -EA SilentlyContinue | Where-Object { $_.FullName -match 'win-x64' } | Select-Object -First 1
+    if ($coreSrc) { Copy-Item $coreSrc.FullName $coreDll -Force }
+    if ($wfSrc)   { Copy-Item $wfSrc.FullName   $wfDll   -Force }
+    if ($ldSrc)   { Copy-Item $ldSrc.FullName   $loader  -Force }
+    if ((Test-Path $coreDll) -and (Test-Path $wfDll) -and (Test-Path $loader)) {
+      Log ("WebView2 SDK ready (" + $coreSrc.FullName.Substring($ex.Length) + ")")
+    } else {
+      Log ("WebView2 SDK INCOMPLETE: core=" + [bool]$coreSrc + " winforms=" + [bool]$wfSrc + " loader=" + [bool]$ldSrc)
+    }
   } catch { Log "WebView2 SDK fetch failed: $($_.Exception.Message)" }
 }
 
