@@ -187,7 +187,11 @@
       "morning": "greeting the user in the morning",
       "evening": "greeting the user in the evening, a little wistful",
       "night": "winding down for the night, sleepy",
-      "dad_jokes": "a groan-worthy pun"
+      "dad_jokes": "a groan-worthy pun",
+      "ambient_observation": "a small offhand observation about the moment",
+      "random_thoughts": "a stray philosophical or silly thought, out of nowhere",
+      "welcome_back": "welcoming the user back after they were away",
+      "going_quiet": "announcing he's going to hush for a bit"
     }
   },
 

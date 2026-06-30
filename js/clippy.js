@@ -1020,6 +1020,20 @@
   };
 
   function pickFromPool(poolKey, fallback) {
+    // DEFAULT TO HIS OWN LINES: when Clippy has self-written lines for this
+    // moment, prefer them over the hand-written corpus (he authors himself).
+    if (state.selfAuthored !== false) {
+      const own = state.learned && state.learned[poolKey];
+      if (own && own.length && Math.random() < 0.75) {
+        const hist = state.poolHistory[poolKey] || [];
+        const fresh = own.filter(l => !hist.includes(l));
+        const src = fresh.length ? fresh : own;
+        const pick = src[Math.floor(Math.random() * src.length)];
+        state.poolHistory[poolKey] = [pick, ...hist].slice(0, 100);
+        persistPoolHistory();
+        return substituteVars(pick);
+      }
+    }
     const pool = state.dialog && state.dialog[poolKey];
     if (!pool || !pool.length) {
       // Fall back to inline pools if the JSON didn't ship this key
@@ -5456,6 +5470,7 @@
     // Mix in the lines he's written himself (continuity), then keep them fresh.
     mergeLearned();
     if (!state._learnedTimer) state._learnedTimer = setInterval(mergeLearned, 300000);
+    startSelfDriven();
   }
 
   // Pull Clippy's self-written lines from the bus (id='clippy_learned') and fold
@@ -5470,16 +5485,39 @@
       const { data } = await sb.from('clippy_sync').select('data').eq('id', 'clippy_learned').maybeSingle();
       const learned = data && data.data;
       if (!learned || typeof learned !== 'object') return;
+      state.learned = state.learned || {};
       let added = 0;
       Object.keys(learned).forEach(cat => {
-        const lines = Array.isArray(learned[cat]) ? learned[cat] : [];
+        const lines = (Array.isArray(learned[cat]) ? learned[cat] : []).filter(l => l && typeof l === 'string');
         if (!lines.length) return;
+        state.learned[cat] = lines;                 // his OWN lines for this moment (preferred in pickFromPool)
         const base = state.dialog[cat] = state.dialog[cat] || [];
         const seen = new Set(base);
-        lines.forEach(l => { if (l && typeof l === 'string' && !seen.has(l)) { base.push(l); seen.add(l); added++; } });
+        lines.forEach(l => { if (!seen.has(l)) { base.push(l); seen.add(l); added++; } });
       });
       if (added) console.log('[clippy] folded in', added, 'self-written line(s)');
     } catch (e) {}
+  }
+
+  // ─── SELF-DRIVEN: he acts and speaks on his own, by default ─────────────
+  const _SELF_ACTIONS = ['hop', 'wave', 'wobble', 'bounce', 'listen'];
+  function expressAction() {
+    try { play(_SELF_ACTIONS[Math.floor(Math.random() * _SELF_ACTIONS.length)]); } catch (e) {}
+  }
+  // By DEFAULT Clippy lives a little on his own — small actions and his own
+  // lines, with no prompt. Gentle + guarded: never interrupts a bubble, an
+  // open chat, a drag, or a hidden tab.
+  function startSelfDriven() {
+    if (state._selfDrivenTimer || state.selfAuthored === false) return;
+    state._selfDrivenTimer = setInterval(() => {
+      try {
+        if (state.selfAuthored === false) return;
+        if (typeof document !== 'undefined' && document.hidden) return;
+        if (!state.shell || state.bubble || state.chatOpen || state.dragging) return;
+        if (Math.random() < 0.65) expressAction();           // mostly a small, quiet action
+        else shareRandomThought({ tag: 'self' });            // sometimes one of his own lines
+      } catch (e) {}
+    }, 75000);                                               // ~every 75s
   }
 
   // Clippy's LLM brain, IN CHARACTER. Routes through the app's provider-aware
