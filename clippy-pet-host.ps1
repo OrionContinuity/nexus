@@ -31,9 +31,14 @@ if ([Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
   return
 }
 
-# Single instance: bow out if another pet host is already up.
+# Single instance: bow out if another pet host is already up. Match ONLY real
+# host processes (powershell launched with -File ...clippy-pet-host.ps1) so we
+# never mistake the worker's own -Command shell (which echoes this filename in
+# its command line) or a diagnostic cmd for "another host".
 $others = Get-CimInstance Win32_Process -EA SilentlyContinue |
-  Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine -match 'clippy-pet-host\.ps1' }
+  Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and
+                 $_.CommandLine -match 'clippy-pet-host\.ps1' -and
+                 $_.CommandLine -match '(?i)-File' }
 if ($others) { Log "another host already running (pid $($others[0].ProcessId)) - exiting"; return }
 
 # --- Ensure the WebView2 .NET SDK DLLs (runtime is already installed) ---------
