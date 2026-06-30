@@ -3977,6 +3977,17 @@
         Powers Ask NEXUS <b>and</b> equipment AI autofill. <b>Clippy</b> = your local LLM, no key · <b>Claude</b> = cloud, uses the key above.
       </div>
 
+      <!-- Model selection save file: download the current provider/model as a
+           model-config.json, or restore it from one. Lets you move the exact
+           selection between devices without editing the repo. -->
+      <div style="display:flex;gap:8px;align-items:center;margin:2px 0 8px;flex-wrap:wrap">
+        <button id="adminModelExport" class="admin-save-btn" style="padding:6px 12px;font-size:11px;background:transparent;color:var(--muted);border:1px solid rgba(200,164,78,0.25)">Export model settings</button>
+        <label class="admin-save-btn" style="padding:6px 12px;font-size:11px;background:transparent;color:var(--muted);border:1px solid rgba(200,164,78,0.25);cursor:pointer">
+          Import<input id="adminModelImport" type="file" accept="application/json,.json" hidden>
+        </label>
+        <span id="adminModelIoStatus" class="admin-key-status" style="font-size:11px"></span>
+      </div>
+
       <div id="adminClippyRow" style="display:none">
         <input id="adminClippyEndpoint" class="admin-field" autocomplete="off" spellcheck="false"
                placeholder="Clippy endpoint — http://localhost:4242">

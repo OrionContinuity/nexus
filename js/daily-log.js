@@ -2093,6 +2093,7 @@ function buildDailyLogEmailBody(d, dateStr) {
   if (clean(d.header && d.header.weather)) out.push('Weather: ' + clean(d.header.weather));
   out.push(RULE());
   out.push('');
+  const _bodyStart = out.length;   // mark where section content begins
 
   if (clean(d.header && d.header.significant_events)) {
     out.push(SH('Significant events'));
@@ -2140,13 +2141,19 @@ function buildDailyLogEmailBody(d, dateStr) {
     out.push('');
   }
 
+  // Empty-day friendliness — if no section produced content, say so plainly
+  // instead of sending an email that's just a header and a signature.
+  while (out.length > _bodyStart && out[out.length - 1] === '') out.pop();
+  if (out.length === _bodyStart) { out.push('Quiet day — nothing flagged.'); out.push(''); }
+
   out.push(RULE());
   const me = (window.NX && (NX.user || NX.currentUser)) ? ((NX.user && NX.user.name) || (NX.currentUser && NX.currentUser.name) || '') : '';
   if (me) out.push(me);
 
-  // Small, unobtrusive brand footer — indented so it reads as a footnote.
+  // Quiet brand footnote — left-aligned lowercase fine print so it reads
+  // small under the signature (was a large, centered-looking indented line).
   out.push('');
-  out.push('              powered by NEXUS');
+  out.push('powered by nexus');
 
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
@@ -2163,16 +2170,45 @@ function dlogLocationReportLines(loc) {
   const out = [];
   const locKey = normLocKey(loc.label);
 
-  // Weather — this location's own, from its address (state.weatherByLoc).
-  const locWx = (state.weatherByLoc && state.weatherByLoc[locKey]) || '';
-  if (locWx) { out.push(SH('Weather')); out.push(locWx); out.push(''); }
+  // At a glance — the day's signal up front, so the reader gets the headline
+  // before scrolling into detail. Counts equipment down, urgent work orders,
+  // PM overdue, and total open work; each bit is dropped when zero, and the
+  // whole line is skipped when there's nothing to flag.
+  {
+    const hereG = c => normLocKey(c.location) === locKey;
+    const slicesG = state.ticketSlices || {};
+    const openG = (slicesG.open || []).filter(hereG);
+    const workingG = (slicesG.working || []).filter(hereG);
+    const urgentG = openG.concat(workingG).filter(c => (c.priority || '').toLowerCase() === 'urgent').length;
+    const downG = (state.equipmentDown || []).filter(eq => normLocKey(eq.location) === locKey && eq.archived !== true && String(eq.status || '').toLowerCase() !== 'retired').length;
+    const todayG = new Date(); todayG.setHours(0, 0, 0, 0);
+    const nextG = (lastIso, days) => { const n = parseInt(days, 10); if (!lastIso || !n) return null; const dd = new Date(String(lastIso).slice(0, 10) + 'T00:00:00'); if (isNaN(dd)) return null; dd.setDate(dd.getDate() + n); return dd; };
+    let pmOverdueG = 0;
+    (state.equipmentHealth || []).filter(eq => normLocKey(eq.location) === locKey && eq.archived !== true && String(eq.status || '').toLowerCase() !== 'retired').forEach(eq => {
+      const pmNext = eq.next_pm_date ? new Date(String(eq.next_pm_date).slice(0, 10) + 'T00:00:00') : nextG(eq.last_pm_date, eq.pm_interval_days);
+      if (pmNext && !isNaN(pmNext) && pmNext < todayG) pmOverdueG++;
+    });
+    const bits = [];
+    if (downG) bits.push(downG + ' down');
+    if (urgentG) bits.push(urgentG + ' urgent');
+    if (pmOverdueG) bits.push(pmOverdueG + ' PM overdue');
+    const openTotalG = openG.length + workingG.length;
+    if (openTotalG) bits.push(openTotalG + ' open');
+    if (bits.length) { out.push('At a glance: ' + bits.join(' · ')); out.push(''); }
+  }
+
+  // Weather is shown once in the email header (see buildLocationEmailBody /
+  // buildDailyLogEmailBody) — no standalone WEATHER section here, or it reads
+  // twice.
 
   // Notes — the shift recap the manager types into this location's note.
   if (clean(loc.notes)) { out.push(SH('Notes')); out.push(clean(loc.notes)); out.push(''); }
 
   // Equipment status — pulled live from NEXUS: anything non-operational at
   // this location, with its status note. No manual entry.
-  const down = (state.equipmentDown || []).filter(eq => normLocKey(eq.location) === locKey && eq.archived !== true);
+  // Retired units are excluded from the daily recap entirely — they're out of
+  // service, not actionable, so they shouldn't surface in status or health.
+  const down = (state.equipmentDown || []).filter(eq => normLocKey(eq.location) === locKey && eq.archived !== true && String(eq.status || '').toLowerCase() !== 'retired');
   if (down.length) {
     out.push(SH('Equipment status'));
     const issByEq = state.openIssuesByEq || {};
@@ -2186,8 +2222,11 @@ function dlogLocationReportLines(loc) {
         : d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
     };
     down.forEach(eq => {
+      // Front-load a status tag ([DOWN], [NEEDS SERVICE], \u2026) to match the
+      // work-order [URGENT]/[HIGH] tags so the whole email scans the same way.
       const st = (eq.status || '').replace(/_/g, ' ').trim();
-      out.push('\u00b7 ' + (eq.name || 'Equipment') + (st ? ' \u2014 ' + st : ''));
+      const stTag = st ? '[' + st.toUpperCase() + '] ' : '';
+      out.push('\u00b7 ' + stTag + (eq.name || 'Equipment'));
       if (clean(eq.status_note)) out.push('    why: ' + clean(eq.status_note));
       // Has a contractor been called? Surface the open work-order lifecycle.
       const iss = issByEq[eq.id];
@@ -2219,7 +2258,7 @@ function dlogLocationReportLines(loc) {
   // (state.equipmentHealth). Health = PM/inspection/deep-clean due counts;
   // the Warranties block only renders when this location has units with a
   // warranty date ("if it has any").
-  const eqAll = (state.equipmentHealth || []).filter(eq => normLocKey(eq.location) === locKey && eq.archived !== true);
+  const eqAll = (state.equipmentHealth || []).filter(eq => normLocKey(eq.location) === locKey && eq.archived !== true && String(eq.status || '').toLowerCase() !== 'retired');
   if (eqAll.length) {
     const todayD = new Date(); todayD.setHours(0, 0, 0, 0);
     const soonD = new Date(todayD); soonD.setDate(soonD.getDate() + 14);
@@ -2253,16 +2292,18 @@ function dlogLocationReportLines(loc) {
     out.push('· ' + eqAll.length + ' unit' + (eqAll.length === 1 ? '' : 's') + ' — ' + op + ' operational');
     // Which units aren't operational, and their status.
     const _nonOp = eqAll.filter(e => (e.status || 'operational').toLowerCase() !== 'operational');
-    _nonOp.forEach(e => { const _st = (e.status || '').replace(/_/g, ' ').trim(); out.push('    ' + (e.name || 'Equipment') + ' \u2014 ' + (_st || 'not operational')); });
+    _nonOp.forEach(e => { const _st = (e.status || '').replace(/_/g, ' ').trim(); out.push('    [' + (_st ? _st.toUpperCase() : 'NOT OPERATIONAL') + '] ' + (e.name || 'Equipment')); });
     // PM due — itemized: WHICH unit + WHEN it was/is due (not just a count).
     if (pmItems.length) {
       pmItems.sort((a, b) => a.date - b.date);
       const overdueN = pmItems.filter(x => x.overdue).length;
       out.push('· PM due: ' + pmItems.length + (overdueN ? ' (' + overdueN + ' overdue)' : ''));
       pmItems.slice(0, 12).forEach(x => {
-        out.push('    ' + x.name + ' — ' + (x.overdue
-          ? ('OVERDUE, was due ' + shortDate2(x.date) + (x.days <= -1 ? ' (' + Math.abs(x.days) + 'd ago)' : ''))
-          : ('due ' + shortDate2(x.date) + (x.days <= 14 ? ' (in ' + x.days + 'd)' : ''))));
+        // [OVERDUE]/[DUE] tag front-loaded for the same scannable style as the
+        // work-order and equipment-status tags.
+        out.push('    ' + (x.overdue
+          ? ('[OVERDUE] ' + x.name + ' — was due ' + shortDate2(x.date) + (x.days <= -1 ? ' (' + Math.abs(x.days) + 'd ago)' : ''))
+          : ('[DUE] ' + x.name + ' — ' + shortDate2(x.date) + (x.days <= 14 ? ' (in ' + x.days + 'd)' : ''))));
       });
       if (pmItems.length > 12) out.push('    +' + (pmItems.length - 12) + ' more');
     }
@@ -2311,15 +2352,20 @@ function dlogLocationReportLines(loc) {
   ].filter(g => g.cards.length);
   if (woGroups.length) {
     out.push(SH('Work orders'));
-    woGroups.forEach(g => {
+    woGroups.forEach((g, gi) => {
+      // Blank line between lanes so To Do / In Progress / Done today read as
+      // distinct blocks instead of one run-on list.
+      if (gi > 0) out.push('');
       out.push(g.label + ' (' + g.cards.length + ')');
       g.cards.forEach(c => {
-        // "title \u2014 priority[, moved today]". Status is the group header
-        // above, so it isn't repeated per line; "moved today" is omitted from
-        // Done (the "Done today" header already says the card moved today).
-        const tags = [(c.priority || 'normal').toLowerCase()];
-        if (g.showMoved && c._movedToday) tags.push('moved today');
-        out.push('    \u00b7 ' + (c.title || 'Untitled card') + ' \u2014 ' + tags.join(', '));
+        // Front-load an uppercase priority tag on every card so the priority
+        // reads at a glance and the tags line up into a scannable column.
+        // Status is the group header; "moved today" is omitted from Done (the
+        // "Done today" header already implies it moved today).
+        const pri = (c.priority || 'normal').toLowerCase();
+        const tag = '[' + pri.toUpperCase() + '] ';
+        const moved = (g.showMoved && c._movedToday) ? '  (moved today)' : '';
+        out.push('    \u00b7 ' + tag + (c.title || 'Untitled card') + moved);
       });
     });
     out.push('');
@@ -2353,9 +2399,14 @@ function buildLocationEmailBody(loc, dateStr, d) {
   const out = [];
 
   out.push('Daily Log \u2014 ' + (loc.label || 'Location') + ' \u2014 ' + fmtLogDateLong(dateStr));
-  if (d && clean(d.header && d.header.weather)) out.push('Weather: ' + clean(d.header.weather));
+  // Weather once, in the header \u2014 prefer this location's own reading, fall back
+  // to the day-level weather. (The per-location WEATHER section was removed so
+  // weather no longer appears twice.)
+  const _hdrWx = (state.weatherByLoc && state.weatherByLoc[normLocKey(loc.label)]) || (d && d.header && d.header.weather) || '';
+  if (clean(_hdrWx)) out.push('Weather: ' + clean(_hdrWx));
   out.push(RULE());
   out.push('');
+  const _bodyStart = out.length;   // mark where section content begins
 
   if (d && clean(d.header && d.header.significant_events)) {
     out.push(SH('Significant events'));
@@ -2366,13 +2417,18 @@ function buildLocationEmailBody(loc, dateStr, d) {
   const lines = dlogLocationReportLines(loc);
   lines.forEach(l => out.push(l));
 
+  // Empty-day friendliness — a clear note beats a header-and-signature email.
+  while (out.length > _bodyStart && out[out.length - 1] === '') out.pop();
+  if (out.length === _bodyStart) { out.push('Quiet day — nothing flagged.'); out.push(''); }
+
   out.push(RULE());
   const me = (window.NX && (NX.user || NX.currentUser)) ? ((NX.user && NX.user.name) || (NX.currentUser && NX.currentUser.name) || '') : '';
   if (me) out.push(me);
 
-  // Small, unobtrusive brand footer — indented so it reads as a footnote.
+  // Quiet brand footnote — left-aligned lowercase fine print so it reads
+  // small under the signature (was a large, centered-looking indented line).
   out.push('');
-  out.push('              powered by NEXUS');
+  out.push('powered by nexus');
 
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }

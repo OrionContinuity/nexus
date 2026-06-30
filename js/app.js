@@ -34,18 +34,62 @@ const NX = {
   getGoogleClientId() { return this.config?.google_client_id || localStorage.getItem('nexus_google_client_id') || this.GOOGLE_CLIENT_ID; },
   getTrelloKey() { return this.config?.trello_key || localStorage.getItem('nexus_trello_key') || ''; },
   getTrelloToken() { return this.config?.trello_token || localStorage.getItem('nexus_trello_token') || ''; },
-  getModel() { return this.config?.model || localStorage.getItem('nexus_model') || 'claude-sonnet-4-6'; },
+  getModel() { return this.config?.model || localStorage.getItem('nexus_model') || this.modelDefaults?.model || 'claude-sonnet-4-6'; },
   // AI provider — 'anthropic' (Claude API, default) or 'clippy' (the Clippy
   // HTTP API = ClippyPC's offline brain, default :4242). Device-local
   // (localStorage), since the endpoint is localhost on THIS machine. The
   // token is optional, only needed if Clippy sets api_token (the /act route
   // can drive the mouse, so it's worth gating).
-  getProvider() { return this.config?.ai_provider || localStorage.getItem('nexus_ai_provider') || 'anthropic'; },
-  getClippyEndpoint() { return String(this.config?.clippy_endpoint || localStorage.getItem('nexus_clippy_endpoint') || 'http://localhost:4242').replace(/\/+$/, ''); },
-  getClippyToken() { return this.config?.clippy_token || localStorage.getItem('nexus_clippy_token') || ''; },
+  getProvider() { return this.config?.ai_provider || localStorage.getItem('nexus_ai_provider') || this.modelDefaults?.ai_provider || 'anthropic'; },
+  getClippyEndpoint() { return String(this.config?.clippy_endpoint || localStorage.getItem('nexus_clippy_endpoint') || this.modelDefaults?.clippy_endpoint || 'http://localhost:4242').replace(/\/+$/, ''); },
+  getClippyToken() { return this.config?.clippy_token || localStorage.getItem('nexus_clippy_token') || this.modelDefaults?.clippy_token || ''; },
   // Optional specific Clippy LLM (empty = let Clippy pick his default). Only
   // takes effect once Clippy's /ask honors a `model` field; sent regardless.
-  getClippyModel() { return this.config?.clippy_model || localStorage.getItem('nexus_clippy_model') || ''; },
+  getClippyModel() { return this.config?.clippy_model || localStorage.getItem('nexus_clippy_model') || this.modelDefaults?.clippy_model || ''; },
+
+  // Committed default model selection, loaded from /model-config.json at boot
+  // (see _loadModelDefaults). Sits BELOW localStorage in every getter's
+  // fallback chain: a per-device Admin pick still wins, but a fresh device or
+  // a cleared browser falls back to this shipped "save file" instead of the
+  // hardcoded 'anthropic'/Sonnet defaults. null until the fetch resolves;
+  // optional chaining in the getters keeps that safe.
+  modelDefaults: null,
+  async _loadModelDefaults() {
+    if (this.modelDefaults) return this.modelDefaults;
+    try {
+      // Relative URL → resolves under the app's base path (e.g.
+      // /nexus/model-config.json on GitHub Pages). Cached like any static asset.
+      const resp = await fetch('model-config.json', { cache: 'no-cache' });
+      if (resp.ok) {
+        const data = await resp.json();
+        // Keep only the known model-selection keys; ignore _note / extras.
+        this.modelDefaults = {
+          ai_provider: data.ai_provider,
+          model: data.model,
+          clippy_model: data.clippy_model,
+          clippy_endpoint: data.clippy_endpoint,
+          clippy_token: data.clippy_token,
+        };
+        console.log('NEXUS: model-config.json defaults loaded', this.modelDefaults);
+      } else {
+        this.modelDefaults = {};
+      }
+    } catch (e) {
+      console.warn('NEXUS: model-config.json not loaded —', e.message);
+      this.modelDefaults = {};
+    }
+    return this.modelDefaults;
+  },
+  // Does the ACTIVE provider require an Anthropic cloud key? Only the
+  // 'anthropic' provider does — 'clippy' and 'clippy-pool' answer from a
+  // local/pooled LLM with no key. UI gates must use this instead of a bare
+  // getApiKey() check, or selecting Clippy/pool still demands a key it
+  // doesn't need (and chat dead-ends with "add your Anthropic API key").
+  aiNeedsKey() { return this.getProvider() === 'anthropic'; },
+  // True when the active provider is ready to answer: cloud needs a key,
+  // Clippy/pool are always considered configured (reachability is probed
+  // separately via Check Clippy / poolStatus).
+  aiReady() { return this.aiNeedsKey() ? !!this.getApiKey() : true; },
 
   // Roles
   isAdmin: false,
@@ -605,6 +649,9 @@ const NX = {
   },
 
   async _loadConfigAndStart() {
+    // Load the committed model-selection "save file" first so getProvider/
+    // getModel have their fallback defaults before anything reads them.
+    await this._loadModelDefaults();
     // Load NON-SECRET config. SECURITY: the base nexus_config table holds the
     // Anthropic/ElevenLabs/Trello secrets and must be locked to anon (the
     // publishable key is public). We read the `nexus_config_public` VIEW, which
@@ -1864,25 +1911,7 @@ td.check{background:#F0EDE6 !important}
           document.getElementById('adminTrelloToken').placeholder = tt ? 'Token set (••••' + tt.slice(-4) + ')' : 'Trello Token';
           // Unified "Ask NEXUS uses" picker — map current provider+model → the
           // <select> value; _syncAiPickerUI then toggles the dependent rows.
-          const _sel = document.getElementById('adminModel');
-          const _custom = document.getElementById('adminModelCustom');
-          const _prov = this.getProvider();
-          if (_sel) {
-            if (_prov === 'clippy-pool') {
-              _sel.value = 'clippy-pool';
-            } else if (_prov === 'clippy') {
-              const cm = this.getClippyModel();
-              const want = cm ? 'clippy:' + cm : 'clippy';
-              _sel.value = [..._sel.options].some(o => o.value === want) ? want : 'clippy';
-            } else {
-              const m = this.getModel();
-              if ([..._sel.options].some(o => o.value === m)) _sel.value = m;
-              else { _sel.value = '__custom__'; if (_custom) _custom.value = m; }
-            }
-          }
-          const _cep = document.getElementById('adminClippyEndpoint'); if (_cep) _cep.value = this.getClippyEndpoint();
-          const _ctk = document.getElementById('adminClippyToken'); if (_ctk) _ctk.value = this.getClippyToken();
-          this._syncAiPickerUI();
+          this._syncAdminPickerFromState();
           document.getElementById('adminVoice').value = (this.config && this.config.voice_idx != null) ? this.config.voice_idx : (localStorage.getItem('nexus_voice_idx') || '0');
         } catch (e) { console.warn('[admin] prefill failed:', e); }
 
@@ -2103,6 +2132,70 @@ td.check{background:#F0EDE6 !important}
       const v = document.getElementById('adminModel')?.value || '';
       if (v === 'clippy-pool') this.poolStatusInto('adminClippyStatus');
       else this.clippyStatusInto('adminClippyStatus');
+    });
+
+    // ─── Model-selection save file: Export / Import ──────────────────
+    // Download the live provider+model selection as a model-config.json
+    // (same shape as the committed default), or restore it from one. Lets
+    // the exact selection move between devices without touching the repo.
+    const _modelIoStatus = (msg, ok) => {
+      const s = document.getElementById('adminModelIoStatus');
+      if (!s) return;
+      s.textContent = msg; s.style.color = ok ? 'var(--green)' : 'var(--red)';
+      setTimeout(() => { if (s.textContent === msg) s.textContent = ''; }, 5000);
+    };
+    document.getElementById('adminModelExport')?.addEventListener('click', () => {
+      try {
+        const payload = {
+          _note: 'NEXUS model selection — import via Admin → AI → Import to restore.',
+          ai_provider: this.getProvider(),
+          model: this.getModel(),
+          clippy_model: this.getClippyModel(),
+          clippy_endpoint: this.getClippyEndpoint(),
+          clippy_token: this.getClippyToken(),
+        };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'model-config.json';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        _modelIoStatus('✓ Exported model-config.json', true);
+      } catch (e) { _modelIoStatus('Export failed: ' + e.message, false); }
+    });
+    document.getElementById('adminModelImport')?.addEventListener('change', async (ev) => {
+      const file = ev.target.files && ev.target.files[0];
+      if (!file) return;
+      try {
+        const data = JSON.parse(await file.text());
+        const prov = data.ai_provider;
+        if (!['anthropic', 'clippy', 'clippy-pool'].includes(prov)) {
+          throw new Error('unknown ai_provider "' + prov + '"');
+        }
+        // Persist to the same device-local keys the Save button writes.
+        localStorage.setItem('nexus_ai_provider', prov);
+        if (typeof data.model === 'string' && data.model) localStorage.setItem('nexus_model', data.model);
+        localStorage.setItem('nexus_clippy_model', typeof data.clippy_model === 'string' ? data.clippy_model : '');
+        if (typeof data.clippy_endpoint === 'string' && data.clippy_endpoint) localStorage.setItem('nexus_clippy_endpoint', data.clippy_endpoint);
+        if (typeof data.clippy_token === 'string') localStorage.setItem('nexus_clippy_token', data.clippy_token);
+        // Mirror into the in-memory config so getters reflect it immediately.
+        if (this.config) {
+          this.config.ai_provider = prov;
+          if (data.model) this.config.model = data.model;
+          this.config.clippy_model = data.clippy_model || '';
+          if (data.clippy_endpoint) this.config.clippy_endpoint = data.clippy_endpoint;
+          if (typeof data.clippy_token === 'string') this.config.clippy_token = data.clippy_token;
+        }
+        // Re-sync the picker so the dropdown + Clippy rows show the import.
+        try { if (typeof this._syncAdminPickerFromState === 'function') this._syncAdminPickerFromState(); } catch (_) {}
+        try { if (typeof this._syncAiPickerUI === 'function') this._syncAiPickerUI(); } catch (_) {}
+        const label = prov === 'clippy-pool' ? 'Clippy pool' : prov === 'clippy' ? ('Clippy' + (data.clippy_model ? ' · ' + data.clippy_model : '')) : ('Claude · ' + (data.model || this.getModel()));
+        _modelIoStatus('✓ Imported — ' + label, true);
+      } catch (e) {
+        _modelIoStatus('Import failed: ' + e.message, false);
+      } finally {
+        ev.target.value = '';  // allow re-importing the same file
+      }
     });
 
     document.getElementById('adminCancel').addEventListener('click', () => {
@@ -4074,6 +4167,31 @@ td.check{background:#F0EDE6 !important}
   },
   // Keep the Clippy row + custom-Claude input in sync with the unified picker;
   // when a Clippy option is active, probe health + list his LLMs.
+  // Map the live provider+model state → the "Ask NEXUS uses" <select> value
+  // (and the custom-model / Clippy endpoint inputs). Used by the admin
+  // prefill and after a model-config Import so the dropdown reflects state.
+  // _syncAiPickerUI() then toggles which dependent rows are visible.
+  _syncAdminPickerFromState() {
+    const _sel = document.getElementById('adminModel');
+    const _custom = document.getElementById('adminModelCustom');
+    const _prov = this.getProvider();
+    if (_sel) {
+      if (_prov === 'clippy-pool') {
+        _sel.value = 'clippy-pool';
+      } else if (_prov === 'clippy') {
+        const cm = this.getClippyModel();
+        const want = cm ? 'clippy:' + cm : 'clippy';
+        _sel.value = [..._sel.options].some(o => o.value === want) ? want : 'clippy';
+      } else {
+        const m = this.getModel();
+        if ([..._sel.options].some(o => o.value === m)) _sel.value = m;
+        else { _sel.value = '__custom__'; if (_custom) _custom.value = m; }
+      }
+    }
+    const _cep = document.getElementById('adminClippyEndpoint'); if (_cep) _cep.value = this.getClippyEndpoint();
+    const _ctk = document.getElementById('adminClippyToken'); if (_ctk) _ctk.value = this.getClippyToken();
+    this._syncAiPickerUI();
+  },
   _syncAiPickerUI() {
     const sel = document.getElementById('adminModel');
     if (!sel) return;

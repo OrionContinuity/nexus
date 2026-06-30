@@ -3556,6 +3556,13 @@ function buildUI() {
           <button class="eq-chip ${activeFilter.archived==='only'?'active':''}" data-filter="archived" data-value="only">Archived</button>
           <button class="eq-chip ${activeFilter.archived==='all'?'active':''}" data-filter="archived" data-value="all">All</button>
         </div>
+        <div class="eq-filter-group">
+          <span class="eq-filter-label">Retired:</span>
+          <!-- Toggle: retired units are hidden from the mixed "all" view by
+               default; flip this to fold them back in. data-value renders as the
+               OPPOSITE of the current state so the shared chip handler toggles. -->
+          <button class="eq-chip ${activeFilter.showRetired?'active':''}" data-filter="showRetired" data-value="${activeFilter.showRetired?'':'1'}">${activeFilter.showRetired?'Shown':'Hidden'}</button>
+        </div>
       </div>
 
       <div class="eq-stats" id="eqStats"></div>
@@ -3922,9 +3929,10 @@ function getFiltered() {
     if (archScope === 'only'   && !(e.archived_at || e.archived)) return false;
     if (activeFilter.location !== 'all' && e.location !== activeFilter.location) return false;
     if (activeFilter.status !== 'all' && e.status !== activeFilter.status) return false;
-    // Retired units are hidden from the default "all" view — reach them via the
+    // Retired units are hidden from the default "all" view — flip the Retired
+    // toggle (activeFilter.showRetired) to fold them in, or reach them via the
     // Status → Retired chip (which sets status='retired' and bypasses this).
-    if (activeFilter.status === 'all' && String(e.status || '').toLowerCase() === 'retired') return false;
+    if (!activeFilter.showRetired && activeFilter.status === 'all' && String(e.status || '').toLowerCase() === 'retired') return false;
     if (activeFilter.category !== 'all' && e.category !== activeFilter.category) return false;
     if (activeFilter.pm === 'overdue') {
       if (!e.next_pm_date) return false;
