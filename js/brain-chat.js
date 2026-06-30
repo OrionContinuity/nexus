@@ -205,7 +205,7 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
     return persona;
   }
 
-  function checkApiKey(){const b=document.getElementById('apiBanner');if(b)b.style.display=NX.getApiKey()?'none':'flex';}
+  function checkApiKey(){const b=document.getElementById('apiBanner');if(b)b.style.display=(NX.aiReady?NX.aiReady():NX.getApiKey())?'none':'flex';}
   function timeStr(){const d=new Date();return d.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}).toLowerCase();}
 
   function buildDynamicChips(){
@@ -1039,13 +1039,15 @@ When you're ready to give your final answer, just respond normally (no JSON, no 
     window.addEventListener('online',()=>{document.getElementById('offlineBanner').style.display='none';});
     window.addEventListener('offline',()=>{document.getElementById('offlineBanner').style.display='block';});
     if(!navigator.onLine)document.getElementById('offlineBanner').style.display='block';
-    if(!localStorage.getItem('nexus_onboarded')&&!NX.getApiKey()){showOnboarding();}
+    // Onboarding nags for a cloud key — skip it when a keyless provider
+    // (Clippy / pool) is already selected and ready.
+    if(!localStorage.getItem('nexus_onboarded')&&!(NX.aiReady?NX.aiReady():NX.getApiKey())){showOnboarding();}
     // Proactive greeting after briefing data loads
     setTimeout(()=>proactiveGreeting(),3500);
   }
 
   async function proactiveGreeting(){
-    if(!NX.getApiKey()||!NX.currentUser)return;
+    if(!(NX.aiReady?NX.aiReady():NX.getApiKey())||!NX.currentUser)return;
     const b=NX._briefingData;if(!b)return;
 
     // Build a natural briefing string from real data
@@ -1335,7 +1337,11 @@ Keep it casual and warm. No markdown formatting.`;
     chatActive=true;addB(q,'user');chatHistory.push({role:'user',content:q});
     if(NX.syslog)NX.syslog('chat_ask',q.slice(0,80));
     showTyping();
-    if(!NX.getApiKey()){
+    // Only the cloud (Anthropic) provider needs a key. When the user picks
+    // Clippy or the Clippy pool, askClaude() routes to the local/pooled LLM
+    // with no key — so this gate must be provider-aware, otherwise selecting
+    // the pool dead-ends here with a misleading "add your Anthropic key".
+    if(NX.aiNeedsKey && NX.aiNeedsKey() && !NX.getApiKey()){
       hideTyping();
       // The 'noApiKey' i18n key was never defined — would render the
       // raw key text. Use a real message that tells the user how to fix.
