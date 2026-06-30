@@ -2197,9 +2197,9 @@ function dlogLocationReportLines(loc) {
     if (bits.length) { out.push('At a glance: ' + bits.join(' · ')); out.push(''); }
   }
 
-  // Weather — this location's own, from its address (state.weatherByLoc).
-  const locWx = (state.weatherByLoc && state.weatherByLoc[locKey]) || '';
-  if (locWx) { out.push(SH('Weather')); out.push(locWx); out.push(''); }
+  // Weather is shown once in the email header (see buildLocationEmailBody /
+  // buildDailyLogEmailBody) — no standalone WEATHER section here, or it reads
+  // twice.
 
   // Notes — the shift recap the manager types into this location's note.
   if (clean(loc.notes)) { out.push(SH('Notes')); out.push(clean(loc.notes)); out.push(''); }
@@ -2399,7 +2399,11 @@ function buildLocationEmailBody(loc, dateStr, d) {
   const out = [];
 
   out.push('Daily Log \u2014 ' + (loc.label || 'Location') + ' \u2014 ' + fmtLogDateLong(dateStr));
-  if (d && clean(d.header && d.header.weather)) out.push('Weather: ' + clean(d.header.weather));
+  // Weather once, in the header \u2014 prefer this location's own reading, fall back
+  // to the day-level weather. (The per-location WEATHER section was removed so
+  // weather no longer appears twice.)
+  const _hdrWx = (state.weatherByLoc && state.weatherByLoc[normLocKey(loc.label)]) || (d && d.header && d.header.weather) || '';
+  if (clean(_hdrWx)) out.push('Weather: ' + clean(_hdrWx));
   out.push(RULE());
   out.push('');
   const _bodyStart = out.length;   // mark where section content begins
