@@ -29,7 +29,7 @@ Env overrides: NEXUS_SUPABASE_URL, NEXUS_SUPABASE_ANON, OLLAMA_URL,
                CLIPPY_VISION_MODEL, CLIPPY_TEXT_MODEL, CLIPPY_NODE_NAME,
                CLIPPY_CMD_TOKEN (enable command jobs; empty = disabled)
 """
-import os, sys, time, json, socket, subprocess, platform, threading, urllib.request, urllib.error, urllib.parse
+import os, sys, time, json, socket, subprocess, platform, threading, base64, tempfile, shutil, glob, urllib.request, urllib.error, urllib.parse
 
 try: OSDESC = platform.platform()           # e.g. "Windows-11-10.0.22631"
 except Exception: OSDESC = sys.platform
@@ -134,7 +134,7 @@ def sb_get_pending():
     # or=(...) logical filter, which PostgREST rejects in some forms (a bad
     # filter returns [] silently and the node goes blind to all jobs).
     rows = []
-    for pref in ("vis:", "job:"):
+    for pref in ("vis:", "art:", "job:"):     # vision, atelier (Blender renders), shared
         url = REST + "?id=like." + pref + "*&select=id,data"
         try:
             _, raw = _http("GET", url, SB_HEADERS, timeout=20)
@@ -155,8 +155,9 @@ def sb_get_pending():
         if pref and pref != NODE and (now - (d.get("prefer_ms") or d.get("ts") or 0)) < PREFER_GRACE_MS:
             continue
         # Vision specialist: ignore pure-text jobs so the legacy brain answers
-        # them (it has the preferred text model). We still take vision + cmd.
-        is_text = not (d.get("image_b64") or d.get("vision") or d.get("cmd"))
+        # them (it has the preferred text model). We still take vision, cmd, and
+        # atelier renders.
+        is_text = not (d.get("image_b64") or d.get("vision") or d.get("cmd") or d.get("render"))
         if is_text and not CLAIM_TEXT:
             continue
         out.append(row)
@@ -197,8 +198,8 @@ def sb_heartbeat():
     except Exception:
         pass
     arr.append({"name": NODE, "ts": now, "vision": True, "cmd": bool(CMD_TOKEN),
-                "os": OSDESC, "version": "worker-1.4", "managed": MANAGED, "busy": _state["busy"], "current": _state["current"],
-                "caps": ((["ask"] if CLAIM_TEXT else []) + ["vision"] + (["cmd"] if CMD_TOKEN else []) + (["gen"] if GENERATE else [])),
+                "os": OSDESC, "version": "worker-1.5", "managed": MANAGED, "busy": _state["busy"], "current": _state["current"],
+                "caps": ((["ask"] if CLAIM_TEXT else []) + ["vision"] + (["cmd"] if CMD_TOKEN else []) + (["gen"] if GENERATE else []) + (["art"] if HAS_BLENDER else [])),
                 "vision_model": ACTIVE_VISION, "models": [VISION_MODEL, TEXT_MODEL],
                 "ram_gb": RAM_GB, "accel": ACCEL, "vscore": VSCORE})
     h = dict(SB_HEADERS); h["Prefer"] = "resolution=merge-duplicates,return=minimal"
@@ -452,12 +453,144 @@ def run_command(job_id, data):
     set_state(False)
 
 
+# ─── Atelier: turn an idea into a Blender render ─────────────────────────────
+def _find_blender():
+    p = shutil.which("blender")
+    if p:
+        return p
+    for base in [os.environ.get("ProgramFiles", ""), os.environ.get("ProgramW6432", ""),
+                 os.environ.get("LOCALAPPDATA", "")]:
+        if not base:
+            continue
+        for exe in glob.glob(os.path.join(base, "**", "blender.exe"), recursive=True):
+            return exe
+    return None
+
+
+HAS_BLENDER = bool(_find_blender())
+
+# LLM-written scene code runs inside Blender. It's our own model with a tight
+# prompt, but the PROMPT is user-supplied, so reject anything that isn't plain
+# bpy scene-building before we run it.
+_RENDER_FORBIDDEN = ("import ", "__", "os.", "sys.", "subprocess", "open(", "eval(",
+                     "exec(", "compile(", "system(", "popen", "shutil", "socket",
+                     "urllib", "requests", "getattr", "setattr", "globals(", "locals(")
+
+_RENDER_HARNESS = '''OUTPATH = r"%s"
+import bpy
+try: bpy.ops.wm.read_factory_settings(use_empty=True)
+except Exception: pass
+scene = bpy.context.scene
+def _mat(name, rgba):
+    m = bpy.data.materials.new(name); m.use_nodes = True
+    try: m.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = rgba
+    except Exception: pass
+    return m
+# --- generated scene ---
+%s
+# --- end generated scene ---
+if not any(o.type == 'CAMERA' for o in scene.objects):
+    cd = bpy.data.cameras.new("Cam"); co = bpy.data.objects.new("Cam", cd)
+    scene.collection.objects.link(co); co.location = (7, -7, 5); co.rotation_euler = (1.05, 0, 0.785)
+scene.camera = next((o for o in scene.objects if o.type == 'CAMERA'), None)
+if not any(o.type == 'LIGHT' for o in scene.objects):
+    ld = bpy.data.lights.new("Sun", 'SUN'); ld.energy = 4.0
+    lo = bpy.data.objects.new("Sun", ld); scene.collection.objects.link(lo); lo.location = (5, -3, 9)
+try:
+    w = scene.world or bpy.data.worlds.new("W"); scene.world = w; w.use_nodes = True
+    w.node_tree.nodes["Background"].inputs[0].default_value = (0.05, 0.06, 0.09, 1)
+except Exception: pass
+try: scene.render.engine = 'CYCLES'; scene.cycles.samples = 24
+except Exception: pass
+scene.render.resolution_x = 512; scene.render.resolution_y = 512
+scene.render.image_settings.file_format = 'PNG'
+scene.render.filepath = OUTPATH
+bpy.ops.render.render(write_still=True)
+'''
+
+
+def _render_scene_code(idea):
+    """Ask the local model (in artist mode) for bpy scene-building code."""
+    model = _gen_model()
+    if not model:
+        return None
+    system = ("You write Python for Blender's bpy module to build a small 3D scene. "
+              "Output ONLY Python code - no markdown, no comments, no explanation. "
+              "Use ONLY bpy and the helper _mat(name, (r,g,b,1)) for colored materials. "
+              "Do NOT import anything; do NOT touch files, os, network. Build the idea from simple "
+              "primitives (bpy.ops.mesh.primitive_cube_add/uv_sphere_add/cylinder_add/cone_add/"
+              "plane_add) with location=, scale=, rotation=. Assign colors via "
+              "obj.data.materials.append(_mat('c',(r,g,b,1))). Do NOT add cameras, lights, world, "
+              "render settings, or call render. Keep it under 40 lines.")
+    try:
+        code = ollama_generate(model, "Build a small scene that evokes: " + str(idea)[:300], system)
+    except Exception as e:
+        log("render code gen failed: %s" % e); return None
+    code = (code or "").replace("```python", "").replace("```", "").strip()
+    low = code.lower()
+    if not code or any(tok in low for tok in _RENDER_FORBIDDEN):
+        log("render code rejected (unsafe/empty) - using fallback scene")
+        return None
+    return code
+
+
+_RENDER_FALLBACK = ("bpy.ops.mesh.primitive_uv_sphere_add(location=(0,0,1))\n"
+                    "bpy.context.active_object.data.materials.append(_mat('a',(0.85,0.7,0.3,1)))\n"
+                    "bpy.ops.mesh.primitive_plane_add(size=20)\n")
+
+
+def run_render(job_id, data):
+    """Render an idea with Blender (headless Cycles) and return the PNG."""
+    now_ms = lambda: int(time.time() * 1000)
+    idea = (data.get("render") or data.get("prompt") or "a small abstract sculpture").strip()
+    blender = _find_blender()
+    if not blender:
+        sb_finish(job_id, {"status": "error", "error": "Blender isn't installed on this node yet.", "node": NODE, "ts": now_ms()})
+        return
+    set_state(True, "sculpting: " + idea[:48]); activity("art", "sculpting: " + idea[:60])
+    log("render %s -> %s" % (job_id, idea[:80]))
+    body = _render_scene_code(idea) or _RENDER_FALLBACK
+    work = tempfile.mkdtemp(prefix="clippy_art_")
+    out_png = os.path.join(work, "out.png")
+    script = os.path.join(work, "scene.py")
+    try:
+        with open(script, "w", encoding="utf-8") as f:
+            f.write(_RENDER_HARNESS % (out_png.replace("\\", "\\\\"), body))
+        t0 = time.time()
+        proc = subprocess.Popen([blender, "--background", "--factory-startup", "--python", script],
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        last = 0
+        for line in proc.stdout:
+            if time.time() - last > 3:
+                sb_finish(job_id, {"status": "running", "tail": line.strip()[-160:], "node": NODE, "ts": now_ms()})
+                last = time.time()
+        proc.wait()
+        if os.path.exists(out_png):
+            with open(out_png, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode()
+            sb_finish(job_id, {"status": "done", "image_b64": b64, "mime": "image/png",
+                               "result": "sculpted: " + idea[:80], "node": NODE, "ts": now_ms()})
+            activity("art", "sculpted '%s' in %ds" % (idea[:40], int(time.time() - t0)))
+            log("render %s done (%d KB)" % (job_id, len(b64) // 1024))
+        else:
+            sb_finish(job_id, {"status": "error", "error": "Blender produced no image (the scene may have failed).", "node": NODE, "ts": now_ms()})
+            log("render %s produced no image" % job_id)
+    except Exception as e:
+        sb_finish(job_id, {"status": "error", "error": "render failed: %s" % e, "node": NODE, "ts": now_ms()})
+        log("render %s error: %s" % (job_id, e))
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+        set_state(False)
+
+
 def process(job):
     job_id = job["id"]; data = job.get("data") or {}
     if not sb_claim(job_id, data):
         return                                   # another node got it
     if data.get("cmd"):
         run_command(job_id, data); return
+    if data.get("render") or job_id.startswith("art:"):
+        run_render(job_id, data); return
     is_vision = job_id.startswith("vis:") or bool(data.get("image_b64")) or bool(data.get("vision"))
     model = VISION_MODEL if is_vision else (data.get("model") or TEXT_MODEL)
     kind = "vision" if is_vision else "text"

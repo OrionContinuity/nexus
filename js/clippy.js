@@ -2253,6 +2253,15 @@
       setTimeout(() => showCapabilityMenu(), 4800);
       return;
     }
+    // Atelier — "draw/sketch/paint/imagine/design/illustrate/sculpt/render X".
+    // Sketch (SVG via his brain) is instant; sculpt/3d/render uses Blender on a
+    // node and falls back to a sketch if none is available.
+    const art = text.match(/\b(draw|sketch|paint|imagine|design|illustrate|sculpt|render)\b\s+(?:me\s+)?(?:a |an |the |some )?(.+)/i);
+    if (art && art[2] && art[2].trim().length > 1) {
+      const idea = art[2].trim().replace(/[?.!]+$/, '');
+      if (/\b(sculpt|3d|3-d|blender|render)\b/i.test(text)) sculptIdea(idea); else sketchIdea(idea);
+      return;
+    }
     const found = chatMatch(text);
     if (!found) {
       // No scripted match -> let his LLM brain answer IN CHARACTER (if a
@@ -5490,6 +5499,79 @@
       const out = ans && String(ans).replace(/\[confidence:[^\]]*\]/gi, '').trim();
       return out || null;
     } catch (e) { return null; }
+  }
+
+  // ─── ATELIER: Clippy turns ideas into art ───────────────────────────────
+  function _appHandle() {
+    return (typeof NX !== 'undefined' && NX) || (typeof window !== 'undefined' && window.NX) || null;
+  }
+  function _sanitizeSvg(s) {
+    if (!s) return '';
+    const m = String(s).match(/<svg[\s\S]*?<\/svg>/i);
+    let svg = m ? m[0] : '';
+    return svg.replace(/<script[\s\S]*?<\/script>/gi, '')
+              .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
+              .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
+              .replace(/javascript:/gi, '');
+  }
+  function showArt(innerHtml, caption) {
+    try {
+      let v = document.getElementById('clippy-atelier');
+      if (!v) {
+        v = document.createElement('div'); v.id = 'clippy-atelier';
+        v.style.cssText = 'position:fixed;z-index:2147483646;right:18px;bottom:96px;width:300px;max-width:86vw;background:#11131a;border:1px solid rgba(200,164,78,.35);border-radius:14px;box-shadow:0 14px 40px rgba(0,0,0,.55);padding:10px;color:#e8e6df;font:13px system-ui,-apple-system,sans-serif';
+        document.body.appendChild(v);
+      }
+      v.innerHTML =
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+          '<b style="color:#c8a44e;font-size:11px;letter-spacing:.6px">CLIPPY&#39;S ATELIER</b>' +
+          '<span id="clippy-atelier-x" style="cursor:pointer;opacity:.7;padding:0 6px;font-size:15px">&times;</span></div>' +
+        '<div style="background:#0a0b10;border-radius:10px;overflow:hidden;display:flex;justify-content:center;align-items:center;min-height:120px">' + innerHtml + '</div>' +
+        (caption ? '<div style="margin-top:6px;opacity:.85;font-size:12px">' + esc(caption) + '</div>' : '');
+      const x = document.getElementById('clippy-atelier-x');
+      if (x) x.onclick = function () { v.remove(); };
+    } catch (e) {}
+  }
+
+  async function sketchIdea(idea) {
+    bubble(pickFromPool('chat_thinking') || 'Let me sketch that...', { autoHide: 16000, eyebrow: 'SKETCHING' });
+    mood('genius', 7000);
+    const app = _appHandle();
+    if (!app || typeof app.askClaude !== 'function') {
+      bubble("I can't reach my drawing hand right now. Bzzt.", { autoHide: 5000, eyebrow: 'HMM' }); return;
+    }
+    const sys = "You are Trajan, a whimsical glowing orb, drawing a quick charming illustration. Output ONLY one valid <svg>...</svg> element (about 360x360, with a viewBox). Use simple flat shapes and cheerful colors that read on a dark background. No <script>, no external images, no markdown, and no words outside the SVG.";
+    try {
+      const out = await app.askClaude(sys, [{ role: 'user', content: 'Draw: ' + String(idea).slice(0, 200) }], 1400);
+      const svg = _sanitizeSvg(out);
+      if (!svg) { bubble("Hmm, my sketch smudged. Try again?", { autoHide: 5000, eyebrow: 'HMM' }); return; }
+      showArt(svg.replace(/<svg/i, '<svg style="width:100%;height:auto;max-height:300px;display:block"'), idea);
+      bubble('Sketched: ' + idea + '. Bzzt!', { autoHide: 6000, eyebrow: '' });
+      spawnParticles({ count: 12, type: 'sparkle' }); mood('proud', 6000);
+    } catch (e) {
+      bubble("My ink ran dry — no brain reachable. Give me a provider and I'll draw.", { autoHide: 6000, eyebrow: 'HMM' });
+    }
+  }
+
+  async function sculptIdea(idea) {
+    const app = _appHandle();
+    if (!app || typeof app.renderViaPool !== 'function') return sketchIdea(idea);
+    bubble('Sculpting that in 3D — give me a moment. Bzzt.', { autoHide: 200000, eyebrow: 'SCULPTING' });
+    mood('genius', 12000);
+    try {
+      const res = await app.renderViaPool(idea);
+      if (res && res.image) {
+        showArt('<img alt="" src="data:image/png;base64,' + res.image + '" style="width:100%;display:block">', idea);
+        bubble('Sculpted: ' + idea + '. What do you think?', { autoHide: 7000, eyebrow: '' });
+        spawnParticles({ count: 16, type: 'sparkle' }); mood('proud', 7000);
+      } else {
+        bubble("My chisel slipped — let me sketch it instead.", { autoHide: 5000, eyebrow: 'HMM' });
+        sketchIdea(idea);
+      }
+    } catch (e) {
+      bubble("No sculpting hands online yet (a node needs Blender). Here's a sketch instead.", { autoHide: 6000, eyebrow: 'HMM' });
+      sketchIdea(idea);
+    }
   }
 
 

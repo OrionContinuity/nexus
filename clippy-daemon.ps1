@@ -208,6 +208,8 @@ $tools = @(
      Test = { [bool](Get-Command python -EA SilentlyContinue) -or [bool](Get-Command python3 -EA SilentlyContinue) } }
   @{ Name = 'Ollama';       EstGB = 1.5; Winget = 'Ollama.Ollama';
      Test = { [bool](Get-Command ollama -EA SilentlyContinue) -or (Test-Path (Join-Path $ProgRoot 'Ollama\ollama.exe')) } }
+  @{ Name = 'Blender';      EstGB = 4; Winget = 'BlenderFoundation.Blender';
+     Test = { [bool](Get-Command blender -EA SilentlyContinue) -or [bool](Get-ChildItem (Join-Path $env:ProgramFiles 'Blender Foundation') -Recurse -Filter 'blender.exe' -EA SilentlyContinue | Select-Object -First 1) } }
   @{ Name = '3D-gen deps (TripoSR)'; EstGB = 8; Heavy = $true; Direct = { Install-RenderDeps };
      Test = { Test-Path (Join-Path $HOMEDIR 'brain\.render_ready') } }
 )
