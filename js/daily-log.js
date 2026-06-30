@@ -2180,11 +2180,11 @@ function dlogLocationReportLines(loc) {
     const openG = (slicesG.open || []).filter(hereG);
     const workingG = (slicesG.working || []).filter(hereG);
     const urgentG = openG.concat(workingG).filter(c => (c.priority || '').toLowerCase() === 'urgent').length;
-    const downG = (state.equipmentDown || []).filter(eq => normLocKey(eq.location) === locKey && eq.archived !== true).length;
+    const downG = (state.equipmentDown || []).filter(eq => normLocKey(eq.location) === locKey && eq.archived !== true && String(eq.status || '').toLowerCase() !== 'retired').length;
     const todayG = new Date(); todayG.setHours(0, 0, 0, 0);
     const nextG = (lastIso, days) => { const n = parseInt(days, 10); if (!lastIso || !n) return null; const dd = new Date(String(lastIso).slice(0, 10) + 'T00:00:00'); if (isNaN(dd)) return null; dd.setDate(dd.getDate() + n); return dd; };
     let pmOverdueG = 0;
-    (state.equipmentHealth || []).filter(eq => normLocKey(eq.location) === locKey && eq.archived !== true).forEach(eq => {
+    (state.equipmentHealth || []).filter(eq => normLocKey(eq.location) === locKey && eq.archived !== true && String(eq.status || '').toLowerCase() !== 'retired').forEach(eq => {
       const pmNext = eq.next_pm_date ? new Date(String(eq.next_pm_date).slice(0, 10) + 'T00:00:00') : nextG(eq.last_pm_date, eq.pm_interval_days);
       if (pmNext && !isNaN(pmNext) && pmNext < todayG) pmOverdueG++;
     });
@@ -2206,7 +2206,9 @@ function dlogLocationReportLines(loc) {
 
   // Equipment status — pulled live from NEXUS: anything non-operational at
   // this location, with its status note. No manual entry.
-  const down = (state.equipmentDown || []).filter(eq => normLocKey(eq.location) === locKey && eq.archived !== true);
+  // Retired units are excluded from the daily recap entirely — they're out of
+  // service, not actionable, so they shouldn't surface in status or health.
+  const down = (state.equipmentDown || []).filter(eq => normLocKey(eq.location) === locKey && eq.archived !== true && String(eq.status || '').toLowerCase() !== 'retired');
   if (down.length) {
     out.push(SH('Equipment status'));
     const issByEq = state.openIssuesByEq || {};
@@ -2256,7 +2258,7 @@ function dlogLocationReportLines(loc) {
   // (state.equipmentHealth). Health = PM/inspection/deep-clean due counts;
   // the Warranties block only renders when this location has units with a
   // warranty date ("if it has any").
-  const eqAll = (state.equipmentHealth || []).filter(eq => normLocKey(eq.location) === locKey && eq.archived !== true);
+  const eqAll = (state.equipmentHealth || []).filter(eq => normLocKey(eq.location) === locKey && eq.archived !== true && String(eq.status || '').toLowerCase() !== 'retired');
   if (eqAll.length) {
     const todayD = new Date(); todayD.setHours(0, 0, 0, 0);
     const soonD = new Date(todayD); soonD.setDate(soonD.getDate() + 14);
