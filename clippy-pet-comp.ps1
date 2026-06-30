@@ -145,6 +145,11 @@ public class ClippyComp : Form {
       L("env ready; creating composition controller");
       _ctl = await env.CreateCoreWebView2CompositionControllerAsync(this.Handle);
       L("composition controller ready");
+      // WebView2's controller background defaults to OPAQUE WHITE - that is the
+      // white box behind Clippy. Make it transparent so the page's transparent
+      // areas composite to nothing (real desktop shows through).
+      try { _ctl.DefaultBackgroundColor = Color.FromArgb(0, 0, 0, 0); L("bg -> transparent"); }
+      catch (Exception be) { L("bg set warn: " + be.Message); }
       object visObj = Marshal.GetObjectForIUnknown(_visual);
       _ctl.RootVisualTarget = visObj;
       _ctl.Bounds = new Rectangle(0, 0, Wv, Hv);
