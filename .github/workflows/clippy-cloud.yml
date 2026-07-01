@@ -44,6 +44,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Does he have a mind? (prints true/false — never the key)
+        run: echo "LLM key visible to Actions -> ${{ secrets.ANTHROPIC_API_KEY != '' }}"
       - name: Let Clippy live a little
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
