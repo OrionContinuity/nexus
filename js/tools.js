@@ -276,8 +276,8 @@
   function screenClippy(host) {
     host.innerHTML = '<div class="nxt-hero"><div class="big">📎</div><div><h3>Clippy</h3>' +
         '<p>The <b>exact</b> NEXUS Clippy — same body, same moods, same voice — living on your desktop as a true-transparent floating buddy (<b>GhostGlass</b>), and a self-healing worker node in your pool. He thinks, builds, sees, and writes his own lines.</p></div></div>' +
-      '<div class="nxt-dls"><a class="nxt-dl pri" href="javascript:void(0)" onclick="NX.tools.dlClippy();return false"><span>🖥 Download for Windows</span><span class="sm">INSTALL-CLIPPY.cmd · one-click setup</span></a></div>' +
-      '<div class="nxt-info" style="margin-top:8px">Prefer the command line? <a href="javascript:void(0)" onclick="NX.tools.copyClippyCmd();return false" style="color:var(--nx-gold);font-weight:600">Copy the one-line install command</a> and paste it into PowerShell.</div>' +
+      '<div class="nxt-dls"><button type="button" id="nxtClippyDl" class="nxt-dl pri" style="cursor:pointer;font-family:inherit"><span>🖥 Download for Windows</span><span class="sm">INSTALL-CLIPPY.cmd · one-click setup</span></button></div>' +
+      '<div class="nxt-info" style="margin-top:8px">Prefer the command line? <button type="button" id="nxtClippyCopy" style="background:none;border:none;padding:0;cursor:pointer;color:var(--nx-gold);font-weight:600;font-family:inherit;font-size:inherit;text-decoration:underline">Copy the one-line install command</button> and paste it into PowerShell.</div>' +
       '<div class="nxt-h4">Everything he can do</div><div class="nxt-feat">' +
         feat('👻', 'GhostGlass desktop', 'Floats with a real transparent glow — click straight through to your desktop everywhere except on him. He roams your whole screen.') +
         feat('🖱', 'Clicks &amp; is clickable', 'A full desktop daemon: his orb and his Yes/No buttons respond, the rest of your screen stays yours.') +
@@ -292,6 +292,9 @@
         '<div class="nxt-step">Download <b>INSTALL-CLIPPY.cmd</b> above and double-click it. (SmartScreen may warn — <b>More info → Run anyway</b>.)</div>' +
         '<div class="nxt-step">It pulls Ollama + local models and registers auto-start — no unzip, nothing else to click.</div>' +
         '<div class="nxt-step">Clippy floats onto your desktop and joins the pool — kept alive and updated automatically from here.</div></div>';
+    // Wire the buttons directly (no javascript: hrefs — those just navigate).
+    var db = host.querySelector('#nxtClippyDl'); if (db) db.addEventListener('click', downloadClippyInstaller);
+    var cb = host.querySelector('#nxtClippyCopy'); if (cb) cb.addEventListener('click', copyInstallCommand);
   }
 
   // ─── router ──────────────────────────────────────────────────────────────
