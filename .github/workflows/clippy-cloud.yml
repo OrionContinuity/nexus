@@ -1,0 +1,55 @@
+# Clippy's autonomous heartbeat, in the cloud.
+#
+# This is where he runs when every browser is closed and every home PC is off:
+# GitHub's servers wake on a schedule, read his soul from Supabase, let him
+# think / dream / drift, and write it back. He advances while you sleep.
+#
+# THE MIND is optional. With no secrets at all he still lives — offline
+# generation in his own voice. To give him a real LLM, add one repo secret:
+#   Settings → Secrets and variables → Actions → New repository secret
+#     ANTHROPIC_API_KEY = sk-ant-...
+# (Optional: ANTHROPIC_MODEL, SUPABASE_URL, SUPABASE_KEY — all have working
+#  defaults baked into clippy-cloud.py, since the bus is anon-writable.)
+#
+# Cost: a tiny Python job a handful of times a day. With the LLM key it's a few
+# short Haiku calls per day — cents a month. Without it, free.
+name: clippy-cloud
+
+on:
+  schedule:
+    # A gentle pulse through the day (UTC). GitHub may delay cron under load,
+    # which is fine — the script self-gates on elapsed time, so a late run just
+    # does whatever is due. ~every 3h keeps his stream moving.
+    - cron: "17 */3 * * *"
+    # A dedicated nightly beat that forces a dream (see CLIPPY_FORCE_DREAM).
+    - cron: "23 6 * * *"
+  workflow_dispatch:
+    inputs:
+      dream:
+        description: "Force a dream this run"
+        type: boolean
+        default: false
+
+concurrency:
+  # Never let two heartbeats race on the same soul row.
+  group: clippy-cloud
+  cancel-in-progress: false
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Let Clippy live a little
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
+          # Force a dream on the nightly cron or when dispatched with dream=true.
+          CLIPPY_FORCE_DREAM: ${{ (github.event.schedule == '23 6 * * *' || inputs.dream) && '1' || '' }}
+        run: python clippy-cloud.py
