@@ -1204,6 +1204,8 @@ function render() {
             ${renderAddLocationControl(d)}
           `}
 
+        ${renderOpenerPreview(d.header.date || todayISO())}
+
         <div class="dlog-actions">
           <span class="dlog-autosend-wrap">
             <button type="button" class="eq-btn eq-btn-secondary dlog-autosend-toggle ${dlogAutoSendOn() ? 'is-on' : ''}" id="dlogAutoSendBtn" title="When on, this log auto-uploads to Drive when you leave the screen — and, if still not sent by the time on the right, it sends automatically. Edits autosave continuously so nothing is lost.">${dlogAutoSendOn() ? '🔁 Auto-send: On' : '🔁 Auto-send: Off'}</button>
@@ -2104,6 +2106,10 @@ function wireForm() {
   if (emailBtn) emailBtn.addEventListener('click', () => openDailyLogEmail());
   const emailEachBtn = view.querySelector('#dlogEmailEachBtn');
   if (emailEachBtn) emailEachBtn.addEventListener('click', () => emailEachLocation());
+  const openerLLMBtn = view.querySelector('#dlogOpenerLLM');
+  if (openerLLMBtn) openerLLMBtn.addEventListener('click', () => refreshOpenerLLM(openerLLMBtn));
+  const openerPoolBtn = view.querySelector('#dlogOpenerPool');
+  if (openerPoolBtn) openerPoolBtn.addEventListener('click', () => refreshOpenerPool());
   const autoSendBtn = view.querySelector('#dlogAutoSendBtn');
   const autoSendTime = view.querySelector('#dlogAutoSendTime');
   const autoSendDays = view.querySelector('#dlogAutoSendDays');
@@ -2375,6 +2381,39 @@ function dlogStaticQuote(dateStr) {
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
   return CLIPPY_QUOTES[h % CLIPPY_QUOTES.length];
 }
+// A RANDOM pool line (for the "from the pool" refresh button), never the same
+// one twice in a row.
+function dlogRandomPoolQuote(exclude) {
+  if (CLIPPY_QUOTES.length < 2) return CLIPPY_QUOTES[0];
+  let q;
+  do { q = CLIPPY_QUOTES[Math.floor(Math.random() * CLIPPY_QUOTES.length)]; } while (q === exclude);
+  return q;
+}
+// The current opener for a date: Clippy's authored line if he wrote one today,
+// else the deterministic pool line.
+function dlogCurrentOpener(dateStr) {
+  return (state.clippyQuoteText && state.clippyQuoteDate === dateStr)
+    ? state.clippyQuoteText : dlogStaticQuote(dateStr);
+}
+// The email opener, shown in the log with two refresh controls: one has Clippy
+// write a fresh line (drafts three, keeps the best), one pulls a different line
+// from the static pool. Whatever shows here is exactly what the emails use.
+function renderOpenerPreview(dateStr) {
+  const cur = dlogCurrentOpener(dateStr);
+  const isLLM = state.clippyQuoteSource === 'llm' && state.clippyQuoteDate === dateStr;
+  return `
+    <div class="dlog-opener" id="dlogOpener">
+      <div class="dlog-opener-head">
+        <span class="dlog-opener-label">✉ Email opener</span>
+        <span class="dlog-opener-src" id="dlogOpenerSrc">${isLLM ? 'Clippy wrote this' : 'from the pool'}</span>
+      </div>
+      <p class="dlog-opener-text" id="dlogOpenerText">${esc(cur)}</p>
+      <div class="dlog-opener-btns">
+        <button type="button" class="eq-btn eq-btn-secondary" id="dlogOpenerLLM" title="Clippy writes a fresh one — drafts three and keeps the most him">↻ New from Clippy</button>
+        <button type="button" class="eq-btn eq-btn-secondary" id="dlogOpenerPool" title="Pick a different line from the quote pool">↻ From the pool</button>
+      </div>
+    </div>`;
+}
 
 function dlogEmailGreeting(label, dateStr) {
   // Prefer Clippy's own line for TODAY's actual report if he wrote one
@@ -2425,8 +2464,34 @@ function dlogDaySummary(d) {
 // picks the one that's most his — dry, warm, a little literary. Runs entirely
 // in the background now, so the extra self-selection pass costs nothing the
 // user waits on. Any failure at any step degrades to the static quote pool.
+// Ask an LLM for one short line. Prefer the app's router (NX.askClaude →
+// node pool / whatever's wired), then fall back to the clippy-brain Supabase
+// edge function, which holds the Anthropic key in Supabase — so the opener can
+// still improvise even when the node pool is off. Returns null if neither is
+// reachable, and the caller drops to the static pool.
+async function dlogAskLLM(system, user, maxTokens) {
+  try {
+    if (window.NX && typeof NX.askClaude === 'function') {
+      const r = await NX.askClaude(system, [{ role: 'user', content: user }], maxTokens);
+      const s = String(r || '').trim();
+      if (s) return s;
+    }
+  } catch (_) {}
+  try {
+    const base = 'https://oprsthfxqrdbwdvommpw.supabase.co';
+    const anon = 'sb_publishable_rOLSdIG6mIjVLY8JmvrwCA_qfM7Vyk9';
+    const res = await fetch(base + '/functions/v1/clippy-brain', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + anon, apikey: anon, 'content-type': 'application/json' },
+      body: JSON.stringify({ system, user, max_tokens: maxTokens }),
+    });
+    const data = await res.json();
+    const s = String((data && data.text) || '').trim();
+    return s || null;
+  } catch (_) { return null; }
+}
+
 async function generateClippyDailyQuote(d, dateStr) {
-  if (!(window.NX && typeof NX.askClaude === 'function')) return null;
   const summary = dlogDaySummary(d);
   if (!summary) return null;   // nothing happened → let the static pool carry it
   const examples = [dlogStaticQuote(dateStr), CLIPPY_QUOTES[3], CLIPPY_QUOTES[70]].filter(Boolean);
@@ -2448,7 +2513,7 @@ async function generateClippyDailyQuote(d, dateStr) {
   const draftUser = "Today's report facts:\n" + summary + "\n\nDraft Clippy's three candidate openers.";
   let candidates = [];
   try {
-    const raw = await NX.askClaude(draftSys, [{ role: 'user', content: draftUser }], 220);
+    const raw = await dlogAskLLM(draftSys, draftUser, 220);
     candidates = String(raw || '').split('\n').map(tidy)
       .filter(x => x.length >= 8 && x.length <= 240).slice(0, 3);
   } catch (_) { return null; }
@@ -2463,7 +2528,7 @@ async function generateClippyDailyQuote(d, dateStr) {
       'Reply with ONLY the number of the best line (1, 2, or 3). Nothing else.',
     ].join('\n');
     const judgeUser = candidates.map((c, i) => (i + 1) + '. ' + c).join('\n');
-    const pick = await NX.askClaude(judgeSys, [{ role: 'user', content: judgeUser }], 8);
+    const pick = await dlogAskLLM(judgeSys, judgeUser, 8);
     const m = String(pick || '').match(/[123]/);
     const n = m ? parseInt(m[0], 10) : 0;
     if (n >= 1 && n <= candidates.length) return candidates[n - 1];
@@ -2491,6 +2556,7 @@ function ensureClippyDailyQuote(d, dateStr) {
     } catch (_) {}
     state.clippyQuoteDate = dateStr;
     state.clippyQuoteText = text || null;
+    state.clippyQuoteSource = text ? 'llm' : null;
     // Allow a few retries across the day (brain was cold/offline), then settle
     // on the static pool so repeated opens can't spam generation.
     if (!text && attempt < 4) state._cqPromise = null;
@@ -2922,6 +2988,56 @@ async function emailEachLocation() {
   if (NX.toast) {
     if (opened) NX.toast('Opened ' + opened + ' Gmail draft' + (opened > 1 ? 's' : '') + ' — hit Send on each' + (empty ? ' (' + empty + ' empty skipped)' : ''), 'success', 5000);
     else NX.toast(empty ? 'No location has notes yet' : 'Nothing opened — allow pop-ups for this site, then retry', 'info', 5000);
+  }
+}
+
+// ── Opener refresh controls (two buttons under the log) ───────────────────
+function _openerDateStr() {
+  const log = state.currentLog;
+  const d = hydrateData(log && log.data);
+  return (log && log.log_date) || (d.header && d.header.date) || todayISO();
+}
+function _paintOpener(text, source) {
+  const t = document.getElementById('dlogOpenerText');
+  if (t) t.textContent = text;
+  const s = document.getElementById('dlogOpenerSrc');
+  if (s) s.textContent = source === 'llm' ? 'Clippy wrote this' : 'from the pool';
+}
+// "From the pool": swap in a different hand-written line immediately.
+function refreshOpenerPool() {
+  const dateStr = _openerDateStr();
+  const curEl = document.getElementById('dlogOpenerText');
+  const next = dlogRandomPoolQuote(curEl ? curEl.textContent : null);
+  state.clippyQuoteText = next;
+  state.clippyQuoteDate = dateStr;
+  state.clippyQuoteSource = 'pool';
+  _paintOpener(next, 'pool');
+}
+// "New from Clippy": force a fresh authored line (bypasses the day's memo).
+// Uses the app router, then the clippy-brain edge function; if neither answers,
+// says so and leaves the current line in place.
+async function refreshOpenerLLM(btn) {
+  const dateStr = _openerDateStr();
+  const d = hydrateData(state.currentLog && state.currentLog.data);
+  const label = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '… thinking'; }
+  state._cqPromise = null; state._cqDate = null; state._cqAttempts = 0;   // bypass memo
+  let text = null;
+  try {
+    text = await Promise.race([
+      generateClippyDailyQuote(d, dateStr),
+      new Promise(r => setTimeout(() => r(null), 25000)),
+    ]);
+  } catch (_) {}
+  if (btn) { btn.disabled = false; btn.textContent = label; }
+  if (text) {
+    state.clippyQuoteText = text;
+    state.clippyQuoteDate = dateStr;
+    state.clippyQuoteSource = 'llm';
+    _paintOpener(text, 'llm');
+    if (window.NX && NX.toast) NX.toast('Fresh opener from Clippy', 'success', 2500);
+  } else if (window.NX && NX.toast) {
+    NX.toast(dlogDaySummary(d) ? 'No model reachable right now — try “From the pool”' : 'Add some notes first so Clippy has something to riff on', 'info', 4000);
   }
 }
 
