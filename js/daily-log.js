@@ -2304,6 +2304,20 @@ const CLIPPY_QUOTES = [
   'En primeur futures on a wine that might premox? Bold. The wine fridge is the safer investment — holding 55°F.',
   'Judgment of Paris, 1976: California beat Bordeaux blind. Judgment of the walk-in, tonight: it held temp. Also historic.',
   'Aged sur lie for texture, bâtonnage twice a week — meanwhile I age the service contract for the coverage.',
+  // Wine — funnier somm
+  'My tasting note read “forest floor, wet stone, and the faint regret of a Tuesday.” The walk-in just said 38°F. Refreshingly honest.',
+  'A guest asked for “something smooth, not too dry, but red — you know?” I aged a decade in that silence. The compressor did not age. It held.',
+  'I spat into the bucket with such confidence you’d think I paid for the bottle. I did not. The walk-in, however, earns its keep.',
+  'Passed the theory, tanked the blind, cried in the walk-in. Standard CMS Tuesday. The walk-in was very supportive — and 38°F.',
+  'I called it Old World with total conviction. It was a Thursday grocery-store special. Humbling. The wine fridge has never embarrassed me.',
+  'A table sent back a flawless Chablis for being “too wine-y.” I have notes. The dishwasher took no notes and simply worked.',
+  'Decanted a Beaujolais Nouveau for two hours purely for the theater. Nothing happened. The compressor, by contrast, actually did its job.',
+  'The 400% by-the-glass markup funds my personality. The walk-in funds itself by not breaking. We are both essential.',
+  'Somebody described a wine as “sequential.” We all nodded. No one knows what it means. The walk-in temp, we do know: 38°F.',
+  'I recommended the skin-contact pét-nat and watched a table of four lose faith in me in real time. The fridge kept the faith — and the temp.',
+  'Blind-tasted a Riesling as a Grüner and handed back the pin in my mind. The walk-in never fails its blind test: still 38°F.',
+  'I described the finish as “long.” It was four seconds. I lied for the tip. The compressor doesn’t lie — it runs cold and true.',
+  'The Coravin is a $400 way to feel rich pouring one glass. The walk-in is a free way to feel calm. Balance.',
 ];
 function dlogEmailGreeting(label, dateStr) {
   const s = String(dateStr || '');
