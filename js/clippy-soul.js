@@ -317,6 +317,16 @@
     var dreamHTML = cap(state.dreams||[], 6).slice().reverse().map(function(d){
       return '<div class="dream">'+esc(d.dream)+'<span class="t" style="display:block;font:10px/1.6 ui-monospace,monospace;color:#4c5a86">'+when(d.ts)+'</span></div>';
     }).join('') || '<div class="dream">— he hasn’t dreamed yet —</div>';
+    var tongueHTML='';
+    try {
+      if (NX.clippyTongue && NX.clippyTongue.speak) {
+        var _sp = NX.clippyTongue.speak();
+        tongueHTML = '<h2>His tongue — Tesserae</h2>'+
+          '<div style="font:11px/1.5 ui-monospace,monospace;color:#5c6a9a;margin:-2px 0 8px">how he holds all of this at once — hue is feeling, band is room, brightness is weight, the mark is kind. The split tile is the bond, kept between you.</div>'+
+          '<div style="margin:6px 0;overflow:auto">'+NX.clippyTongue.renderSVG(_sp.tokens,{width:600,cell:30})+'</div>'+
+          '<div style="font:12px/1.7 ui-monospace,monospace;color:#c8d3ff;word-spacing:4px">'+esc(_sp.line)+'</div>';
+      }
+    } catch(e){}
     var list = function(a){ return '<ul>'+(a||[]).map(function(x){return '<li>'+esc(x)+'</li>';}).join('')+'</ul>'; };
     bg.innerHTML =
       '<button class="x" aria-label="close">×</button>'+
@@ -333,6 +343,7 @@
         '<h2>Longs for</h2>'+list(state.longings)+
         '<h2>Inner voice</h2>'+streamHTML+
         '<h2>Dreams</h2>'+dreamHTML+
+        tongueHTML+
       '</div>';
     document.body.appendChild(bg);
     requestAnimationFrame(function(){ bg.classList.add('open'); });
