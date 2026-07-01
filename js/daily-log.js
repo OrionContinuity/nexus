@@ -2366,16 +2366,105 @@ const CLIPPY_QUOTES = [
   'You know the somm is nervous when the tasting note gets longer. Four adjectives is confidence. Eleven is a cry for help.',
   'Orange wine is just white wine that spent time on the skins and came back with a whole personality and a podcast.',
 ];
-function dlogEmailGreeting(label, dateStr) {
+// The static pool line for a date — deterministic, always available. Used as
+// the fallback when Clippy hasn't authored a fresh line for the day (offline
+// brain, no API key, or generation still in flight).
+function dlogStaticQuote(dateStr) {
   const s = String(dateStr || '');
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  const quote = CLIPPY_QUOTES[h % CLIPPY_QUOTES.length];
+  return CLIPPY_QUOTES[h % CLIPPY_QUOTES.length];
+}
+
+function dlogEmailGreeting(label, dateStr) {
+  // Prefer Clippy's own line for TODAY's actual report if he wrote one
+  // (ensureClippyDailyQuote pre-generates it); otherwise the static pool.
+  const quote = (state.clippyQuoteText && state.clippyQuoteDate === dateStr)
+    ? state.clippyQuoteText
+    : dlogStaticQuote(dateStr);
   return [
     quote,
     '— Clippy 👋',
     '',
   ];
+}
+
+// ── Clippy writes the day's line ─────────────────────────────────────────
+// Instead of a canned quote, hand Clippy the day's ACTUAL facts and let him
+// riff one opener in his voice via NX.askClaude (cloud / node pool / local).
+// Everything degrades to dlogStaticQuote on any failure, so the report always
+// has a signature line.
+
+// Compact, factual digest of the day for Clippy to react to (not a data dump).
+function dlogDaySummary(d) {
+  const clean = s => String(s == null ? '' : s).trim();
+  const bits = [];
+  const wx = clean(d.header && d.header.weather);
+  if (wx) bits.push('Weather: ' + wx);
+  const sig = clean(d.header && d.header.significant_events);
+  if (sig) bits.push('Notable: ' + sig.slice(0, 200));
+  const pms = state.pmsToday || [];
+  if (pms.length) {
+    const names = pms.slice(0, 6).map(p => (p.equipment && p.equipment.name) || 'a unit').join(', ');
+    bits.push(pms.length + ' PM' + (pms.length > 1 ? 's' : '') + ' completed (' + names + ')');
+  }
+  const down = (state.equipmentDown || []).filter(e => e && e.archived !== true);
+  if (down.length) bits.push(down.length + ' unit(s) down: ' + down.slice(0, 5).map(e => e.name || 'a unit').join(', '));
+  const acts = (state.equipmentActivity || []).length;
+  if (acts) bits.push(acts + ' equipment event(s) logged');
+  const va = clean(d.vendor_activity_notes);
+  if (va) bits.push('Vendor activity: ' + va.slice(0, 150));
+  const locNotes = (d.locations || []).map(l => clean(l.notes)).filter(Boolean);
+  if (locNotes.length) bits.push('Floor notes: ' + locNotes.join(' | ').slice(0, 220));
+  return bits.join('. ');
+}
+
+async function generateClippyDailyQuote(d, dateStr) {
+  if (!(window.NX && typeof NX.askClaude === 'function')) return null;
+  const summary = dlogDaySummary(d);
+  if (!summary) return null;   // nothing happened → let the static pool carry it
+  const examples = [dlogStaticQuote(dateStr), CLIPPY_QUOTES[3], CLIPPY_QUOTES[70]].filter(Boolean);
+  const system = [
+    'You are Clippy, the wry maintenance daemon for a group of restaurants.',
+    'Write ONE short, witty opener (max ~30 words) for the daily facility report, riffing on the ACTUAL day you are given.',
+    'Voice: dry, warm, a touch literary — at ease with restaurant, wine, cooking, and Roman/Greek history references, but never forced.',
+    'Rules: one sentence, or two very short ones. No emojis. No surrounding quotation marks. React like a clever colleague; do NOT list the data back. Do not sign it.',
+    'Tone examples:',
+    ...examples.map(e => '- ' + e),
+  ].join('\n');
+  const user = "Today's report facts:\n" + summary + "\n\nWrite Clippy's one-line opener for today.";
+  try {
+    const raw = await NX.askClaude(system, [{ role: 'user', content: user }], 90);
+    let line = String(raw || '').split('\n').map(x => x.trim()).filter(Boolean)[0] || '';
+    line = line.replace(/^["'“”\-\s]+|["'“”\s]+$/g, '').replace(/^Clippy\s*:?\s*/i, '').trim();
+    if (line.length < 8 || line.length > 240) return null;
+    return line;
+  } catch (_) { return null; }
+}
+
+// Memoized per date. Resolves the day's line into state for the sync greeting
+// builder. Caps its own wait so composing an email is never blocked for long;
+// on null it clears the memo so a later open can retry.
+function ensureClippyDailyQuote(d, dateStr) {
+  if (state._cqPromise && state._cqDate === dateStr) return state._cqPromise;
+  if (state._cqDate !== dateStr) { state._cqDate = dateStr; state._cqAttempts = 0; }
+  const attempt = (state._cqAttempts = (state._cqAttempts || 0) + 1);
+  state._cqPromise = (async () => {
+    let text = null;
+    try {
+      text = await Promise.race([
+        generateClippyDailyQuote(d, dateStr),
+        new Promise(r => setTimeout(() => r(null), 7000)),
+      ]);
+    } catch (_) {}
+    state.clippyQuoteDate = dateStr;
+    state.clippyQuoteText = text || null;
+    // Allow a few retries across the day (brain was cold/offline), then settle
+    // on the static pool so repeated opens can't spam generation.
+    if (!text && attempt < 4) state._cqPromise = null;
+    return text;
+  })();
+  return state._cqPromise;
 }
 
 function buildDailyLogEmailBody(d, dateStr) {
@@ -2776,10 +2865,11 @@ function buildLocationEmailBody(loc, dateStr, d) {
 // pre-filled with that location's recap + its saved recipients). The user just
 // hits Send on each tab. Browsers may block multiple pop-ups the first time —
 // allow pop-ups for the site once and they'll all open thereafter.
-function emailEachLocation() {
+async function emailEachLocation() {
   const log = state.currentLog;
   const d = hydrateData(log && log.data);
   const dateStr = (log && log.log_date) || (d.header && d.header.date) || todayISO();
+  await ensureClippyDailyQuote(d, dateStr);   // one authored opener for the day, shared across locations
   if (!Array.isArray(d.locations) || !d.locations.length) { if (NX.toast) NX.toast('No locations to email', 'info'); return; }
   if (!(window.NX && NX.email && NX.email.gmailComposeUrl)) { if (NX.toast) NX.toast('Email engine not ready — try again', 'error'); return; }
   let opened = 0, empty = 0;
@@ -2803,6 +2893,7 @@ async function openDailyLogEmail() {
   const log = state.currentLog;
   const d = hydrateData(log && log.data);
   const dateStr = (log && log.log_date) || (d.header && d.header.date) || todayISO();
+  await ensureClippyDailyQuote(d, dateStr);   // let Clippy author today's opener (falls back to the pool)
   // Split option: a selected location pill sends ONLY that location's notes;
   // Overview sends the full day.
   let subject, body, recipientsKey, title;
@@ -3309,6 +3400,9 @@ async function openLogForDate(iso) {
   }
   state.isLoading = false;
   render();
+  // Pre-warm Clippy's authored opener for this day so it's ready by the time
+  // the user composes an email (fire-and-forget; falls back to the pool).
+  try { ensureClippyDailyQuote(hydrateData(state.currentLog && state.currentLog.data), iso); } catch (_) {}
 }
 
 // ─── Module lifecycle ────────────────────────────────────────────────
@@ -3355,6 +3449,7 @@ async function init() {
   }
   render();
   maybeAutoWeather();
+  try { ensureClippyDailyQuote(hydrateData(state.currentLog && state.currentLog.data), today); } catch (_) {}
 }
 
 async function show() {
@@ -3391,6 +3486,7 @@ async function show() {
   }
   render();
   maybeAutoWeather();
+  try { ensureClippyDailyQuote(hydrateData(state.currentLog && state.currentLog.data), date); } catch (_) {}
 }
 
 if (!NX.modules) NX.modules = {};
