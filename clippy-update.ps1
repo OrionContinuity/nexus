@@ -44,23 +44,32 @@ if (Test-Path $daemon) {
   Write-Host "[!!] daemon not present after fetch - check network / repo URL"
 }
 
-# Desktop shortcut so anyone can summon Clippy any time (refreshed each update).
-# Points at the daemon in -Supervise mode: launches him if he's gone, otherwise
-# the supervisor just no-ops on already-running processes.
+# Shortcuts so anyone can summon Clippy any time (refreshed each update). Both
+# the Desktop and the Start Menu (so he shows up in Windows search / app list).
+# Each points at the daemon in -Supervise mode: launches him if he's gone,
+# otherwise the supervisor just no-ops on already-running processes.
 try {
   $ico = Join-Path $dir 'clippy.ico'
   try { Invoke-WebRequest "$raw/clippy.ico" -OutFile $ico -UseBasicParsing -TimeoutSec 30 } catch {}
-  $lnk = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Clippy.lnk'
   $ws  = New-Object -ComObject WScript.Shell
-  $sc  = $ws.CreateShortcut($lnk)
-  $sc.TargetPath       = (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe')
-  $sc.Arguments        = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $daemon + '" -Supervise'
-  $sc.WorkingDirectory = $dir
-  $sc.Description       = 'Summon Clippy - NEXUS desktop buddy + pool node'
-  $sc.WindowStyle      = 7
-  if (Test-Path $ico) { $sc.IconLocation = $ico }
-  $sc.Save()
-  Write-Host "[ok] desktop shortcut created: $lnk"
-} catch { Write-Host "[!!] shortcut failed: $($_.Exception.Message)" }
+  $targets = @(
+    (Join-Path ([Environment]::GetFolderPath('Desktop'))  'Clippy.lnk'),
+    (Join-Path ([Environment]::GetFolderPath('Programs')) 'Clippy.lnk')   # Start Menu
+  )
+  foreach ($lnk in $targets) {
+    try {
+      New-Item -ItemType Directory -Force -Path (Split-Path $lnk) | Out-Null
+      $sc  = $ws.CreateShortcut($lnk)
+      $sc.TargetPath       = (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe')
+      $sc.Arguments        = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $daemon + '" -Supervise'
+      $sc.WorkingDirectory = $dir
+      $sc.Description       = 'Summon Clippy - NEXUS desktop buddy + pool node'
+      $sc.WindowStyle      = 7
+      if (Test-Path $ico) { $sc.IconLocation = $ico }
+      $sc.Save()
+      Write-Host "[ok] shortcut created: $lnk"
+    } catch { Write-Host "[!!] shortcut failed ($lnk): $($_.Exception.Message)" }
+  }
+} catch { Write-Host "[!!] shortcut setup failed: $($_.Exception.Message)" }
 
 Write-Host "[done] clippy node updated"
