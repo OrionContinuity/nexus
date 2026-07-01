@@ -1030,6 +1030,10 @@
     .nx-ps-btn-call .nx-ps-btn-icon-wrap { background: rgba(212, 182, 138, 0.1); }
     .nx-ps-btn-call .nx-ps-btn-icon-wrap svg { color: var(--ps-accent); }
 
+    /* Email vendor — same accent family as call */
+    .nx-ps-btn-email .nx-ps-btn-icon-wrap { background: rgba(212, 182, 138, 0.1); }
+    .nx-ps-btn-email .nx-ps-btn-icon-wrap svg { color: var(--ps-accent); }
+
     /* Issue — subtle red tint, not aggressive */
     .nx-ps-btn-issue .nx-ps-btn-icon-wrap { background: rgba(168, 62, 62, 0.1); }
     .nx-ps-btn-issue .nx-ps-btn-icon-wrap svg { color: var(--red); }
@@ -1637,6 +1641,30 @@
       }
     }
 
+    // Emails ride along whenever a contractor NODE was resolved, regardless of
+    // which branch above built the contact (plain-text phone branches still
+    // have the linked node's emails available). Same extraction shape as the
+    // staff side: structured {email, role} entries in links, then a regex
+    // sweep of string links and notes. Powers the "Email <vendor>" action.
+    if (contact && contractorRes?.data) {
+      const node = contractorRes.data;
+      const out = []; const seen = new Set();
+      const addEm = (email, role) => {
+        const norm = String(email || '').trim().toLowerCase();
+        if (!norm || !/[\w.+-]+@[\w-]+\.[\w.-]+/.test(norm) || seen.has(norm)) return;
+        seen.add(norm); out.push({ email: norm, role: role || 'to' });
+      };
+      const links = Array.isArray(node.links) ? node.links : (node.links ? [node.links] : []);
+      for (const l of links) {
+        if (l && typeof l === 'object' && l.email) { addEm(l.email, l.role); continue; }
+        const str = (typeof l === 'string') ? l : (l?.url || l?.href || '');
+        const m = str.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
+        if (m) addEm(m[0], 'to');
+      }
+      (String(node.notes || '').match(/[\w.+-]+@[\w-]+\.[\w.-]+/g) || []).forEach(m => addEm(m, 'to'));
+      contact.emails = out;
+    }
+
     return {
       eq,
       activeTicket: (ticketRes.data || [])[0] || null,
@@ -1756,6 +1784,23 @@
       </button>
     ` : '';
 
+    // Email the vendor — restores the composer that the old scan page had.
+    // Shown whenever the contractor has an email on file; opens the shared
+    // NX.composeEmail engine (editable To/CC/BCC, recipients persist per
+    // vendor) prefilled with a service request for THIS unit.
+    const primaryEmail = (contact && contact.emails && contact.emails.length)
+      ? (contact.emails.find(e => e.role === 'to') || contact.emails[0]).email : '';
+    const emailBtnHTML = primaryEmail ? `
+      <button class="nx-ps-btn nx-ps-btn-email" data-action="email">
+        <div class="nx-ps-btn-icon-wrap"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></div>
+        <div class="nx-ps-btn-label">
+          <div class="nx-ps-btn-title">Email ${esc(contact.name)}</div>
+          <div class="nx-ps-btn-sub">${esc(primaryEmail)}${contact.emails.length > 1 ? ' +' + (contact.emails.length - 1) : ''}</div>
+        </div>
+        <div class="nx-ps-btn-arrow">${icon('chevronRight', 16)}</div>
+      </button>
+    ` : '';
+
     const html = `
       <div class="nx-ps-page" id="nx-ps-page" style="--ps-status-tint:${status.color}">
         <div class="nx-ps-status-stripe" aria-hidden="true"></div>
@@ -1819,6 +1864,7 @@
                 <div class="nx-ps-btn-arrow">${icon('chevronRight', 16)}</div>
               </button>` : ''}
               ${callBtnHTML}
+              ${emailBtnHTML}
               <button class="nx-ps-btn nx-ps-btn-primary" data-action="log-service">
                 <div class="nx-ps-btn-icon-wrap">${icon('wrench')}</div>
                 <div class="nx-ps-btn-label">
@@ -1891,6 +1937,41 @@
         // chip embedded in the SERVICED BY block.
         e.preventDefault();
         openIssueModal(eq, { mode: 'call', contact });
+      } else if (action === 'email') {
+        // Compose a service-request email to the vendor. Prefer the shared
+        // composer engine (editable To/CC/BCC, recipients remembered per
+        // vendor); degrade to a plain mailto: draft if it isn't loaded.
+        e.preventDefault();
+        const ems = (contact && contact.emails) || [];
+        const tos  = ems.filter(x => x.role === 'to' || !x.role).map(x => x.email);
+        const ccs  = ems.filter(x => x.role === 'cc').map(x => x.email);
+        const bccs = ems.filter(x => x.role === 'bcc').map(x => x.email);
+        const to = tos[0] || (ems[0] && ems[0].email) || '';
+        const subject = `Service request — ${eq.name}${eq.location ? ' at ' + eq.location : ''}`;
+        const body =
+`Hi${contact && contact.name ? ' ' + contact.name : ''},
+
+We need service on the following equipment:
+
+  ${eq.name}
+  Location: ${eq.location || ''}${eq.area ? ' · ' + eq.area : ''}
+${eq.manufacturer || eq.model ? `  Unit: ${[eq.manufacturer, eq.model].filter(Boolean).join(' ')}\n` : ''}${eq.serial_number ? `  Serial: ${eq.serial_number}\n` : ''}
+Please let us know your earliest availability.
+
+Thanks.`;
+        if (window.NX && typeof NX.composeEmail === 'function') {
+          NX.composeEmail({
+            recipientsKey: 'vendor:' + ((contact && contact.contractorId) || (contact && contact.name) || 'unknown'),
+            to, cc: ccs, bcc: bccs, subject, body,
+            title: 'Email ' + ((contact && contact.name) || 'vendor'),
+          });
+        } else {
+          const enc = s => encodeURIComponent(s || '').replace(/\+/g, '%20');
+          const params = [`subject=${enc(subject)}`, `body=${enc(body)}`];
+          if (ccs.length)  params.push(`cc=${enc(ccs.join(','))}`);
+          if (bccs.length) params.push(`bcc=${enc(bccs.join(','))}`);
+          window.location.href = `mailto:${enc(to)}?${params.join('&')}`;
+        }
       } else if (action === 'report') {
         openIssueModal(eq, { mode: 'report' });
       } else if (action === 'login') {
