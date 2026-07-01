@@ -2974,6 +2974,21 @@
     if (typeof cloudPushQueued === 'function') cloudPushQueued();
     if (typeof maybeAnnounceSet === 'function') setTimeout(() => maybeAnnounceSet(), 1500);
   }
+  // Transient prop hold — he picks something up for a while (a playful whim),
+  // then puts it back to whatever the USER actually equipped. Never persists,
+  // so an autonomous mood can't leave him stuck holding a broom.
+  function holdPropTemporarily(prop, ms) {
+    if (!state.shell || !PROPS[prop]) return;
+    Object.values(PROPS).forEach(p => { if (p.cls) state.shell.classList.remove(p.cls); });
+    if (PROPS[prop].cls) state.shell.classList.add(PROPS[prop].cls);
+    clearTimeout(state._propHoldTimer);
+    state._propHoldTimer = setTimeout(() => {
+      if (!state.shell) return;
+      Object.values(PROPS).forEach(p => { if (p.cls) state.shell.classList.remove(p.cls); });
+      const eq = PROPS[state.preferences.prop || 'none'];
+      if (eq && eq.cls) state.shell.classList.add(eq.cls);
+    }, ms || 120000);
+  }
   function applyPersistedCostume() {
     const c = state.preferences.costume || 'none';
     const p = state.preferences.prop || 'none';
@@ -5430,6 +5445,15 @@
         }
       } catch (e) {}
     }
+    // One-time un-stick: the old autonomous prop cycle used to PERMANENTLY
+    // equip a random prop, so people got stuck holding a broom they never
+    // chose. Clear a persisted prop once (the cycle is transient now); the
+    // wardrobe still lets you equip anything you actually want.
+    if (!state.preferences.prop_cycle_fix_v1) {
+      if ((state.preferences.prop || 'none') !== 'none') state.preferences.prop = 'none';
+      state.preferences.prop_cycle_fix_v1 = 1;
+      try { savePreferences(); } catch (e) {}
+    }
   }
   async function savePreferences() {
     // Local write — synchronous, never races
@@ -7730,17 +7754,17 @@
     const candidates = props.filter(p => p !== current);
     const pick = candidates[Math.floor(Math.random() * candidates.length)];
     state.preferences.last_prop_cycle_date = today;
-    if (pick === 'none') {
-      // Drop the prop, no fanfare
-      setProp('none');
-    } else {
-      const label = { book: 'book', scroll: 'scroll', broom: 'broom' }[pick];
-      setTimeout(() => {
+    savePreferences();
+    // TRANSIENT whim — he holds it for ~2.5 min, then reverts to YOUR equipped
+    // prop. It no longer permanently overwrites his look (that's what left
+    // people stuck holding a broom they never chose).
+    const label = { none: 'nothing', book: 'a book', scroll: 'a scroll', broom: 'a broom' }[pick] || pick;
+    setTimeout(() => {
+      if (state.dialog && state.dialog.autonomous_prop_change)
         bubble(pickFromPool('autonomous_prop_change').replace('{prop}', label),
           { autoHide: 4200, eyebrow: '✨ MOOD' });
-        setTimeout(() => setProp(pick), 1500);
-      }, 4000);
-    }
+      holdPropTemporarily(pick, 150000);
+    }, 4000);
   }
 
 
