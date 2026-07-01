@@ -276,7 +276,8 @@
   function screenClippy(host) {
     host.innerHTML = '<div class="nxt-hero"><div class="big">📎</div><div><h3>Clippy</h3>' +
         '<p>The <b>exact</b> NEXUS Clippy — same body, same moods, same voice — living on your desktop as a true-transparent floating buddy (<b>GhostGlass</b>), and a self-healing worker node in your pool. He thinks, builds, sees, and writes his own lines.</p></div></div>' +
-      '<div class="nxt-dls">' + dl(F.clippy, '🖥 Download for Windows', '.zip · one-time setup', 'pri') + '</div>' +
+      '<div class="nxt-dls"><a class="nxt-dl pri" href="javascript:void(0)" onclick="NX.tools.dlClippy();return false"><span>🖥 Download for Windows</span><span class="sm">INSTALL-CLIPPY.cmd · one-click setup</span></a></div>' +
+      '<div class="nxt-info" style="margin-top:8px">Prefer the command line? <a href="javascript:void(0)" onclick="NX.tools.copyClippyCmd();return false" style="color:var(--nx-gold);font-weight:600">Copy the one-line install command</a> and paste it into PowerShell.</div>' +
       '<div class="nxt-h4">Everything he can do</div><div class="nxt-feat">' +
         feat('👻', 'GhostGlass desktop', 'Floats with a real transparent glow — click straight through to your desktop everywhere except on him. He roams your whole screen.') +
         feat('🖱', 'Clicks &amp; is clickable', 'A full desktop daemon: his orb and his Yes/No buttons respond, the rest of your screen stays yours.') +
@@ -288,8 +289,8 @@
         feat('♾', 'Self-healing', 'A supervisor keeps his worker + desktop body alive and auto-updates them from NEXUS — a bad version recovers on its own.') +
       '</div>' +
       '<div class="nxt-h4">Set up</div><div class="nxt-steps">' +
-        '<div class="nxt-step">Unzip anywhere.</div>' +
-        '<div class="nxt-step">Run <b>INSTALL-CLIPPY.cmd</b> (pulls Ollama + local models; registers auto-start).</div>' +
+        '<div class="nxt-step">Download <b>INSTALL-CLIPPY.cmd</b> above and double-click it. (SmartScreen may warn — <b>More info → Run anyway</b>.)</div>' +
+        '<div class="nxt-step">It pulls Ollama + local models and registers auto-start — no unzip, nothing else to click.</div>' +
         '<div class="nxt-step">Clippy floats onto your desktop and joins the pool — kept alive and updated automatically from here.</div></div>';
   }
 
@@ -320,7 +321,59 @@
     });
   }
 
+  // The one-liner that bootstraps a fresh node: fetch clippy-update.ps1 from the
+  // repo and run it (it pulls every node file, provisions Ollama + the vision
+  // model, registers logon autostart, and launches the self-healing supervisor).
+  function installCommand() {
+    return "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$o=Join-Path $env:TEMP 'clippy-update.ps1'; Invoke-WebRequest '" + F.updater + "' -OutFile $o -UseBasicParsing; & $o\"";
+  }
+
+  // Generate INSTALL-CLIPPY.cmd on the fly and download it — no hosted artifact,
+  // so it never 404s and always installs the latest Clippy from the repo.
+  function downloadClippyInstaller() {
+    var cmd = [
+      '@echo off',
+      'title NEXUS Clippy Installer',
+      'echo.',
+      'echo    Installing NEXUS Clippy...',
+      'echo    This downloads Clippy and sets him to launch automatically.',
+      'echo    If Windows SmartScreen appears: click "More info" then "Run anyway".',
+      'echo.',
+      installCommand(),
+      'echo.',
+      'echo    Done. Clippy is provisioning in the background and will float onto',
+      'echo    your desktop shortly, then keep himself updated automatically.',
+      'echo.',
+      'pause'
+    ].join('\r\n') + '\r\n';
+    try {
+      var blob = new Blob([cmd], { type: 'application/octet-stream' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = 'INSTALL-CLIPPY.cmd';
+      document.body.appendChild(a); a.click();
+      setTimeout(function () { try { document.body.removeChild(a); } catch (e) {} URL.revokeObjectURL(url); }, 1500);
+      if (NX.toast) NX.toast('INSTALL-CLIPPY.cmd downloaded — double-click it to install', 'success', 5000);
+    } catch (e) {
+      if (NX.toast) NX.toast('Download blocked by the browser — use the copy command instead', 'error', 5000);
+    }
+  }
+
+  function copyInstallCommand() {
+    var t = installCommand();
+    var done = function () { if (NX.toast) NX.toast('Install command copied — paste into PowerShell', 'success', 4000); };
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(t).then(done, function () {}); return; }
+    } catch (e) {}
+    try {
+      var ta = document.createElement('textarea'); ta.value = t; ta.style.cssText = 'position:fixed;left:-9999px';
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); done();
+    } catch (e2) {}
+  }
+
   NX.tools = {
+    dlClippy: downloadClippyInstaller,
+    copyClippyCmd: copyInstallCommand,
     open: function () { build(); document.getElementById('nxToolsModal').classList.add('open'); NX.tools.go('hub'); },
     close: function () { stopTimer(); var m = document.getElementById('nxToolsModal'); if (m) m.classList.remove('open'); },
     go: function (screen) {
