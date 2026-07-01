@@ -194,7 +194,12 @@ def sb_heartbeat():
         rows = json.loads(raw or "[]")
         cur = (rows[0].get("data") if rows else None) or []
         if isinstance(cur, list):
-            arr = [n for n in cur if isinstance(n, dict) and n.get("name") != NODE and now - (n.get("ts") or 0) < 120]
+            # Keep every OTHER node in the roster, even if it's offline right now,
+            # so installing/running a new Clippy never removes the last one. The
+            # UI decides online/offline from each node's ts (fresh < 120s). Only
+            # drop genuinely stale entries (unseen for 14 days) to bound growth.
+            ROSTER_TTL = 14 * 86400
+            arr = [n for n in cur if isinstance(n, dict) and n.get("name") != NODE and now - (n.get("ts") or 0) < ROSTER_TTL]
     except Exception:
         pass
     arr.append({"name": NODE, "ts": now, "vision": True, "cmd": bool(CMD_TOKEN),
