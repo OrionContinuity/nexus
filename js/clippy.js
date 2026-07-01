@@ -6329,7 +6329,9 @@
     // get scaled up automatically even if caller passed a small value.
     function computeBubbleDuration(t) {
       if (!t) return 3000;
-      return Math.max(2200, Math.min(10000, t.length * 60 + 800));
+      // Longer messages get real reading time — ~85ms/char + overhead, and the
+      // cap is 20s (was 10s) so a long thought or dream isn't yanked away.
+      return Math.max(2600, Math.min(20000, t.length * 85 + 1400));
     }
     // v18.26 — bug fix. When the bubble has action buttons (a menu),
     // do NOT auto-hide based on reading time. The user needs to actually
@@ -6662,13 +6664,24 @@
     if (d === 0) return 'sunday';
     return null;
   }
+  // ── Global floor between UNPROMPTED bubbles ───────────────────────────────
+  // Clippy never chatters more than about once a minute, and each dismissal
+  // this session stretches that floor — the more you close him, the quieter he
+  // gets. Every spontaneous surface (idle chatter, tap/scroll reactions, game
+  // offers) checks spontaneousReady() and calls markSpontaneous() when it fires.
+  function spontaneousGapMs() { return 60000 * (1 + 0.7 * (state.sessionDismissals || 0)); }
+  function spontaneousReady() { return Date.now() - (state.lastSpontaneousAt || 0) >= spontaneousGapMs(); }
+  function markSpontaneous() { state.lastSpontaneousAt = Date.now(); }
+
   function startRandomBehaviors() {
     if (state.randomTimer) clearTimeout(state.randomTimer);
     function loop() {
       if (!state.enabled) return;
-      // v18.10 — chat frequency lowered. Was 4% per 90s tick (~2.7%/min).
-      // Now 2% per 120s tick (~1%/min). About 60% less spontaneous chat.
-      if (!state.preferences.do_not_disturb && !state.bubble && !state.suppressed && Math.random() < 0.02) {
+      // Chat is gated by the global ~1/min floor AND scaled down further as the
+      // user dismisses bubbles this session (dq shrinks with each dismissal).
+      const dq = 1 / (1 + 0.8 * (state.sessionDismissals || 0));
+      if (!state.preferences.do_not_disturb && !state.bubble && !state.suppressed && spontaneousReady() && Math.random() < 0.02 * dq) {
+        markSpontaneous();
         const r = Math.random();
         if      (r < 0.25) bubble(pickFromPool('idle_random'));
         else if (r < 0.35) { play('wobble'); bubble(pickFromPool('sneeze')); }
@@ -7854,14 +7867,16 @@
   function maybeOfferGame() {
     if (state.bubble || state.coinFlipInProgress || state.suppressed) return false;
     if (state.preferences.do_not_disturb) return false;
+    if (!spontaneousReady()) return false;
     const idleMs = Date.now() - (state.lastTapAt || 0);
-    if (idleMs < 60000) return false;   // need 60s+ idle
-    // Cooldown: don't pester more than once per 10min
+    if (idleMs < 150000) return false;   // need 2.5min+ idle (was 60s)
+    // Cooldown grows with dismissals: base 30min, +30min per dismissal.
     const lastOffer = state.preferences.last_game_offer || 0;
-    if (Date.now() - lastOffer < 10 * 60000) return false;
-    // 1% chance per 2s tick = ~1 offer per ~3min of solid boredom
-    if (Math.random() > 0.01) return false;
+    if (Date.now() - lastOffer < 30 * 60000 * (1 + (state.sessionDismissals || 0))) return false;
+    // 0.35% chance per 2s tick — a rare, gentle nudge, not a pest.
+    if (Math.random() > 0.0035) return false;
     state.preferences.last_game_offer = Date.now();
+    markSpontaneous();
     savePreferences();
     if (NX.clippy.games && NX.clippy.games.offer) NX.clippy.games.offer();
     return true;
@@ -8126,8 +8141,9 @@
       // visually overlapped the gacha card reveal.
       if (btn.closest('.clippy-bubble, .clippy-game-overlay, .clippy-dex-overlay, .clippy-palette, .clippy-gacha-overlay')) return;
       if (state.nxLastReact && Date.now() - state.nxLastReact < CFG.cooldown.react_button) return;
-      if (Math.random() > CFG.chance.react_button) return;
+      if (!spontaneousReady() || Math.random() > CFG.chance.react_button) return;
       state.nxLastReact = Date.now();
+      markSpontaneous();
       const isSubmit = btn.type === 'submit' || btn.matches('[data-action="submit"]');
       const pool = isSubmit ? 'nx_form_submit' : 'nx_button_click';
       trackTimeout(() => {
@@ -8183,8 +8199,9 @@
           );
           if (isModal) {
             if (state.nxLastReact && Date.now() - state.nxLastReact < CFG.cooldown.react_modal) return;
-            if (Math.random() > CFG.chance.react_modal) return;
+            if (!spontaneousReady() || Math.random() > CFG.chance.react_modal) return;
             state.nxLastReact = Date.now();
+            markSpontaneous();
             trackTimeout(() => {
               if (!isOverlayOpen('bubble') && state.enabled && !state.suppressed) {
                 bubble(pickFromPool('nx_modal_open'), { autoHide: 3500, eyebrow: '👁️ PEEK' });
@@ -8208,8 +8225,9 @@
       if (scrollEvents.length >= 25) {
         scrollEvents = [];
         if (state.nxLastReact && now - state.nxLastReact < 30000) return;
-        if (Math.random() > CFG.chance.react_scroll) return;
+        if (!spontaneousReady() || Math.random() > CFG.chance.react_scroll) return;
         state.nxLastReact = now;
+        markSpontaneous();
         trackTimeout(() => {
           if (!isOverlayOpen('bubble') && state.enabled && !state.suppressed) {
             bubble(pickFromPool('nx_scroll_heavy'), { autoHide: 3800, eyebrow: '🔍 LOOKING' });
