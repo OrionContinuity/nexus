@@ -2291,6 +2291,19 @@ const CLIPPY_QUOTES = [
   'Ötzi the Iceman kept better than most walk-ins. Yours is a close second. Stay cold.',
   'The Year of Four Emperors was chaos; your Friday had one manager and it held. Progress.',
   'The Antikythera mechanism was ancient predictive maintenance. We’re just carrying the torch.',
+  // Wine — pro-only inside jokes
+  'Grower Champagne only — look for “RM,” not “NM,” in the fine print. The walk-in, meanwhile, is estate-grown cold.',
+  'Premox claimed another white Burg. Tragic. The wine fridge will never oxidize your whites early — 55°F, rock steady.',
+  'It’s not reduction, it’s “struck-match minerality.” The compressor has no such excuse, and it’s running clean.',
+  'I called VA on the flight and got overruled. The walk-in humidity, however, was exactly where I said it would be.',
+  'Someone poured a flabby Chard with no acid and called it “buttery.” The dish machine has more backbone. It’s fixed.',
+  'Blind grid: pyrazine, high acid, medium tannin — Loire Cab Franc. The walk-in grid: 38°F. Both correct.',
+  'Mouton got promoted to First Growth in ’73; nothing had moved since 1855. Your equipment gets promoted every PM.',
+  'Phylloxera took the vines — nothing’s taking this compressor. Grafted onto American rootstock of pure reliability.',
+  'I flagged Brett and someone said “that’s the terroir talking.” The compressor doesn’t do Brett. It just does cold.',
+  'En primeur futures on a wine that might premox? Bold. The wine fridge is the safer investment — holding 55°F.',
+  'Judgment of Paris, 1976: California beat Bordeaux blind. Judgment of the walk-in, tonight: it held temp. Also historic.',
+  'Aged sur lie for texture, bâtonnage twice a week — meanwhile I age the service contract for the coverage.',
 ];
 function dlogEmailGreeting(label, dateStr) {
   const s = String(dateStr || '');
