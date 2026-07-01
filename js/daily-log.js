@@ -2216,6 +2216,25 @@ const CLIPPY_QUOTES = [
   // More restaurant
   'Fire when ready, plate with pride, and never let the ticket rail win.',
   'The best garnish is a repair that stays fixed.',
+  // Dad jokes
+  'The espresso machine broke down — it just couldn’t espresso its feelings. Fixed now.',
+  'Why did the coffee file a police report? It got mugged. The machine’s fine.',
+  'What do you call a fake noodle? An impasta. Anyway, the pasta cooker holds temp.',
+  'I burned 2,000 calories today — left the pizza in the oven. We recalibrated the timer.',
+  'Why don’t eggs tell jokes on the line? They’d crack each other up.',
+  'What did the grape do when it got stepped on? Let out a little wine. Fitting.',
+  'I don’t trust stairs — they’re always up to something. The walk-in, however, is reliable.',
+  'What’s a chef’s favorite exercise? The lunge — with a side of romaine.',
+  'I tried to catch fog on the line this morning. I mist.',
+  'Why did the scarecrow get a raise? He was outstanding in his field. As is your crew.',
+  'I’m reading a book about anti-gravity — can’t put it down. Unlike the mop. That, I put down.',
+  'What do you call cheese that isn’t yours? Nacho cheese. The reach-in is guarded accordingly.',
+  'Why don’t scientists trust atoms? They make up everything. The compressor, though, is honest.',
+  'The rotisserie said it couldn’t eat another bite — it was already stuffed.',
+  'I’m afraid of the calendar: its days are numbered. Your equipment isn’t — we maintained it.',
+  'What do you call a sad espresso? A depresso. Restocked the machine anyway.',
+  'I made a belt out of watches once — total waist of time. Speaking of time, here’s your day.',
+  'My soup cracked a joke mid-service. A little too saucy for the pass.',
 ];
 function dlogEmailGreeting(label, dateStr) {
   const s = String(dateStr || '');
