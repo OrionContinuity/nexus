@@ -2350,6 +2350,20 @@ const CLIPPY_QUOTES = [
   'A guest returned a Sancerre for tasting “like a rock.” That’s the minerality, sir. The walk-in also tastes like a rock: cold, silent, dependable.',
   'I described the wine as having “tension.” The only real tension was whether the compressor would hold on a 98° day. It held. Heroically.',
   'Deductive grid, out loud, tableside: clarity, intensity, hue… meanwhile the walk-in ran its own grid — 38°F, done, no notes.',
+  // Wine — more creative somm
+  'A guest asked for “a nice Pinot Grigio” and something in me died, quietly, professionally. The walk-in felt nothing — it holds 38°F with no emotional life whatsoever. Lucky.',
+  'I sniffed the cork like it would confess something. It confessed nothing. Corks never do. The condenser coil tells us everything, though — and we listened. Coil clean, unit cold.',
+  'I described the tannins as “grippy, like a firm handshake from a distant uncle.” The table stared. The door gasket also grips firmly, and no one applauds that either. 38°F.',
+  'I recommended an obscure Georgian grape, then could not pronounce it. Neither could the guest. We bonded in mutual defeat. The walk-in needs no pronunciation — it just runs, cold and silent.',
+  'Our “sommelier’s choice” is whatever’s three days from turning. Hospitality is inventory management with candlelight. The walk-in buys us those three days at a flawless 38°F.',
+  'A guest sent back a wine because “it tastes like alcohol.” Sir. Sir. I composed myself. The compressor never talks back — it just held temp while I processed my feelings.',
+  'The reserve pour is the house wine in a heavier glass. The magic is the glass, the lighting, and your trust. The walk-in runs no such con — it is honestly, provably, 38°F.',
+  'I swirled with such passion I redecorated the tablecloth in Syrah. Art demands sacrifice. The walk-in makes no mess — it contains everything, including my dignity, at 38°F.',
+  'I told a table the wine “has a sense of humor.” It does not. Wine cannot laugh. But it can’t fire me either, so we coexist. The compressor also can’t laugh, but it held temp.',
+  'The wine list is 46 pages; the food menu is one. We have priorities and they are not lunch. The walk-in keeps all 46 pages cold. A quiet hero.',
+  '“Let it open up” is somm for “give me twenty minutes to figure out what this is.” The walk-in needs no time — it opens at 38°F and stays there.',
+  'A guest asked if the wine “pairs with the chicken.” They ordered the steak. I aged visibly. The walk-in pairs with everything by keeping it all cold. The only true pairing.',
+  'I decanted a screwcap into crystal so the guest could feel the romance. The romance is a lie and the lie is the job. The walk-in tells no lies; it just quietly hits 38°F.',
 ];
 function dlogEmailGreeting(label, dateStr) {
   const s = String(dateStr || '');
