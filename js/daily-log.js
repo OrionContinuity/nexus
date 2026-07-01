@@ -2335,6 +2335,21 @@ const CLIPPY_QUOTES = [
   'Bistro or brasserie, the coq au vin still needs a cold cellar. The cellar cooling delivered. Santé.',
   'Michelin gives stars for consistency. So do I — one per working walk-in. Tonight: three stars.',
   'En papillote seals the fish; a good gasket seals the walk-in. Steam stays in, cold stays in. Parfait.',
+  // Wine — even more somm
+  'I made them buy the Riedel Sommelier stems, then a guest snapped one by breathing near it. The walk-in has never broken from breathing. 38°F, unbothered.',
+  'A guest swore they “had this exact wine in Tuscany.” It was a Napa Cab. I let them have it. The compressor lets nothing slide — it just holds temp.',
+  'I lit the candle to check for sediment while decanting, purely for the drama. The walk-in makes its own drama by refusing to fail. 55°F cellar, steady.',
+  'Biodynamic means we picked by the lunar calendar and prayed to Rudolf Steiner. The compressor answers to no moon — it runs on schedule.',
+  'Nobody orders the Sherry, so I drink the Sherry, for morale. The walk-in needs no morale. It holds 38°F out of pure conviction.',
+  'Madeira is basically immortal — cellar it, cook it, forget it in a drawer for 40 years. Like a walk-in you actually maintain. Ours: eternal, and cold.',
+  'A four-top ordered the house red and I described it like a monologue. It’s a $9 bottle. The walk-in needs no monologue — it lets the temperature speak.',
+  'They asked if it “needs to breathe.” Everything does. The compressor breathes through a clean condenser coil — which we cleaned. That’s why it lives.',
+  'Petrol on the Riesling is a feature, I promise. Petrol on the compressor is a problem, and we fixed it. Know the difference.',
+  'I flipped my tastevin around my neck like a badge no one under sixty recognizes. The walk-in wears no badge — it just quietly outperforms me. 38°F.',
+  'Reserve list, library vintages, impeccable provenance — and then someone orders a Diet Coke. Fine. The walk-in kept the Coke cold too. Gracious to a fault.',
+  'A guest returned a Sancerre for tasting “like a rock.” That’s the minerality, sir. The walk-in also tastes like a rock: cold, silent, dependable.',
+  'I described the wine as having “tension.” The only real tension was whether the compressor would hold on a 98° day. It held. Heroically.',
+  'Deductive grid, out loud, tableside: clarity, intensity, hue… meanwhile the walk-in ran its own grid — 38°F, done, no notes.',
 ];
 function dlogEmailGreeting(label, dateStr) {
   const s = String(dateStr || '');
