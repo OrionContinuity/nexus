@@ -117,7 +117,7 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
         try {
           const fileName = `receipts/${Date.now()}_${name.replace(/[^a-z0-9]/gi, '_').slice(0, 30)}.jpg`;
           const blob = base64ToBlob(base64, mimeType);
-          await NX.sb.storage.from('attachments').upload(fileName, blob);
+          await NX.sb.storage.from('nexus-files').upload(fileName, blob);
         } catch (e) {}
         
         return parsed;
@@ -522,7 +522,7 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
       try {
         const today = new Date().toISOString().split('T')[0];
         const blob = base64ToBlob(base64, mimeType);
-        await NX.sb.storage.from('attachments').upload(
+        await NX.sb.storage.from('nexus-files').upload(
           'cleaning-scans/' + today + '_' + location + '_p' + (pageNum + 1) + '.jpg', blob
         );
       } catch (e) {}
@@ -826,7 +826,7 @@ IMPORTANT:
       try {
         const fileName = `cleaning-scans/${dateStr}_${location}_${Date.now()}.jpg`;
         const blob = base64ToBlob(base64, mimeType);
-        await NX.sb.storage.from('attachments').upload(fileName, blob);
+        await NX.sb.storage.from('nexus-files').upload(fileName, blob);
       } catch (e) {}
 
       return { location, date: dateStr, checked, total, pct };
@@ -1026,7 +1026,7 @@ Be specific. If it's equipment, include the make/model. If it's a document, extr
         try {
           const fileName = `captures/${Date.now()}_${(parsed.name||'').replace(/[^a-z0-9]/gi,'_').slice(0,30)}.jpg`;
           const blob = base64ToBlob(base64, mimeType);
-          await NX.sb.storage.from('attachments').upload(fileName, blob);
+          await NX.sb.storage.from('nexus-files').upload(fileName, blob);
         } catch (e) {}
         // Also queue in capture_queue for tracking
         try {
