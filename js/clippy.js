@@ -6169,8 +6169,10 @@
     } else if (r < 0.82) {
       // v17.29: half the time, an AMBIENT OBSERVATION instead of whimsical chatter.
       // Pure self-narration, longer dwell, no demand on user.
-      if (Math.random() < 0.5) {
+      if (Math.random() < 0.4) {
         bubble(pickFromPool('ambient_observation'), { autoHide: 6500 });
+      } else if (Math.random() < 0.5 && state.dialog && state.dialog.restaurant_wisdom) {
+        bubble(pickFromPool('restaurant_wisdom'), { autoHide: 6500, eyebrow: '🍷 WISDOM' });
       } else {
         bubble(pickFromPool('whimsical_idle'), { autoHide: 4500 });
       }
@@ -7515,6 +7517,12 @@
         if (state.dialog && state.dialog.whimsical_idle)
           bubble(pickFromPool('whimsical_idle'), { autoHide: 4500 });
       }, label: 'whimsy' },
+      { weight: 15, fn: () => {
+        // Restaurant/wine/history one-liners — the same corpus that signs
+        // the emailed daily log. He muses one aloud, in character.
+        if (state.dialog && state.dialog.restaurant_wisdom)
+          bubble(pickFromPool('restaurant_wisdom'), { autoHide: 6500, eyebrow: '🍷 WISDOM' });
+      }, label: 'restaurant_wisdom' },
       { weight: 14, fn: () => { if (typeof doQuirk === 'function') doQuirk(); }, label: 'quirk' },
       { weight: 12, fn: () => {
         if (state.dialog && state.dialog.bored_restless)
