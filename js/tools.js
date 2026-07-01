@@ -257,10 +257,41 @@
     }, function () { pb.disabled = false; pb.textContent = '⬆ Push update'; });
   }
   // ─── INSTALL screens (themed) ────────────────────────────────────────────
+  // Probe a public URL without downloading it. Missing Storage objects (or a
+  // missing bucket) resolve to r.ok=false; network/CORS failures default to
+  // "unavailable" so we never present a dead download link.
+  function probeUrl(url) {
+    return fetch(url, { method: 'HEAD' }).then(function (r) { return r.ok; }).catch(function () { return false; });
+  }
+  // The OpenTether installers live in the Supabase 'installers' bucket, which
+  // may not be uploaded yet. Probe each file; gracefully disable the ones that
+  // 404 and explain how to enable them, instead of 404-ing on click.
+  async function otProbeDownloads(host) {
+    const dls = host.querySelector('#ordOtDls');
+    if (!dls) return;
+    const anchors = dls.querySelectorAll('a.nxt-dl');
+    const results = await Promise.all([probeUrl(F.otWin), probeUrl(F.otApk)]);
+    let anyMissing = false;
+    results.forEach(function (ok, i) {
+      const a = anchors[i];
+      if (ok || !a) return;
+      anyMissing = true;
+      a.removeAttribute('href'); a.removeAttribute('download'); a.removeAttribute('target');
+      a.style.opacity = '.5'; a.style.pointerEvents = 'none';
+      const sm = a.querySelector('.sm'); if (sm) sm.textContent = 'not uploaded yet';
+    });
+    if (anyMissing && !dls.nextElementSibling?.classList?.contains('nxt-ot-missing')) {
+      const note = document.createElement('div');
+      note.className = 'nxt-info nxt-ot-missing';
+      note.style.marginTop = '8px';
+      note.innerHTML = '⚠ Some installers aren’t uploaded yet. Run <code>upload-installers.ps1</code> with your Supabase service-role key to enable these downloads.';
+      dls.insertAdjacentElement('afterend', note);
+    }
+  }
   function screenOT(host) {
     host.innerHTML = '<div class="nxt-hero"><div class="big">📡</div><div><h3>OpenTether</h3>' +
         '<p>Turn your phone into your PC\'s internet — open take on PdaNet/FoxFi. No root · no trial · no account · no ads.</p></div></div>' +
-      '<div class="nxt-dls">' + dl(F.otWin, '🖥 Windows', 'PC client (.zip)', 'pri') + dl(F.otApk, '📱 Android', 'phone app (.apk)', 'sec') +
+      '<div class="nxt-dls" id="ordOtDls">' + dl(F.otWin, '🖥 Windows', 'PC client (.zip)', 'pri') + dl(F.otApk, '📱 Android', 'phone app (.apk)', 'sec') +
         '<div style="margin-left:auto;text-align:center;color:var(--nx-faint);font-size:11px"><img src="' + F.otQR + '" alt="" style="display:block;width:80px;height:80px;border-radius:10px;background:#fff;padding:5px;margin:0 auto 4px" onerror="this.parentNode.style.display=\'none\'">scan to install</div></div>' +
       '<div class="nxt-h4">Every function</div><div class="nxt-feat">' +
         feat('🧩', 'Multi-transport host', 'Serves the tunnel over USB, Wi-Fi-Direct and Wi-Fi/LAN at once.') +
@@ -272,6 +303,7 @@
         '<div class="nxt-step">Phone: open OpenTether → <b>START</b> → pick USB / Wi-Fi-Direct / Wi-Fi.</div>' +
         '<div class="nxt-step">PC: run OpenTether → pair (AUTO for USB, or scan the QR).</div>' +
         '<div class="nxt-step">Point an app at <b>127.0.0.1:1080</b>, or flip the system-proxy toggle.</div></div>';
+    otProbeDownloads(host);
   }
   function screenClippy(host) {
     host.innerHTML = '<div class="nxt-hero"><div class="big">📎</div><div><h3>Clippy</h3>' +
