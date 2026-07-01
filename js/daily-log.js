@@ -2270,6 +2270,83 @@ const CLIPPY_QUOTES = [
   'I called it Old World with total conviction. It was a Thursday grocery-store special. Humbling. The wine fridge has never embarrassed me.',
   'A table sent back a flawless Chablis for being “too wine-y.” I have notes. The dishwasher took no notes and simply worked.',
   'I recommended the skin-contact pét-nat and watched a table of four lose faith in me in real time. The fridge kept the faith — and the temp.',
+  // Wine — backfill
+  'Somebody described a wine as “sequential.” We all nodded. No one knows what it means.',
+  'I called the finish “long.” It lasted four seconds. I lied for the tip, and I’d do it again.',
+  'A guest asked if the wine “pairs with the chicken.” They ordered the steak. I aged visibly.',
+  'The reserve pour is the house wine in a heavier glass. The magic is the glass, the lighting, and your trust.',
+  'I swirled with such passion I redecorated the tablecloth in Syrah. Art demands sacrifice.',
+  '“Let it open up” is somm for “give me twenty minutes to figure out what this actually is.”',
+  'I decanted a screwcap into crystal so the guest could feel the romance. The romance is a lie and the lie is the job.',
+  'The wine list is 46 pages; the food menu is one. We have priorities and they are not lunch.',
+  'I recommended an obscure Georgian grape, then could not pronounce it. Neither could the guest. We bonded in mutual defeat.',
+  'Our “sommelier’s choice” is whatever’s three days from turning. Hospitality is inventory management with candlelight.',
+  'A guest sent back a wine because “it tastes like alcohol.” Sir. Sir. I composed myself.',
+  'I sniffed the cork like it would confess something. It confessed nothing. Corks never do.',
+  'I described the tannins as “grippy, like a firm handshake from a distant uncle.” The table just stared.',
+  'A guest asked for “a nice Pinot Grigio” and something in me died, quietly, professionally.',
+  'The vintage chart says great year; the guest says “whichever’s cheapest.” Both are correct, technically.',
+  'I told a table the wine “has a sense of humor.” It does not. Wine cannot laugh. It also can’t fire me.',
+  'Corkage fee: the price of watching someone else’s bottle outshine my whole list.',
+  'I aerated a $14 red in a $200 decanter. The theater is the whole point.',
+  // Cooking — backfill
+  'The line cook said “it’s basically done” about a brisket that needs six more hours. Optimism is a spice.',
+  'A recipe says “season to taste.” Whose taste. Mine is correct and final.',
+  'The walk cooler is a rumor; what matters is the mise. Prep first, panic never.',
+  'Brunoise, julienne, chiffonade — three ways to say “I’m stalling before service.”',
+  'The stockpot has simmered since Tuesday. It has secrets. We do not ask.',
+  'Every great sauce starts with a roux and ends with someone claiming credit for it.',
+  // Roman — backfill
+  'Rubicon crossed, line fired, no turning back either way.',
+  'A toga has one size and infinite draping. So does a good apron.',
+  'Nero fiddled while Rome burned. We replaced the fiddle and the smoke detector.',
+  'The Colosseum sat 50,000. Your dining room seats 80 and somehow feels louder.',
+  // Greek — backfill
+  'Icarus flew too close to the fryer. We keep our distance and our eyebrows.',
+  'The Oracle at Delphi gave riddles; the walk sheet gives answers. Progress, four centuries early or late.',
+  'Sisyphus rolled the same boulder daily. We roll the same dough daily. He had it easier.',
+  // Japanese history — backfill
+  'Wabi-sabi finds beauty in imperfection. The dented pot stays in rotation on principle.',
+  'A shogun ruled by discipline; a kitchen runs on the same currency.',
+  'Ikigai: your reason for being. Mine is currently “the walk sheet is done.”',
+  'The tea master spends a lifetime perfecting one gesture. We’re still working on the perfect fold for napkins.',
+  // Pastry — backfill
+  'A macaron has one acceptable foot. The rest is heartbreak in almond flour.',
+  'Pâte à choux either puffs or it doesn’t, and there is no in-between and no mercy.',
+  'The bench flour never runs out; neither does the manager’s patience, allegedly.',
+  'Chocolate seized once. We do not speak of it. We temper carefully now.',
+  // Restaurant — backfill
+  'The reservation said 7:00. The table arrived at 7:45 and asked why we rushed them.',
+  'A five-top became a nine-top became a birthday. We adapted. We always adapt.',
+  'The special sold out in an hour. The soup of the day remains, tragically, undiscovered.',
+  'Somebody asked to split the check nine ways. The math took longer than the meal.',
+  // Funny — backfill
+  'I asked the toaster for a status update. It gave me nothing but warmth and silence.',
+  'I have the memory of an elephant and the hands of, notably, nothing.',
+  'They told me to take initiative. I took the day’s report instead. Close enough.',
+  'I tried yoga once. I do not bend. I am, structurally, a very round idea.',
+  // Film — backfill
+  'May the fourth be with the fryer oil — changed today, right on schedule.',
+  'I see dead pilot lights. Relit two of them personally.',
+  'Show me the money — or at least the invoice. Either works.',
+  // Spain — backfill
+  'La Tomatina throws tomatoes for fun. We use ours in sauce. Waste not.',
+  'Flamenco is passion with rhythm. So is closing the kitchen on time.',
+  // Mexican — backfill
+  'Día de los Muertos honors what came before. The old fryer gets a nod too.',
+  'The molé takes days to build and seconds to disappear off the pass.',
+  // Soccer — backfill
+  'Extra time is stressful in football and in a slammed Friday. We finish both.',
+  'A perfect through-ball and a perfect ticket time — same feeling, different pitch.',
+  // History — backfill
+  'The Library of Alexandria burned; our recipe binder is backed up twice. Lessons learned.',
+  'The printing press changed everything. So did the POS system, allegedly.',
+  'Pompeii was buried in a day. Our prep list survives, somehow, every single one.',
+  // Dad jokes — backfill
+  'Why did the tomato turn red? It saw the salad dressing. Also, it was ripe. Both true.',
+  'I’m on a seafood diet. I see food, I log it, I move on with my life.',
+  'What do you call an alligator in a vest? An investigator. He found nothing wrong with tonight’s prep.',
+  'Why don’t chefs ever get lost? They always follow the recipe.',
 ];
 function dlogEmailGreeting(label, dateStr) {
   const s = String(dateStr || '');
