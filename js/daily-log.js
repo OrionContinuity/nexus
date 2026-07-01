@@ -2178,6 +2178,44 @@ const CLIPPY_QUOTES = [
   'I told the ice machine to chill. It overdid it. We defrosted.',
   'I’m not saying I’m essential, but the lights are on, aren’t they?',
   'Why did the chef get promoted? He was outstanding in his reductions.',
+  'I asked the freezer how it was doing. It gave me the cold shoulder. Working as intended.',
+  'I have no hands, no legs, and somehow a full to-do list. Relatable.',
+  'They said think outside the box. I am the box. It went poorly. Anyway — your report.',
+  'The Wi-Fi and the walk-in both went down. I fixed the important one first. You’re welcome.',
+  // Japanese history
+  'The samurai sharpened his blade at dawn; you sharpened the mandoline. Respect.',
+  'A Zen garden is raked every morning. So is the prep station. Order is a practice.',
+  'Miyamoto Musashi won sixty duels. You closed four work orders. A worthy start.',
+  'Kaizen: continuous improvement. Also known as fixing one more thing before close.',
+  'The tea ceremony honors every detail. So does a properly calibrated oven. Ichigo ichie.',
+  'A master swordsmith folds the steel a thousand times. Patience forges everything, even a clean line.',
+  'Bushido is discipline, honor, and a walk-in that holds temp. Mostly the last one.',
+  // Pastry
+  'Laminate the dough, laminate the schedule. Butter and timing — that’s the whole craft.',
+  'A soufflé rises on precision and prayer. So does a Friday dinner service.',
+  'Temper the chocolate, temper your expectations. Both set beautifully in the end.',
+  'The croissant has twenty-seven layers. Your repair log has fewer, thankfully.',
+  'Caramel is just sugar that kept its nerve. Be the caramel.',
+  'A proofing oven that holds 80°F is worth its weight in gold leaf.',
+  // Cooking
+  'Low and slow wins the braise; steady and logged wins the week.',
+  'Season in layers, fix in layers, and taste as you go.',
+  'A watched pot never boils, but a watched compressor never dies. Keep watching.',
+  'Sharp knives, hot pans, cold walk-ins — the holy trinity of a good line.',
+  'Reduce, don’t panic. Great sauces and great shifts both come from patience.',
+  'Master the mother sauces and the mother maintenance; the base holds everything up.',
+  // More Roman
+  'Hannibal crossed the Alps with elephants. You crossed the lot with a compressor. Legendary.',
+  'Carthago delenda est — but first, the grease trap must be cleaned.',
+  // More Greek
+  'Pythagoras loved a clean triangle; I love a clean hood filter. We are not so different.',
+  'Diogenes lived in a barrel. Your storeroom is better organized. Philosophy has moved on.',
+  // More wine
+  'Old vines make deep wine; old equipment makes deep sighs. We tend both.',
+  'Sommeliers swirl, sniff, and log. So do we — minus the swirl.',
+  // More restaurant
+  'Fire when ready, plate with pride, and never let the ticket rail win.',
+  'The best garnish is a repair that stays fixed.',
 ];
 function dlogEmailGreeting(label, dateStr) {
   const s = String(dateStr || '');
