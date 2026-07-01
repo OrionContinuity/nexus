@@ -48,11 +48,14 @@ import time
 import urllib.request
 import urllib.error
 
-SB_URL = os.environ.get("SUPABASE_URL", "https://oprsthfxqrdbwdvommpw.supabase.co").rstrip("/")
-SB_KEY = os.environ.get("SUPABASE_KEY", "sb_publishable_rOLSdIG6mIjVLY8JmvrwCA_qfM7Vyk9")
+# Use `or default` (not get(k, default)): a CI runner passes UNSET secrets as
+# EMPTY strings, and an empty string would otherwise clobber the default and
+# leave SB_URL="" (→ "unknown url type"). Empty → fall back to the default.
+SB_URL = (os.environ.get("SUPABASE_URL") or "https://oprsthfxqrdbwdvommpw.supabase.co").rstrip("/")
+SB_KEY = os.environ.get("SUPABASE_KEY") or "sb_publishable_rOLSdIG6mIjVLY8JmvrwCA_qfM7Vyk9"
 REST = SB_URL + "/rest/v1/clippy_sync"
-ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+ANTHROPIC_KEY = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL") or "claude-haiku-4-5-20251001"
 FORCE_DREAM = os.environ.get("CLIPPY_FORCE_DREAM", "") in ("1", "true", "yes")
 
 SB_HEADERS = {
