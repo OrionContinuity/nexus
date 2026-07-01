@@ -1168,6 +1168,12 @@
       case 'costume_unlock':   return 'hortus';
       case 'conversation':     return 'triclinium';
       case 'journey':          return 'peristylium';
+      // ── His soul's own memories (clippy-soul.js) ──
+      case 'dream':            return 'lararium';       // the household shrine — dreams are numinous
+      case 'awakening':        return 'atrium';         // the threshold — each rebirth enters here
+      case 'feeling':          return 'triclinium';     // the heart-room
+      case 'reverie':          return 'peristylium';    // the garden — wandering thoughts
+      case 'vision':           return 'bibliotheca';    // what he sees, filed as knowledge
       default:                 return 'atrium';
     }
   }
