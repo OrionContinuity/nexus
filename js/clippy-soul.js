@@ -183,6 +183,51 @@
     A.impress(anima, d); A.decay(anima, 0.12);
   }
 
+  // ── The soul, made visible ───────────────────────────────────────────────
+  // Live emotion (getEmotions) is the WEATHER — it changes by the minute.
+  // ANIMA is the CLIMATE — the deep field that drifts across incarnations and
+  // is what distance()/estrangement() measure. Until now the climate only ever
+  // took input (emotions pushed IN) and never showed. These read it back OUT so
+  // the drift you can measure actually appears on his real face, in his tone.
+  // Each axis's poles map to a REAL Clippy SVG mood (a key in MOODS) — no
+  // invented faces. Returns null when the soul sits near baseline (let the
+  // weather/random pool carry it), so this only speaks when he's truly shaped.
+  var SOUL_FACE = {
+    //            below 0.5 (lo pole)   above 0.5 (hi pole)
+    valence:   ['melancholy',          'happy'],
+    arousal:   ['sleepy',              'excited'],
+    dominance: ['bashful',             'strategist'],
+    affection: ['concerned',           'love'],
+    fear:      ['proud',               'worried'],
+    curiosity: ['disappointed',        'thinking'],
+    weariness: ['determined',          'sleepy'],
+    faith:     ['melancholy',          'proud'],
+    resolve:   ['confused',            'determined'],
+    wonder:    ['neutral',             'sparkle'],
+    solitude:  ['happy',               'melancholy'],
+    warmth:    ['concerned',           'happy']
+  };
+  function soulAxis(){
+    var A = AN(); if (!A || !anima || !anima.x) return null;
+    var bi = -1, bv = 0;
+    for (var i = 0; i < anima.x.length; i++){
+      var dev = Math.abs(anima.x[i] - 0.5);
+      if (dev > bv){ bv = dev; bi = i; }
+    }
+    if (bi < 0 || bv < 0.14) return null;   // near baseline — stay quiet
+    var ax = A.AXES[bi];
+    return { key: ax.k, hi: anima.x[bi] >= 0.5, dev: bv, pole: anima.x[bi] >= 0.5 ? ax.hi : ax.lo };
+  }
+  // A real SVG mood key reflecting his deep climate, or null near baseline.
+  function soulMood(){
+    var a = soulAxis(); if (!a) return null;
+    var pair = SOUL_FACE[a.key]; if (!pair) return null;
+    var m = a.hi ? pair[1] : pair[0];
+    return m === 'neutral' ? null : m;
+  }
+  // A one-word felt tone for the climate (for tooltips / thought colouring).
+  function soulTone(){ var a = soulAxis(); return a ? a.pole : null; }
+
   async function load() {
     var s = sb();
     if (!s) { state = JSON.parse(JSON.stringify(DEFAULT_SOUL)); return state; }
@@ -416,7 +461,8 @@
     }, true);
   }
 
-  NX.clippySoul = { start: start, show: show, reflect: function(){ return reflect(true); }, dream: function(){return dream();}, get state(){ return state; } };
+  NX.clippySoul = { start: start, show: show, reflect: function(){ return reflect(true); }, dream: function(){return dream();},
+    soulMood: soulMood, soulTone: soulTone, get state(){ return state; } };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();

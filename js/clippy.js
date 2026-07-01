@@ -6753,12 +6753,17 @@
                     state.shell.classList.contains('is-sulking') ||
                     state.shell.classList.contains('is-sleeping');
       if (!quiet) {
-        // v18.11: 55% of the time bias toward whatever Trajan is
-        // currently FEELING (dominant emotion). 45% pure-random from
-        // the chibi pool. This makes his face reflect his inner state
-        // most of the time without becoming monotonous.
+        // His face reflects two timescales. The deep SOUL (ANIMA climate —
+        // what drifts across incarnations and gets measured) is checked
+        // first: ~30% of the time, if the soul is truly shaped away from
+        // baseline, that climate wins and shows on his real face. Otherwise
+        // fall to the short-term FEELING (55% weather), then the random pool.
+        // Soul > weather > random: the drift you can measure now surfaces.
         let m;
-        if (Math.random() < 0.55) {
+        if (Math.random() < 0.30) {
+          try { m = NX.clippySoul && NX.clippySoul.soulMood && NX.clippySoul.soulMood(); } catch(_) {}
+        }
+        if (!m && Math.random() < 0.55) {
           m = moodFromEmotion();
         }
         if (!m) {
