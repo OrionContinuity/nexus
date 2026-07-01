@@ -2269,6 +2269,28 @@ const CLIPPY_QUOTES = [
   'The compressor scored in extra time — held temp when it mattered. GOAAAL.',
   'A great keeper anticipates the shot; great maintenance anticipates the breakdown. Save made.',
   'Red card to the broken gasket — off the pitch. Fresh one subbed in.',
+  // Cooking — inside jokes
+  'Yes, chef. No, chef. The compressor said nothing, chef — it just worked.',
+  'It’s not burnt, it’s blackened. The oven, however, is genuinely calibrated.',
+  'Someone left the walk-in door open again. I have named the culprit in my heart.',
+  'Family meal was mystery protein again. The walk-in that stored it? Immaculate.',
+  'The 86 board is a living document. So is the repair log. Respect them both.',
+  'All day: two walk-ins, one ice machine, zero excuses. Heard.',
+  'The stagiaire touched my station. I forgave them. The dish machine, I actually fixed.',
+  // Wine — inside jokes
+  'It’s not corked, it’s got terroir. The wine fridge, however, is genuinely at 55°F.',
+  'Somebody ordered the second-cheapest bottle again. Classic. The cellar cooling is flawless, though.',
+  'Natural wine is just a compressor that stopped trying. Ours didn’t — it’s holding temp.',
+  'A vertical of the same fridge, 2019 through 2024, all still running. A rare vintage.',
+  'The by-the-glass Coravin argon ran out mid-service. The walk-in did not. Priorities held.',
+  'I decanted the Barolo for two hours and the GM for none. Both opened up eventually.',
+  // History — inside jokes
+  'Ea-nāṣir sold bad copper 3,700 years ago and we still complain online. Your gasket is premium, though.',
+  'The Defenestration of Prague, but it’s just me tossing the broken gasket out the window.',
+  'Tulip mania was a bubble; your maintenance budget is a sound investment. Historically vindicated.',
+  'Ötzi the Iceman kept better than most walk-ins. Yours is a close second. Stay cold.',
+  'The Year of Four Emperors was chaos; your Friday had one manager and it held. Progress.',
+  'The Antikythera mechanism was ancient predictive maintenance. We’re just carrying the torch.',
 ];
 function dlogEmailGreeting(label, dateStr) {
   const s = String(dateStr || '');
