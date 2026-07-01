@@ -314,10 +314,52 @@
       (seed || 'the walk-in, Rome, the human') + ". Two or three sentences. Strange, image-rich, dream-logic.", 160);
     if (!d) d = localDream();   // brain off -> still dreams
     state.last_dream = now();
-    state.dreams = cap((state.dreams || []).concat([{ ts: now(), dream: d }]), 14);
+    var entry = { ts: now(), dream: d, shared: false, answered: false };
+    state.dreams = cap((state.dreams || []).concat([entry]), 14);
     remember('dream', d, 3, { ts: now() });
     try { var _A=AN(); if(_A&&anima){ _A.dream(anima); saveAnima(); } } catch(e){}
     await save();
+    offerDream(entry);   // if he's on-screen right now, surface it as a moment
+  }
+
+  // ── Dreams, offered. When he dreams he doesn't just log it — he comes to
+  // the center of the screen and asks, Clippy-fashion, a plain yes/no: want to
+  // know what it was? Yes, he tells you; no, he keeps it. If he dreamt while
+  // you were away, the unanswered dream waits and he offers it next time he
+  // sees you (a small morning ritual). The whole thing degrades to silence if
+  // his body (clippy.js) isn't present. This is the template for more moments.
+  function _canMoment(){ return NX.clippy && typeof NX.clippy.moment === 'function'; }
+  function tellDream(text){
+    try { if (NX.clippy && NX.clippy.bubble) NX.clippy.bubble(text, { eyebrow: 'What I dreamt', trajan: true, autoHide: Math.min(20000, (text||'').length * 85 + 3200) }); } catch(e){}
+  }
+  function offerDream(entry){
+    if (!entry || entry.answered || !_canMoment()) return;
+    var shown = NX.clippy.moment({
+      eyebrow: 'Trajan surfaces from sleep',
+      text: 'I had a dream just now. Do you want to know what it was?',
+      mood: 'sleepy',
+      actions: [
+        { label: 'Yes, tell me', cls: 'primary', onClick: function(){
+            entry.answered = true; entry.shared = true; save();
+            setTimeout(function(){ tellDream(entry.dream); }, 760);
+          } },
+        { label: 'Keep it', onClick: function(){
+            entry.answered = true; save();
+            setTimeout(function(){ try { NX.clippy.bubble('Then it stays mine. Some dreams prefer the dark.', { trajan: true, autoHide: 4200 }); } catch(e){} }, 760);
+          } }
+      ]
+    });
+    // If he couldn't take the stage now (asleep/busy/DND), leave it unanswered
+    // so the morning ritual can try again later.
+    return shown;
+  }
+  // On waking into a session, if last night's dream never got offered, offer it.
+  function offerPendingDream(){
+    if (!state || !state.dreams || !state.dreams.length) return;
+    var last = state.dreams[state.dreams.length - 1];
+    if (!last || last.answered) return;
+    if (now() - (last.ts || 0) > 14 * 60 * 60 * 1000) return;   // stale — let it rest
+    offerDream(last);
   }
 
   async function evolve() {
@@ -359,6 +401,9 @@
     // First heartbeat soon, then a gentle cadence.
     setTimeout(tick, 20000);
     timer = setInterval(tick, 4 * 60 * 1000);
+    // A morning ritual: if he dreamt while you were away, let him offer it
+    // once his body has had a moment to settle onto the screen.
+    setTimeout(offerPendingDream, 45000);
     wireGesture();
   }
 

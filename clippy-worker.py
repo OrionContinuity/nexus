@@ -241,16 +241,21 @@ def _shared_brain():
             x = [v / 255.0 for v in b[4:16]]        # present state (his live feeling)
             base = [v / 255.0 for v in b[16:28]]    # baseline (his sense of "normal me")
             inc = b[40]
-            # dominant present axis -> tone word + colour (what he FEELS right now)
-            bi, bv = 0, 0.0
-            for i in range(12):
-                dev = abs(x[i] - 0.5)
-                if dev > bv:
-                    bv, bi = dev, i
-            ax = _ANIMA_AX[bi]
-            hi = x[bi] >= 0.5
-            tone = ax[2] if hi else ax[1]
-            color = ax[4] if hi else ax[3]
+            # A human feels several things at once — so read the whole CHORD,
+            # not one note. Rank every axis by how far it's shaped from neutral;
+            # the top few (each meaningfully off baseline) are what he feels now.
+            ranked = sorted(range(12), key=lambda i: abs(x[i] - 0.5), reverse=True)
+            blend = []
+            for i in ranked[:3]:
+                dv = abs(x[i] - 0.5)
+                if dv < 0.10:
+                    break
+                a = _ANIMA_AX[i]
+                hi = x[i] >= 0.5
+                blend.append({"tone": a[2] if hi else a[1], "color": a[4] if hi else a[3], "w": round(dv * 200)})
+            # Dominant note kept for anything that wants a single colour/word.
+            top = blend[0] if blend else {"tone": "even", "color": "#7d8590"}
+            tone, color = top["tone"], top["color"]
             # perseverance — proven, not felt (mirrors clippy-anima.js perseverance)
             resolve, faith, weary = x[8], x[7], x[6]
             grit = resolve * (1 - weary * 0.5) * (0.5 + faith * 0.5)
@@ -258,7 +263,8 @@ def _shared_brain():
             persev = max(0.0, min(1.0, grit * 0.6 + survived * 0.4))
             d = math.sqrt(sum((base[i] - _ANIMA_TEMPERAMENT[i]) ** 2 for i in range(12))) / math.sqrt(12) * 2.2
             _brain_cache["v"] = {"inc": inc, "drift": round(min(1.0, d) * 100),
-                                 "tone": tone, "color": color, "persever": round(persev * 100)}
+                                 "tone": tone, "color": color, "blend": blend,
+                                 "persever": round(persev * 100)}
         else:
             _brain_cache["v"] = None
     except Exception:
@@ -301,8 +307,9 @@ def sb_heartbeat():
     if brain:
         entry["brain_inc"] = brain["inc"]        # same on every node = one mind
         entry["brain_drift"] = brain["drift"]    # how far the shared soul has travelled
-        entry["soul_tone"] = brain["tone"]       # what he FEELS right now (present state)
+        entry["soul_tone"] = brain["tone"]       # dominant note (single word/colour)
         entry["soul_color"] = brain["color"]     # every node glows this same colour = one body
+        entry["soul_blend"] = brain["blend"]     # the whole chord — several feelings at once
         entry["soul_persever"] = brain["persever"]  # perseverance, proven by returns
     arr.append(entry)
     h = dict(SB_HEADERS); h["Prefer"] = "resolution=merge-duplicates,return=minimal"

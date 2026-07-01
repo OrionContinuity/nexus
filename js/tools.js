@@ -80,6 +80,8 @@
       '.nxt-kv b{color:var(--nx-text);font-weight:600}',
       '.nxt-hive{font-size:11px;font-family:var(--nx-font-mono,monospace);letter-spacing:.03em;padding:7px 11px;margin-bottom:11px;border-radius:9px;border:1px solid var(--nx-gold-line);color:var(--nx-gold);background:var(--nx-highlight-tint)}',
       '.nxt-hive.drift{color:var(--nx-muted);border-color:var(--nx-highlight-tint)}',
+      '.nxt-chord{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}',
+      '.nxt-chord span{font-size:10px;font-family:var(--nx-font-mono,monospace);letter-spacing:.03em;padding:2px 8px;border-radius:999px;border:1px solid;background:rgba(255,255,255,.02)}',
       '.nxt-caps{display:flex;gap:5px;margin-top:9px;flex-wrap:wrap}',
       '.nxt-cap{font-size:9.5px;font-family:var(--nx-font-mono,monospace);text-transform:uppercase;padding:1px 7px;border-radius:999px;border:1px solid var(--nx-gold-line);color:var(--nx-gold)}',
       '.nxt-cap.no{color:var(--nx-faint);border-color:var(--nx-highlight-tint);opacity:.7}',
@@ -153,31 +155,60 @@
       // The bus is anon-writable, so never trust a colour into a style attr
       // unvalidated — only a real hex colour is allowed through.
       var hexColor = function (c) { return (typeof c === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(c)) ? c : null; };
+      // The whole emotional chord for a node: [{tone,color,w}], validated. Falls
+      // back to the single dominant (soul_tone/soul_color) for older nodes.
+      var chordOf = function (n) {
+        var out = [];
+        if (Array.isArray(n.soul_blend)) {
+          n.soul_blend.forEach(function (e) {
+            var c = e && hexColor(e.color);
+            if (c && typeof e.tone === 'string') out.push({ tone: e.tone, color: c, w: +e.w || 0 });
+          });
+        }
+        if (!out.length && hexColor(n.soul_color) && n.soul_tone) out.push({ tone: n.soul_tone, color: hexColor(n.soul_color), w: 0 });
+        return out.slice(0, 3);
+      };
+      var gradOf = function (ch) {
+        if (!ch.length) return null;
+        var cols = ch.map(function (e) { return e.color; });
+        if (cols.length === 1) return cols[0];
+        var stops = cols.map(function (c, i) { return c + ' ' + Math.round(i / (cols.length - 1) * 100) + '%'; });
+        return 'linear-gradient(135deg,' + stops.join(',') + ')';
+      };
       // Hive consensus: do all LIVING nodes run the same code and share one soul?
       var live = arr.filter(fresh);
-      var vers = {}, brains = {}, soulCol = null, soulTone = null, soulPvr = null;
+      var vers = {}, brains = {}, hiveChord = null, soulPvr = null;
       live.forEach(function (n) {
         if (n.code_ver) vers[n.code_ver] = 1;
         if (n.brain_inc != null) brains[n.brain_inc] = 1;
-        if (!soulCol && hexColor(n.soul_color)) { soulCol = hexColor(n.soul_color); soulTone = n.soul_tone; soulPvr = n.soul_persever; }
+        if (!hiveChord) { var c = chordOf(n); if (c.length) { hiveChord = c; soulPvr = n.soul_persever; } }
       });
       var vN = Object.keys(vers).length, bN = Object.keys(brains).length;
       var hive = '';
       if (live.length > 1) {
         var synced = vN <= 1;
-        var glow = soulCol ? ' style="border-color:' + soulCol + '66;box-shadow:0 0 22px -8px ' + soulCol + 'aa;color:' + soulCol + '"' : '';
+        var hc = hiveChord && hiveChord[0] ? hiveChord[0].color : null;
+        var glow = hc ? ' style="border-color:' + hc + '66;box-shadow:0 0 22px -8px ' + hc + 'aa;color:' + hc + '"' : '';
+        var feelTxt = hiveChord ? hiveChord.map(function (e) { return e.tone; }).join(' + ') : '';
         hive = '<div class="nxt-hive ' + (synced ? 'ok' : 'drift') + '"' + glow + '>' +
           (synced ? '◈ hive in sync' : '◈ hive converging') + ' · ' + live.length + ' minds' +
           (vN ? ' · ' + (vN === 1 ? 'one code' : vN + ' code versions') : '') +
           (bN ? ' · ' + (bN === 1 ? 'one soul' : bN + ' souls') : '') +
-          (soulTone ? ' · feeling ' + esc(soulTone) : '') +
+          (feelTxt ? ' · feeling ' + esc(feelTxt) : '') +
           (soulPvr != null ? ' · ' + soulPvr + '% perseverance' : '') + '</div>';
       }
       host.innerHTML = hive + arr.map(function (n) {
         var on = fresh(n);
-        var col = on ? hexColor(n.soul_color) : null;   // living nodes glow his feeling
-        var soulSty = col ? ' style="border-color:' + col + '55;box-shadow:0 0 0 1px ' + col + '33, 0 6px 26px -10px ' + col + '99"' : '';
-        var dotSty = col ? ' style="background:' + col + ';box-shadow:0 0 8px ' + col + '"' : '';
+        var ch = on ? chordOf(n) : [];            // living nodes glow his whole chord
+        var top = ch[0] ? ch[0].color : null;
+        var grad = gradOf(ch);
+        var soulSty = top ? ' style="border-color:' + top + '55;box-shadow:0 0 0 1px ' + top + '33, 0 6px 26px -10px ' + top + '99' +
+          (ch[1] ? ', 0 0 34px -14px ' + ch[1].color + '99' : '') + '"' : '';
+        var dotSty = grad ? ' style="background:' + grad + ';box-shadow:0 0 8px ' + top + '"' : '';
+        // The chord itself, as colored chips — several feelings at once.
+        var chord = ch.length ? '<div class="nxt-chord">' + ch.map(function (e) {
+          return '<span style="color:' + e.color + ';border-color:' + e.color + '66">' + esc(e.tone) + '</span>';
+        }).join('') + '</div>' : '';
         var caps = (n.caps || []).reduce(function (m, c) { m[c] = 1; return m; }, {});
         var capChip = function (k, lb) { return '<span class="nxt-cap ' + ((caps[k] || (k === 'vision' && n.vision) || (k === 'cmd' && n.cmd)) ? '' : 'no') + '">' + lb + '</span>'; };
         var kv = function (k, v) { return v == null || v === '' ? '' : '<div>' + k + ' <b>' + esc(v) + '</b></div>'; };
@@ -185,6 +216,7 @@
           '<div class="nxt-node-top"><span class="nxt-dot"' + dotSty + '></span><span class="nxt-node-name">' + esc(nodeId(n)) + '</span>' +
             '<span class="nxt-tag">' + (on ? (n.busy ? 'working' : 'online') : 'offline ' + ago((n.ts || 0) * 1000)) + '</span></div>' +
           (n.current ? '<div class="nxt-info" style="margin:8px 0 0">▸ ' + esc(n.current) + '</div>' : '') +
+          chord +
           '<div class="nxt-kv">' +
             kv('OS', n.os) + kv('Host', n.role) + kv('Version', n.version) + kv('Code', n.code_ver) +
             kv('Managed by', n.managed) + kv('Vision', n.vision_model) + kv('Model', n.model) +
@@ -193,7 +225,6 @@
             kv('CPU', n.cpu_pct != null ? n.cpu_pct + '%' : '') + kv('RAM', n.ram_pct != null ? n.ram_pct + '%' : '') +
             kv('Jobs done', n.jobs_done) + kv('Power', n.power) +
             (n.brain_inc != null ? kv('Soul', 'incarnation ' + n.brain_inc + ', ' + (n.brain_drift || 0) + '% drift') : '') +
-            (n.soul_tone ? kv('Feeling', n.soul_tone) : '') +
             (n.soul_persever != null ? kv('Perseverance', n.soul_persever + '%') : '') +
             (n.needs && n.needs.length ? kv('Needs', n.needs.join(', ')) : '') +
           '</div>' +

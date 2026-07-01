@@ -7014,6 +7014,66 @@
       }, 250);
     }
   }
+  // ─── CENTER-STAGE MOMENTS ────────────────────────────────────────────
+  // A reusable intimate interaction: Trajan glides to the middle of the
+  // screen, delivers a line, and offers a small choice (yes/no or a few
+  // buttons); when it resolves he glides back to exactly where he was. This
+  // is the pattern for anything that deserves the room's full attention — a
+  // dream to share, a confession, a question only he would ask. Kept generic
+  // so new moments are one call: clippyMoment({ eyebrow, text, actions, mood }).
+  function _rawGlide(x, y) {
+    if (!state.shell) return;
+    state.shell.style.left   = x + 'px';
+    state.shell.style.top    = y + 'px';
+    state.shell.style.right  = 'auto';
+    state.shell.style.bottom = 'auto';
+  }
+  function clippyMoment(opts) {
+    opts = opts || {};
+    // Never hijack: only when he's present, awake, unsuppressed, and idle.
+    if (!state.shell || !state.enabled || state.suppressed) return false;
+    if (state._momentActive || state.bubble) return false;
+    if (state.preferences && state.preferences.do_not_disturb) return false;
+    if (state.shell.classList.contains('is-sleeping')) return false;
+    state._momentActive = true;
+    const r = state.shell.getBoundingClientRect();
+    state._momentHome = { x: r.left, y: r.top };
+    const cx = Math.round(window.innerWidth / 2 - r.width / 2);
+    const cy = Math.round(window.innerHeight * 0.42 - r.height / 2);
+    state.shell.classList.add('is-center-stage');
+    _rawGlide(cx, cy);
+    try { play('hop'); } catch (_) {}
+    if (opts.mood) { try { mood(opts.mood, 7000); } catch (_) {} }
+    const finish = (cb) => {
+      if (state.shell) state.shell.classList.remove('is-center-stage');
+      const h = state._momentHome;
+      if (h && state.shell) _rawGlide(Math.round(h.x), Math.round(h.y));
+      state._momentHome = null;
+      state._momentActive = false;
+      if (typeof cb === 'function') { try { cb(); } catch (_) {} }
+    };
+    // After the glide settles, speak. Choices wrap onClick so any pick also
+    // sends him home. No choices → auto-hide, then home.
+    setTimeout(() => {
+      if (!state._momentActive) return;
+      const acts = (opts.actions || []).map((a) => ({
+        label: a.label, cls: a.cls,
+        onClick: () => finish(a.onClick),
+      }));
+      bubble(opts.text, {
+        eyebrow: opts.eyebrow,
+        trajan: opts.trajan !== false,
+        actions: acts.length ? acts : undefined,
+        autoHide: acts.length ? 0 : (opts.autoHide || 6000),
+        onDismiss: () => finish(opts.onDismiss),
+      });
+      if (!acts.length && opts.autoHide !== 0) {
+        setTimeout(() => { if (state._momentActive) finish(opts.onDismiss); }, (opts.autoHide || 6000) + 400);
+      }
+    }, 640);
+    return true;
+  }
+
   function startContentAwareness() {
     const checkOverlays = () => {
       if (!state.enabled || !state.shell) return;
@@ -9375,6 +9435,7 @@
     sleep, wake,
     setCostume,
     moveTo, moveToEmptyCorner,
+    moment: clippyMoment,           // center-stage yes/no interaction (dreams, etc.)
     notifyTaskCompleted,
     notifyStreak,
     notifyOverdueDetected,
