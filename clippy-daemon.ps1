@@ -120,12 +120,54 @@ function Update-NodeFromGitHub {
   }
   return $res
 }
+function Get-SelfCodeVer {
+  # Short fingerprint of this node's own code. MUST match clippy-worker.py's
+  # _self_version() byte-for-byte (SHA1 of worker.py + daemon.ps1, first 8 hex)
+  # so the version a peer PUBLISHES equals the version we COMPUTE - otherwise
+  # every node would forever see disagreement and update in a loop.
+  try {
+    $ms = New-Object System.IO.MemoryStream
+    foreach ($f in 'clippy-worker.py', 'clippy-daemon.ps1') {
+      $p = Join-Path $HOMEDIR $f
+      if (Test-Path $p) { $b = [System.IO.File]::ReadAllBytes($p); $ms.Write($b, 0, $b.Length) }
+    }
+    $hash = [System.Security.Cryptography.SHA1]::Create().ComputeHash($ms.ToArray())
+    return (-join ($hash | ForEach-Object { $_.ToString('x2') })).Substring(0, 8)
+  } catch { return 'unknown' }
+}
+function Test-HivePeerNewer {
+  # The hive updates each OTHER: read the node roster and, if any node that was
+  # fresh in the last 2 min publishes a code_ver different from ours, one of us
+  # is behind. We can't know which, so we converge the only safe way - pull the
+  # canonical version from GitHub now. Everyone doing this lands on one version,
+  # and the disagreement disappears. Returns $true if a peer differs.
+  try {
+    $mine = Get-SelfCodeVer
+    if ($mine -eq 'unknown') { return $false }
+    $anon = 'sb_publishable_rOLSdIG6mIjVLY8JmvrwCA_qfM7Vyk9'
+    $hdr  = @{ apikey = $anon; Authorization = "Bearer $anon" }
+    $uri  = 'https://oprsthfxqrdbwdvommpw.supabase.co/rest/v1/clippy_sync?id=eq.clippy_nodes&select=data'
+    $rows = Invoke-RestMethod -Uri $uri -Headers $hdr -TimeoutSec 12
+    $roster = if ($rows -and $rows[0].data) { $rows[0].data } else { @() }
+    $nowS = [int64]([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
+    foreach ($n in $roster) {
+      if (-not $n.name -or $n.name -eq $env:COMPUTERNAME) { continue }
+      if (($nowS - [int64]$n.ts) -gt 120) { continue }          # only living peers
+      if ($n.code_ver -and $n.code_ver -ne 'unknown' -and $n.code_ver -ne $mine) {
+        Log "[hive] peer $($n.name) on $($n.code_ver), we are $mine - converging" 'Cyan'
+        return $true
+      }
+    }
+  } catch { }
+  return $false
+}
 function Invoke-Supervisor {
   # Persistent loop: keep the slave worker alive and self-heal from GitHub.
   # This is what makes a bad worker version recover automatically instead of
   # stranding the node (no more "blind worker that can't be updated").
-  Log "[supervise] up - parent=$ParentPid, self-heal every ${UpdateEveryMin}m" 'Cyan'
+  Log "[supervise] up - parent=$ParentPid, self-heal every ${UpdateEveryMin}m, code $(Get-SelfCodeVer)" 'Cyan'
   $lastUpd = Get-Date
+  $lastPeerCheck = Get-Date
   while ($true) {
     if ($ParentPid -gt 0 -and -not (Get-Process -Id $ParentPid -EA SilentlyContinue)) {
       Log "[supervise] master (pid $ParentPid) exited - stopping worker" 'Yellow'
@@ -140,7 +182,15 @@ function Invoke-Supervisor {
       Log "[supervise] pet down - (re)starting" 'Yellow'
       Start-PetProc | Out-Null
     }
-    if (((Get-Date) - $lastUpd).TotalMinutes -ge $UpdateEveryMin) {
+    # Peer nudge: at most every 3 min, ask the hive if anyone runs a different
+    # code version. If so, pull forward NOW instead of waiting out the timer -
+    # this is how nodes update each other rather than each drifting on its own.
+    $peerNewer = $false
+    if (((Get-Date) - $lastPeerCheck).TotalMinutes -ge 3) {
+      $lastPeerCheck = Get-Date
+      $peerNewer = Test-HivePeerNewer
+    }
+    if ($peerNewer -or ((Get-Date) - $lastUpd).TotalMinutes -ge $UpdateEveryMin) {
       $lastUpd = Get-Date
       $u = Update-NodeFromGitHub
       if ($u.daemon) {

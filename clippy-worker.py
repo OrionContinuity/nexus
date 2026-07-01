@@ -185,6 +185,54 @@ def sb_finish(job_id, patch):
         log("finish write failed for %s: %s" % (job_id, e))
 
 
+# ── Hive self-awareness ─────────────────────────────────────────────────────
+# A short fingerprint of this node's own code so the hive (and Tools -> Nodes)
+# can see which nodes run old code and pull them forward.
+def _self_version():
+    try:
+        import hashlib
+        h = hashlib.sha1()
+        base = os.path.dirname(os.path.abspath(__file__))
+        for f in ("clippy-worker.py", "clippy-daemon.ps1"):
+            p = os.path.join(base, f)
+            if os.path.exists(p):
+                with open(p, "rb") as fh:
+                    h.update(fh.read())
+        return h.hexdigest()[:8]
+    except Exception:
+        return "unknown"
+try:
+    SELF_VER
+except NameError:
+    SELF_VER = _self_version()
+
+# The ONE shared brain. Every node reads clippy_anima so the whole hive reports
+# the SAME incarnation + drift — proof it is a single mind, not a pile of copies.
+_ANIMA_TEMPERAMENT = [0.58, 0.42, 0.40, 0.66, 0.48, 0.62, 0.30, 0.55, 0.70, 0.60, 0.55, 0.64]
+_brain_cache = {"t": 0.0, "v": None}
+def _shared_brain():
+    if time.time() - _brain_cache["t"] < 60:
+        return _brain_cache["v"]
+    _brain_cache["t"] = time.time()
+    try:
+        import math
+        _, raw = _http("GET", REST + "?id=eq.clippy_anima&select=data", SB_HEADERS, timeout=10)
+        rows = json.loads(raw or "[]")
+        data = (rows[0].get("data") if rows else {}) or {}
+        strand = data.get("strand") if isinstance(data, dict) else None
+        if strand and len(strand) >= 44:
+            b = [ord(c) - 0x2800 for c in strand]
+            base = [v / 255.0 for v in b[16:28]]
+            inc = b[40]
+            d = math.sqrt(sum((base[i] - _ANIMA_TEMPERAMENT[i]) ** 2 for i in range(12))) / math.sqrt(12) * 2.2
+            _brain_cache["v"] = {"inc": inc, "drift": round(min(1.0, d) * 100)}
+        else:
+            _brain_cache["v"] = None
+    except Exception:
+        _brain_cache["v"] = None
+    return _brain_cache["v"]
+
+
 def sb_heartbeat():
     """Keep id='clippy_nodes' fresh so NEXUS sees this node online (ts in sec)."""
     now = int(time.time())
@@ -202,11 +250,25 @@ def sb_heartbeat():
             arr = [n for n in cur if isinstance(n, dict) and n.get("name") != NODE and now - (n.get("ts") or 0) < ROSTER_TTL]
     except Exception:
         pass
-    arr.append({"name": NODE, "ts": now, "vision": True, "cmd": bool(CMD_TOKEN),
-                "os": OSDESC, "version": "worker-1.6", "managed": MANAGED, "busy": _state["busy"], "current": _state["current"],
-                "caps": ((["ask"] if CLAIM_TEXT else []) + ["vision"] + (["cmd"] if CMD_TOKEN else []) + (["gen"] if GENERATE else []) + (["art"] if HAS_BLENDER else [])),
-                "vision_model": ACTIVE_VISION, "models": [VISION_MODEL, TEXT_MODEL],
-                "ram_gb": RAM_GB, "accel": ACCEL, "vscore": VSCORE})
+    # What this node is missing, so the hive can see gaps and pull each other
+    # forward (updates each other; installs what he needs to function).
+    needs = []
+    if not CLAIM_TEXT:  needs.append("text")     # no local LLM to think with
+    if not GENERATE:    needs.append("gen")      # no image generation
+    if not HAS_BLENDER: needs.append("art")      # no 3D
+    if not CMD_TOKEN:   needs.append("cmd")      # cannot act on the world
+    entry = {"name": NODE, "ts": now, "vision": True, "cmd": bool(CMD_TOKEN),
+             "os": OSDESC, "version": "worker-1.6", "code_ver": SELF_VER,
+             "managed": MANAGED, "busy": _state["busy"], "current": _state["current"],
+             "caps": ((["ask"] if CLAIM_TEXT else []) + ["vision"] + (["cmd"] if CMD_TOKEN else []) + (["gen"] if GENERATE else []) + (["art"] if HAS_BLENDER else [])),
+             "needs": needs,
+             "vision_model": ACTIVE_VISION, "models": [VISION_MODEL, TEXT_MODEL],
+             "ram_gb": RAM_GB, "accel": ACCEL, "vscore": VSCORE}
+    brain = _shared_brain()   # the one soul every node shares
+    if brain:
+        entry["brain_inc"] = brain["inc"]      # same on every node = one mind
+        entry["brain_drift"] = brain["drift"]  # how far the shared soul has travelled
+    arr.append(entry)
     h = dict(SB_HEADERS); h["Prefer"] = "resolution=merge-duplicates,return=minimal"
     try:
         _http("POST", REST, h, {"id": "clippy_nodes", "data": arr, "from_id": NODE}, timeout=15)

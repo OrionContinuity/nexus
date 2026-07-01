@@ -78,6 +78,8 @@
       '.nxt-kv{display:grid;grid-template-columns:repeat(2,1fr);gap:3px 14px;margin-top:9px}',
       '.nxt-kv div{font-size:11.5px;color:var(--nx-muted)}',
       '.nxt-kv b{color:var(--nx-text);font-weight:600}',
+      '.nxt-hive{font-size:11px;font-family:var(--nx-font-mono,monospace);letter-spacing:.03em;padding:7px 11px;margin-bottom:11px;border-radius:9px;border:1px solid var(--nx-gold-line);color:var(--nx-gold);background:var(--nx-highlight-tint)}',
+      '.nxt-hive.drift{color:var(--nx-muted);border-color:var(--nx-highlight-tint)}',
       '.nxt-caps{display:flex;gap:5px;margin-top:9px;flex-wrap:wrap}',
       '.nxt-cap{font-size:9.5px;font-family:var(--nx-font-mono,monospace);text-transform:uppercase;padding:1px 7px;border-radius:999px;border:1px solid var(--nx-gold-line);color:var(--nx-gold)}',
       '.nxt-cap.no{color:var(--nx-faint);border-color:var(--nx-highlight-tint);opacity:.7}',
@@ -148,7 +150,20 @@
     busGet('clippy_nodes').then(function (arr) {
       if (!Array.isArray(arr) || !arr.length) { host.innerHTML = '<div class="nxt-empty">○ No Clippy nodes registered.<br>Start the poller on a PC, then pull to refresh.</div>'; return; }
       arr.sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); });
-      host.innerHTML = arr.map(function (n) {
+      // Hive consensus: do all LIVING nodes run the same code and share one soul?
+      var live = arr.filter(fresh);
+      var vers = {}, brains = {};
+      live.forEach(function (n) { if (n.code_ver) vers[n.code_ver] = 1; if (n.brain_inc != null) brains[n.brain_inc] = 1; });
+      var vN = Object.keys(vers).length, bN = Object.keys(brains).length;
+      var hive = '';
+      if (live.length > 1) {
+        var synced = vN <= 1;
+        hive = '<div class="nxt-hive ' + (synced ? 'ok' : 'drift') + '">' +
+          (synced ? '◈ hive in sync' : '◈ hive converging') + ' · ' + live.length + ' minds' +
+          (vN ? ' · ' + (vN === 1 ? 'one code' : vN + ' code versions') : '') +
+          (bN ? ' · ' + (bN === 1 ? 'one soul' : bN + ' souls') : '') + '</div>';
+      }
+      host.innerHTML = hive + arr.map(function (n) {
         var on = fresh(n);
         var caps = (n.caps || []).reduce(function (m, c) { m[c] = 1; return m; }, {});
         var capChip = function (k, lb) { return '<span class="nxt-cap ' + ((caps[k] || (k === 'vision' && n.vision) || (k === 'cmd' && n.cmd)) ? '' : 'no') + '">' + lb + '</span>'; };
@@ -158,12 +173,14 @@
             '<span class="nxt-tag">' + (on ? (n.busy ? 'working' : 'online') : 'offline ' + ago((n.ts || 0) * 1000)) + '</span></div>' +
           (n.current ? '<div class="nxt-info" style="margin:8px 0 0">▸ ' + esc(n.current) + '</div>' : '') +
           '<div class="nxt-kv">' +
-            kv('OS', n.os) + kv('Host', n.role) + kv('Version', n.version) +
+            kv('OS', n.os) + kv('Host', n.role) + kv('Version', n.version) + kv('Code', n.code_ver) +
             kv('Managed by', n.managed) + kv('Vision', n.vision_model) + kv('Model', n.model) +
             kv('RAM', n.ram_gb ? n.ram_gb + ' GB' : '') + kv('Accel', n.accel) + kv('Strength', n.vscore) +
             kv('GPU', n.gpu) + kv('CUDA', n.cuda == null ? '' : (n.cuda ? 'yes' : 'no')) +
             kv('CPU', n.cpu_pct != null ? n.cpu_pct + '%' : '') + kv('RAM', n.ram_pct != null ? n.ram_pct + '%' : '') +
             kv('Jobs done', n.jobs_done) + kv('Power', n.power) +
+            (n.brain_inc != null ? kv('Soul', 'incarnation ' + n.brain_inc + ', ' + (n.brain_drift || 0) + '% drift') : '') +
+            (n.needs && n.needs.length ? kv('Needs', n.needs.join(', ')) : '') +
           '</div>' +
           '<div class="nxt-caps">' + capChip('ask', 'chat') + capChip('vision', 'vision') + capChip('cmd', 'commands') + '</div>' +
         '</div>';
