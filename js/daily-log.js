@@ -2869,7 +2869,11 @@ async function emailEachLocation() {
   const log = state.currentLog;
   const d = hydrateData(log && log.data);
   const dateStr = (log && log.log_date) || (d.header && d.header.date) || todayISO();
-  await ensureClippyDailyQuote(d, dateStr);   // one authored opener for the day, shared across locations
+  // Fire-and-forget: don't block, and critically don't await before the
+  // window.open loop below — a delay here would drop us out of the click
+  // gesture and trip pop-up blockers. The opener uses the cached line or the
+  // static pool.
+  try { Promise.resolve(ensureClippyDailyQuote(d, dateStr)).catch(() => {}); } catch (_) {}
   if (!Array.isArray(d.locations) || !d.locations.length) { if (NX.toast) NX.toast('No locations to email', 'info'); return; }
   if (!(window.NX && NX.email && NX.email.gmailComposeUrl)) { if (NX.toast) NX.toast('Email engine not ready — try again', 'error'); return; }
   let opened = 0, empty = 0;
@@ -2893,7 +2897,11 @@ async function openDailyLogEmail() {
   const log = state.currentLog;
   const d = hydrateData(log && log.data);
   const dateStr = (log && log.log_date) || (d.header && d.header.date) || todayISO();
-  await ensureClippyDailyQuote(d, dateStr);   // let Clippy author today's opener (falls back to the pool)
+  // Warm today's authored opener for next time, but NEVER block the email on it.
+  // A cold/slow LLM call (up to a 7s timeout) must not hold the composer hostage
+  // — this was why "Email <location>" took forever. dlogEmailGreeting uses the
+  // line if it's already cached, otherwise the static pool. Instant either way.
+  try { Promise.resolve(ensureClippyDailyQuote(d, dateStr)).catch(() => {}); } catch (_) {}
   // Split option: a selected location pill sends ONLY that location's notes;
   // Overview sends the full day.
   let subject, body, recipientsKey, title;
