@@ -21,8 +21,8 @@
 <link rel="dns-prefetch" href="https://unpkg.com">
 
 <!-- Preload above-the-fold assets so coin + masthead don't flash unstyled -->
-<link rel="preload" href="assets/coin-trajan.png" as="image">
-<link rel="preload" href="assets/coin-providentia.png" as="image">
+<link rel="preload" href="assets/coin-providentia.webp" as="image" type="image/webp">
+<link rel="preload" href="assets/coin-trajan.webp" as="image" type="image/webp">
 <link rel="preload" href="css/nexus.css" as="style">
 <link rel="preload" href="css/nx-system.css" as="style">
 
@@ -72,8 +72,10 @@
 <style>
 /* ═══════════════════════════════════════════════════════════════════════
    NEXUS COIN — login screen hero
-   3D-flip coin showing Trajan (front) and Orion (back) on the PIN screen.
-   The coin lives inside #pinScreen so it auto-hides post-auth.
+   3D-flip coin: Providentia reverse (front face) and Trajan obverse (back).
+   Faces are pre-centered 640px WebP (identical disc geometry, no baked
+   shadows — shadows/glow come from CSS so they stay on the correct side
+   mid-flip). The coin lives inside #pinScreen so it auto-hides post-auth.
    ═══════════════════════════════════════════════════════════════════════ */
 
 /* Stage holds the coin + the (i) button. perspective enables 3D children. */
@@ -561,6 +563,55 @@
 }
 #pinScreen .tc-time:empty {
   display: none;
+}
+
+/* One-tap punch: location chips (last-used preselected) + undo row.
+   Chips replace the old two-step confirm screen — pick, tap, done. */
+#pinScreen .tc-loc-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  justify-content: center;
+  margin: 0 0 12px;
+  flex-shrink: 0;
+}
+#pinScreen .tc-loc-chips:empty { display: none; }
+#pinScreen .tc-loc-chip {
+  padding: 8px 15px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+  background: none;
+  border: 1px solid var(--nx-gold-line);
+  color: var(--nx-text);
+  opacity: .75;
+  transition: border-color .15s, color .15s, opacity .15s;
+}
+#pinScreen .tc-loc-chip.on {
+  border-color: var(--green, #4caf7d);
+  color: var(--green, #4caf7d);
+  font-weight: 700;
+  opacity: 1;
+}
+#pinScreen .tc-undo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--nx-faint);
+  margin: 6px 0 0;
+  flex-shrink: 0;
+}
+#pinScreen .tc-undo button {
+  background: none;
+  border: 1px solid var(--nx-gold-line);
+  color: var(--nx-gold, #d4a44e);
+  padding: 5px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .06em;
 }
 
 /* Location dropdown */
@@ -2144,10 +2195,10 @@
         <button class="nx-coin-info" id="nxCoinInfo" type="button" aria-label="About the NEXUS coin">i</button>
         <div class="nx-coin" id="nxCoin" tabindex="0" role="button" aria-label="NEXUS coin — tap to flip">
           <div class="nx-coin-face nx-coin-front">
-            <img src="assets/coin-providentia.png" alt="Providentia, goddess of foresight" draggable="false">
+            <img src="assets/coin-providentia.webp" alt="Providentia, goddess of foresight" draggable="false">
           </div>
           <div class="nx-coin-face nx-coin-back">
-            <img src="assets/coin-trajan.png" alt="Trajan, Optimus Princeps" draggable="false">
+            <img src="assets/coin-trajan.webp" alt="Trajan, Optimus Princeps" draggable="false">
           </div>
         </div>
       </div>
@@ -2202,10 +2253,15 @@
         <div class="tc-card">
           <div class="tc-status" id="tcStatus"></div>
           <select id="tcLocation" class="tc-loc-select" style="display:none"></select>
+          <!-- One-tap punch: pick a location chip (last-used preselected),
+               tap Clock In — done. No second confirm screen; accidental taps
+               are covered by the 6-second Undo row below instead. -->
+          <div class="tc-loc-chips" id="tcLocChipsRow"></div>
           <div class="tc-buttons">
             <button class="tc-btn tc-btn-in" id="tcClockIn" data-i18n="clockIn">Clock In</button>
             <button class="tc-btn tc-btn-out" id="tcClockOut" style="display:none" data-i18n="clockOut">Clock Out</button>
           </div>
+          <div class="tc-undo" id="tcUndoRow" style="display:none"></div>
           <div class="tc-pin-actions">
             <button class="tc-download" id="tcPinDownload">⬇ My Timesheet</button>
           </div>

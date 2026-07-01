@@ -342,16 +342,22 @@ const NX = {
     const savedUser = sessionStorage.getItem('nexus_current_user');
     const savedToken = sessionStorage.getItem('nexus_session_token');
 
-    // ═══ QR AUTO-LOGIN — check URL params for pin & scan action ═══
+    // ═══ QR AUTO-LOGIN — pin via URL, for printed badge QR codes ═══
+    // Prefer the #fragment form (#pin=1234): fragments never leave the
+    // browser, so the PIN can't land in server/CDN access logs the way a
+    // ?query param can. The legacy ?pin= form still works for QR codes
+    // already printed. Either way the URL is scrubbed immediately, and the
+    // server-side rate limiter in verify_pin caps abuse of guessed URLs.
     const urlParams = new URLSearchParams(window.location.search);
-    const autoPin = urlParams.get('pin');
-    const autoScan = urlParams.get('scan');
+    const hashParams = new URLSearchParams((window.location.hash || '').replace(/^#/, ''));
+    const autoPin = hashParams.get('pin') || urlParams.get('pin');
+    const autoScan = hashParams.get('scan') || urlParams.get('scan');
     if (autoPin && !savedUser) {
       // Auto-login with PIN from QR code
       const errorEl = document.getElementById('pinError');
       const userEl = document.getElementById('pinUser');
       await this.authenticatePin(autoPin, errorEl, userEl, () => {});
-      // Clean URL params after login
+      // Scrub the PIN from the URL (query AND fragment) after login
       if (window.history.replaceState) {
         window.history.replaceState({}, '', window.location.pathname);
       }
@@ -446,6 +452,18 @@ const NX = {
       // server-side, returns a JSON user row on success or null/empty on
       // failure.
       const { data: rpcData, error } = await this.sb.rpc('verify_pin', { p_pin: pin });
+      // Server-side rate limiter tripped (too many failed attempts from this
+      // network). Say so with a countdown — "Invalid PIN" would be a lie,
+      // since the PIN they typed may well be correct.
+      if (rpcData && typeof rpcData === 'object' && rpcData.locked) {
+        const mins = Math.max(1, Math.round((rpcData.retry_seconds || 900) / 60));
+        const es = this.i18n && this.i18n.getLang && this.i18n.getLang() === 'es';
+        errorEl.textContent = es
+          ? 'Demasiados intentos — espera ' + mins + ' min'
+          : 'Too many attempts — wait ' + mins + ' min';
+        errorEl.classList.add('shake'); setTimeout(() => errorEl.classList.remove('shake'), 500);
+        resetFn(); return;
+      }
       // RPC returns null for an invalid PIN. Successful auth returns a
       // JSON object (user row). Empty object {} also counts as failure.
       const data = (rpcData && typeof rpcData === 'object' && rpcData.id) ? rpcData : null;
@@ -4609,66 +4627,6 @@ NX.timeClock = {
     return !!this._activeEntry;
   },
 
-  // Dedicated confirm screen — kiosk pattern (Toast/7shifts/Homebase):
-  // the punch is a deliberate two-step. Clock In picks a location here
-  // (defaults to last used / home location); Clock Out confirms intent.
-  // Hours appear only in the private post-action toast, never on screen.
-  openClockConfirm(mode) {
-    document.querySelectorAll('.tc-confirm-bg').forEach(m => m.remove());
-    const user = NX.currentUser || {};
-    const isIn = mode === 'in';
-    // Locations: from the (hidden) dropdown the builders maintain, with a
-    // safe fallback to the three restaurants.
-    let locs = Array.from(document.querySelectorAll('#tcLocation option'))
-      .map(o => o.value).filter(v => v && v !== '__new__');
-    if (!locs.length) locs = ['Suerte', 'Este', 'Bar Toti'];
-    const last = localStorage.getItem('nexus_last_location') || user.location || locs[0];
-    let chosen = locs.includes(last) ? last : locs[0];
-
-    const bg = document.createElement('div');
-    bg.className = 'tc-confirm-bg';
-    bg.style.cssText = 'position:fixed;inset:0;z-index:1600;background:rgba(8,7,5,.96);display:flex;align-items:center;justify-content:center;padding:24px';
-    const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-    bg.innerHTML = `
-      <div style="width:100%;max-width:360px;text-align:center;font-family:var(--nx-font-body,'DM Sans',sans-serif)">
-        <div style="font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:${isIn ? 'var(--green,#4caf7d)' : 'var(--red,#e5484d)'};margin-bottom:10px">${isIn ? 'Clock In' : 'Clock Out'}</div>
-        <div style="font-family:var(--nx-font-display,'Outfit',sans-serif);font-size:26px;font-weight:600;color:#f0e9dd;margin-bottom:6px">${esc(user.name || 'Staff')}</div>
-        <div style="font-size:13.5px;color:rgba(240,233,221,.55);margin-bottom:22px">${isIn ? 'Where are you working today?' : 'End your shift now?'}</div>
-        ${isIn ? `<div id="tcLocChips" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-bottom:26px">${locs.map(l =>
-          `<button data-loc="${esc(l)}" style="padding:10px 18px;border-radius:999px;font-size:14px;border:1px solid ${l === chosen ? 'var(--green,#4caf7d)' : 'rgba(212,164,78,.25)'};color:${l === chosen ? 'var(--green,#4caf7d)' : '#e8e0d2'};background:none;font-weight:${l === chosen ? '600' : '400'}">${esc(l)}</button>`).join('')}</div>` : ''}
-        <button id="tcConfirmGo" style="width:100%;padding:16px;border-radius:16px;border:none;font-size:16px;font-weight:700;color:#0c0a08;background:${isIn ? 'var(--green,#4caf7d)' : 'var(--red,#e5484d)'};margin-bottom:12px">${isIn ? 'Confirm Clock In' : 'Confirm Clock Out'}</button>
-        <button id="tcConfirmCancel" style="width:100%;padding:13px;border-radius:16px;font-size:14px;background:none;border:1px solid rgba(212,164,78,.22);color:rgba(240,233,221,.7)">Cancel</button>
-      </div>`;
-    document.body.appendChild(bg);
-    bg.querySelector('#tcLocChips')?.addEventListener('click', e => {
-      const b = e.target.closest('[data-loc]');
-      if (!b) return;
-      chosen = b.dataset.loc;
-      bg.querySelectorAll('[data-loc]').forEach(x => {
-        const on = x.dataset.loc === chosen;
-        x.style.borderColor = on ? 'var(--green,#4caf7d)' : 'rgba(212,164,78,.25)';
-        x.style.color = on ? 'var(--green,#4caf7d)' : '#e8e0d2';
-        x.style.fontWeight = on ? '600' : '400';
-      });
-    });
-    bg.querySelector('#tcConfirmCancel').addEventListener('click', () => bg.remove());
-    bg.addEventListener('click', e => { if (e.target === bg) bg.remove(); });
-    bg.querySelector('#tcConfirmGo').addEventListener('click', async (e) => {
-      const btn = e.currentTarget;
-      if (btn.dataset.busy) return;          // double-tap guard
-      btn.dataset.busy = '1';
-      btn.textContent = isIn ? 'Clocking in…' : 'Clocking out…';
-      if (isIn) {
-        localStorage.setItem('nexus_last_location', chosen);
-        const sel = document.getElementById('tcLocation');
-        if (sel) sel.value = chosen;
-        await this.clockIn(chosen);
-      } else {
-        await this.clockOut();
-      }
-      bg.remove();
-    });
-  },
 
   async clockIn(location) {
     if (!NX.currentUser) return;
@@ -4722,6 +4680,7 @@ NX.timeClock = {
         .update({ clock_out: now.toISOString(), hours: parseFloat(hours) })
         .eq('id', previousEntry.id);
       if (error) throw error;
+      this._lastClosed = previousEntry;   // kept so the Undo row can reopen the shift
       if (NX.toast) NX.toast(`Clocked out — ${hours} hrs ✓`, 'success');
       NX.syslog('clock_out', `${NX.currentUser?.name || '?'} — ${hours}h`);
     } catch (e) {
@@ -4749,9 +4708,15 @@ NX.timeClock = {
     if (tcPanel && tcPanel.style.display !== 'none') {
       const tcS = document.getElementById('tcStatus');
       if (tcS) {
-        tcS.textContent = isIn ? 'CLOCKED IN' : 'NOT CLOCKED IN';
+        // Show WHERE they're punched in (times stay private on this shared
+        // screen, but the location makes the state legible at a glance).
+        const loc = isIn && this._activeEntry?.location ? ' · ' + String(this._activeEntry.location).toUpperCase() : '';
+        tcS.textContent = isIn ? 'CLOCKED IN' + loc : 'NOT CLOCKED IN';
         tcS.style.color = isIn ? 'var(--green)' : 'rgba(255,255,255,.4)';
       }
+      // Location chips only matter before the punch — hide once clocked in.
+      const chipsRow = document.getElementById('tcLocChipsRow');
+      if (chipsRow) chipsRow.style.display = isIn ? 'none' : '';
       // tcTime intentionally removed from the shared punch screen (times
       // are private); guard in case of stale markup.
       const tcT = document.getElementById('tcTime');
@@ -4825,14 +4790,105 @@ NX.timeClock = {
     
     this.updateUI();
     this.startTimer();
+    this.renderPunchChips();   // one-tap punch: chips are ready before the tap
 
-    document.getElementById('tcClockIn')?.addEventListener('click', () => this.openClockConfirm('in'));
-    document.getElementById('tcClockOut')?.addEventListener('click', () => this.openClockConfirm('out'));
+    // ONE-TAP punch (replaces the old two-step confirm screen). The location
+    // is chosen via the inline chips (last-used preselected), the tap punches
+    // immediately, and a 6-second Undo row covers accidental taps — faster
+    // than the confirm for the 99% case, equally safe for the 1%.
+    document.getElementById('tcClockIn')?.addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      if (btn.dataset.busy) return;
+      btn.dataset.busy = '1'; btn.textContent = '…';
+      const loc = this._punchLoc || localStorage.getItem('nexus_last_location') || NX.currentUser?.location || '';
+      localStorage.setItem('nexus_last_location', loc);
+      const sel = document.getElementById('tcLocation');
+      if (sel) sel.value = loc;
+      await this.clockIn(loc);
+      delete btn.dataset.busy; btn.textContent = (NX.i18n && NX.i18n.t) ? NX.i18n.t('clockIn') : 'Clock In';
+      if (this._activeEntry) this.showUndo('in');
+    });
+    document.getElementById('tcClockOut')?.addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      if (btn.dataset.busy) return;
+      btn.dataset.busy = '1'; btn.textContent = '…';
+      await this.clockOut();
+      delete btn.dataset.busy; btn.textContent = (NX.i18n && NX.i18n.t) ? NX.i18n.t('clockOut') : 'Clock Out';
+      if (this._lastClosed) this.showUndo('out');
+    });
     document.getElementById('tcPinDownload')?.addEventListener('click', () => this.exportUserTimesheet());
     document.getElementById('tcEnter')?.addEventListener('click', () => {
       this.stopTimer();
       NX._loadConfigAndStart();
     });
+  },
+
+  // ── One-tap punch helpers ────────────────────────────────────────────────
+  // Location chips on the punch card. Values come from the same sources as
+  // the hidden dropdown; display is Title-Cased (the cache lowercases), but
+  // the stored value is preserved so history/analytics keep matching.
+  renderPunchChips() {
+    const row = document.getElementById('tcLocChipsRow');
+    if (!row) return;
+    let locs = Array.from(document.querySelectorAll('#tcLocation option'))
+      .map(o => o.value).filter(v => v && v !== '__new__');
+    if (!locs.length) locs = ['Suerte', 'Este', 'Bar Toti'];
+    const last = localStorage.getItem('nexus_last_location') || NX.currentUser?.location || locs[0];
+    this._punchLoc = locs.includes(last) ? last : locs[0];
+    const title = s => String(s).replace(/\w\S*/g, t => t[0].toUpperCase() + t.slice(1));
+    const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    row.innerHTML = locs.map(l =>
+      `<button type="button" class="tc-loc-chip${l === this._punchLoc ? ' on' : ''}" data-loc="${esc(l)}">${esc(title(l))}</button>`
+    ).join('');
+    row.querySelectorAll('.tc-loc-chip').forEach(ch => ch.addEventListener('click', () => {
+      this._punchLoc = ch.dataset.loc;
+      row.querySelectorAll('.tc-loc-chip').forEach(x => x.classList.toggle('on', x === ch));
+    }));
+  },
+
+  // 6-second Undo row after a punch. Undoing a clock-in deletes the row;
+  // undoing a clock-out reopens the shift (clears clock_out + hours).
+  showUndo(type) {
+    const rowEl = document.getElementById('tcUndoRow');
+    if (!rowEl) return;
+    clearTimeout(this._undoTimer);
+    const es = (NX.i18n && NX.i18n.getLang && NX.i18n.getLang() === 'es');
+    const label = type === 'in'
+      ? (es ? 'Entrada registrada' : 'Clocked in') + (this._activeEntry?.location ? ' · ' + this._activeEntry.location : '')
+      : (es ? 'Salida registrada' : 'Clocked out');
+    rowEl.innerHTML = '';
+    const span = document.createElement('span'); span.textContent = label;
+    const btn = document.createElement('button'); btn.textContent = es ? 'DESHACER' : 'UNDO';
+    btn.addEventListener('click', () => this.undoPunch(type));
+    rowEl.append(span, btn);
+    rowEl.style.display = '';
+    this._undoTimer = setTimeout(() => { rowEl.style.display = 'none'; }, 6000);
+  },
+
+  async undoPunch(type) {
+    const rowEl = document.getElementById('tcUndoRow');
+    if (rowEl) rowEl.style.display = 'none';
+    clearTimeout(this._undoTimer);
+    try {
+      if (type === 'in' && this._activeEntry) {
+        const id = this._activeEntry.id;
+        this._activeEntry = null;
+        if (id && !String(id).startsWith('pending-')) {
+          await NX.sb.from('time_clock').delete().eq('id', id);
+        }
+        if (NX.toast) NX.toast('Clock-in undone', 'info', 2000);
+      } else if (type === 'out' && this._lastClosed) {
+        const row = this._lastClosed;
+        this._lastClosed = null;
+        await NX.sb.from('time_clock').update({ clock_out: null, hours: null }).eq('id', row.id);
+        this._activeEntry = row;
+        if (NX.toast) NX.toast('Clock-out undone — shift reopened', 'info', 2200);
+      }
+    } catch (e) {
+      console.error('[timeClock] undo failed:', e);
+      if (NX.toast) NX.toast('Undo failed — check My Timesheet', 'error', 3000);
+    }
+    this.updateUI();
   },
 
   // FIX #3: Two-stage location dropdown
