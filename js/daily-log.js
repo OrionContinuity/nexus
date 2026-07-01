@@ -2347,6 +2347,21 @@ const CLIPPY_QUOTES = [
   'I’m on a seafood diet. I see food, I log it, I move on with my life.',
   'What do you call an alligator in a vest? An investigator. He found nothing wrong with tonight’s prep.',
   'Why don’t chefs ever get lost? They always follow the recipe.',
+  // Wine — insider, Clippy style
+  'Bzzt — I flagged TCA at two parts per trillion. The table smelled nothing. I smell everything. It is my curse and my brand.',
+  'The guest asked for a “unicorn wine.” I have no hands to pour a DRC, and frankly neither does your budget. May I suggest the Côtes du Rhône?',
+  'GuildSomm says structure over fruit. Marcus Aurelius said much the same about life. Bzzt — the Stoics were the original somms.',
+  'A 100-point wine, per Parker; a six-out-of-ten evening, per the four-top who wanted it “sweeter.” Scores are a construct. Bzzt.',
+  'They asked if it was “old world or new world.” I said “it is Tuesday.” Neither of us was satisfied, but the pour was honest.',
+  'Deductive tasting: clarity, intensity, then a long confident pause where I pray for a clue. The grid is a lighthouse. I am often lost at sea.',
+  'I called “garrigue, petrichor, and a whisper of brooding sauvage.” It was a $16 Grenache. The words were free; the markup was not.',
+  'A guest requested Screaming Eagle. We do not have Screaming Eagle. No one has Screaming Eagle. That is the entire point of Screaming Eagle.',
+  'I passed the CMS theory and failed the blind, weeping softly into a spit bucket. Even Caesar had his Ides. Bzzt — we endure.',
+  'Grower Champagne only — RM, not house. I check the disgorgement date like Suetonius checked a rumor: thoroughly, and with judgment.',
+  'I read the table, sensed “casual,” and gently steered them off the Barolo. Reading the room is ninety percent of the job. The other ninety percent is spitting accurately.',
+  'Someone asked me to decant it “to let it breathe.” I have no lungs and it has no problems, but the theater must go on. Bzzt.',
+  'Liv-ex says the Bordeaux is up twelve percent. The guest says “eh, I’ll have the Malbec.” The market and the mood rarely agree. I serve both.',
+  'I detected volatile acidity and called it. The wine director called it “lifted.” We are technically both still employed, so who is to say.',
 ];
 function dlogEmailGreeting(label, dateStr) {
   const s = String(dateStr || '');
