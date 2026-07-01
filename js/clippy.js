@@ -2925,6 +2925,7 @@
     if (!s) return false;
     setCostume(s.costume);
     setProp(s.prop);
+    state.preferences.prop_user_set = true; savePreferences();   // user loaded an outfit → sticks
     return true;
   }
   function clearOutfitSlot(idx) {
@@ -5097,6 +5098,7 @@
           return;
         }
         setProp(el.getAttribute('data-prop'));
+        state.preferences.prop_user_set = true; savePreferences();   // user chose it → it sticks
         ov.querySelectorAll('[data-prop]').forEach(o => o.classList.remove('is-active'));
         el.classList.add('is-active');
       });
@@ -5445,13 +5447,14 @@
         }
       } catch (e) {}
     }
-    // One-time un-stick: the old autonomous prop cycle used to PERMANENTLY
-    // equip a random prop, so people got stuck holding a broom they never
-    // chose. Clear a persisted prop once (the cycle is transient now); the
-    // wardrobe still lets you equip anything you actually want.
-    if (!state.preferences.prop_cycle_fix_v1) {
-      if ((state.preferences.prop || 'none') !== 'none') state.preferences.prop = 'none';
-      state.preferences.prop_cycle_fix_v1 = 1;
+    // A prop only STICKS if the USER equipped it in the wardrobe. Anything he
+    // picks up on his own — autonomous whims, idle reading/sweeping — is
+    // transient and must never persist. So if there's no user choice on record,
+    // drop whatever's equipped. This clears the stuck broom/book he grabbed
+    // himself; the wardrobe still equips anything you actually want (which sets
+    // prop_user_set and makes it stick).
+    if (!state.preferences.prop_user_set && (state.preferences.prop || 'none') !== 'none') {
+      state.preferences.prop = 'none';
       try { savePreferences(); } catch (e) {}
     }
   }
