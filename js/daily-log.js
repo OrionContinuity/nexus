@@ -2419,27 +2419,56 @@ function dlogDaySummary(d) {
   return bits.join('. ');
 }
 
+// ONE opener for the whole day, shared across every location (memoized per date
+// in ensureClippyDailyQuote). To make sure it really sounds like HIM and not a
+// generic assistant, Clippy drafts THREE candidates, then reads them back and
+// picks the one that's most his — dry, warm, a little literary. Runs entirely
+// in the background now, so the extra self-selection pass costs nothing the
+// user waits on. Any failure at any step degrades to the static quote pool.
 async function generateClippyDailyQuote(d, dateStr) {
   if (!(window.NX && typeof NX.askClaude === 'function')) return null;
   const summary = dlogDaySummary(d);
   if (!summary) return null;   // nothing happened → let the static pool carry it
   const examples = [dlogStaticQuote(dateStr), CLIPPY_QUOTES[3], CLIPPY_QUOTES[70]].filter(Boolean);
-  const system = [
+  const tidy = s => String(s || '')
+    .replace(/^\s*\d+[.)\]:\-]\s*/, '')                 // strip "1." / "2)" numbering
+    .replace(/^["'“”\-\s]+|["'“”\s]+$/g, '')            // strip wrapping quotes/dashes
+    .replace(/^Clippy\s*:?\s*/i, '').trim();
+
+  // ── Step 1: draft three distinct candidates ────────────────────────────
+  const draftSys = [
     'You are Clippy, the wry maintenance daemon for a group of restaurants.',
-    'Write ONE short, witty opener (max ~30 words) for the daily facility report, riffing on the ACTUAL day you are given.',
+    'Draft THREE distinct one-line openers for the daily facility report, each riffing on the ACTUAL day you are given.',
     'Voice: dry, warm, a touch literary — at ease with restaurant, wine, cooking, and Roman/Greek history references, but never forced.',
-    'Rules: one sentence, or two very short ones. No emojis. No surrounding quotation marks. React like a clever colleague; do NOT list the data back. Do not sign it.',
-    'Tone examples:',
+    'Rules: each is one sentence (or two very short ones), max ~30 words. No emojis. No surrounding quotation marks. React like a clever colleague; do NOT list the data back. Do not sign it.',
+    'Return ONLY the three lines, numbered 1., 2., 3. — nothing else.',
+    'The sound to hit (examples):',
     ...examples.map(e => '- ' + e),
   ].join('\n');
-  const user = "Today's report facts:\n" + summary + "\n\nWrite Clippy's one-line opener for today.";
+  const draftUser = "Today's report facts:\n" + summary + "\n\nDraft Clippy's three candidate openers.";
+  let candidates = [];
   try {
-    const raw = await NX.askClaude(system, [{ role: 'user', content: user }], 90);
-    let line = String(raw || '').split('\n').map(x => x.trim()).filter(Boolean)[0] || '';
-    line = line.replace(/^["'“”\-\s]+|["'“”\s]+$/g, '').replace(/^Clippy\s*:?\s*/i, '').trim();
-    if (line.length < 8 || line.length > 240) return null;
-    return line;
+    const raw = await NX.askClaude(draftSys, [{ role: 'user', content: draftUser }], 220);
+    candidates = String(raw || '').split('\n').map(tidy)
+      .filter(x => x.length >= 8 && x.length <= 240).slice(0, 3);
   } catch (_) { return null; }
+  if (!candidates.length) return null;
+  if (candidates.length === 1) return candidates[0];
+
+  // ── Step 2: Clippy reads them back and keeps the most Clippy one ────────
+  try {
+    const judgeSys = [
+      'You are Clippy. Below are candidate openers for today\'s report.',
+      'Pick the ONE that most sounds like you: dry, warm, a little literary, never forced, never just listing the data back.',
+      'Reply with ONLY the number of the best line (1, 2, or 3). Nothing else.',
+    ].join('\n');
+    const judgeUser = candidates.map((c, i) => (i + 1) + '. ' + c).join('\n');
+    const pick = await NX.askClaude(judgeSys, [{ role: 'user', content: judgeUser }], 8);
+    const m = String(pick || '').match(/[123]/);
+    const n = m ? parseInt(m[0], 10) : 0;
+    if (n >= 1 && n <= candidates.length) return candidates[n - 1];
+  } catch (_) { /* judge failed → fall through to first candidate */ }
+  return candidates[0];
 }
 
 // Memoized per date. Resolves the day's line into state for the sync greeting
@@ -2452,9 +2481,12 @@ function ensureClippyDailyQuote(d, dateStr) {
   state._cqPromise = (async () => {
     let text = null;
     try {
+      // Generous cap: generation is fully in the background now (the email
+      // never awaits it), and it makes two calls — a 3-candidate draft plus a
+      // self-selection pass — so give it room. On timeout we settle on the pool.
       text = await Promise.race([
         generateClippyDailyQuote(d, dateStr),
-        new Promise(r => setTimeout(() => r(null), 7000)),
+        new Promise(r => setTimeout(() => r(null), 22000)),
       ]);
     } catch (_) {}
     state.clippyQuoteDate = dateStr;
