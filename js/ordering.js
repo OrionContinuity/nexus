@@ -507,6 +507,9 @@
       .from('orders')
       .select('id, updated_at')
       .eq('vendor_id', vendorId).eq('location', location).eq('status', 'draft')
+      .is('archived_at', null)   // never resume an ARCHIVED draft — the entry
+                                 // editor would then save/send onto a hidden row,
+                                 // so the order vanishes from the recent list.
       .order('updated_at', { ascending: false }).limit(1);
     if (error) { console.error('[ordering] findExistingDraft:', error); return null; }
     return (data && data[0]) || null;
@@ -4704,6 +4707,8 @@ Thanks for your help sorting this out.`;
         email_subject:  subject,
         email_body:     body,
         email_sent_at:  new Date().toISOString(),
+        archived_at:    null,   // sending is explicit "this is live" — never leave
+                                // a just-sent order hidden in the archived bucket.
         notes:          notes || null,
         sent_by:        NX.user && NX.user.id   ? NX.user.id   : null,
         sent_by_name:   NX.user && NX.user.name ? NX.user.name : null,
