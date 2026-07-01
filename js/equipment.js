@@ -5956,6 +5956,20 @@ async function deleteEquipment(id) {
   }
   if (!confirm(promptText)) return;
   try {
+    // The schema has no FK constraints, so deleting only the equipment row
+    // would strand its children as orphans — while the confirm above promises
+    // they're erased. Clean the equipment-OWNED records first (best-effort per
+    // table: a missing table must not block the delete). Cross-domain records
+    // (tickets, kanban cards, dispatch history) are deliberately left alone —
+    // they belong to other workflows' histories.
+    const owned = [
+      'equipment_maintenance', 'equipment_parts', 'equipment_attachments',
+      'equipment_manuals', 'equipment_custom_fields', 'equipment_compliance',
+      'equipment_events', 'equipment_issues', 'pm_schedules', 'pm_logs',
+    ];
+    for (const t of owned) {
+      try { await NX.sb.from(t).delete().eq('equipment_id', id); } catch (_) {}
+    }
     const { error } = await NX.sb.from('equipment').delete().eq('id', id);
     if (error) throw error;
     NX.toast && NX.toast('Deleted ✓', 'success');
