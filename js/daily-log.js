@@ -2235,6 +2235,40 @@ const CLIPPY_QUOTES = [
   'What do you call a sad espresso? A depresso. Restocked the machine anyway.',
   'I made a belt out of watches once — total waist of time. Speaking of time, here’s your day.',
   'My soup cracked a joke mid-service. A little too saucy for the pass.',
+  // Film
+  'Frankly, my dear, the walk-in gives a damn — it held 38°F all night.',
+  'You had me at “the compressor is fixed.” — every GM, probably.',
+  'Here’s looking at you, hood filter. Spotless.',
+  'I’m going to make it an offer it can’t refuse: preventive maintenance.',
+  'Say hello to my little torque wrench. The gasket never stood a chance.',
+  'Life is like a box of chocolates — keep it at 65°F or it melts. We did.',
+  'To infinity and beyond, or at least until the next PM. Buzz would approve.',
+  // Gardening
+  'Tend the herbs, tend the machines. Both wilt without you.',
+  'Prune the dead branches, retire the dead equipment. Growth needs room.',
+  'Every rose has its thorn; every walk-in has its door gasket. We replaced the thorn.',
+  'You reap what you maintain. This week: a full harvest.',
+  'Water daily, inspect daily. Green thumbs and clean filters, same discipline.',
+  'Compost the scraps, log the repairs. Nothing is wasted.',
+  // Spain
+  'The paella waits for no one — and neither does the pilot light. Both lit.',
+  'Siesta for the staff, never for the compressor. It ran all afternoon.',
+  'Jamón cures for years; equipment lasts if you tend it. Paciencia.',
+  'Gaudí took forty years on the Sagrada Família. Your repair took an afternoon. Faster, arguably.',
+  'Sobremesa: linger at the table. The dishwasher, meanwhile, works. Balance.',
+  // Mexican
+  'Mise en place, o como decimos, todo en su lugar. The line is ready.',
+  'The salsa needs heat; the walk-in needs cold. We delivered both.',
+  'Slow-braise the barbacoa, low and patient. Great maintenance is the same.',
+  'A molcajete lasts generations if you season it. So does a well-kept range.',
+  'The agave takes eight years to mature. Your PM took eight minutes. We’re ahead.',
+  // Soccer
+  'The walk-in kept a clean sheet all weekend — no leaks, no goals against.',
+  'Ninety minutes plus stoppage; your fryer ran the full match. No subs needed.',
+  'Tiki-taka in the kitchen: short passes, clean line, no turnovers.',
+  'The compressor scored in extra time — held temp when it mattered. GOAAAL.',
+  'A great keeper anticipates the shot; great maintenance anticipates the breakdown. Save made.',
+  'Red card to the broken gasket — off the pitch. Fresh one subbed in.',
 ];
 function dlogEmailGreeting(label, dateStr) {
   const s = String(dateStr || '');
