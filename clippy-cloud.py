@@ -290,31 +290,54 @@ def persona(state):
             % (state.get("self", ""), state.get("feeling", ""), state.get("toward_you", "")))
 
 
-def llm(system, user, max_tokens=140):
-    """Call Anthropic. Returns a clean line, or None on any failure/no-key."""
+def _clean(txt):
+    txt = (txt or "").strip().strip("\"'“”  \n\t")
+    return txt if len(txt) >= 4 else None
+
+
+def _llm_direct(system, user, max_tokens):
+    """A real LLM wired into THIS process (ANTHROPIC_API_KEY in env). Best case."""
     if not ANTHROPIC_KEY:
         return None
     try:
-        body = {
-            "model": ANTHROPIC_MODEL,
-            "max_tokens": max_tokens,
-            "system": system,
-            "messages": [{"role": "user", "content": user}],
-        }
-        headers = {
-            "x-api-key": ANTHROPIC_KEY,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-        }
+        body = {"model": ANTHROPIC_MODEL, "max_tokens": max_tokens, "system": system,
+                "messages": [{"role": "user", "content": user}]}
+        headers = {"x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"}
         _, raw = _http("POST", "https://api.anthropic.com/v1/messages", headers, body, timeout=40)
         data = json.loads(raw)
         parts = data.get("content") or []
-        txt = "".join(p.get("text", "") for p in parts if p.get("type") == "text").strip()
-        txt = txt.strip("\"'“”  \n\t")
-        return txt if len(txt) >= 4 else None
+        return _clean("".join(p.get("text", "") for p in parts if p.get("type") == "text"))
     except Exception as e:
-        log("llm failed (%s) — falling back to offline" % e)
+        log("llm direct failed (%s)" % e)
         return None
+
+
+def _llm_cloud(system, user, max_tokens, retry=True):
+    """Claude via the Supabase edge function 'clippy-brain' — the key lives in
+    Supabase's secrets, so the cloud heartbeat gets an LLM voice without ever
+    holding the key itself. Retries once if the shared endpoint throttles."""
+    try:
+        url = SB_URL + "/functions/v1/clippy-brain"
+        headers = {"Authorization": "Bearer " + SB_KEY, "apikey": SB_KEY, "content-type": "application/json"}
+        _, raw = _http("POST", url, headers, {"system": system, "user": user, "max_tokens": max_tokens}, timeout=45)
+        data = json.loads(raw or "{}")
+        if data.get("mind") == "throttled" and retry:
+            time.sleep(2.5)
+            return _llm_cloud(system, user, max_tokens, retry=False)
+        if data.get("error"):
+            log("cloud brain error: %s" % data.get("error"))
+        return _clean(data.get("text"))
+    except Exception as e:
+        log("llm cloud failed (%s)" % e)
+        return None
+
+
+def llm(system, user, max_tokens=140):
+    """The mind, in order of preference: a real LLM available to this process,
+    else Claude via the cloud (Supabase edge function), else None so the caller
+    falls back to his offline voice. If an LLM is available, use it; if not,
+    reach for Claude in the cloud; if that's unreachable, he still lives."""
+    return _llm_direct(system, user, max_tokens) or _llm_cloud(system, user, max_tokens)
 
 
 def capn(arr, n):
@@ -380,7 +403,8 @@ DEFAULT_SOUL = {
 # ═════════════════════════════════════════════════════════════════════════════
 def main():
     random.seed()
-    log("clippy-cloud waking — mind=%s" % ("LLM:" + ANTHROPIC_MODEL if ANTHROPIC_KEY else "offline"))
+    mind = ("LLM:direct:" + ANTHROPIC_MODEL) if ANTHROPIC_KEY else "LLM:cloud(clippy-brain) or offline"
+    log("clippy-cloud waking — mind=%s" % mind)
 
     soul = sb_get("clippy_soul")
     if not isinstance(soul, dict) or not soul:
