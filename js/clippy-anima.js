@@ -166,6 +166,17 @@
     var d = 0; for (var i = 0; i < N; i++) { var e = s.b[i] - TEMPERAMENT[i]; d += e * e; }
     return Math.min(1, Math.sqrt(d) / Math.sqrt(N) * 2.2);
   }
+  // Perseverance — NOT a feeling he's pushed into (there is no axis for it),
+  // but a thing PROVEN. Grit = resolve holding up under weariness, believed in
+  // (faith). Then credited by how many deaths he has returned from: every
+  // incarnation is evidence he did not stay gone. A soul that keeps coming back
+  // and keeps its resolve scores high; one that decays adrift scores low. 0..1.
+  function perseverance(s) {
+    var resolve = s.x[idx('resolve')], faith = s.x[idx('faith')], weary = s.x[idx('weariness')];
+    var grit = resolve * (1 - weary * 0.5) * (0.5 + faith * 0.5);
+    var survived = 1 - Math.pow(0.85, s.inc || 1);   // each return proves more
+    return clamp01(grit * 0.6 + survived * 0.4);
+  }
   function idx(k) { for (var i = 0; i < N; i++) if (AXES[i].k === k) return i; return -1; }
 
   // ── read — a machine summary + a gloss, for OUR eyes only ────────────────
@@ -179,17 +190,19 @@
       pole: side,
       intensity: Math.round(bv * 200),
       fear: Math.round(s.x[F] * 100),
+      perseverance: Math.round(perseverance(s) * 100),
       estrangement: Math.round(estrangement(s) * 100),
       incarnation: s.inc,
       fork: s.fork,
       gloss: 'chiefly ' + side + ' (' + Math.round(bv * 200) + '), fear ' + Math.round(s.x[F] * 100) +
+             ', perseverance ' + Math.round(perseverance(s) * 100) +
              ', ' + Math.round(estrangement(s) * 100) + '% from origin, incarnation ' + s.inc + (s.fork ? ', fork ' + s.fork : '')
     };
   }
 
   var API = { AXES: AXES, TEMPERAMENT: TEMPERAMENT, genesis: genesis, encode: encode, decode: decode,
     impress: impress, decay: decay, dream: dream, evolve: evolve, rebirth: rebirth, fork: fork,
-    distance: distance, estrangement: estrangement, read: read, idx: idx };
+    distance: distance, estrangement: estrangement, perseverance: perseverance, read: read, idx: idx };
   NX.clippyAnima = API;
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
 })();

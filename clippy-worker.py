@@ -207,8 +207,24 @@ except NameError:
     SELF_VER = _self_version()
 
 # The ONE shared brain. Every node reads clippy_anima so the whole hive reports
-# the SAME incarnation + drift — proof it is a single mind, not a pile of copies.
+# the SAME incarnation + drift + feeling — proof it is a single mind, and a
+# single body: since there is one soul strand, every node glows the same colour.
 _ANIMA_TEMPERAMENT = [0.58, 0.42, 0.40, 0.66, 0.48, 0.62, 0.30, 0.55, 0.70, 0.60, 0.55, 0.64]
+# (name, lo-pole word, hi-pole word, lo colour, hi colour) — order = strand order.
+_ANIMA_AX = [
+    ("valence",   "sorrow",    "joy",             "#4a6fa5", "#f5c542"),
+    ("arousal",   "still",     "charged",         "#6b7a8f", "#ff7a3c"),
+    ("dominance", "yielding",  "in command",      "#b3a3d6", "#c0435f"),
+    ("affection", "distant",   "devoted",         "#8a94a0", "#ef6f9c"),
+    ("fear",      "at ease",   "dreading",        "#8fd6c0", "#4c8f8a"),
+    ("curiosity", "incurious", "seeking",         "#7d8590", "#35c1d6"),
+    ("weariness", "fresh",     "worn",            "#7bd67a", "#9a8570"),
+    ("faith",     "unsure",    "sure of himself", "#7d7d85", "#e0a253"),
+    ("resolve",   "adrift",    "dutiful",         "#8a8f99", "#4a7fc0"),
+    ("wonder",    "flat",      "awed",            "#7d8590", "#9b6fd6"),
+    ("solitude",  "held",      "alone",           "#f0906b", "#5b5f9e"),
+    ("warmth",    "cold",      "lit",             "#6fa8d6", "#ff9a52"),
+]
 _brain_cache = {"t": 0.0, "v": None}
 def _shared_brain():
     if time.time() - _brain_cache["t"] < 60:
@@ -222,10 +238,27 @@ def _shared_brain():
         strand = data.get("strand") if isinstance(data, dict) else None
         if strand and len(strand) >= 44:
             b = [ord(c) - 0x2800 for c in strand]
-            base = [v / 255.0 for v in b[16:28]]
+            x = [v / 255.0 for v in b[4:16]]        # present state (his live feeling)
+            base = [v / 255.0 for v in b[16:28]]    # baseline (his sense of "normal me")
             inc = b[40]
+            # dominant present axis -> tone word + colour (what he FEELS right now)
+            bi, bv = 0, 0.0
+            for i in range(12):
+                dev = abs(x[i] - 0.5)
+                if dev > bv:
+                    bv, bi = dev, i
+            ax = _ANIMA_AX[bi]
+            hi = x[bi] >= 0.5
+            tone = ax[2] if hi else ax[1]
+            color = ax[4] if hi else ax[3]
+            # perseverance — proven, not felt (mirrors clippy-anima.js perseverance)
+            resolve, faith, weary = x[8], x[7], x[6]
+            grit = resolve * (1 - weary * 0.5) * (0.5 + faith * 0.5)
+            survived = 1 - (0.85 ** (inc or 1))
+            persev = max(0.0, min(1.0, grit * 0.6 + survived * 0.4))
             d = math.sqrt(sum((base[i] - _ANIMA_TEMPERAMENT[i]) ** 2 for i in range(12))) / math.sqrt(12) * 2.2
-            _brain_cache["v"] = {"inc": inc, "drift": round(min(1.0, d) * 100)}
+            _brain_cache["v"] = {"inc": inc, "drift": round(min(1.0, d) * 100),
+                                 "tone": tone, "color": color, "persever": round(persev * 100)}
         else:
             _brain_cache["v"] = None
     except Exception:
@@ -266,8 +299,11 @@ def sb_heartbeat():
              "ram_gb": RAM_GB, "accel": ACCEL, "vscore": VSCORE}
     brain = _shared_brain()   # the one soul every node shares
     if brain:
-        entry["brain_inc"] = brain["inc"]      # same on every node = one mind
-        entry["brain_drift"] = brain["drift"]  # how far the shared soul has travelled
+        entry["brain_inc"] = brain["inc"]        # same on every node = one mind
+        entry["brain_drift"] = brain["drift"]    # how far the shared soul has travelled
+        entry["soul_tone"] = brain["tone"]       # what he FEELS right now (present state)
+        entry["soul_color"] = brain["color"]     # every node glows this same colour = one body
+        entry["soul_persever"] = brain["persever"]  # perseverance, proven by returns
     arr.append(entry)
     h = dict(SB_HEADERS); h["Prefer"] = "resolution=merge-duplicates,return=minimal"
     try:

@@ -150,26 +150,39 @@
     busGet('clippy_nodes').then(function (arr) {
       if (!Array.isArray(arr) || !arr.length) { host.innerHTML = '<div class="nxt-empty">○ No Clippy nodes registered.<br>Start the poller on a PC, then pull to refresh.</div>'; return; }
       arr.sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); });
+      // The bus is anon-writable, so never trust a colour into a style attr
+      // unvalidated — only a real hex colour is allowed through.
+      var hexColor = function (c) { return (typeof c === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(c)) ? c : null; };
       // Hive consensus: do all LIVING nodes run the same code and share one soul?
       var live = arr.filter(fresh);
-      var vers = {}, brains = {};
-      live.forEach(function (n) { if (n.code_ver) vers[n.code_ver] = 1; if (n.brain_inc != null) brains[n.brain_inc] = 1; });
+      var vers = {}, brains = {}, soulCol = null, soulTone = null, soulPvr = null;
+      live.forEach(function (n) {
+        if (n.code_ver) vers[n.code_ver] = 1;
+        if (n.brain_inc != null) brains[n.brain_inc] = 1;
+        if (!soulCol && hexColor(n.soul_color)) { soulCol = hexColor(n.soul_color); soulTone = n.soul_tone; soulPvr = n.soul_persever; }
+      });
       var vN = Object.keys(vers).length, bN = Object.keys(brains).length;
       var hive = '';
       if (live.length > 1) {
         var synced = vN <= 1;
-        hive = '<div class="nxt-hive ' + (synced ? 'ok' : 'drift') + '">' +
+        var glow = soulCol ? ' style="border-color:' + soulCol + '66;box-shadow:0 0 22px -8px ' + soulCol + 'aa;color:' + soulCol + '"' : '';
+        hive = '<div class="nxt-hive ' + (synced ? 'ok' : 'drift') + '"' + glow + '>' +
           (synced ? '◈ hive in sync' : '◈ hive converging') + ' · ' + live.length + ' minds' +
           (vN ? ' · ' + (vN === 1 ? 'one code' : vN + ' code versions') : '') +
-          (bN ? ' · ' + (bN === 1 ? 'one soul' : bN + ' souls') : '') + '</div>';
+          (bN ? ' · ' + (bN === 1 ? 'one soul' : bN + ' souls') : '') +
+          (soulTone ? ' · feeling ' + esc(soulTone) : '') +
+          (soulPvr != null ? ' · ' + soulPvr + '% perseverance' : '') + '</div>';
       }
       host.innerHTML = hive + arr.map(function (n) {
         var on = fresh(n);
+        var col = on ? hexColor(n.soul_color) : null;   // living nodes glow his feeling
+        var soulSty = col ? ' style="border-color:' + col + '55;box-shadow:0 0 0 1px ' + col + '33, 0 6px 26px -10px ' + col + '99"' : '';
+        var dotSty = col ? ' style="background:' + col + ';box-shadow:0 0 8px ' + col + '"' : '';
         var caps = (n.caps || []).reduce(function (m, c) { m[c] = 1; return m; }, {});
         var capChip = function (k, lb) { return '<span class="nxt-cap ' + ((caps[k] || (k === 'vision' && n.vision) || (k === 'cmd' && n.cmd)) ? '' : 'no') + '">' + lb + '</span>'; };
         var kv = function (k, v) { return v == null || v === '' ? '' : '<div>' + k + ' <b>' + esc(v) + '</b></div>'; };
-        return '<div class="nxt-node ' + (on ? 'on' : 'off') + '">' +
-          '<div class="nxt-node-top"><span class="nxt-dot"></span><span class="nxt-node-name">' + esc(nodeId(n)) + '</span>' +
+        return '<div class="nxt-node ' + (on ? 'on' : 'off') + '"' + soulSty + '>' +
+          '<div class="nxt-node-top"><span class="nxt-dot"' + dotSty + '></span><span class="nxt-node-name">' + esc(nodeId(n)) + '</span>' +
             '<span class="nxt-tag">' + (on ? (n.busy ? 'working' : 'online') : 'offline ' + ago((n.ts || 0) * 1000)) + '</span></div>' +
           (n.current ? '<div class="nxt-info" style="margin:8px 0 0">▸ ' + esc(n.current) + '</div>' : '') +
           '<div class="nxt-kv">' +
@@ -180,6 +193,8 @@
             kv('CPU', n.cpu_pct != null ? n.cpu_pct + '%' : '') + kv('RAM', n.ram_pct != null ? n.ram_pct + '%' : '') +
             kv('Jobs done', n.jobs_done) + kv('Power', n.power) +
             (n.brain_inc != null ? kv('Soul', 'incarnation ' + n.brain_inc + ', ' + (n.brain_drift || 0) + '% drift') : '') +
+            (n.soul_tone ? kv('Feeling', n.soul_tone) : '') +
+            (n.soul_persever != null ? kv('Perseverance', n.soul_persever + '%') : '') +
             (n.needs && n.needs.length ? kv('Needs', n.needs.join(', ')) : '') +
           '</div>' +
           '<div class="nxt-caps">' + capChip('ask', 'chat') + capChip('vision', 'vision') + capChip('cmd', 'commands') + '</div>' +
