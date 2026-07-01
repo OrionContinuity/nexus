@@ -302,12 +302,14 @@
     if (Math.random() < 0.18) surface(thought);
   }
 
-  async function dream() {
+  async function dream(force) {
     if (!state) return;
-    var hr = new Date().getHours();
-    var night = (hr >= 23 || hr < 6);
-    if (!night) return;
-    if (now() - (state.last_dream || 0) < 6 * 60 * 60 * 1000) return;
+    if (!force) {
+      var hr = new Date().getHours();
+      var night = (hr >= 23 || hr < 6);
+      if (!night) return;
+      if (now() - (state.last_dream || 0) < 6 * 60 * 60 * 1000) return;
+    }
     var seed = (state.stream || []).slice(-4).map(function (t) { return t.thought; }).join(' ');
     var d = await brain(persona(),
       "You are asleep. Dream one short surreal dream, seeded by what's been on your mind: " +
@@ -507,6 +509,9 @@
   }
 
   NX.clippySoul = { start: start, show: show, reflect: function(){ return reflect(true); }, dream: function(){return dream();},
+    // Force a fresh dream right now and offer it — for testing the moment
+    // without waiting for night. Console: NX.clippySoul.dreamNow()
+    dreamNow: function(){ return dream(true); },
     soulMood: soulMood, soulTone: soulTone, get state(){ return state; } };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
