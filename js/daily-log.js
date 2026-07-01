@@ -2318,6 +2318,23 @@ const CLIPPY_QUOTES = [
   'Blind-tasted a Riesling as a Grüner and handed back the pin in my mind. The walk-in never fails its blind test: still 38°F.',
   'I described the finish as “long.” It was four seconds. I lied for the tip. The compressor doesn’t lie — it runs cold and true.',
   'The Coravin is a $400 way to feel rich pouring one glass. The walk-in is a free way to feel calm. Balance.',
+  // Wine — more somm
+  'I recommended a magnum “for the table” and drank most of it “for quality control.” The walk-in needs no QC — it self-certifies at 38°F.',
+  'The list has a “hidden gem” section, which is where I put the wines I over-ordered. The walk-in hides nothing. It just holds temp.',
+  'A guest said “surprise me,” so I poured the second-cheapest by the glass and described it like a First Growth. The compressor surprises no one — reliably cold.',
+  'Someone asked if the wine was vegan. I said yes before checking. It was fined with egg white. The walk-in fines nothing and chills everything.',
+  'I upsold a $200 Burgundy by whispering “Grand Cru” like a secret. The walk-in whispers nothing — it just runs at 38°F, honestly.',
+  // French cuisine
+  'Escoffier codified the brigade so no one would improvise. Then I improvised the walk-in repair anyway. It’s fixed. Pardon, chef.',
+  'The five mother sauces, and a sixth I invented called “please hold temp.” The walk-in obliged: 38°F.',
+  'Mise en place is a religion and I am devout. The compressor is my patron saint. It held all night.',
+  'A proper consommé takes hours to clarify. The walk-in clarified instantly: it’s cold, it’s working, next question.',
+  'They say a chef is judged by their omelette; a kitchen is judged by its walk-in. Ours: flawless, 38°F.',
+  'Beurre blanc breaks if you look at it wrong; the compressor holds if you maintain it right. We maintained it right.',
+  'Deglaze the pan, monter au beurre, and never — never — let the reach-in warm up. All three achieved.',
+  'Bistro or brasserie, the coq au vin still needs a cold cellar. The cellar cooling delivered. Santé.',
+  'Michelin gives stars for consistency. So do I — one per working walk-in. Tonight: three stars.',
+  'En papillote seals the fish; a good gasket seals the walk-in. Steam stays in, cold stays in. Parfait.',
 ];
 function dlogEmailGreeting(label, dateStr) {
   const s = String(dateStr || '');
