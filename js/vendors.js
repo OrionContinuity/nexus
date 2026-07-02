@@ -503,7 +503,7 @@
             <a class="nxrm-vendor-action" href="sms:${esc(vendor.phone)}" data-act="contact-text">💬 Text</a>
           ` : ''}
           ${vendor.email ? `
-            <a class="nxrm-vendor-action" href="mailto:${esc(vendor.email)}" data-act="contact-email">✉ Email</a>
+            <button class="nxrm-vendor-action" data-act="contact-email" type="button">✉ Email</button>
           ` : ''}
           <button class="nxrm-vendor-action" data-act="edit-vendor">⚙ Edit</button>
         </div>
@@ -707,9 +707,25 @@
     });
     const editBtn = view.querySelector('[data-act="edit-vendor"]');
     if (editBtn) editBtn.addEventListener('click', () => promptEditVendor(vendor));
-    // Stamp last_contact_at whenever the user taps Call / Text / Email.
-    // No preventDefault, so the tel:/sms:/mailto: link still fires.
-    view.querySelectorAll('[data-act="contact-call"],[data-act="contact-text"],[data-act="contact-email"]').forEach(el => {
+    // Stamp last_contact_at whenever the user taps Call / Text.
+    // No preventDefault, so the tel:/sms: link still fires.
+    view.querySelectorAll('[data-act="contact-call"],[data-act="contact-text"]').forEach(el => {
+      el.addEventListener('click', () => { stampVendorContact(vendor.id); });
+    });
+    // Email goes through the composer engine with the vendor's saved
+    // template (tokens without context stay visible for manual fill).
+    // Extra-chip mailto links keep their old behavior for specific addresses.
+    view.querySelectorAll('button[data-act="contact-email"]').forEach(el => {
+      el.addEventListener('click', () => {
+        if (window.NX && typeof NX.vendorEmail === 'function') {
+          NX.vendorEmail(vendor, { onSend: () => stampVendorContact(vendor.id) });
+        } else {
+          stampVendorContact(vendor.id);
+          window.location.href = 'mailto:' + encodeURIComponent(vendor.email || '');
+        }
+      });
+    });
+    view.querySelectorAll('a[data-act="contact-email"]').forEach(el => {
       el.addEventListener('click', () => { stampVendorContact(vendor.id); });
     });
     const schedBtn = view.querySelector('[data-act="schedule-pm"]');
@@ -840,6 +856,28 @@
   }
 
   function buildEmailBody(issue, equipment, vendor, comments) {
+    // Per-vendor template wins (SMS + subject already honored it; the email
+    // body was the one surface that ignored it).
+    if (vendor?.dispatch_template) {
+      const tokens = {
+        restaurant:  equipment?.location || issue.restaurant || '',
+        equipment:   equipment?.name || issue.equipment_name || '',
+        unit:        [equipment?.manufacturer, equipment?.model].filter(Boolean).join(' '),
+        serial:      equipment?.serial_number || '',
+        area:        equipment?.area || '',
+        issue:       issue.title || '',
+        priority:    issue.priority || 'normal',
+        description: issue.description || '',
+        user:        NX?.user?.name || NX?.currentUser?.name || '',
+      };
+      if (window.NX && typeof NX.renderVendorTemplate === 'function') {
+        return NX.renderVendorTemplate(vendor.dispatch_template, tokens);
+      }
+      return vendor.dispatch_template.replace(/\{(\w+)\}/g, (m, k) => {
+        const v = tokens[k.toLowerCase()];
+        return (v == null || v === '') ? m : String(v);
+      });
+    }
     const lines = [];
     lines.push(`Hi ${vendor?.name?.split(' ')[0] || 'team'},`);
     lines.push('');
@@ -893,11 +931,27 @@
   }
   function dispatchEmail(issue, equipment, vendor, comments) {
     if (!vendor?.email) { alert('No email on file for this vendor.'); return; }
+    // Preferred path: the shared composer engine (NX.vendorEmail). Renders
+    // the vendor's saved dispatch_subject / dispatch_template with real
+    // values, opens the editable To/CC/BCC + body composer, and CCs the
+    // vendor's extra addresses. Dispatch is logged when the user taps Send.
+    if (window.NX && typeof NX.vendorEmail === 'function') {
+      NX.vendorEmail(vendor, {
+        restaurant:  equipment?.location || issue.restaurant || '',
+        equipment:   equipment?.name || issue.equipment_name || '',
+        unit:        [equipment?.manufacturer, equipment?.model].filter(Boolean).join(' '),
+        serial:      equipment?.serial_number || '',
+        area:        equipment?.area || '',
+        issue:       issue.title || '',
+        priority:    issue.priority || 'normal',
+        description: issue.description || '',
+        onSend: () => logDispatch(issue, vendor, 'email'),
+      });
+      return;
+    }
     const subject = buildEmailSubject(issue, equipment, vendor);
     const body = buildEmailBody(issue, equipment, vendor, comments);
-    // Send through the shared Ordering email engine (proper %20 body
-    // encoding, vendor CC/BCC recipient list, self-CC suppression). Falls
-    // back to a correctly-encoded mailto if the engine isn't loaded yet.
+    // Legacy fallbacks: the Ordering email helper, then encoded mailto.
     if (window.NXEmail && typeof window.NXEmail.openVendorEmail === 'function') {
       window.NXEmail.openVendorEmail(vendor, subject, body);
     } else {
@@ -1859,7 +1913,8 @@
           <input class="nxvf-input" id="vfDispatchSubject" value="${v.dispatch_subject != null ? esc(v.dispatch_subject) : ''}" placeholder="{restaurant}: {equipment} — {issue}">
         </label>
         <label class="nxvf-field"><span class="nxvf-label">Dispatch message template <span style="text-transform:none;color:var(--muted)">— SMS &amp; email</span></span>
-          <textarea class="nxvf-input" id="vfDispatchBody" rows="3" placeholder="Variables: {restaurant} {equipment} {issue} {priority} {description}">${v.dispatch_template != null ? esc(v.dispatch_template) : ''}</textarea>
+          <textarea class="nxvf-input" id="vfDispatchBody" rows="6" placeholder="Variables: {restaurant} {equipment} {unit} {serial} {area} {issue} {priority} {description} {user}">${v.dispatch_template != null ? esc(v.dispatch_template) : ''}</textarea>
+          <div style="margin-top:4px;font-size:11px;color:var(--muted);line-height:1.5">Tokens fill in automatically when emailing from an issue or equipment: {restaurant} {equipment} {unit} {serial} {area} {issue} {priority} {description} {user}. Unknown tokens stay visible so you can fill them in the composer.</div>
         </label>
         <label class="nxvf-field"><span class="nxvf-label">Notes</span>
           <textarea class="nxvf-input" id="vfNotes" rows="3" placeholder="Anything worth remembering">${v.notes != null ? esc(v.notes) : ''}</textarea>

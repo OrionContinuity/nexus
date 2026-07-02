@@ -314,4 +314,98 @@
     document.body.appendChild(bg);
     requestAnimationFrame(function () { bg.classList.add('open'); });
   };
+
+  /* ─── NX.vendorEmail — vendor service-request email, template-aware ────
+     The ONE shared path for every "email this vendor" button (Vendors view,
+     equipment detail SERVICED BY, QR scan page). Renders the vendor's saved
+     dispatch_subject / dispatch_template with {tokens}, falls back to a
+     generic service request, then opens the NX.composeEmail engine with the
+     vendor's primary address in To and every extra address in CC.
+
+     Tokens: {restaurant} {location} {equipment} {unit} {model} {serial}
+             {area} {issue} {priority} {description} {user}
+     A token whose value is UNKNOWN in this context is left visible
+     (e.g. "{issue}") so the sender sees exactly what to fill in. */
+  function vendorTplCtx(ctx) {
+    ctx = ctx || {};
+    var user = ctx.user
+      || (T.currentUser && T.currentUser.name)
+      || (T.user && T.user.name) || '';
+    return {
+      restaurant:  ctx.restaurant != null ? ctx.restaurant : ctx.location,
+      location:    ctx.location != null ? ctx.location : ctx.restaurant,
+      equipment:   ctx.equipment,
+      unit:        ctx.unit != null ? ctx.unit : ctx.model,
+      model:       ctx.model != null ? ctx.model : ctx.unit,
+      serial:      ctx.serial,
+      area:        ctx.area,
+      issue:       ctx.issue,
+      priority:    ctx.priority,
+      description: ctx.description,
+      user:        user,
+    };
+  }
+  T.renderVendorTemplate = function (tpl, ctx) {
+    var map = vendorTplCtx(ctx);
+    return String(tpl || '').replace(/\{(\w+)\}/g, function (m, key) {
+      var v = map[key.toLowerCase()];
+      return (v == null || v === '') ? m : String(v);   // unknown → keep token visible
+    });
+  };
+  T.vendorEmail = function (vendor, ctx) {
+    if (!vendor) return;
+    ctx = ctx || {};
+    // Addresses: vendors.emails is [{value,label}] (R&M vendors) but scan-page
+    // contacts carry [{email,role}] — accept both shapes.
+    var all = [];
+    var push = function (e) {
+      var v = e && (e.value || e.email) ? String(e.value || e.email).trim() : String(e || '').trim();
+      if (v && validEmail(v) && all.indexOf(v) === -1) all.push(v);
+    };
+    if (Array.isArray(vendor.emails)) vendor.emails.forEach(push);
+    push(vendor.email);
+    if (!all.length) { if (T.toast) T.toast('No email on file for this vendor.', 'warning'); return; }
+    var to = all[0], cc = all.slice(1);
+
+    var map = vendorTplCtx(ctx);
+    var company = vendor.company || vendor.name || 'vendor';
+    var subject = vendor.dispatch_subject
+      ? T.renderVendorTemplate(vendor.dispatch_subject, ctx)
+      : ('Service Request — ' + ([map.restaurant, map.equipment].filter(Boolean).join(' · ') || company));
+    var body;
+    if (vendor.dispatch_template) {
+      body = T.renderVendorTemplate(vendor.dispatch_template, ctx);
+    } else {
+      var lines = ['Hi ' + (String(company).split(' ')[0]) + ' team,', ''];
+      lines.push('We need service on:');
+      lines.push('• Equipment: ' + (map.equipment || '{equipment}'));
+      lines.push('• Unit: ' + (map.unit || '{unit}'));
+      lines.push('• Serial: ' + (map.serial || '{serial}'));
+      lines.push('• Location: ' + (map.restaurant || '{restaurant}') + (map.area ? ' · ' + map.area : ''));
+      lines.push('');
+      lines.push('Issue: ' + (map.issue || '{issue}'));
+      if (map.description) { lines.push(''); lines.push(map.description); }
+      lines.push(''); lines.push('Please reply with your ETA and a quote if available.');
+      lines.push(''); lines.push('Thanks,'); lines.push(map.user || '');
+      body = lines.join('\n');
+    }
+
+    if (typeof T.composeEmail === 'function') {
+      T.composeEmail({
+        recipientsKey: 'vendor:' + (vendor.id || company),
+        to: to,
+        cc: cc,
+        subject: subject,
+        body: body,
+        onSend: ctx.onSend,
+      });
+    } else {
+      // Engine missing (shouldn't happen — same file) — encoded mailto.
+      var enc = function (s) { return encodeURIComponent(s).replace(/\+/g, '%20'); };
+      window.location.href = 'mailto:' + encodeURIComponent(to)
+        + '?subject=' + enc(subject) + '&body=' + enc(body)
+        + (cc.length ? '&cc=' + encodeURIComponent(cc.join(',')) : '');
+      if (typeof ctx.onSend === 'function') { try { ctx.onSend({ to: to, cc: cc, subject: subject, body: body }); } catch (_) {} }
+    }
+  };
 })();

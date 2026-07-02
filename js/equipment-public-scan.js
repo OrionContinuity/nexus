@@ -1665,6 +1665,44 @@
       contact.emails = out;
     }
 
+    // Vendor-era fallback: equipment linked through repair_vendor_id /
+    // service_vendor_id lives in the VENDORS table, not a contractor node —
+    // without this, Coker-style links showed a Call button but the Email
+    // button never rendered (no node emails). Resolve the vendor row, use
+    // its addresses, and carry the row so the email action can render the
+    // vendor's saved dispatch template through NX.vendorEmail.
+    if (!contact || !(contact.emails && contact.emails.length)) {
+      const vendorId = eq.repair_vendor_id || eq.service_vendor_id;
+      if (vendorId) {
+        try {
+          const { data: vrow } = await sb.from('vendors').select('*').eq('id', vendorId).maybeSingle();
+          if (vrow && (vrow.email || (Array.isArray(vrow.emails) && vrow.emails.length))) {
+            const emails = [];
+            const seenV = new Set();
+            const addV = (e) => {
+              const val = String((e && (e.value || e.email)) || e || '').trim().toLowerCase();
+              if (!val || !/[\w.+-]+@[\w-]+\.[\w.-]+/.test(val) || seenV.has(val)) return;
+              seenV.add(val); emails.push({ email: val, role: 'to' });
+            };
+            (Array.isArray(vrow.emails) ? vrow.emails : []).forEach(addV);
+            addV(vrow.email);
+            if (emails.length) {
+              if (!contact) {
+                contact = {
+                  name: vrow.company || vrow.name || 'Vendor',
+                  phone: vrow.phone || '',
+                  phoneHref: vrow.phone ? telHref(vrow.phone) : '',
+                  tags: [],
+                };
+              }
+              contact.emails = emails;
+              contact._vendor = vrow;   // template-aware send path
+            }
+          }
+        } catch (_) {}
+      }
+    }
+
     return {
       eq,
       activeTicket: (ticketRes.data || [])[0] || null,
@@ -1942,6 +1980,19 @@
         // composer engine (editable To/CC/BCC, recipients remembered per
         // vendor); degrade to a plain mailto: draft if it isn't loaded.
         e.preventDefault();
+        // Vendor-table contact (repair/service_vendor_id link) → the
+        // template-aware path: renders the vendor's saved dispatch template
+        // with THIS unit's details.
+        if (contact && contact._vendor && window.NX && typeof NX.vendorEmail === 'function') {
+          NX.vendorEmail(contact._vendor, {
+            restaurant: eq.location || '',
+            equipment:  eq.name || '',
+            unit:       [eq.manufacturer, eq.model].filter(Boolean).join(' '),
+            serial:     eq.serial_number || '',
+            area:       eq.area || '',
+          });
+          return;
+        }
         const ems = (contact && contact.emails) || [];
         const tos  = ems.filter(x => x.role === 'to' || !x.role).map(x => x.email);
         const ccs  = ems.filter(x => x.role === 'cc').map(x => x.email);

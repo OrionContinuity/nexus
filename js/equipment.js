@@ -5028,6 +5028,12 @@ function renderOverview(eq, attachments, customFields, maintenance) {
                 ${uiSvg('phone', '14px')}<span>${esc(phone)}</span>
               </a>
             ` : `<span class="eq-serviced-by-nophone">No phone on file</span>`}
+            ${(vendorId || hasEmail) ? `
+              <button type="button" class="eq-serviced-by-call eq-serviced-by-email"
+                onclick="NX.modules.equipment.emailVendor('${escAttr(String(vendorId || ''))}','${escAttr(String(eq.id))}','${escAttr(role)}')">
+                ${uiSvg('mail', '14px')}<span>Email</span>
+              </button>
+            ` : ''}
           </div>
           <div class="eq-serviced-by-status">
             <span class="eq-serviced-by-pip ${hasEmail ? 'is-on' : ''}" title="Email on file">
@@ -5055,6 +5061,12 @@ function renderOverview(eq, attachments, customFields, maintenance) {
                 ${uiSvg('phone', '14px')}<span>${esc(plainPhone)}</span>
               </a>
             ` : `<span class="eq-serviced-by-nophone">No phone on file</span>`}
+            ${vendorId ? `
+              <button type="button" class="eq-serviced-by-call eq-serviced-by-email"
+                onclick="NX.modules.equipment.emailVendor('${escAttr(String(vendorId))}','${escAttr(String(eq.id))}','${escAttr(role)}')">
+                ${uiSvg('mail', '14px')}<span>Email</span>
+              </button>
+            ` : ''}
           </div>
           ${viewVendorBtn}
         </div>
@@ -11945,6 +11957,59 @@ async function loadRecentDispatches(equipId, limit = 3) {
       .order('created_at', { ascending: false }).limit(limit);
     return data || [];
   } catch (e) { return []; }
+}
+
+/* Email the equipment's linked vendor through the shared composer engine
+   (NX.vendorEmail) with the vendor's saved dispatch template rendered from
+   THIS unit's details. Wired to the ✉ Email button on the SERVICED BY /
+   REPAIRS BY cards. Falls back to the contractor node's email as a
+   pseudo-vendor when no vendors-table link exists. */
+async function emailVendor(vendorId, equipId, role) {
+  try {
+    const { data: eq } = await NX.sb.from('equipment').select('*').eq('id', equipId).single();
+    if (!eq) { NX.toast && NX.toast('Equipment not found', 'error'); return; }
+
+    let vendor = null;
+    if (vendorId) {
+      const { data } = await NX.sb.from('vendors').select('*').eq('id', vendorId).maybeSingle();
+      vendor = data || null;
+    }
+    if (!vendor) {
+      // Pseudo-vendor from the linked contractor node's contact info.
+      const nodeId = role === 'repair' ? eq.repair_contractor_node_id : eq.service_contractor_node_id;
+      if (nodeId) {
+        try {
+          const { data: node } = await NX.sb.from('nodes').select('*').eq('id', nodeId).maybeSingle();
+          if (node) {
+            const emails = [];
+            const links = Array.isArray(node.links) ? node.links : (node.links ? [node.links] : []);
+            links.forEach(l => {
+              if (l && typeof l === 'object' && l.email) emails.push({ value: String(l.email) });
+              else if (typeof l === 'string') {
+                const m = l.match(/[\w.+-]+@[\w-]+\.[\w.-]+/); if (m) emails.push({ value: m[0] });
+              }
+            });
+            if (emails.length) vendor = { company: node.name, name: node.name, email: emails[0].value, emails };
+          }
+        } catch (_) {}
+      }
+    }
+    if (!vendor) { NX.toast && NX.toast('No vendor email on file — link a vendor in Edit → Links.', 'warning'); return; }
+    if (!(window.NX && typeof NX.vendorEmail === 'function')) {
+      window.location.href = 'mailto:' + encodeURIComponent(vendor.email || '');
+      return;
+    }
+    NX.vendorEmail(vendor, {
+      restaurant: eq.location || '',
+      equipment:  eq.name || '',
+      unit:       [eq.manufacturer, eq.model].filter(Boolean).join(' '),
+      serial:     eq.serial_number || '',
+      area:       eq.area || '',
+    });
+  } catch (e) {
+    console.error('[equipment] emailVendor:', e);
+    NX.toast && NX.toast('Could not open the email composer', 'error');
+  }
 }
 
 function buildDispatchMessage(eq, ticket, contact, userName) {
@@ -20541,6 +20606,7 @@ const __nxeExports = {
   openDetail,
   openDetailByQr,    // QR deep-link → detail (used by app.js post-login redirect)
   completeWorkOrder, // staff one-tap WO completion (mirrors public scan)
+  emailVendor,       // ✉ Email on SERVICED BY / REPAIRS BY → composer + template
   closeDetail,
   loadEquipment,
   buildUI,
