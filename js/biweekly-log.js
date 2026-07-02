@@ -419,20 +419,32 @@ async function loadAgedOpenTickets(windowStartIso) {
 }
 
 async function loadPmsCompleted(startTs, endTs) {
+  // Read the SAME source the daily log and PM logger use: equipment_maintenance
+  // rows with event_type='pm'. The old query read equipment_events
+  // event_type='pm_logged', which NOTHING writes — so this metric silently
+  // reported 0 forever while real PMs piled up in equipment_maintenance.
+  // event_date is a DATE, so window on the date portion.
   try {
-    const { data, error } = await NX.sb.from('equipment_events')
-      .select('id, equipment_id, event_type, payload, location, actor_name, occurred_at')
-      .eq('event_type', 'pm_logged')
-      .gte('occurred_at', startTs)
-      .lte('occurred_at', endTs)
-      .order('occurred_at', { ascending: false });
+    const startDate = String(startTs).slice(0, 10);
+    const endDate = String(endTs).slice(0, 10);
+    const { data, error } = await NX.sb.from('equipment_maintenance')
+      .select('id, equipment_id, event_type, event_date, performed_by, cost')
+      .eq('event_type', 'pm')
+      .gte('event_date', startDate)
+      .lte('event_date', endDate)
+      .order('event_date', { ascending: false });
     if (error) throw error;
     const items = data || [];
+    // best-effort per-location grouping via the equipment table
     const by_location = {};
-    items.forEach(ev => {
-      const loc = ev.location || '—';
-      by_location[loc] = (by_location[loc] || 0) + 1;
-    });
+    try {
+      const ids = [...new Set(items.map(i => i.equipment_id).filter(Boolean))];
+      if (ids.length) {
+        const { data: eqs } = await NX.sb.from('equipment').select('id, location').in('id', ids);
+        const locOf = {}; (eqs || []).forEach(e => { locOf[e.id] = e.location || '—'; });
+        items.forEach(ev => { const loc = locOf[ev.equipment_id] || '—'; by_location[loc] = (by_location[loc] || 0) + 1; });
+      }
+    } catch (_) {}
     return { total: items.length, by_location, items };
   } catch (e) {
     console.warn('[biweekly] loadPmsCompleted:', e.message);

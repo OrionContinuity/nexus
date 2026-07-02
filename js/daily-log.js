@@ -3387,13 +3387,13 @@ function wireDlogLifecycle() {
   }, 180000);
   const flush = () => {
     if (state.saveTimer) { clearTimeout(state.saveTimer); state.saveTimer = null; }
-    const onView = document.body.classList.contains('view-dailylog') || (document.getElementById('dailylogView') || {}).classList?.contains('active');
-    if (!state.dirty && !(dlogAutoSendOn() && onView)) return;
-    // Auto-send: upload to Drive when leaving (only if the toggle is on and we
-    // have a log with content). Otherwise just a quiet DB save so edits persist.
-    const hasContent = state.currentLog && state.currentLog.data;
-    if (dlogAutoSendOn() && onView && hasContent) commitSave({ submit: true, quiet: true });
-    else if (state.dirty) commitSave({ submit: false, quiet: true });
+    // Leaving the tab is NOT a "send." Previously, with auto-send on, every
+    // tab-hide fired a full Drive upload — so app-switching on a phone
+    // re-uploaded (and effectively re-sent) the day's log many times. Now the
+    // leave-flush only persists the draft to the DB so nothing is lost; the
+    // actual Drive upload is owned solely by the cutoff-time safety net above
+    // and the explicit Upload button.
+    if (state.dirty) commitSave({ submit: false, quiet: true });
   };
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); });
   window.addEventListener('pagehide', flush);
