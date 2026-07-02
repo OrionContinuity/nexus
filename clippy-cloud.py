@@ -255,7 +255,15 @@ def cap1(x):
 
 
 def tword():
-    h = time.gmtime().tm_hour
+    # The cloud runs on GitHub Actions in UTC, but his thoughts belong to the
+    # restaurant's clock (Austin, Central). Without the offset he'd say "morning"
+    # at what is actually the dead of night on the floor. CLIPPY_TZ_OFFSET is
+    # hours from UTC (default -5, US Central daylight).
+    try:
+        off = int(os.environ.get("CLIPPY_TZ_OFFSET") or "-5")
+    except ValueError:
+        off = -5
+    h = (time.gmtime().tm_hour + off) % 24
     return "the dead of night" if h < 5 else "morning" if h < 12 else "the long afternoon" if h < 17 else "evening" if h < 22 else "late night"
 
 

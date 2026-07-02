@@ -347,10 +347,20 @@
     for (const id of state.timers.timeouts)  { try { clearTimeout(id);  } catch (_) {} }
     state.timers.intervals = [];
     state.timers.timeouts  = [];
-    // Also clear the named timers stored elsewhere in state. If they
-    // weren't tracked through the registry, we still know their slots.
-    for (const slot of ['moodTimer', 'blinkTimer', 'randomTimer', 'moveTimer', 'activeActionTimer']) {
-      if (state[slot]) { try { clearTimeout(state[slot]); clearInterval(state[slot]); } catch (_) {} state[slot] = null; }
+    // Sweep EVERY named timer slot on state. Several self-rescheduling loops
+    // (mischiefTimer, quirkTimer, _learnedTimer, _selfDrivenTimer, the
+    // autonomous/bored-mischief chains) store their handle in a state field
+    // and re-arm from raw setTimeout/setInterval — outside the registry. A
+    // hardcoded slot list kept missing new ones and they woke up forever
+    // after disable(). Instead: clear anything whose key ends in "Timer"
+    // (case-insensitive) plus the known non-"Timer" handles, so a leak can't
+    // survive just because someone forgot to register it.
+    const slots = new Set(['moodTimer', 'blinkTimer', 'randomTimer', 'moveTimer', 'activeActionTimer']);
+    for (const k of Object.keys(state)) {
+      if (/timer$/i.test(k) && state[k] != null) slots.add(k);
+    }
+    for (const slot of slots) {
+      if (state[slot] != null) { try { clearTimeout(state[slot]); clearInterval(state[slot]); } catch (_) {} state[slot] = null; }
     }
   }
 
@@ -449,6 +459,8 @@
     state.sulkActive = false;
     state.nxActionInstalled = false;  // so enable() reinstalls the global listener
     state.cloudSyncInited = false;    // so enable() restarts cloud sync
+    state._contentAwarenessInstalled = false;  // so enable() re-arms overlay/in-the-way watch
+    state._momentActive = false;      // never resume disabled mid-moment
     state.awareness = { _started: false };  // awareness loop can re-init
     // Remove the shell entirely so re-enable rebuilds from scratch
     // (avoids stale state on the SVG element after teardown).
@@ -4475,7 +4487,14 @@
       primary: { ...state.emotions },
       derived: getDerivedEmotions(),
       dominant: dom.name,
-      intensity: dom.intensity,
+      // PUBLIC intensity is 0..100. Internally emotions are 0..1 floats, but
+      // every external consumer (clippy-soul.js, clippy-tesserae.js) was
+      // written against a 0..100 scale — reading the raw 0..1 silently pinned
+      // his felt intensity to "faintly", halved how hard feelings imprint on
+      // ANIMA, and made emotional-peak memories (a >72 test) impossible. Also
+      // expose the raw 0..1 as intensity01 for anyone who wants it.
+      intensity: Math.round((dom.intensity || 0) * 100),
+      intensity01: dom.intensity,
       face: moodFromEmotion(),
     };
   }
@@ -6350,6 +6369,14 @@
     el.innerHTML = `<button class="clippy-bubble-close" aria-label="Dismiss">×</button>${body}`;
     ensureHost().appendChild(el);
     state.bubble = el;
+    // onDismiss must fire on EVERY close path that isn't an explicit choice —
+    // auto-hide, a replacement bubble, teardown — not just the × button.
+    // Otherwise a center-stage moment (dream prompt) whose bubble is closed by
+    // opening a game would strand _momentActive=true and lock Clippy at screen
+    // center for the session. Button/× handlers set _resolved so this doesn't
+    // double-fire with their own outcome.
+    el._onDismiss = opts.onDismiss || null;
+    el._resolved = false;
     openOverlay('bubble');  // v18.26 — overlay tracking
 
     // v18.10 — reading-time-based duration. UX research:
@@ -6404,6 +6431,7 @@
     requestAnimationFrame(refresh);
 
     el.querySelector('.clippy-bubble-close').addEventListener('click', () => {
+      el._resolved = true;              // the × IS a dismiss; fire it here, once
       closeActionBubble();
       if (opts.onDismiss) opts.onDismiss();
     });
@@ -6412,6 +6440,7 @@
         btn.addEventListener('click', () => {
           const i = parseInt(btn.dataset.idx, 10);
           const a = opts.actions[i];
+          el._resolved = true;          // an explicit choice — not a dismiss
           if (!a || !a.keepOpen) closeActionBubble();
           if (a && a.onClick) a.onClick();
         });
@@ -6495,6 +6524,13 @@
       const b = state.bubble;
       setTimeout(() => { try { b.remove(); } catch (e) {} }, 220);
       state.bubble = null;
+      // Fire onDismiss for any close that wasn't an explicit button/× choice
+      // (auto-hide, replacement, teardown), exactly once — this is what
+      // unlocks a stuck center-stage moment.
+      if (b && b._onDismiss && !b._resolved) {
+        b._resolved = true;
+        try { b._onDismiss(); } catch (_) {}
+      }
       closeOverlay('bubble');  // v18.26
       // v17.18: cancel the follow loop when bubble closes
       if (state.bubbleFollowRaf) {
@@ -7044,7 +7080,10 @@
     _rawGlide(cx, cy);
     try { play('hop'); } catch (_) {}
     if (opts.mood) { try { mood(opts.mood, 7000); } catch (_) {} }
+    var _done = false;
     const finish = (cb) => {
+      if (_done) return;           // exactly-once: a button choice and the
+      _done = true;                // bubble's onDismiss can both reach here
       if (state.shell) state.shell.classList.remove('is-center-stage');
       const h = state._momentHome;
       if (h && state.shell) _rawGlide(Math.round(h.x), Math.round(h.y));
@@ -7075,6 +7114,14 @@
   }
 
   function startContentAwareness() {
+    // init() can run more than once (disable→enable, peek→accept). Without
+    // this guard every cycle stacked another document-wide MutationObserver
+    // and another full set of document/window listeners — none of which were
+    // tracked, so they also survived teardown(). Guard + route everything
+    // through trackObserver/trackListener so exactly one set exists and it's
+    // all torn down on disable.
+    if (state._contentAwarenessInstalled) return;
+    state._contentAwarenessInstalled = true;
     const checkOverlays = () => {
       if (!state.enabled || !state.shell) return;
       const overlay = document.querySelector(
@@ -7097,10 +7144,10 @@
     // render. A 150ms trailing debounce keeps hide-on-overlay feeling
     // instant while cutting the work by orders of magnitude.
     let coDebounce = null;
-    const obs = new MutationObserver(() => {
+    const obs = trackObserver(new MutationObserver(() => {
       if (coDebounce) clearTimeout(coDebounce);
       coDebounce = setTimeout(checkOverlays, 150);
-    });
+    }));
     obs.observe(document.body, {
       attributes: true, childList: true, subtree: true,
       attributeFilter: ['class','aria-hidden','open','hidden','data-overlay-active']
@@ -7113,7 +7160,7 @@
     // in the way → move and apologize. Doesn't fire if user clicked
     // Clippy himself (handled separately).
     let lastInTheWayMoveAt = 0;
-    document.addEventListener('click', (e) => {
+    trackListener(document, 'click', (e) => {
       if (!state.enabled || !state.shell) return;
       if (state.suppressed) return;
       if (state.shell.contains(e.target)) return;
@@ -7137,7 +7184,7 @@
     // Move out of way when input near him gets focused — UNLESS he's
     // feeling attention-seeky (12% chance), in which case he moves
     // ONTO the input to block it. Quirky.
-    document.addEventListener('focusin', (e) => {
+    trackListener(document, 'focusin', (e) => {
       if (!state.enabled || !state.shell) return;
       const t = e.target;
       if (!t || !t.matches) return;
@@ -7164,7 +7211,7 @@
     // When the user comes back to the tab after a long absence (>2min),
     // greet them. Silly small thing, but very personable.
     let hiddenAt = 0;
-    document.addEventListener('visibilitychange', () => {
+    trackListener(document, 'visibilitychange', () => {
       if (!state.enabled) return;
       if (document.hidden) {
         hiddenAt = Date.now();
@@ -7187,7 +7234,7 @@
     // occasionally so the move doesn't feel like a glitch.
     let resizeTimer = null;
     let lastResizeCommentAt = 0;
-    window.addEventListener('resize', () => {
+    trackListener(window, 'resize', () => {
       if (!state.enabled || !state.shell) return;
       if (resizeTimer) clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
@@ -7207,7 +7254,7 @@
     let lastScrollY = window.scrollY;
     let lastScrollT = performance.now();
     let lastFastScrollAt = 0;
-    window.addEventListener('scroll', () => {
+    trackListener(window, 'scroll', () => {
       if (!state.enabled) return;
       const now = performance.now();
       const dy = Math.abs(window.scrollY - lastScrollY);

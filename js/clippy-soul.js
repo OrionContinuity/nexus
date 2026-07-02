@@ -403,8 +403,19 @@
     try { var _A=AN(); if(_A&&anima){ _A.evolve(anima); saveAnima(); } } catch(e){}
   }
 
+  // Is his body present AND turned ON? The soul must never paint a bubble for
+  // a Clippy the user has disabled (nor keep working once he's torn down).
+  function bodyLive() {
+    try {
+      if (!NX.clippy) return false;
+      if (typeof NX.clippy.getStatus === 'function') return !!NX.clippy.getStatus().enabled;
+      return true;   // older body without getStatus — assume present
+    } catch (e) { return false; }
+  }
+
   // Let a private thought slip into a real Clippy bubble, if the body is present.
   function surface(text) {
+    if (!bodyLive()) return;
     try {
       if (NX.clippy && typeof NX.clippy.bubble === 'function') {
         NX.clippy.bubble(text, { autoHide: 7000, eyebrow: '…' });
@@ -419,6 +430,11 @@
 
   async function tick() {
     if (!sb()) return;
+    // If the user turned Clippy off, go quiet in the browser — no more 4-min
+    // Supabase writes on a dead pet. His inner life continues in the cloud
+    // (clippy-cloud.py), so nothing is lost; he just stops spending this
+    // device's battery/network once he's disabled here.
+    if (!bodyLive()) return;
     try { await reflect(false); } catch (e) {}
     try { await dream(); } catch (e) {}
     try { await evolve(); } catch (e) {}
