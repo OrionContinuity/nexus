@@ -125,6 +125,14 @@ const STYLES = `
   .b-list-count{font-size:11px;color:var(--text-dim);background:rgba(255,255,255,0.05);padding:2px 7px;border-radius:8px}
   .b-list-cards{flex:1;overflow-y:auto;min-height:30px;margin:0 -2px;padding:0 2px;scrollbar-width:thin}
   .b-list-cards.drag-over{background:rgba(200,164,78,0.05);border-radius:6px}
+  /* Trello-style drag feedback. The picked-up card collapses to nothing
+     (its clone floats under the finger) so only the live gap shows where
+     it will land; the target list gets a soft ring; the placeholder is the
+     gap itself, sized to a typical card so the layout doesn't jump. */
+  .b-card.is-dragging{opacity:0;height:0;min-height:0;margin:0;padding:0;border:0;overflow:hidden;pointer-events:none}
+  .b-list.drop-target{outline:2px solid rgba(200,164,78,0.35);outline-offset:-2px;border-radius:10px}
+  .b-card-dragclone{opacity:.95;transform:rotate(1.5deg) scale(1.02);box-shadow:0 14px 34px rgba(0,0,0,0.55);border-color:rgba(200,164,78,0.4)!important;transition:none}
+  .b-card-placeholder{height:44px;margin-bottom:8px;border-radius:10px;background:rgba(200,164,78,0.08);border:1px dashed rgba(200,164,78,0.35);flex-shrink:0;animation:bfade .12s ease}
   /* Add card button — was a wispy dashed rectangle. Now a calm solid
      affordance that stands out as "press here" without screaming. */
   .b-list-add{background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.06);color:var(--text-dim);padding:10px;border-radius:8px;cursor:pointer;margin-top:6px;width:100%;font-size:12.5px;font-family:inherit;transition:all .15s}
@@ -983,6 +991,62 @@ function normalizeCardLabel(l){
   return null;
 }
 
+// ─── Trello-style positional drag helpers ────────────────────────────────
+// The dragged card carries a live "placeholder" — a gap that follows the
+// finger and shows exactly where the card will land. We track which card
+// we'd drop *before* (null = end of list) so the drop can compute a
+// fractional position between neighbours.
+function removePlaceholder(P){
+  if (P && P._ph) { P._ph.remove(); P._ph = null; }
+  else document.querySelectorAll('.b-card-placeholder').forEach(n => n.remove());
+}
+
+function positionPlaceholder(P, listEl, y){
+  removePlaceholder(P);
+  P.overBeforeId = null;
+  if (!listEl) return;
+  const wrap = listEl.querySelector('.b-list-cards');
+  if (!wrap) return;
+  // Only consider real cards that aren't the one being dragged.
+  const siblings = [...wrap.querySelectorAll('.b-card:not(.is-dragging)')];
+  let beforeEl = null;
+  for (const c of siblings){
+    const r = c.getBoundingClientRect();
+    if (y < r.top + r.height / 2){ beforeEl = c; break; }
+  }
+  const ph = document.createElement('div');
+  ph.className = 'b-card-placeholder';
+  if (beforeEl){
+    P.overBeforeId = beforeEl.dataset.cardId;
+    wrap.insertBefore(ph, beforeEl);
+  } else {
+    // Drop at the end — before the empty-state note if present, else append.
+    const empty = wrap.querySelector('.b-list-empty');
+    if (empty) wrap.insertBefore(ph, empty); else wrap.appendChild(ph);
+  }
+  P._ph = ph;
+}
+
+// Compute the fractional position a card should take when dropped into a
+// list before `beforeId` (null = end). Excludes the card being moved so its
+// old slot never skews the math. Midpoint insertion means one row write.
+function computeDropPosition(listId, beforeId, excludeId){
+  const inDest = cards
+    .filter(c => c.list_id === listId && String(c.id) !== String(excludeId))
+    .sort((a,b) => (a.position||0) - (b.position||0));
+  if (!inDest.length) return 0;
+  if (!beforeId){
+    return (inDest[inDest.length - 1].position || 0) + 1;
+  }
+  const idx = inDest.findIndex(c => String(c.id) === String(beforeId));
+  if (idx <= 0){
+    return (inDest[0].position || 0) - 1;   // lands above the first card
+  }
+  const prev = inDest[idx - 1].position || 0;
+  const cur  = inDest[idx].position || 0;
+  return (prev + cur) / 2;                    // midpoint between neighbours
+}
+
 function createCardEl(card){
   const el = document.createElement('div');
   el.className = 'b-card';
@@ -1112,15 +1176,20 @@ function createCardEl(card){
 
   const pickUp = () => {
     P.dragging = true;
-    el.classList.add('is-dragging');
     dragCard = card;
     try { navigator.vibrate?.(6); } catch(_) {}
+    // Measure + clone while the card is still at full size — THEN collapse
+    // the original. (Order matters: `.is-dragging` now shrinks the card to a
+    // zero-height gap, so cloning after collapse would produce an invisible
+    // clone and a zero-height rect.)
     const r = el.getBoundingClientRect();
     const clone = el.cloneNode(true);
+    clone.classList.remove('is-dragging');
     clone.classList.add('b-card-dragclone');
     clone.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width}px;margin:0;pointer-events:none;z-index:3000`;
     document.body.appendChild(clone);
     P.clone = clone; P.offX = P.startX - r.left; P.offY = P.startY - r.top;
+    el.classList.add('is-dragging');
   };
   const dragTo = (x, y) => {
     if (P.clone) {
@@ -1132,8 +1201,14 @@ function createCardEl(card){
     if (P.clone) P.clone.style.visibility = '';
     const listEl = under && under.closest('.b-list');
     clearDropTargets();
-    if (listEl) listEl.classList.add('drop-target');
-    P.overListId = listEl ? listEl.dataset.listId : null;
+    // Don't offer the "add another list" tile as a drop target.
+    const dropList = listEl && !listEl.classList.contains('b-list-new') ? listEl : null;
+    if (dropList) dropList.classList.add('drop-target');
+    P.overListId = dropList ? dropList.dataset.listId : null;
+    // Position the live gap where the card would land, and remember which
+    // card we'd drop before (null = end of list). This is what makes
+    // ordering feel like Trello — you drop into a slot, not just onto a list.
+    positionPlaceholder(P, dropList, y);
     // Edge auto-scroll the horizontal lists container so you can drag across
     // columns even when only one is on screen (mobile snap layout).
     const sc = el.closest('.b-lists');
@@ -1145,13 +1220,17 @@ function createCardEl(card){
   };
   const drop = async () => {
     const overId = P.overListId;
+    const beforeId = P.overBeforeId || null;
+    removePlaceholder(P);
     if (P.clone) P.clone.remove();
     el.classList.remove('is-dragging');
     clearDropTargets();
     dragCard = null;
     if (overId) {
       const target = lists.find(l => String(l.id) === String(overId));
-      if (target && target.id !== card.list_id) await moveCard(card, target);
+      // Move even when the target list is the same one — that's an in-list
+      // reorder. moveCard reads beforeId to compute the exact drop position.
+      if (target) await moveCard(card, target, { beforeId });
     }
   };
 
@@ -1186,6 +1265,7 @@ function createCardEl(card){
   el.addEventListener('pointercancel', () => {
     if (!P) return;
     clearTimeout(P.holdTimer);
+    removePlaceholder(P);
     if (P.clone) P.clone.remove();
     el.classList.remove('is-dragging');
     clearDropTargets();
@@ -1410,7 +1490,34 @@ function closeMirrorTicket(card){
   } catch (_) {}
 }
 
-async function moveCard(card, targetList){
+async function moveCard(card, targetList, opts){
+  const beforeId = opts && opts.beforeId ? opts.beforeId : null;
+
+  // ── SAME-LIST REORDER ────────────────────────────────────────────────
+  // Dropping a card back into its own list is a pure position change — no
+  // status/column churn, no done-side-effects. Compute the fractional slot
+  // and write only `position`. Bail if the slot didn't actually change.
+  if (String(card.list_id) === String(targetList.id)){
+    const newPos = computeDropPosition(targetList.id, beforeId, card.id);
+    const prevPos = card.position;
+    if (newPos === prevPos) { render(); return; }   // re-render clears drag state
+    card.position = newPos;
+    optimisticSet.add(card.id);
+    render();
+    try{
+      const { error } = await NX.sb.from('kanban_cards').update({ position: newPos }).eq('id', card.id);
+      if (error) throw error;
+      setTimeout(() => optimisticSet.delete(card.id), 4000);
+    }catch(e){
+      console.error('[board] reorder:', e);
+      card.position = prevPos;
+      optimisticSet.delete(card.id);
+      render();
+      NX.toast && NX.toast('Failed to reorder — reverted', 'error');
+    }
+    return;
+  }
+
   // Optimistic: update local state + re-render IMMEDIATELY, then fire
   // the server write in the background. User sees the card move with
   // zero latency. On error, we revert and toast. This is the single
@@ -1451,16 +1558,22 @@ async function moveCard(card, targetList){
       column_name: targetColName,
       status,
     };
-    // Give the moved card a fresh position in the destination list (land on
-    // top, matching the add-to-top convention) — otherwise it keeps its old
-    // list's position number and sorts into a random spot in the new list.
+    // Position in the destination list. A drag (opts present) lands in the
+    // exact slot the user dropped into — fractional midpoint between
+    // neighbours, or top/end. A menu/programmatic move (no opts) keeps the
+    // long-standing add-to-top convention.
     {
-      const inDest = cards.filter(c => c.list_id === targetList.id && c.id !== card.id);
-      const topPos = inDest.length
-        ? Math.min(...inDest.map(c => (typeof c.position === 'number' ? c.position : 0))) - 1
-        : 0;
-      updatePayload.position = topPos;
-      card.position = topPos;
+      let newPos;
+      if (opts) {
+        newPos = computeDropPosition(targetList.id, beforeId, card.id);
+      } else {
+        const inDest = cards.filter(c => c.list_id === targetList.id && c.id !== card.id);
+        newPos = inDest.length
+          ? Math.min(...inDest.map(c => (typeof c.position === 'number' ? c.position : 0))) - 1
+          : 0;
+      }
+      updatePayload.position = newPos;
+      card.position = newPos;
     }
     if (movingToDone && wasNotDone) {
       updatePayload.closed_at = new Date().toISOString();
