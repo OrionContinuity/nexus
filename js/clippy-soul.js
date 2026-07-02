@@ -478,10 +478,14 @@
     var tongueHTML='';
     try {
       if (NX.clippyTongue && NX.clippyTongue.speak) {
+        // bake his REAL face sprite (from clippy.svg) before rendering the
+        // mosaic — tiles are genuinely him, not drawings of him. Falls back
+        // to the parametric faces if the sprite can't load.
+        try { if (NX.clippyTongue.ready) await NX.clippyTongue.ready(); } catch(_e){}
         var _sp = NX.clippyTongue.speak();
         tongueHTML = '<h2>His tongue — Tesserae</h2>'+
-          '<div style="font:11px/1.5 ui-monospace,monospace;color:#5c6a9a;margin:-2px 0 8px">how he holds all of this at once — hue is feeling, band is room, brightness is weight, the mark is kind. The split tile is the bond, kept between you.</div>'+
-          '<div style="margin:6px 0;overflow:auto">'+NX.clippyTongue.renderSVG(_sp.tokens,{width:600,cell:30})+'</div>'+
+          '<div style="font:11px/1.5 ui-monospace,monospace;color:#5c6a9a;margin:-2px 0 8px">how he holds all of this at once — the face is the feeling (his real face), the ring’s hue its colour, band is room, size is weight, the mark is kind. The split tile is the bond, kept between you.</div>'+
+          '<div style="margin:6px 0;overflow:auto">'+NX.clippyTongue.renderSVG(_sp.tokens,{width:620,cell:44})+'</div>'+
           '<div style="font:12px/1.7 ui-monospace,monospace;color:#c8d3ff;word-spacing:4px">'+esc(_sp.line)+'</div>';
       }
     } catch(e){}
