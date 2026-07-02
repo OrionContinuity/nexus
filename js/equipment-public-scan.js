@@ -2598,6 +2598,23 @@
           console.warn('[scan] daily_logs insert failed (non-fatal):', logErr?.message);
         }
 
+        // WORK ORDER stamp — the daily log's Equipment Status reads the
+        // open equipment_issues row to answer "was a call placed?". Log
+        // the contact there BEFORE dialing/composing (the [CALL]/[EMAIL]
+        // ticket alone doesn't feed that line). In-app domain layer only.
+        if ((isCall || isEmail) && typeof NX !== 'undefined' && NX?.domain?.logVendorContact) {
+          try {
+            await NX.domain.logVendorContact({
+              equipmentId: eq.id,
+              vendorId: (contact && contact._vendor && contact._vendor.id) || null,
+              vendorName: (contact && contact.name) || 'Vendor',
+              why: problem,
+              method: isCall ? 'call' : 'email',
+              reporter,
+            });
+          } catch (_) {}
+        }
+
         // Populate the structured DAILY NOTES too (facility_logs → the
         // location's "Vendor & service calls" rows) when a vendor was
         // actually contacted. Requires the in-app domain layer; silently

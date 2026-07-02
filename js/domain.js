@@ -363,6 +363,56 @@
   //   `dispatch:<uuid>` label. Gives the card a back-link to
   //   "we called Joe's HVAC about this on Tuesday."
   //
+  // ── VENDOR CONTACT → WORK ORDER (equipment_issues) ─────────────
+  // The daily log's Equipment Status reads the unit's most-recent OPEN
+  // equipment_issues row to answer "was a call placed?" ("call: placed
+  // by Coker on Jul 1" vs "call: not logged — no open work order yet").
+  // Every vendor email/call must therefore create-or-stamp that row
+  // BEFORE the composer/dialer opens. Reuses the open issue when one
+  // exists (stamps contractor_called_at once); creates it otherwise.
+  D.logVendorContact = async function({ equipmentId, vendorId, vendorName, why, method, reporter }) {
+    if (!NX.sb || !equipmentId) return null;
+    try {
+      const now = new Date().toISOString();
+      const { data: open } = await NX.sb.from('equipment_issues')
+        .select('id, contractor_called_at, status')
+        .eq('equipment_id', equipmentId)
+        .not('status', 'in', '(repaired,closed,cancelled,invoice_paid)')
+        .order('created_at', { ascending: false })
+        .limit(1);
+      const existing = open && open[0];
+      if (existing) {
+        const patch = {
+          contractor_called_at: existing.contractor_called_at || now,
+          contractor_name: vendorName || null,
+          contractor_company: vendorName || null,
+          vendor_id: vendorId || null,
+        };
+        if (!existing.status || existing.status === 'reported') patch.status = 'contractor_called';
+        await NX.sb.from('equipment_issues').update(patch).eq('id', existing.id);
+        return existing.id;
+      }
+      const { data: row, error } = await NX.sb.from('equipment_issues').insert({
+        equipment_id: equipmentId,
+        title: (why || 'Vendor contacted').slice(0, 120),
+        description: why || null,
+        status: 'contractor_called',
+        priority: 'normal',
+        severity: 'medium',
+        reported_by_name: reporter || null,
+        contractor_called_at: now,
+        contractor_name: vendorName || null,
+        contractor_company: vendorName || null,
+        vendor_id: vendorId || null,
+      }).select('id').single();
+      if (error) throw error;
+      return row && row.id;
+    } catch (e) {
+      console.warn('[domain] logVendorContact failed (non-fatal):', e && e.message);
+      return null;
+    }
+  };
+
   // ── VENDOR CONTACT → DAILY NOTES ────────────────────────────────
   // When a vendor is emailed/called about equipment, drop a row into
   // TODAY's daily log (facility_logs) under that location's "Vendor &

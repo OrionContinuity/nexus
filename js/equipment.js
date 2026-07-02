@@ -12152,6 +12152,21 @@ async function openVendorContactSheet(vendorId, equipId, role, method) {
         console.warn('[equipment] vendor contact trail failed (non-fatal):', e2);
       }
 
+      // 1b) WORK ORDER — the daily log's "call: placed / not logged" line
+      // reads the unit's open equipment_issues row. Stamp it (or create
+      // it) BEFORE the composer/dialer opens so the contact is on record
+      // even if the mail app backgrounds us.
+      try {
+        await NX.domain?.logVendorContact?.({
+          equipmentId: eq.id,
+          vendorId: (vendor && vendor.id) || null,
+          vendorName: vName,
+          why,
+          method: isEmail ? 'email' : 'call',
+          reporter,
+        });
+      } catch (_) {}
+
       // 2) STATUS — contacting a vendor about a unit means it needs
       // attention. Bump operational → needs_service; never downgrade.
       try {

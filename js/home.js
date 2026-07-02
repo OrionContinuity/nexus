@@ -611,13 +611,17 @@
       // Counts use client-side filtering on small result sets rather than
       // PostgREST archived/null operators (which proved fragile on this
       // deployment — the equipment-down count was erroring to a dash).
-      const [ticketsRes, downRes, overdueRes, servicesRes] = await Promise.allSettled([
+      const [ticketsRes, downRes, needsRes, overdueRes, servicesRes] = await Promise.allSettled([
         // Open board cards: fetch light rows, count non-archived + non-done
         // client-side. status is NULL on freshly-created cards (only set on
         // move), so we treat NULL/anything-not-done as open.
         NX.sb.from('kanban_cards').select('id, status, archived, board_id'),
-        // Equipment down: fetch matching rows, exclude archived in JS
-        NX.sb.from('equipment').select('id, archived').in('status', ['down', 'needs_service', 'broken']),
+        // Equipment DOWN means down — needs_service units are degraded but
+        // running and were inflating this tile ("2 down" when both were
+        // merely flagged for service). They're tracked separately below.
+        // equipment uses archived_at (no boolean archived column).
+        NX.sb.from('equipment').select('id, archived_at').in('status', ['down', 'broken']),
+        NX.sb.from('equipment').select('id, archived_at').eq('status', 'needs_service'),
         NX.sb.from('equipment').select('*', { count: 'exact', head: true })
           .lt('next_pm_date', nowIso.slice(0, 10)),
         NX.sb.from('equipment_maintenance').select('*', { count: 'exact', head: true })
@@ -634,7 +638,8 @@
       };
       const counts = {
         tickets:  countRows(ticketsRes, r => r.archived !== true && !isOrderingCard(r) && !DONE.has((r.status || '').toLowerCase())),
-        down:     countRows(downRes,    r => r.archived !== true),
+        down:     countRows(downRes,    r => !r.archived_at),
+        needs:    countRows(needsRes,   r => !r.archived_at),
         overdue:  numOrDash(overdueRes),
         services: numOrDash(servicesRes),
       };
@@ -878,6 +883,10 @@
       // Equipment down — high-signal, lead with it when non-zero
       const nDown = asNum(counts.down);
       if (!isNaN(nDown) && nDown > 0) parts.push(`${nDown} down`);
+
+      // Needs service — degraded but running; distinct from down
+      const nNeeds = asNum(counts.needs);
+      if (!isNaN(nNeeds) && nNeeds > 0) parts.push(`${nNeeds} need${nNeeds === 1 ? 's' : ''} service`);
 
       // Overdue PMs
       const nOverdue = asNum(counts.overdue);
