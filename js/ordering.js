@@ -42,9 +42,9 @@
   // by default. Errors always fire — they're the signal that survives
   // through the noise. Flip `NX.debug = true` in DevTools to turn the
   // log/info/warn channels back on for postmortem investigation.
-  const dlog  = (...a) => { if (window.NX && NX.debug) dlog(...a);  };
-  const dinfo = (...a) => { if (window.NX && NX.debug) dinfo(...a); };
-  const dwarn = (...a) => { if (window.NX && NX.debug) dwarn(...a); };
+  const dlog  = (...a) => { if (window.NX && NX.debug) console.log('[ordering]', ...a);  };
+  const dinfo = (...a) => { if (window.NX && NX.debug) console.info('[ordering]', ...a); };
+  const dwarn = (...a) => { if (window.NX && NX.debug) console.warn('[ordering]', ...a); };
 
   // ─── CONSTANTS ────────────────────────────────────────────────────
   const PANE_SEL    = '#dutiesOrderingPane';
@@ -200,6 +200,9 @@
      vendor only shows at locations in the list. */
   function isVendorVisible(vendor, location) {
     if (!vendor) return false;
+    // Archived vendors stay in memory so order history can resolve their
+    // names, but they never render in the vendor list / pulse.
+    if (vendor.archived) return false;
     const locs = vendor.locations;
     if (!Array.isArray(locs) || locs.length === 0) return true;
     return locs.includes(location);
@@ -305,7 +308,9 @@
     let { data, error } = await NX.sb
       .from('order_vendors')
       .select('id, name, alias_short, email, alt_emails, managed_by, role, delivery_days, cutoff_time, cutoff_days_before, locations, location_overrides, subject_template, body_template, notes, archived, image_url, avatar_hue, pinned, sort_order, recipient_names, default_fill_mode')
-      .eq('archived', false)
+      // Archived vendors ARE loaded (isVendorVisible hides them from the
+      // list) so order-history rows can still resolve their names instead
+      // of rendering "Unknown vendor".
       .order('pinned', { ascending: false, nullsFirst: false })
       .order('name', { ascending: true });
     if (error) {
@@ -317,7 +322,6 @@
       const fallback = await NX.sb
         .from('order_vendors')
         .select('id, name, alias_short, email, alt_emails, managed_by, role, delivery_days, cutoff_time, cutoff_days_before, locations, location_overrides, subject_template, body_template, notes, archived, image_url, avatar_hue, pinned, sort_order')
-        .eq('archived', false)
         .order('name', { ascending: true });
       if (fallback.error) {
         // Second-tier fallback — only used if even image_url is missing.
@@ -326,7 +330,6 @@
         const minimal = await NX.sb
           .from('order_vendors')
           .select('id, name, alias_short, email, alt_emails, managed_by, role, delivery_days, subject_template, body_template, notes, archived')
-          .eq('archived', false)
           .order('name', { ascending: true });
         if (minimal.error) { console.error('[ordering] loadVendors minimal fallback:', minimal.error); return []; }
         // Mark each row so saveVendor knows NOT to send image_url back —
@@ -1150,7 +1153,7 @@
   function renderVendors() {
     const el = document.getElementById('ordVendors');
     if (!el) return;
-    if (!vendors.length) {
+    if (!vendors.filter(v => !v.archived).length) {
       el.innerHTML = `
         <div class="ord-empty ord-empty-cta">
           <div class="ord-empty-msg">No vendors yet.</div>
@@ -1394,6 +1397,12 @@
     if (vendorSortMode === 'custom' && vendorReorderMode) {
       wireVendorDragHandlers(el);
     }
+    // Re-apply the active search query. This render just rebuilt the row
+    // DOM, wiping filterVendors' inline display:none — without this, any
+    // re-render (show(), sort change, location switch) restored all rows
+    // while the search box still showed the query.
+    const searchEl = document.getElementById('ordSearch');
+    if (searchEl && searchEl.value.trim()) filterVendors(searchEl.value);
   }
 
   /**
@@ -1561,38 +1570,62 @@
    */
   async function persistVendorSortOrder(idOrder) {
     if (!NX.sb || !idOrder || !idOrder.length) return;
-    // Build an update per vendor: sort_order = index. We only update
-    // the values that changed from the in-memory state to keep writes
-    // minimal.
+    // idOrder is only the VISIBLE (location-filtered, unpinned) rows that
+    // were dragged. Naively writing sort_order = visible index collides
+    // with vendors hidden at this location and corrupts the custom order
+    // elsewhere. Instead, renumber the FULL vendor set: dragged rows take
+    // their new relative order, every other vendor keeps its current
+    // relative position, and indexes are assigned across the combined list.
+    const dragged = new Set(idOrder.map(String));
+    // Weave: walk the current full order; where a dragged row appears,
+    // emit the NEXT id from the new dragged sequence — non-dragged vendors
+    // keep their relative positions, dragged slots fill in the new order.
+    const oldFull = vendors.slice().sort((a, b) => (a.sort_order ?? Infinity) - (b.sort_order ?? Infinity));
+    let di = 0;
+    const fullOrder = oldFull.map(v => dragged.has(String(v.id)) ? idOrder[di++] : v.id);
     const updates = [];
-    idOrder.forEach((id, idx) => {
-      const v = vendors.find(x => x.id === id);
+    fullOrder.forEach((id, idx) => {
+      const v = vendors.find(x => String(x.id) === String(id));
       if (v && v.sort_order !== idx) {
-        updates.push({ id, sort_order: idx });
+        updates.push({ id: v.id, sort_order: idx });
       }
     });
     if (!updates.length) return;
-    // Apply optimistically to in-memory state first so the UI matches
-    // even if a network failure delays the actual write.
+    // Snapshot current values BEFORE the optimistic apply so a failed write
+    // can be rolled back (UI must not diverge from the DB).
+    const prev = new Map();
+    updates.forEach(u => {
+      const v = vendors.find(x => x.id === u.id);
+      prev.set(u.id, v ? v.sort_order : undefined);
+    });
+    // Apply optimistically so the UI matches even if the write lags.
     updates.forEach(u => {
       const v = vendors.find(x => x.id === u.id);
       if (v) v.sort_order = u.sort_order;
     });
-    // Run updates in parallel; tolerate per-row failures.
+    // supabase-js RESOLVES an update with { error } rather than throwing, so
+    // a try/catch over Promise.all never catches a DB failure. Inspect each
+    // result explicitly and roll back on the first error.
+    let results;
     try {
-      await Promise.all(updates.map(u =>
+      results = await Promise.all(updates.map(u =>
         NX.sb.from('order_vendors').update({ sort_order: u.sort_order }).eq('id', u.id)
       ));
-      if (NX.toast) NX.toast(`Reordered ${updates.length} vendor${updates.length === 1 ? '' : 's'}`, 'info', 1100);
-    } catch (e) {
-      console.error('[ordering] persistVendorSortOrder:', e);
-      const msg = (e && e.message) || '';
+    } catch (e) { results = [{ error: e }]; }
+    const failed = results.find(r => r && r.error);
+    if (failed) {
+      console.error('[ordering] persistVendorSortOrder:', failed.error);
+      prev.forEach((val, id) => { const v = vendors.find(x => x.id === id); if (v) v.sort_order = val; });
+      renderVendors();
+      const msg = (failed.error && failed.error.message) || '';
       if (/column|schema|does not exist|could not find/i.test(msg)) {
         if (NX.toast) NX.toast('Reordering needs a DB migration — see notes', 'warn', 2400);
       } else {
         if (NX.toast) NX.toast('Could not save order: ' + msg, 'error');
       }
+      return;
     }
+    if (NX.toast) NX.toast(`Reordered ${updates.length} vendor${updates.length === 1 ? '' : 's'}`, 'info', 1100);
   }
 
   /**
@@ -1706,6 +1739,7 @@
     // recentOrders (which is location-scoped), so changing location
     // changes what each vendor card shows.
     renderVendors();
+    renderPulse();
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -2434,7 +2468,7 @@
     entryState = {
       vendor, catalog: [], par_overrides: {},
       location:      sourceOrder.location || activeLoc,
-      delivery_date: nextDeliveryDate(vendor, location),
+      delivery_date: nextDeliveryDate(vendor, sourceOrder.location || activeLoc),
       notes:         '',
       lines:         {},
       unitOverrides: loadUnitOverrides(vendor.id),
@@ -2633,10 +2667,10 @@ Thanks for your help sorting this out.`;
       }
       sourceLines = sourceLines || [];
 
-      // 2. Compute a sensible default delivery date — tomorrow.
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const ymd = tomorrow.toISOString().slice(0, 10);
+      // 2. Compute a sensible default delivery date — tomorrow (LOCAL day,
+      // not UTC — toISOString on a local Date shifted the day forward when
+      // run in the evening in Central time).
+      const ymd = addDays(todayISO(), 1);
 
       // 3. Insert the new draft order row
       const newOrderPayload = {
@@ -3141,7 +3175,7 @@ Thanks for your help sorting this out.`;
     entryState = {
       vendor, catalog: [], par_overrides: {},
       location: activeLoc,
-      delivery_date: nextDeliveryDate(vendor, location),
+      delivery_date: nextDeliveryDate(vendor, activeLoc),
       notes: '', lines: {},
       // v18.26 — per-vendor unit overrides map: { [item_id]: 'ea'|'cs'|'bag'|... }
       // Persisted to localStorage (key: nexus_ord_units_${vendor_id}) so an
@@ -3164,36 +3198,29 @@ Thanks for your help sorting this out.`;
       entryState.catalog       = catalog;
       entryState.par_overrides = pars;
 
-      // ─── v18.25 — Fill mode dispatch ──────────────────────────────
+      // ─── Fill mode dispatch ───────────────────────────────────────
       // Honor the vendor's saved default_fill_mode preference:
-      //   'par'        → auto-fill from par hints (current default)
       //   'last_order' → copy quantities from most recent sent order
       //   'empty'      → start with no quantities, chef enters manually
-      // Falls back to 'par' if the column is absent or unset.
-      // The user can change the mode mid-entry via the fill picker; this
-      // path only runs once on initial open.
+      // Pars are NOT an order source — a par is the stock level to keep
+      // on hand, not a quantity to order. The old 'par' auto-fill (which
+      // pre-filled every item's full par) was removed; a saved 'par'
+      // preference now behaves as 'empty'. Par values remain visible as
+      // reference chips on each item row.
       //
       // v18.29 — forceEmpty override. When the entry was launched from
       // the vendor detail's "New order" button, the chef explicitly
       // asked for a fresh start. Skip the auto-fill regardless of the
-      // vendor's saved fill mode. The fill-mode picker is still in the
-      // header, so they can pull in pars / last order manually if they
-      // change their mind. The vendor's default_fill_mode is preserved
-      // (this is a one-time per-session override).
-      const fillMode = forceEmpty ? 'empty' : (vendor.default_fill_mode || 'par');
+      // vendor's saved fill mode.
+      const fillMode = forceEmpty ? 'empty' : (vendor.default_fill_mode || 'empty');
       let autofilled = 0;
       if (fillMode === 'last_order') {
         autofilled = await fillFromLastOrder(vendor, activeLoc, catalog);
         if (NX.toast) NX.toast(autofilled > 0
           ? `Pre-filled ${autofilled} item${autofilled === 1 ? '' : 's'} from last order`
           : 'No previous order found — starting empty', autofilled > 0 ? 'info' : 'warn', 2600);
-      } else if (fillMode === 'par') {
-        autofilled = fillFromPars(catalog);
-        if (autofilled > 0 && NX.toast) {
-          NX.toast(`Pre-filled ${autofilled} item${autofilled === 1 ? '' : 's'} from pars — review and edit before sending`, 'info', 2600);
-        }
       }
-      // 'empty' mode does nothing.
+      // 'empty' (and legacy 'par') modes do nothing.
       renderEntryItems();
       if (autofilled > 0) scheduleDraftSave();
     } catch (e) {
@@ -3203,40 +3230,22 @@ Thanks for your help sorting this out.`;
   }
 
   /* ════════════════════════════════════════════════════════════════
-     v18.25 — Fill-mode helpers + picker.
+     Fill-mode helpers + picker.
 
-     Three sources to seed a fresh order:
-       fillFromPars       — par hints per item (existing logic, extracted)
+     Two sources to seed a fresh order:
        fillFromLastOrder  — clone the most recent sent order's line qty/units
        (empty mode = no fill, just return 0)
+
+     Pars are deliberately NOT a fill source: a par is the on-hand stock
+     target ("always keep 5"), not an order quantity. They render as
+     reference chips on item rows so the chef can compare while entering
+     real quantities. (The old fillFromPars auto-fill was removed.)
 
      openFillModePicker — bottom sheet that lets the user pick a mode
      mid-entry. Tapping a mode WIPES current selections and re-fills,
      then optionally saves the choice as the vendor's default so the
      next new order opens the same way.
      ════════════════════════════════════════════════════════════════ */
-
-  function fillFromPars(catalog) {
-    let n = 0;
-    if (!entryState) return 0;
-    const overrides = entryState.unitOverrides || {};
-    for (const item of catalog) {
-      const hint = parHintFor(item, entryState.delivery_date, entryState.location);
-      if (hint.disabled) continue;
-      if (hint.qty == null || hint.qty <= 0) continue;
-      entryState.lines[item.id] = {
-        qty:        hint.qty,
-        // v18.26 — vendor override wins over catalog default
-        unit:       overrides[item.id] || shortUnit(item.unit) || 'ea',
-        item_name:  item.item_name,
-        house_name: item.house_name || null,
-        vendor_sku: item.vendor_sku,
-        note:       item.note,
-      };
-      n++;
-    }
-    return n;
-  }
 
   async function fillFromLastOrder(vendor, locationId, catalog) {
     if (!entryState || !NX.sb) return 0;
@@ -3290,7 +3299,10 @@ Thanks for your help sorting this out.`;
   async function openFillModePicker() {
     if (!entryState || !entryState.vendor) return;
     const vendor = entryState.vendor;
-    const currentMode = vendor.default_fill_mode || 'par';
+    // Legacy 'par' preferences behave as 'empty' — pars are stock targets,
+    // not an order source.
+    const savedMode = vendor.default_fill_mode;
+    const currentMode = savedMode === 'last_order' ? 'last_order' : 'empty';
 
     const overlay = document.createElement('div');
     overlay.className = 'ord-vmenu-overlay';
@@ -3300,12 +3312,6 @@ Thanks for your help sorting this out.`;
         <div class="ord-vmenu-handle"></div>
         <div style="padding: 8px 18px 12px; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 1.5px; color: var(--nx-faint); text-transform: uppercase">Fill order from</div>
         <div class="ord-vmenu-actions">
-          <button class="ord-vmenu-action ${currentMode === 'par' ? 'is-selected' : ''}" data-mode="par">
-            <span class="ord-vmenu-action-text">
-              <span class="ord-vmenu-action-title">Par levels${currentMode === 'par' ? ' · default' : ''}</span>
-              <span class="ord-vmenu-action-sub">Use each item's configured par for the delivery date</span>
-            </span>
-          </button>
           <button class="ord-vmenu-action ${currentMode === 'last_order' ? 'is-selected' : ''}" data-mode="last_order">
             <span class="ord-vmenu-action-text">
               <span class="ord-vmenu-action-title">Last order${currentMode === 'last_order' ? ' · default' : ''}</span>
@@ -3337,7 +3343,6 @@ Thanks for your help sorting this out.`;
         entryState.lines = {};
 
         let n = 0;
-        if (mode === 'par')        n = fillFromPars(entryState.catalog);
         if (mode === 'last_order') n = await fillFromLastOrder(vendor, entryState.location, entryState.catalog);
         // 'empty' → n stays 0
 
@@ -3356,9 +3361,8 @@ Thanks for your help sorting this out.`;
           console.warn('[ordering] save fill mode pref:', e);
         }
 
-        const msg = mode === 'par'        ? (n > 0 ? `Filled ${n} from pars`        : 'No par values set — order is empty')
-                  : mode === 'last_order' ? (n > 0 ? `Filled ${n} from last order`  : 'No previous order found — order is empty')
-                                          :         'Cleared — enter items manually';
+        const msg = mode === 'last_order' ? (n > 0 ? `Filled ${n} from last order` : 'No previous order found — order is empty')
+                                          :          'Cleared — enter items manually';
         if (NX.toast) NX.toast(msg, n > 0 ? 'info' : 'warn', 2400);
       });
     });
@@ -3686,10 +3690,7 @@ Thanks for your help sorting this out.`;
               <polyline points="7 10 12 15 17 10"/>
               <line x1="12" y1="15" x2="12" y2="3"/>
             </svg>
-            Fill: ${(() => {
-              const m = (vendor.default_fill_mode || 'par');
-              return m === 'last_order' ? 'Last order' : m === 'empty' ? 'Empty' : 'Pars';
-            })()}
+            Fill: ${vendor.default_fill_mode === 'last_order' ? 'Last order' : 'Empty'}
             <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-left:4px">
               <polyline points="6 9 12 15 18 9"/>
             </svg>
@@ -4078,7 +4079,7 @@ Thanks for your help sorting this out.`;
         row.style.display = match ? '' : 'none';
         if (match) any = true;
       });
-      const label = section.querySelector('.ord-entry-section-label');
+      const label = section.querySelector('.ord-entry-section-name');
       if (label) label.style.display = any ? '' : 'none';
       section.style.display = any ? '' : 'none';
     });
@@ -4141,8 +4142,14 @@ Thanks for your help sorting this out.`;
     }, 2000);
   }
   async function persistDraft() {
-    if (!entryState || entryState.readOnly || entryState.saveInFlight || !NX.sb) return;
+    if (!entryState || entryState.readOnly || !NX.sb) return;
+    // If a save is already running, DON'T silently drop this one — mark it
+    // so the in-flight save re-runs when it finishes. The old code returned
+    // here and the edit that triggered this call was lost until the next
+    // keystroke (and on send, lost entirely).
+    if (entryState.saveInFlight) { entryState.saveQueued = true; return; }
     entryState.saveInFlight = true;
+    const stateAtStart = entryState;
     try {
       const payload = {
         vendor_id:       entryState.vendor.id,
@@ -4163,8 +4170,6 @@ Thanks for your help sorting this out.`;
         const { error } = await NX.sb.from('orders').update(payload).eq('id', orderId);
         if (error) throw error;
       }
-      const { error: delErr } = await NX.sb.from('order_lines').delete().eq('order_id', orderId);
-      if (delErr) throw delErr;
       const lineRows = Object.entries(entryState.lines)
         .filter(([_id, l]) => l && l.qty > 0)
         .map(([item_id, l], i) => ({
@@ -4172,21 +4177,27 @@ Thanks for your help sorting this out.`;
           item_name: l.item_name, house_name: l.house_name || null, vendor_sku: l.vendor_sku,
           qty: l.qty, unit: l.unit, note: l.note, sort_order: i,
         }));
-      if (lineRows.length) {
-        let res = await NX.sb.from('order_lines').insert(lineRows);
-        // Retry without house_name if the column doesn't exist yet
-        if (res.error && /house_name|column.*does not exist|schema cache/i.test(res.error.message || '')) {
-          const fb = lineRows.map(r => { const { house_name, ...rest } = r; return rest; });
-          res = await NX.sb.from('order_lines').insert(fb);
-        }
-        if (res.error) throw res.error;
-      }
+      // Atomic replace: the RPC deletes + re-inserts inside one transaction,
+      // so a failure can never leave the order with zero lines (the old
+      // delete-then-insert had exactly that data-loss window).
+      const { error: rpcErr } = await NX.sb.rpc('replace_order_lines', {
+        p_order_id: orderId,
+        p_lines: lineRows,
+      });
+      if (rpcErr) throw rpcErr;
       setSaveStatus('saved');
     } catch (e) {
       console.error('[ordering] persistDraft:', e);
       setSaveStatus('error');
     } finally {
-      entryState.saveInFlight = false;
+      stateAtStart.saveInFlight = false;
+      // A save requested while this one was in flight — run it now so the
+      // latest edits reach the server. Only if the overlay is still open on
+      // the same draft.
+      if (entryState === stateAtStart && entryState.saveQueued) {
+        entryState.saveQueued = false;
+        persistDraft();
+      }
     }
   }
   async function flushDraftIfPending() {
@@ -4194,7 +4205,20 @@ Thanks for your help sorting this out.`;
     if (entryState.saveTimer) {
       clearTimeout(entryState.saveTimer);
       entryState.saveTimer = null;
+    }
+    // Guarantee the latest edits are persisted before the caller (send)
+    // proceeds. If a save is already running, queue one more pass; otherwise
+    // run now. Then drain any in-flight/queued chain so we never send an
+    // order whose lines haven't finished writing.
+    if (entryState.saveInFlight) {
+      entryState.saveQueued = true;
+    } else {
       await persistDraft();
+    }
+    let guard = 0;
+    while (entryState && (entryState.saveInFlight || entryState.saveQueued) && guard < 200) {
+      await new Promise(r => setTimeout(r, 25));
+      guard++;
     }
   }
 
@@ -4213,6 +4237,11 @@ Thanks for your help sorting this out.`;
       saveTimer: null, saveInFlight: false,
       overlay: entryState.overlay,
       reviewing: false,
+      // Carry the ESC wiring across the clone — dropping it orphaned the
+      // document keydown listener (closeEntry could no longer remove it,
+      // and renderEntryItems added a second one on the next paint).
+      _escWired: entryState._escWired,
+      _escHandler: entryState._escHandler,
     };
     if (NX.toast) NX.toast('Reorder draft created', 'info', 1500);
     renderEntryItems();
@@ -4509,7 +4538,8 @@ Thanks for your help sorting this out.`;
       vendor: vendor.name || 'Vendor',
       location: 'Este Restaurant',
       // Pick tomorrow so the "For tomorrow:" branch fires in the preview
-      delivery_date: new Date(Date.now() + 86400000).toISOString().slice(0, 10),
+      // (local-day math — UTC toISOString is off by one in the evening)
+      delivery_date: addDays(todayISO(), 1),
       delivery_date_long: 'Tomorrow',
     };
     const sampleLines =
@@ -6896,28 +6926,40 @@ Thanks for your help sorting this out.`;
   async function persistItemReorder(finalOrder) {
     if (!catalogState || !NX.sb || !finalOrder.length) return;
     const updates = [];
+    const prev = new Map();
     finalOrder.forEach((entry, idx) => {
       const it = catalogState.items.find(x => String(x.id) === String(entry.id));
       if (!it) return;
       const wantSort = idx;
       const wantSec = entry.section;
       if (it.sort_order !== wantSort || (it.section || '') !== wantSec) {
+        prev.set(it.id, { sort_order: it.sort_order, section: it.section });
         updates.push({ id: it.id, sort_order: wantSort, section: wantSec });
         it.sort_order = wantSort;
         it.section = wantSec;
       }
     });
     if (!updates.length) return;
+    // supabase-js resolves updates with { error } instead of throwing —
+    // inspect each result and roll back the optimistic mutation on failure.
+    let results;
     try {
-      await Promise.all(updates.map(u =>
+      results = await Promise.all(updates.map(u =>
         NX.sb.from('order_guide_items')
           .update({ sort_order: u.sort_order, section: u.section })
           .eq('id', u.id)
       ));
+    } catch (e) { results = [{ error: e }]; }
+    const failed = results.find(r => r && r.error);
+    if (failed) {
+      console.error('[ordering] persistItemReorder:', failed.error);
+      prev.forEach((val, id) => {
+        const it = catalogState.items.find(x => String(x.id) === String(id));
+        if (it) { it.sort_order = val.sort_order; it.section = val.section; }
+      });
+      if (NX.toast) NX.toast('Could not save order: ' + ((failed.error && failed.error.message) || ''), 'error');
+    } else {
       if (NX.toast) NX.toast(`Reordered ${updates.length} item${updates.length === 1 ? '' : 's'}`, 'info', 1100);
-    } catch (e) {
-      console.error('[ordering] persistItemReorder:', e);
-      if (NX.toast) NX.toast('Could not save order: ' + ((e && e.message) || ''), 'error');
     }
     // Re-render to reflect canonical sort_order indexes
     renderItemsAreaOnly();
@@ -6930,6 +6972,7 @@ Thanks for your help sorting this out.`;
     if (!catalogState || !NX.sb || !sectionOrder.length) return;
     // Rewrite sort_orders so each section's items occupy a unique band
     const updates = [];
+    const prev = new Map();
     let cursor = 0;
     sectionOrder.forEach(sec => {
       // Pick up items in this section, in their current within-section order
@@ -6938,6 +6981,7 @@ Thanks for your help sorting this out.`;
         .sort((a, b) => (a.sort_order ?? Infinity) - (b.sort_order ?? Infinity));
       inSec.forEach(it => {
         if (it.sort_order !== cursor) {
+          prev.set(it.id, it.sort_order);
           updates.push({ id: it.id, sort_order: cursor });
           it.sort_order = cursor;
         }
@@ -6945,16 +6989,24 @@ Thanks for your help sorting this out.`;
       });
     });
     if (!updates.length) return;
+    let results;
     try {
-      await Promise.all(updates.map(u =>
+      results = await Promise.all(updates.map(u =>
         NX.sb.from('order_guide_items')
           .update({ sort_order: u.sort_order })
           .eq('id', u.id)
       ));
+    } catch (e) { results = [{ error: e }]; }
+    const failed = results.find(r => r && r.error);
+    if (failed) {
+      console.error('[ordering] persistSectionReorder:', failed.error);
+      prev.forEach((val, id) => {
+        const it = catalogState.items.find(x => String(x.id) === String(id));
+        if (it) it.sort_order = val;
+      });
+      if (NX.toast) NX.toast('Could not save section order: ' + ((failed.error && failed.error.message) || ''), 'error');
+    } else {
       if (NX.toast) NX.toast('Sections reordered', 'info', 1100);
-    } catch (e) {
-      console.error('[ordering] persistSectionReorder:', e);
-      if (NX.toast) NX.toast('Could not save section order: ' + ((e && e.message) || ''), 'error');
     }
     renderItemsAreaOnly();
   }
@@ -6987,13 +7039,13 @@ Thanks for your help sorting this out.`;
         if (NX.toast) NX.toast('Archive failed: no rows updated (check Supabase logs)', 'error', 4000);
         return false;
       }
-      // Mutate the vendors array in place — DO NOT reassign with
-      // .filter() because the array carries a custom ._itemCounts
-      // property that would be lost on a fresh array, breaking
-      // renderVendors() on the very next call.
-      const idx = vendors.findIndex(v => v.id === id);
-      if (idx >= 0) vendors.splice(idx, 1);
-      if (vendors._itemCounts) delete vendors._itemCounts[id];
+      // Flag archived IN PLACE rather than splicing the row out: the vendor
+      // stays resolvable for order-history rows (no more "Unknown vendor")
+      // while isVendorVisible keeps it out of the list. The array also
+      // carries a custom ._itemCounts property, another reason not to
+      // rebuild it with .filter().
+      const v = vendors.find(x => x.id === id);
+      if (v) v.archived = true;
       renderVendors();
       if (NX.toast) NX.toast(`${name} archived`, 'info', 1500);
       return true;
@@ -8953,7 +9005,49 @@ Thanks for your help sorting this out.`;
     const vmap = {}; vendors.forEach(v => vmap[v.id] = v);
     renderRecent(recentOrders, vmap);
     renderVendors();
+    // The Daily Pulse mounts into #ordPulse, which lives in the shell (the
+    // #ordRecent block was moved to the transactions overlay in v18.29).
+    // renderPulse used to be reachable ONLY as a tail call inside
+    // renderRecent — which early-returns without #ordRecent — so the pulse
+    // silently never rendered on the main pane. Call it directly.
+    renderPulse();
+    subscribeOrderingRealtime();
     initialized = true;
+  }
+
+  /* ─── Realtime ────────────────────────────────────────────────────
+     Orders and vendors now broadcast on the supabase_realtime
+     publication. A second manager sending an order / editing a vendor
+     used to be invisible until a manual reload; now any change
+     debounce-refreshes the pane's data + pulse. Deliberately coarse —
+     the ordering pane is a summary surface, not a live editor, so
+     "something changed → refetch the small recent set" is enough. */
+  let ordRtChannel = null;
+  let ordRtTimer = null;
+  function subscribeOrderingRealtime() {
+    if (ordRtChannel || !NX.sb || !NX.sb.channel) return;
+    const bump = () => {
+      if (ordRtTimer) return;
+      ordRtTimer = setTimeout(async () => {
+        ordRtTimer = null;
+        try {
+          recentOrders = await loadRecentOrders(activeLoc);
+          const vmap = {}; vendors.forEach(v => vmap[v.id] = v);
+          renderRecent(recentOrders, vmap);
+          renderVendors();
+          renderPulse();
+        } catch (e) { console.warn('[ordering] realtime refresh:', e); }
+      }, 1500);
+    };
+    try {
+      ordRtChannel = NX.sb.channel('ordering-pane')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, bump)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'order_vendors' }, bump)
+        .subscribe();
+    } catch (e) {
+      console.warn('[ordering] realtime subscribe failed:', e);
+      ordRtChannel = null;
+    }
   }
 
   /**
@@ -8996,6 +9090,7 @@ Thanks for your help sorting this out.`;
     // Also re-render the vendor list — activity-preview lines and
     // draft-state highlighting depend on recentOrders and may be stale.
     renderVendors();
+    renderPulse();
   }
 
   /* ════════════════════════════════════════════════════════════════════
@@ -9154,6 +9249,7 @@ Thanks for your help sorting this out.`;
       .select('id, vendor_id, location, delivery_date, status, email_sent_at, created_at, updated_at, created_by_name, sent_by_name, confirmed_at, delivered_at, closed_at, issue_at, issue_note, archived_at')
       .eq('location', activeLoc)
       .order('updated_at', { ascending: false })
+      .order('id', { ascending: false })   // stable tiebreak — pairs with the keyset cursor below
       .limit(TX_PAGE_SIZE);
 
     if (txState.status === 'archived') {
@@ -9165,7 +9261,13 @@ Thanks for your help sorting this out.`;
 
     if (append && txState.orders.length) {
       const last = txState.orders[txState.orders.length - 1];
-      if (last.updated_at) q = q.lt('updated_at', last.updated_at);
+      // Keyset cursor with an id tiebreaker: strictly-less-than on
+      // updated_at alone SKIPS rows that share the boundary timestamp
+      // (bulk updates land on the same second). Include ties with a
+      // smaller id so no order silently disappears between pages.
+      if (last.updated_at) {
+        q = q.or(`updated_at.lt.${last.updated_at},and(updated_at.eq.${last.updated_at},id.lt.${last.id})`);
+      }
     }
 
     try {
