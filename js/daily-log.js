@@ -125,6 +125,13 @@ let state = {
   // submitted past logs since the live query can't reconstruct
   // historical state.
   ticketSlices: null,
+  // Ordering rollup — read-only view of the dedicated "Ordering" board
+  // (boards.kind='ordering'), grouped by location. Each location bucket is
+  // { to_order:[], ordered:[], received:[] }. Populated by loadOrdering on
+  // log open. orderingBoardId is also used to keep these procurement cards
+  // OUT of the Board-tickets rollup (which reads all kanban_cards).
+  orderingByLoc: {},
+  orderingBoardId: null,
   // v18.32 Vendor V1 — cached vendor list from the R&M vendors table.
   // Used for the vendor_calls picker (autocomplete) + the "Vendor
   // Activity Today" rollup section. The R&M ecosystem's vendors table
@@ -619,13 +626,22 @@ async function loadTicketSlices(logDate) {
   //    query if any one is absent, which silently blanked this section.
   //    select('*') returns whatever exists and can't fail on a missing
   //    column. Archived filtered + sorted client-side for the same reason.
+  // Identify the Ordering board(s) so their procurement cards don't leak
+  // into the work-order rollup. Cheap (kind is indexed-ish, few boards).
+  let orderingBoardIds = new Set();
+  try {
+    const { data: obs } = await NX.sb.from('boards').select('id').eq('kind', 'ordering');
+    (obs || []).forEach(b => orderingBoardIds.add(b.id));
+  } catch (_) { /* no kind column yet → nothing to exclude */ }
+
   let res = await NX.sb.from('kanban_cards').select('*');
   if (res.error) {
     console.warn('[daily-log] kanban_cards load:', res.error.message);
     return { open: [], working: [], closed: [] };
   }
-  // Exclude archived (true). Keep false AND null.
-  const cards = (res.data || []).filter(c => c.archived !== true);
+  // Exclude archived (true) and any card living on an Ordering board.
+  // Keep archived false AND null.
+  const cards = (res.data || []).filter(c => c.archived !== true && !orderingBoardIds.has(c.board_id));
 
   // 3. Bucket each card. Prefer the card's LIST classification; if the
   //    card has no resolvable list (orphaned), fall back to its status
@@ -680,6 +696,51 @@ async function loadTicketSlices(logDate) {
   closed.sort((a, b) => new Date(b.closed_at || b.updated_at || 0) - new Date(a.closed_at || a.updated_at || 0));
 
   return { open, working, closed };
+}
+
+// ─── ORDERING ROLLUP ─────────────────────────────────────────────────────
+// Read the dedicated Ordering board (boards.kind='ordering') and group its
+// open items by location for the read-only per-location rollup in the daily
+// notes. "Received" is treated as done and left out of the active rollup.
+async function loadOrdering() {
+  state.orderingByLoc = {};
+  state.orderingBoardId = null;
+  if (!NX.sb) return;
+  try {
+    const { data: obs } = await NX.sb.from('boards').select('id').eq('kind', 'ordering').limit(1);
+    const boardId = obs && obs[0] && obs[0].id;
+    if (!boardId) return;                     // board not seeded → silent no-op
+    state.orderingBoardId = boardId;
+
+    const { data: lists } = await NX.sb.from('board_lists').select('id, name').eq('board_id', boardId);
+    const bucketOf = (name) => {
+      const n = (name || '').toLowerCase();
+      if (n.includes('receiv')) return 'received';
+      if (n.startsWith('to ') || n.includes('to order') || n.includes('needed')) return 'to_order';
+      return 'ordered';                        // "Ordered" and anything else in-flight
+    };
+    const listBucket = {};
+    (lists || []).forEach(l => { listBucket[l.id] = bucketOf(l.name); });
+
+    const { data: rows } = await NX.sb.from('kanban_cards').select('*').eq('board_id', boardId);
+    const active = (rows || []).filter(c => c.archived !== true);
+    const byLoc = {};
+    active.forEach(c => {
+      const bucket = listBucket[c.list_id] || 'to_order';
+      const key = normLocKey(c.location) || 'unassigned';
+      if (!byLoc[key]) byLoc[key] = { to_order: [], ordered: [], received: [] };
+      byLoc[key][bucket].push(c);
+    });
+    // Stable order within each bucket: by card position then title.
+    Object.values(byLoc).forEach(b => {
+      ['to_order', 'ordered', 'received'].forEach(k => {
+        b[k].sort((a, z) => (a.position || 0) - (z.position || 0) || String(a.title || '').localeCompare(String(z.title || '')));
+      });
+    });
+    state.orderingByLoc = byLoc;
+  } catch (e) {
+    console.warn('[daily-log] loadOrdering failed:', e.message);
+  }
 }
 
 // v18.33 — Resolve equipment_id → name for any cards that link to
@@ -1315,6 +1376,42 @@ function renderPlanningSection(d) {
   `;
 }
 
+// Read-only per-location procurement rollup, sourced from the Ordering
+// board. Shows open items (To order + Ordered); "Received" is done and
+// omitted. No data-path inputs — this is a mirror, edited on the board.
+function renderOrderingRollup(locKey) {
+  const data = (state.orderingByLoc && state.orderingByLoc[locKey]) || null;
+  const toOrder = (data && data.to_order) || [];
+  const ordered = (data && data.ordered) || [];
+  const total = toOrder.length + ordered.length;
+
+  const money = (v) => {
+    const n = Number(v);
+    if (!v && v !== 0) return '';
+    if (!isFinite(n)) return '';
+    return '~$' + n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  };
+  const item = (c, bucket) => `
+    <div class="dlog-order-item">
+      <span class="dlog-order-dot dlog-order-dot-${bucket}"></span>
+      <span class="dlog-order-title">${esc(c.title || 'Item')}</span>
+      ${c.cost_estimate ? `<span class="dlog-order-cost">${esc(money(c.cost_estimate))}</span>` : ''}
+      <span class="dlog-order-lane dlog-order-lane-${bucket}">${bucket === 'to_order' ? 'To order' : 'Ordered'}</span>
+    </div>`;
+
+  const body = total === 0
+    ? '<p class="dlog-empty-hint">Nothing to order right now.</p>'
+    : [...toOrder.map(c => item(c, 'to_order')), ...ordered.map(c => item(c, 'ordered'))].join('');
+
+  return `
+    <h3 class="dlog-subsection-title">
+      Ordering / Supplies${total ? ` <span class="dlog-subsection-count">${total}</span>` : ''}
+    </h3>
+    <div class="dlog-order-list">${body}</div>
+    <button type="button" class="eq-btn eq-btn-secondary dlog-open-ordering" data-loc="${esc(locKey)}">Open Ordering board →</button>
+  `;
+}
+
 function renderLocationSection(loc, idx) {
   // Paths now address the location by array index: locations.{idx}.rm.{cat}
   // and locations.{idx}.vendor_calls.{rowIdx}.{field}. The writeFieldToState
@@ -1358,6 +1455,8 @@ function renderLocationSection(loc, idx) {
           ${vendorRows || '<p class="dlog-empty-hint">No vendor calls logged yet.</p>'}
         </div>
         <button type="button" class="eq-btn eq-btn-secondary dlog-add-row-btn" data-add-vendor="${idx}">＋ Add vendor call</button>
+
+        ${renderOrderingRollup(normLocKey(loc.label))}
       </div>
     </details>
   `;
@@ -1933,6 +2032,15 @@ function wireForm() {
       render();
     });
   });
+  // ── Open Ordering board (from a per-location ordering rollup)
+  view.querySelectorAll('.dlog-open-ordering').forEach(btn => {
+    btn.addEventListener('click', () => {
+      NX.boardActivateKind = 'ordering';   // board.show() switches to it
+      if (NX.switchTo) NX.switchTo('board');
+      else document.querySelector('.bnav-btn[data-view="board"], .nav-tab[data-view="board"]')?.click();
+    });
+  });
+
   const weatherRefresh = view.querySelector('#dlogWeatherRefresh');
   if (weatherRefresh) weatherRefresh.addEventListener('click', () => forceWeather());
   const recentSelect = view.querySelector('#dlogRecentSelect');
@@ -3430,6 +3538,7 @@ async function commitSave(opts) {
         loadEquipmentActivity(log.data.header.date),
         loadTicketSlices(log.data.header.date),
         loadEquipmentDown(),
+        loadOrdering(),
       ]);
       state.equipmentActivity = freshActivity;
       state.ticketSlices = freshSlices;
@@ -3534,6 +3643,7 @@ async function openLogForDate(iso) {
     loadVendorOpenIssueCounts(),
     loadEquipmentDown(),
     loadPmsForDate(iso),
+    loadOrdering(),
   ]);
   state.pmsToday = pms;
   state.equipmentActivity = activity;
@@ -3584,6 +3694,7 @@ async function init() {
     loadVendorOpenIssueCounts(),
     loadEquipmentDown(),
     loadPmsForDate(today),
+    loadOrdering(),
   ]);
   state.recentLogs = rs;
   state.pmsToday = pms || [];
@@ -3621,6 +3732,7 @@ async function show() {
     loadVendorOpenIssueCounts(),
     loadEquipmentDown(),
     loadPmsForDate(date),
+    loadOrdering(),
   ]);
   state.recentLogs = rs;
   state.pmsToday = pms || [];

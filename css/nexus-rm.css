@@ -2245,6 +2245,33 @@
   color: var(--nx-gold, #d4a44e); font-weight: 700;
 }
 #dailylogView .dlog-subsection-title { color: var(--nx-gold, #d4a44e); letter-spacing: .12em; font-weight: 600; margin-top: 10px; }
+#dailylogView .dlog-subsection-count {
+  display: inline-block; min-width: 18px; padding: 0 6px; margin-left: 6px;
+  border-radius: 9px; font-size: 11px; font-weight: 700; letter-spacing: 0;
+  background: var(--nx-gold-faint, rgba(212,164,78,.14)); color: var(--nx-gold, #d4a44e);
+}
+
+/* ─── Ordering / Supplies rollup (read-only mirror of the Ordering board) ── */
+#dailylogView .dlog-order-list { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 8px; }
+#dailylogView .dlog-order-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-radius: 8px;
+  background: var(--nx-surface-2, rgba(255,255,255,.03));
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,.16));
+  font-size: 13px;
+}
+#dailylogView .dlog-order-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+#dailylogView .dlog-order-dot-to_order { background: var(--nx-red, #a83e3e); }
+#dailylogView .dlog-order-dot-ordered  { background: var(--nx-gold, #d4a44e); }
+#dailylogView .dlog-order-title { flex: 1; color: var(--nx-text, #ece4d4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#dailylogView .dlog-order-cost { color: var(--nx-text-dim, #b6ad9a); font-variant-numeric: tabular-nums; }
+#dailylogView .dlog-order-lane {
+  font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 6px; flex-shrink: 0;
+}
+#dailylogView .dlog-order-lane-to_order { background: rgba(168,62,62,.16); color: var(--nx-red, #a83e3e); }
+#dailylogView .dlog-order-lane-ordered  { background: var(--nx-gold-faint, rgba(212,164,78,.14)); color: var(--nx-gold, #d4a44e); }
+#dailylogView .dlog-open-ordering { margin-top: 4px; }
 
 /* Inputs → calmer, rounded, gold focus ring; 16px avoids iOS zoom */
 #dailylogView .dlog-field-label { font-size: 13px; font-weight: 600; color: var(--nx-text, #ece4d4); }

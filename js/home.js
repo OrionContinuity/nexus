@@ -330,6 +330,11 @@
     },
 
     async refresh() {
+      // Warm the ordering-board id cache BEFORE the parallel loads so the
+      // kanban-based widgets can exclude procurement cards (they live on a
+      // separate "Ordering" board and shouldn't count as work-order cards,
+      // calendar items, or incoming priorities).
+      await ensureOrderingBoardIds();
       await Promise.all([
         this.loadFeed(),
         this.loadCalendar(),
@@ -450,7 +455,7 @@
             .order('event_time', { ascending: true })
             .limit(60),
           NX.sb.from('kanban_cards')
-            .select('id, title, due_date, priority, status, column_name, location, archived')
+            .select('id, title, due_date, priority, status, column_name, location, archived, board_id')
             .not('due_date', 'is', null)
             .gte('due_date', pastBound)
             .lte('due_date', futureBound)
@@ -462,7 +467,7 @@
 
         if (eventsResp.error) throw eventsResp.error;
         const events = eventsResp.data || [];
-        const cards  = cardsResp.data  || [];
+        const cards  = (cardsResp.data || []).filter(c => !isOrderingCard(c));
 
         // Bucket events + cards into a day-keyed map. Both types share
         // the same row schema downstream — normalize cards to the same
@@ -610,7 +615,7 @@
         // Open board cards: fetch light rows, count non-archived + non-done
         // client-side. status is NULL on freshly-created cards (only set on
         // move), so we treat NULL/anything-not-done as open.
-        NX.sb.from('kanban_cards').select('id, status, archived'),
+        NX.sb.from('kanban_cards').select('id, status, archived, board_id'),
         // Equipment down: fetch matching rows, exclude archived in JS
         NX.sb.from('equipment').select('id, archived').in('status', ['down', 'needs_service', 'broken']),
         NX.sb.from('equipment').select('*', { count: 'exact', head: true })
@@ -628,7 +633,7 @@
         return rows.filter(pred).length;
       };
       const counts = {
-        tickets:  countRows(ticketsRes, r => r.archived !== true && !DONE.has((r.status || '').toLowerCase())),
+        tickets:  countRows(ticketsRes, r => r.archived !== true && !isOrderingCard(r) && !DONE.has((r.status || '').toLowerCase())),
         down:     countRows(downRes,    r => r.archived !== true),
         overdue:  numOrDash(overdueRes),
         services: numOrDash(servicesRes),
@@ -903,6 +908,24 @@
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
+  // Ids of boards flagged kind='ordering'. Their cards are procurement items
+  // on a dedicated board and must be kept out of Home's work-order KPI,
+  // calendar, and incoming feed (all of which read across all kanban_cards).
+  // Fetched once and cached for the session; refreshed on demand is overkill
+  // since boards change rarely.
+  let _orderingBoardIds = new Set();
+  let _orderingIdsLoaded = false;
+  async function ensureOrderingBoardIds() {
+    if (_orderingIdsLoaded || !NX.sb) return _orderingBoardIds;
+    try {
+      const { data } = await NX.sb.from('boards').select('id').eq('kind', 'ordering');
+      _orderingBoardIds = new Set((data || []).map(b => b.id));
+    } catch (_) { _orderingBoardIds = new Set(); }
+    _orderingIdsLoaded = true;
+    return _orderingBoardIds;
+  }
+  const isOrderingCard = (c) => _orderingBoardIds.has(c && c.board_id);
+
   // ─── Emoji sanitizer ──────────────────────────────────────────────
   // Strips pictographic emoji from upstream data (process-emails tags
   // like the urgency prefixes that upstream importers inject) so
@@ -1158,7 +1181,7 @@
           .order('event_time', { ascending: true })
           .limit(5),
         NX.sb.from('kanban_cards')
-          .select('id, title, due_date, priority, status, column_name, location, archived')
+          .select('id, title, due_date, priority, status, column_name, location, archived, board_id')
           .not('due_date', 'is', null)
           .gte('due_date', today)
           .lte('due_date', twoDays)
@@ -1179,7 +1202,7 @@
           date: ev.event_date,
         });
       });
-      (cardsResp.data || []).forEach(c => {
+      (cardsResp.data || []).filter(c => !isOrderingCard(c)).forEach(c => {
         merged.push({
           kind: 'card',
           when: formatEventWhen(c.due_date, null),

@@ -3296,6 +3296,25 @@ async function show(){
   // Warm the equipment cache so the manual-card location picker is ready
   // the instant the composer opens (locations come from equipment).
   loadEquipmentCache();
+
+  // Deep-link from elsewhere (e.g. the daily log's "Open Ordering board →")
+  // makes the board of the requested kind active before anything else. Mirrors
+  // the board-tab switch. One-shot — cleared after use.
+  const wantKind = NX.boardActivateKind;
+  NX.boardActivateKind = null;
+  if (wantKind && boards.length) {
+    const target = boards.find(b => b.kind === wantKind);
+    if (target && (!activeBoard || activeBoard.id !== target.id)) {
+      unsubscribeRealtime();
+      activeBoard = target;
+      await loadLists();
+      await loadCards();
+      loadStats();
+      render();
+      subscribeRealtime();
+      return;
+    }
+  }
   // v18.34 — Home "New card" quick action sets NX.boardComposeIntent.
   // After the board renders, click the first lane's add-card trigger so
   // the composer opens automatically. One-shot — cleared after use.
