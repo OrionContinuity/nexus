@@ -84,7 +84,10 @@
           .on('postgres_changes', { event: '*', schema: 'public', table: 'kanban_cards' },     () => this.scheduleRefresh())
           .on('postgres_changes', { event: '*', schema: 'public', table: 'contractor_events' },() => this.scheduleRefresh())
           .on('postgres_changes', { event: '*', schema: 'public', table: 'equipment' },        () => this.scheduleRefresh())
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_logs' },       () => this.scheduleRefresh())
+          // Daily/biweekly logs live in facility_logs — the old 'daily_logs'
+          // table name never existed, so log edits silently never refreshed
+          // the ops pills. Subscribe the real table.
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'facility_logs' },    () => this.scheduleRefresh())
           .subscribe((status) => {
             this._rtConnected = (status === 'SUBSCRIBED');
           });
@@ -149,12 +152,6 @@
 
       el.innerHTML = `
         <div class="home-page">
-          <!-- Library card — surfaces today's track + chapter from
-               js/library.js. Mounts above the lede so it leads the
-               morning ritual. Module fills this in async after the
-               rest of Home renders. -->
-          <div class="dcard-mount" id="libraryCardMount"></div>
-
           <!-- v18.34 Home redesign — compact greeting. The old giant
                lede ate half the first screen; this keeps the warmth but
                returns the vertical space to actionable content. -->
@@ -235,6 +232,13 @@
               View full calendar →
             </button>
           </div>
+
+          <!-- Library card — today's track + chapter from js/library.js.
+               Moved below operations (v18.35): the morning screen should
+               lead with what needs doing; the reading moment is a calm
+               wind-down at the end of the scroll. Module fills this in
+               async after the rest of Home renders. -->
+          <div class="dcard-mount" id="libraryCardMount"></div>
 
           <button class="home-ask" id="homeAsk" type="button" aria-label="Ask NEXUS — open AI chat">
             <span class="home-ask-prompt">
@@ -629,6 +633,10 @@
         overdue:  numOrDash(overdueRes),
         services: numOrDash(servicesRes),
       };
+      // Stash for loadTodayMission — it used to scrape these back out of
+      // the rendered DOM text, which broke whenever a chip was still
+      // loading. Reading the freshly-computed numbers is exact.
+      this._counts = counts;
 
       Object.keys(counts).forEach(k => {
         const btn = document.querySelector(`.home-kpi[data-stat="${k}"]`);
@@ -846,40 +854,29 @@
       if (!introEl) return;
 
       const parts = [];
+      const counts = this._counts || {};
+      const asNum = (v) => (typeof v === 'number' ? v : NaN);
 
       // Daily log status — always include
       if (this._dailyState && this._dailyState.label) {
         parts.push(this._dailyState.label);
       }
 
-      // Open tickets — pull from the KPI chip's current text
-      const ticketsBtn = document.querySelector('.home-kpi[data-stat="tickets"] .home-kpi-num');
-      if (ticketsBtn && !ticketsBtn.classList.contains('is-loading')) {
-        const n = parseInt(ticketsBtn.textContent.replace(/,/g, ''), 10);
-        if (!isNaN(n)) {
-          if (n === 0) parts.push('board clear');
-          else if (n === 1) parts.push('1 open card');
-          else parts.push(`${n} open cards`);
-        }
+      // Open board cards
+      const nCards = asNum(counts.tickets);
+      if (!isNaN(nCards)) {
+        if (nCards === 0) parts.push('board clear');
+        else if (nCards === 1) parts.push('1 open card');
+        else parts.push(`${nCards} open cards`);
       }
 
       // Equipment down — high-signal, lead with it when non-zero
-      const downBtn = document.querySelector('.home-kpi[data-stat="down"] .home-kpi-num');
-      if (downBtn && !downBtn.classList.contains('is-loading')) {
-        const n = parseInt(downBtn.textContent.replace(/,/g, ''), 10);
-        if (!isNaN(n) && n > 0) {
-          parts.push(`${n} down`);
-        }
-      }
+      const nDown = asNum(counts.down);
+      if (!isNaN(nDown) && nDown > 0) parts.push(`${nDown} down`);
 
-      // Overdue PMs — same pull
-      const overdueBtn = document.querySelector('.home-kpi[data-stat="overdue"] .home-kpi-num');
-      if (overdueBtn && !overdueBtn.classList.contains('is-loading')) {
-        const n = parseInt(overdueBtn.textContent.replace(/,/g, ''), 10);
-        if (!isNaN(n) && n > 0) {
-          parts.push(`${n} PM${n === 1 ? '' : 's'} overdue`);
-        }
-      }
+      // Overdue PMs
+      const nOverdue = asNum(counts.overdue);
+      if (!isNaN(nOverdue) && nOverdue > 0) parts.push(`${nOverdue} PM${nOverdue === 1 ? '' : 's'} overdue`);
 
       // Vendor watch — only if non-zero
       if (this._vendorWatchCount > 0) {
@@ -968,7 +965,7 @@
 
   function labelFor(k) {
     return ({
-      tickets: 'Open tickets',
+      tickets: 'Open cards',
       down: 'Equipment down',
       overdue: 'Overdue PMs',
       services: 'Services this wk',

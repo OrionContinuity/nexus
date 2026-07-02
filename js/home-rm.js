@@ -183,6 +183,20 @@
     const tv     = state.topVendor;
     const tvName = tv ? (tv.display_name || tv.name || 'vendor') : '';
 
+    // Nothing to say: no open work orders, no PMs due, no spend logged,
+    // no graded vendor. The row would otherwise render a hollow
+    // "$0 spent / — vendor" strip directly under Home's real KPI grid —
+    // two metric rows where one is empty reads as broken. Hide it and
+    // let Home's own glance tiles carry the numbers. (This is the current
+    // state on this deployment: the R&M issue tables are near-empty while
+    // the live work lives in tickets + board cards, which Home surfaces.)
+    if (openWO === 0 && pmDue === 0 && !tv && !(state.spendMTD > 0)) {
+      el.style.display = 'none';
+      el.innerHTML = '';
+      return;
+    }
+    el.style.display = '';
+
     // Attention-first render: anything actionable becomes a full-width
     // hero card in plain language ("3 work orders need attention"), so the
     // user reads the screen top-down and stops when the urgency stops.
