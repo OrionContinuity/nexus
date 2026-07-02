@@ -5438,6 +5438,14 @@
 
 
   // ─── Preferences ────────────────────────────────────────────────────
+  // Durable identity/progression prefs that should follow a user across
+  // devices. They used to persist ONLY to localStorage (personality reset to
+  // default on every other device); now they ride in clippy_preferences.extras
+  // (a JSONB catch-all). Transient/device-local state (position, feelings,
+  // affinity heat) deliberately stays out.
+  const CLOUD_EXTRA_KEYS = ['personality', 'costume', 'prop', 'prop_user_set',
+    'outfit_slots', 'bond_xp', 'bond_level', 'daily_streak', 'achievements',
+    'sound_enabled', 'voice_enabled'];
   async function loadPreferences() {
     try {
       const raw = localStorage.getItem(userKey('clippy_prefs'));
@@ -5463,6 +5471,15 @@
             reject_count: data.reject_count || 0,
             session_count: data.session_count || 0,
           });
+          // Cross-device durable choices. Applied only when present, so a
+          // blank cloud row never wipes a good local value.
+          if (data.extras && typeof data.extras === 'object') {
+            for (const k of CLOUD_EXTRA_KEYS) {
+              if (data.extras[k] !== undefined && data.extras[k] !== null) {
+                state.preferences[k] = data.extras[k];
+              }
+            }
+          }
         }
       } catch (e) {}
     }
@@ -5503,6 +5520,10 @@
           last_seen_at: new Date().toISOString(),
           reject_count: state.preferences.reject_count,
           session_count: state.preferences.session_count,
+          extras: CLOUD_EXTRA_KEYS.reduce((o, k) => {
+            if (state.preferences[k] !== undefined) o[k] = state.preferences[k];
+            return o;
+          }, {}),
         });
       } catch (e) {}
     });
