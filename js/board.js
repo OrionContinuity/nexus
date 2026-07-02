@@ -299,6 +299,9 @@ let lastFetchAt = 0;
 let pendingRender = null;
 let presenceCount = 0;
 const optimisticSet = new Set();
+// Same idea for list (column) rows — swallow the realtime echo of our own
+// optimistic list reorder so it doesn't trigger a redundant reload.
+const listOptimistic = new Set();
 
 // ─────────────────────────────────────────────────────────────────────────
 // UTILITIES
@@ -481,6 +484,21 @@ function applyRealtimeChange(payload){
   }
 }
 
+// Live changes to the board's LISTS (columns) — add / rename / reorder /
+// delete done by teammates. We reload the small board_lists set and
+// re-render. Echoes of our own optimistic reorder writes are skipped via
+// listOptimistic so we don't reload three times for one drag.
+async function applyListChange(payload){
+  const row = payload.new || payload.old;
+  if(!row) return;
+  if(activeBoard && row.board_id !== activeBoard.id) return;
+  if(listOptimistic.has(row.id)){ listOptimistic.delete(row.id); return; }
+  try{
+    await loadLists();
+    renderSoon();
+  }catch(e){ console.warn('[board] applyListChange:', e); }
+}
+
 // Subscribe to live changes on kanban_cards for the active board. One
 // channel per board; torn down on tab-away or visibility-hidden so we
 // don't accumulate subscriptions across sessions.
@@ -497,6 +515,12 @@ function subscribeRealtime(){
         table: 'kanban_cards',
         filter: `board_id=eq.${activeBoard.id}`,
       }, applyRealtimeChange)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'board_lists',
+        filter: `board_id=eq.${activeBoard.id}`,
+      }, applyListChange)
       // Presence — who else is viewing this board right now.
       .on('presence', { event: 'sync' }, () => {
         const state = rtChannel.presenceState();
@@ -1172,13 +1196,18 @@ async function reorderList(dragId, overId, after){
   if (!updates.length) return;
   lists = ordered;
   render();
+  updates.forEach(u => listOptimistic.add(u.id));
   try{
     for (const u of updates){
       const { error } = await NX.sb.from('board_lists').update({ position: u.position }).eq('id', u.id);
       if (error) throw error;
     }
+    // Safety net: drop guards even if an echo never arrives, so a later
+    // genuine remote reorder isn't swallowed.
+    setTimeout(() => updates.forEach(u => listOptimistic.delete(u.id)), 4000);
   }catch(e){
     console.error('[board] reorderList:', e);
+    updates.forEach(u => listOptimistic.delete(u.id));
     lists = prev; render();
     NX.toast && NX.toast('Failed to reorder list — reverted', 'error');
   }
