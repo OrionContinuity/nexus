@@ -363,6 +363,77 @@
   //   `dispatch:<uuid>` label. Gives the card a back-link to
   //   "we called Joe's HVAC about this on Tuesday."
   //
+  // ── VENDOR CONTACT → DAILY NOTES ────────────────────────────────
+  // When a vendor is emailed/called about equipment, drop a row into
+  // TODAY's daily log (facility_logs) under that location's "Vendor &
+  // service calls" — the same rows the user types by hand. Creates a
+  // minimal draft log for today if none exists yet (hydrateData in
+  // daily-log.js tolerates the partial shape). Best-effort: a failure
+  // here never blocks the actual email/call.
+  D.appendVendorCallToDailyNotes = async function({ location, vendor, equipment, issue, status }) {
+    if (!NX.sb) return false;
+    try {
+      const userId = NX.currentUser && NX.currentUser.id;
+      const now = new Date();
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const norm = (v) => {
+        const s = String(v || '').toLowerCase();
+        if (s.includes('suerte')) return 'suerte';
+        if (s.includes('este'))   return 'este';
+        if (s.includes('toti'))   return 'toti';
+        return s.replace(/[^a-z0-9]/g, '') || 'unassigned';
+      };
+      const label = ({ suerte: 'Suerte', este: 'Este', toti: 'Bar Toti' })[norm(location)]
+        || (String(location || 'Unassigned'));
+      const row = {
+        date: today,
+        vendor: vendor || '',
+        equipment: equipment || '',
+        issue: issue || '',
+        status: status || '',
+      };
+
+      let q = NX.sb.from('facility_logs')
+        .select('id, data')
+        .eq('log_type', 'daily')
+        .eq('log_date', today)
+        .order('id', { ascending: false })
+        .limit(1);
+      if (userId) q = q.eq('created_by', userId);
+      const { data: rows } = await q;
+      const existing = rows && rows[0];
+
+      if (existing) {
+        const data = existing.data || {};
+        if (!Array.isArray(data.locations)) data.locations = [];
+        let loc = data.locations.find(l => norm(l.label || l.id) === norm(location));
+        if (!loc) {
+          loc = { id: norm(location), label, rm: {}, vendor_calls: [] };
+          data.locations.push(loc);
+        }
+        if (!Array.isArray(loc.vendor_calls)) loc.vendor_calls = [];
+        loc.vendor_calls.push(row);
+        const { error } = await NX.sb.from('facility_logs').update({ data }).eq('id', existing.id);
+        if (error) throw error;
+      } else {
+        const { error } = await NX.sb.from('facility_logs').insert({
+          log_type: 'daily',
+          log_date: today,
+          created_by: userId || null,
+          data: {
+            header: { date: today, weather: '', significant_events: '' },
+            locations: [{ id: norm(location), label, rm: {}, vendor_calls: [row] }],
+          },
+        });
+        if (error) throw error;
+      }
+      return true;
+    } catch (e) {
+      console.warn('[domain] appendVendorCallToDailyNotes failed (non-fatal):', e && e.message);
+      return false;
+    }
+  };
+
   D.recordDispatch = async function({ equipmentId, dispatchEventId }) {
     if (!NX.sb || !equipmentId || !dispatchEventId) return;
     try {

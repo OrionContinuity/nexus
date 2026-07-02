@@ -4503,6 +4503,23 @@ async function openDetail(id) {
   eq._contractor       = maintContractorRes && maintContractorRes.data || null;
   eq._repairContractor = repairContractorRes && repairContractorRes.data || null;
 
+  // Vendor-era hydration: equipment linked ONLY through service/repair
+  // _vendor_id (no contractor node, no plain-text name) had nothing for
+  // the SERVICED BY block to render — so no Call/Email buttons appeared
+  // at all. Pull the vendor rows so the block can render from them.
+  eq._serviceVendor = null;
+  eq._repairVendor  = null;
+  try {
+    const vids = [eq.service_vendor_id, eq.repair_vendor_id].filter(Boolean);
+    if (vids.length) {
+      const { data: vrows } = await NX.sb.from('vendors').select('*').in('id', vids);
+      (vrows || []).forEach(v => {
+        if (String(v.id) === String(eq.service_vendor_id)) eq._serviceVendor = v;
+        if (String(v.id) === String(eq.repair_vendor_id))  eq._repairVendor  = v;
+      });
+    }
+  } catch (_) {}
+
   const modal = document.getElementById('eqModal') || createDetailModal();
   modal.innerHTML = `
     <div class="eq-detail-bg" onclick="NX.modules.equipment.closeDetail()"></div>
@@ -4561,6 +4578,8 @@ async function openDetail(id) {
             <div class="eq-overflow-section-label">Operate</div>
             <button class="eq-overflow-item eq-overflow-item-primary" onclick="NX.modules.equipment.openPmLogger('${eq.id}')" style="color:var(--nx-gold)">${uiSvg('clipboard', '14px')}<span>Log PM <small style="opacity:0.6">(restarts countdown)</small></span></button>
             <button class="eq-overflow-item" onclick="NX.modules.equipment.logService('${eq.id}')">${uiSvg('pen', '14px')}<span>Log Service / Repair</span></button>
+            ${(eq.service_vendor_id || eq.repair_vendor_id || eq.service_contractor_node_id || eq.repair_contractor_node_id) ? `
+            <button class="eq-overflow-item" onclick="NX.modules.equipment.emailVendor('${eq.service_vendor_id || eq.repair_vendor_id || ''}','${eq.id}','${eq.service_vendor_id ? 'maintenance' : 'repair'}')">${uiSvg('mail', '14px')}<span>Email Vendor</span></button>` : ''}
             <button class="eq-overflow-item" onclick="NX.modules.equipment.openIssueTracker('${eq.id}')">${uiSvg('alert', '14px')}<span>Issue Tracker</span></button>
             <button class="eq-overflow-item" onclick="NX.modules.equipment.completeWorkOrder('${eq.id}')">${uiSvg('wrench', '14px')}<span>Complete Issue</span></button>
             <button class="eq-overflow-item" onclick="NX.modules.equipment.openPartsForEquipment('${eq.id}')">${uiSvg('settings', '14px')}<span>View Parts</span></button>
@@ -5024,9 +5043,10 @@ function renderOverview(eq, attachments, customFields, maintenance) {
           ` : ''}
           <div class="eq-serviced-by-actions">
             ${phone ? `
-              <a href="tel:${escAttr(phone)}" class="eq-serviced-by-call">
+              <button type="button" class="eq-serviced-by-call"
+                onclick="NX.modules.equipment.callVendor('${escAttr(String(vendorId || ''))}','${escAttr(String(eq.id))}','${escAttr(role)}')">
                 ${uiSvg('phone', '14px')}<span>${esc(phone)}</span>
-              </a>
+              </button>
             ` : `<span class="eq-serviced-by-nophone">No phone on file</span>`}
             ${(vendorId || hasEmail) ? `
               <button type="button" class="eq-serviced-by-call eq-serviced-by-email"
@@ -5057,13 +5077,46 @@ function renderOverview(eq, attachments, customFields, maintenance) {
           </div>
           <div class="eq-serviced-by-actions">
             ${plainPhone ? `
-              <a href="tel:${escAttr(plainPhone)}" class="eq-serviced-by-call">
+              <button type="button" class="eq-serviced-by-call"
+                onclick="NX.modules.equipment.callVendor('${escAttr(String(vendorId || ''))}','${escAttr(String(eq.id))}','${escAttr(role)}')">
                 ${uiSvg('phone', '14px')}<span>${esc(plainPhone)}</span>
-              </a>
+              </button>
             ` : `<span class="eq-serviced-by-nophone">No phone on file</span>`}
             ${vendorId ? `
               <button type="button" class="eq-serviced-by-call eq-serviced-by-email"
                 onclick="NX.modules.equipment.emailVendor('${escAttr(String(vendorId))}','${escAttr(String(eq.id))}','${escAttr(role)}')">
+                ${uiSvg('mail', '14px')}<span>Email</span>
+              </button>
+            ` : ''}
+          </div>
+          ${viewVendorBtn}
+        </div>
+      `;
+    }
+    // Vendor-era branch: linked through a vendors-table row only (no
+    // contractor node, no plain-text name/phone). Renders from the vendor
+    // row hydrated in openDetail — this was the case that previously
+    // returned '' and left the equipment page with NO Call/Email buttons.
+    const vRow = role === 'repair' ? eq._repairVendor : eq._serviceVendor;
+    if (vRow) {
+      const vPhone = vRow.phone || '';
+      const vHasEmail = !!(vRow.email || (Array.isArray(vRow.emails) && vRow.emails.length));
+      return `
+        <div class="eq-serviced-by ${roleClass}">
+          <div class="eq-serviced-by-head">
+            <div class="eq-serviced-by-label">${roleLabel}</div>
+            <div class="eq-serviced-by-name">${esc(vRow.company || vRow.name || 'Vendor')}</div>
+          </div>
+          <div class="eq-serviced-by-actions">
+            ${vPhone ? `
+              <button type="button" class="eq-serviced-by-call"
+                onclick="NX.modules.equipment.callVendor('${escAttr(String(vRow.id))}','${escAttr(String(eq.id))}','${escAttr(role)}')">
+                ${uiSvg('phone', '14px')}<span>${esc(vPhone)}</span>
+              </button>
+            ` : `<span class="eq-serviced-by-nophone">No phone on file</span>`}
+            ${vHasEmail ? `
+              <button type="button" class="eq-serviced-by-call eq-serviced-by-email"
+                onclick="NX.modules.equipment.emailVendor('${escAttr(String(vRow.id))}','${escAttr(String(eq.id))}','${escAttr(role)}')">
                 ${uiSvg('mail', '14px')}<span>Email</span>
               </button>
             ` : ''}
@@ -11959,13 +12012,18 @@ async function loadRecentDispatches(equipId, limit = 3) {
   } catch (e) { return []; }
 }
 
-/* Email the equipment's linked vendor — note-first, like calling.
-   Tapping ✉ Email asks WHY first; the note (a) creates the same ticket +
-   board-card paper trail a call does (via NX.work.create), so the email
-   shows up in the daily log, and (b) fills the {issue}/{description}
-   tokens of the vendor's saved dispatch template. Only then does the
-   composer open. No note → no email. */
-async function emailVendor(vendorId, equipId, role) {
+/* Contact the equipment's linked vendor — note-first, for BOTH email and
+   call. Tapping ✉ Email / 📞 Call asks WHY first; the note then:
+     1. lands on the board — appended as a timeline comment on the unit's
+        existing open card, or a new [EMAIL]/[CALL] ticket + card if none
+     2. flips the equipment status to needs_service (never downgrades a
+        'down' unit)
+     3. drops a row into TODAY's daily notes under that location's
+        "Vendor & service calls"
+   …and only THEN opens the composer (with the note filling the vendor
+   template's {issue}/{description}) or the dialer. No note → no contact. */
+async function openVendorContactSheet(vendorId, equipId, role, method) {
+  const isEmail = method !== 'call';
   try {
     const { data: eq } = await NX.sb.from('equipment').select('*').eq('id', equipId).single();
     if (!eq) { NX.toast && NX.toast('Equipment not found', 'error'); return; }
@@ -11990,36 +12048,46 @@ async function emailVendor(vendorId, equipId, role) {
                 const m = l.match(/[\w.+-]+@[\w-]+\.[\w.-]+/); if (m) emails.push({ value: m[0] });
               }
             });
-            if (emails.length) vendor = { company: node.name, name: node.name, email: emails[0].value, emails };
+            const nodePhone = (node.links && node.links.phone) || '';
+            if (emails.length || nodePhone) vendor = { company: node.name, name: node.name, email: emails[0] && emails[0].value, emails, phone: nodePhone };
           }
         } catch (_) {}
       }
     }
-    if (!vendor) { NX.toast && NX.toast('No vendor email on file — link a vendor in Edit → Links.', 'warning'); return; }
+    // Call can proceed on the plain-text phone even without any vendor record.
+    if (!vendor && !isEmail) {
+      const plainPhone = role === 'repair' ? eq.repair_contractor_phone : eq.service_contractor_phone;
+      const plainName  = role === 'repair' ? eq.repair_contractor_name  : eq.service_contractor_name;
+      if (plainPhone) vendor = { company: plainName || 'Contractor', name: plainName || 'Contractor', phone: plainPhone };
+    }
+    if (!vendor) { NX.toast && NX.toast(isEmail ? 'No vendor email on file — link a vendor in Edit → Links.' : 'No phone on file.', 'warning'); return; }
 
     const vName = vendor.company || vendor.name || 'vendor';
+    const phone = vendor.phone || (role === 'repair' ? eq.repair_contractor_phone : eq.service_contractor_phone) || '';
+    if (!isEmail && !phone) { NX.toast && NX.toast('No phone on file for this vendor.', 'warning'); return; }
+    const verb = isEmail ? 'Email' : 'Call';
 
-    // ── WHY sheet — the email only populates once a reason is entered ──
+    // ── WHY sheet — the contact only proceeds once a reason is entered ──
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;z-index:9300;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.55)';
     overlay.innerHTML = `
       <div style="position:relative;width:100%;max-width:520px;background:var(--surface,#171512);border:1px solid var(--nx-gold-line,rgba(212,164,78,.3));border-radius:16px 16px 0 0;padding:20px 18px 26px">
-        <div style="font-size:17px;font-weight:700;margin-bottom:4px">Email ${esc(vName)}</div>
-        <div style="font-size:12px;color:var(--muted,#9a9284);margin-bottom:12px">${esc(eq.name)} · creates a ticket, then opens the email</div>
-        <div style="font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted,#9a9284);margin-bottom:5px">Why are you emailing? *</div>
-        <textarea id="eqEmailWhy" rows="3" maxlength="600" placeholder="e.g. Igniter popping sound on the Rational — needs service visit"
+        <div style="font-size:17px;font-weight:700;margin-bottom:4px">${verb} ${esc(vName)}</div>
+        <div style="font-size:12px;color:var(--muted,#9a9284);margin-bottom:12px">${esc(eq.name)} · logs to board + daily notes, flags the unit, then ${isEmail ? 'opens the email' : 'dials'}</div>
+        <div style="font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted,#9a9284);margin-bottom:5px">Why are you ${isEmail ? 'emailing' : 'calling'}? *</div>
+        <textarea id="eqContactWhy" rows="3" maxlength="600" placeholder="e.g. Steam setting is not working"
           style="width:100%;box-sizing:border-box;padding:11px 12px;border-radius:9px;border:1px solid var(--border,rgba(255,255,255,.12));background:var(--surface-2,rgba(255,255,255,.03));color:var(--text,#ece4d4);font-family:inherit;font-size:15px;resize:vertical"></textarea>
         <div style="display:flex;gap:10px;margin-top:14px">
-          <button id="eqEmailCancel" style="flex:1;padding:13px;border-radius:10px;border:1px solid var(--border,rgba(255,255,255,.12));background:none;color:var(--text,#ece4d4);font-family:inherit;cursor:pointer">Cancel</button>
-          <button id="eqEmailGo" disabled style="flex:2;padding:13px;border-radius:10px;border:none;background:var(--nx-gold,#d4a44e);color:#000;font-weight:700;font-family:inherit;cursor:pointer;opacity:.5">Create ticket &amp; Email</button>
+          <button id="eqContactCancel" style="flex:1;padding:13px;border-radius:10px;border:1px solid var(--border,rgba(255,255,255,.12));background:none;color:var(--text,#ece4d4);font-family:inherit;cursor:pointer">Cancel</button>
+          <button id="eqContactGo" disabled style="flex:2;padding:13px;border-radius:10px;border:none;background:var(--nx-gold,#d4a44e);color:#000;font-weight:700;font-family:inherit;cursor:pointer;opacity:.5">Log &amp; ${verb}</button>
         </div>
       </div>`;
     document.body.appendChild(overlay);
     const close = () => overlay.remove();
     overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
-    overlay.querySelector('#eqEmailCancel').addEventListener('click', close);
-    const whyEl = overlay.querySelector('#eqEmailWhy');
-    const goBtn = overlay.querySelector('#eqEmailGo');
+    overlay.querySelector('#eqContactCancel').addEventListener('click', close);
+    const whyEl = overlay.querySelector('#eqContactWhy');
+    const goBtn = overlay.querySelector('#eqContactGo');
     whyEl.addEventListener('input', () => {
       const ok = whyEl.value.trim().length >= 3;
       goBtn.disabled = !ok;
@@ -12030,22 +12098,45 @@ async function emailVendor(vendorId, equipId, role) {
     goBtn.addEventListener('click', async () => {
       const why = whyEl.value.trim();
       if (why.length < 3) return;
-      goBtn.disabled = true; goBtn.textContent = 'Creating ticket…';
+      goBtn.disabled = true; goBtn.textContent = 'Logging…';
       const reporter = NX.currentUser?.name || 'Staff';
       const primaryEmail = vendor.email || (Array.isArray(vendor.emails) && vendor.emails[0] && (vendor.emails[0].value || vendor.emails[0].email)) || '';
+      const glyph = isEmail ? '✉' : '📞';
+      const contactLine = isEmail
+        ? `Emailing: ${vName}${primaryEmail ? ' (' + primaryEmail + ')' : ''}`
+        : `Calling: ${vName}${phone ? ' (' + phone + ')' : ''}`;
 
-      // Paper trail FIRST (same as calling) — ticket + mirrored board card.
+      // 1) BOARD — timeline of events. Prefer appending a comment to the
+      // unit's existing open card so repeated contacts build one history;
+      // create the [EMAIL]/[CALL] ticket + card only when no card is open.
       try {
-        if (NX.work && typeof NX.work.create === 'function') {
+        const doneRe = /^(done|closed|resolved|complete|completed|archived?)$/i;
+        const { data: openCards } = await NX.sb.from('kanban_cards')
+          .select('id, comments, column_name, status, archived, created_at')
+          .eq('equipment_id', eq.id)
+          .eq('archived', false)
+          .order('created_at', { ascending: false })
+          .limit(5);
+        const live = (openCards || []).find(c =>
+          !doneRe.test(String(c.column_name || '')) && !doneRe.test(String(c.status || '')));
+        if (live) {
+          const comments = Array.isArray(live.comments) ? [...live.comments] : [];
+          comments.push({
+            by: reporter,
+            at: new Date().toISOString(),
+            text: `${glyph} ${isEmail ? 'Emailed' : 'Called'} ${vName} — ${why}`,
+          });
+          await NX.sb.from('kanban_cards').update({ comments }).eq('id', live.id);
+        } else if (NX.work && typeof NX.work.create === 'function') {
           await NX.work.create({
-            title: `[EMAIL] ${eq.name}: ${why.slice(0, 80)}`,
+            title: `[${isEmail ? 'EMAIL' : 'CALL'}] ${eq.name}: ${why.slice(0, 80)}`,
             notes: [
-              `Vendor emailed from the equipment detail.`,
+              `Vendor ${isEmail ? 'emailed' : 'called'} from the equipment detail.`,
               ``,
               `Equipment: ${eq.name}`,
               `Location: ${[eq.location, eq.area].filter(Boolean).join(' · ') || '—'}`,
               eq.serial_number ? `Serial: ${eq.serial_number}` : null,
-              `Emailing: ${vName}${primaryEmail ? ' (' + primaryEmail + ')' : ''}`,
+              contactLine,
               ``,
               `Reason:`,
               why,
@@ -12054,34 +12145,68 @@ async function emailVendor(vendorId, equipId, role) {
             location: eq.location || null,
             equipmentId: eq.id,
             reportedBy: reporter,
+            priorEqStatus: eq.status || 'operational',
           });
         }
       } catch (e2) {
-        console.warn('[equipment] emailVendor ticket trail failed (non-fatal):', e2);
+        console.warn('[equipment] vendor contact trail failed (non-fatal):', e2);
       }
+
+      // 2) STATUS — contacting a vendor about a unit means it needs
+      // attention. Bump operational → needs_service; never downgrade.
+      try {
+        const rank = { operational: 0, needs_service: 1, down: 2 };
+        if ((rank[eq.status || 'operational'] || 0) < 1) {
+          await NX.sb.from('equipment').update({
+            status: 'needs_service',
+            status_note: `${isEmail ? 'Emailed' : 'Called'} ${vName}: ${why.slice(0, 160)}`,
+          }).eq('id', eq.id);
+        }
+      } catch (e3) {
+        console.warn('[equipment] status bump failed (non-fatal):', e3);
+      }
+
+      // 3) DAILY NOTES — vendor & service calls row for today.
+      try {
+        NX.domain?.appendVendorCallToDailyNotes?.({
+          location: eq.location || '',
+          vendor: vName,
+          equipment: eq.name || '',
+          issue: why,
+          status: isEmail ? 'Emailed — awaiting reply' : 'Called — awaiting callback',
+        });
+      } catch (_) {}
+
       close();
 
-      const ctx = {
-        restaurant:  eq.location || '',
-        equipment:   eq.name || '',
-        unit:        [eq.manufacturer, eq.model].filter(Boolean).join(' '),
-        serial:      eq.serial_number || '',
-        area:        eq.area || '',
-        issue:       why.slice(0, 140),
-        description: why,
-        user:        reporter,
-      };
-      if (window.NX && typeof NX.vendorEmail === 'function') {
-        NX.vendorEmail(vendor, ctx);
+      // 4) ACT — composer (template-aware) or dialer.
+      if (isEmail) {
+        const ctx = {
+          restaurant:  eq.location || '',
+          equipment:   eq.name || '',
+          unit:        [eq.manufacturer, eq.model].filter(Boolean).join(' '),
+          serial:      eq.serial_number || '',
+          area:        eq.area || '',
+          issue:       why.slice(0, 140),
+          description: why,
+          user:        reporter,
+        };
+        if (window.NX && typeof NX.vendorEmail === 'function') NX.vendorEmail(vendor, ctx);
+        else window.location.href = 'mailto:' + encodeURIComponent(primaryEmail);
       } else {
-        window.location.href = 'mailto:' + encodeURIComponent(primaryEmail);
+        window.location.href = 'tel:' + String(phone).replace(/[^\d+]/g, '');
       }
+      // Refresh the open detail so the new status/note shows immediately.
+      try { setTimeout(() => openDetail(eq.id), 600); } catch (_) {}
     });
   } catch (e) {
-    console.error('[equipment] emailVendor:', e);
-    NX.toast && NX.toast('Could not open the email composer', 'error');
+    console.error('[equipment] openVendorContactSheet:', e);
+    NX.toast && NX.toast('Could not open the contact sheet', 'error');
   }
 }
+
+function emailVendor(vendorId, equipId, role) { return openVendorContactSheet(vendorId, equipId, role, 'email'); }
+function callVendor(vendorId, equipId, role)  { return openVendorContactSheet(vendorId, equipId, role, 'call'); }
 
 function buildDispatchMessage(eq, ticket, contact, userName) {
   const restaurant = eq.location || '';
@@ -20677,7 +20802,8 @@ const __nxeExports = {
   openDetail,
   openDetailByQr,    // QR deep-link → detail (used by app.js post-login redirect)
   completeWorkOrder, // staff one-tap WO completion (mirrors public scan)
-  emailVendor,       // ✉ Email on SERVICED BY / REPAIRS BY → composer + template
+  emailVendor,       // ✉ Email on SERVICED BY / REPAIRS BY → note → trail → composer
+  callVendor,        // 📞 Call — same note-first flow, then dials
   closeDetail,
   loadEquipment,
   buildUI,

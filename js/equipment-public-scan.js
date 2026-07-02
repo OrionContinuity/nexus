@@ -2598,6 +2598,29 @@
           console.warn('[scan] daily_logs insert failed (non-fatal):', logErr?.message);
         }
 
+        // Populate the structured DAILY NOTES too (facility_logs → the
+        // location's "Vendor & service calls" rows) when a vendor was
+        // actually contacted. Requires the in-app domain layer; silently
+        // skipped in pure kiosk contexts.
+        if ((isCall || isEmail) && typeof NX !== 'undefined' && NX?.domain?.appendVendorCallToDailyNotes) {
+          try {
+            NX.domain.appendVendorCallToDailyNotes({
+              location: eq.location || '',
+              vendor: (contact && contact.name) || 'Vendor',
+              equipment: eq.name || '',
+              issue: problem,
+              status: isCall ? 'Called — awaiting callback' : 'Emailed — awaiting reply',
+            });
+          } catch (_) {}
+        }
+
+        // Contacting a vendor about a unit means it needs attention even at
+        // LOW priority — bump operational → needs_service (the earlier
+        // block already handles normal/urgent; never downgrade).
+        if ((isCall || isEmail) && priority === 'low' && (eq.status || 'operational') === 'operational') {
+          try { await sb.from('equipment').update({ status: 'needs_service' }).eq('id', eq.id); } catch (_) {}
+        }
+
         if (isCall) {
           // Dial the contractor. iOS/Android will handle tel: natively.
           // Show a brief confirmation flash first so user knows the ticket
