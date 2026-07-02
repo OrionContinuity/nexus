@@ -133,6 +133,13 @@ const STYLES = `
   .b-list.drop-target{outline:2px solid rgba(200,164,78,0.35);outline-offset:-2px;border-radius:10px}
   .b-card-dragclone{opacity:.95;transform:rotate(1.5deg) scale(1.02);box-shadow:0 14px 34px rgba(0,0,0,0.55);border-color:rgba(200,164,78,0.4)!important;transition:none}
   .b-card-placeholder{height:44px;margin-bottom:8px;border-radius:10px;background:rgba(200,164,78,0.08);border:1px dashed rgba(200,164,78,0.35);flex-shrink:0;animation:bfade .12s ease}
+  /* List (column) drag-to-reorder. The header is the grip; the original
+     fades in place while its clone floats, and the target column that the
+     dragged list will land next to gets a dashed ring. */
+  .b-list-head{cursor:grab}
+  .b-list.is-list-dragging{opacity:.35}
+  .b-list.list-drop-target{outline:2px dashed rgba(200,164,78,0.45);outline-offset:-2px;border-radius:10px}
+  .b-list-dragclone{opacity:.92;transform:rotate(1deg);box-shadow:0 18px 42px rgba(0,0,0,0.6);border-radius:10px;overflow:hidden;transition:none}
   /* Add card button — was a wispy dashed rectangle. Now a calm solid
      affordance that stands out as "press here" without screaming. */
   .b-list-add{background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.06);color:var(--text-dim);padding:10px;border-radius:8px;cursor:pointer;margin-top:6px;width:100%;font-size:12.5px;font-family:inherit;transition:all .15s}
@@ -900,6 +907,9 @@ function renderLists(){
       head.addEventListener('click', (e) => {
         // Don't trigger on count badge tap etc. — only on the list-head itself
         if(e.target.closest('button')) return;
+        // Ignore the click that fires right after a drag-reorder ended on
+        // this header, so reordering a terminal list doesn't also collapse it.
+        if(listEl._suppressClick && Date.now() - listEl._suppressClick < 350) return;
         const nowCollapsed = !listEl.classList.contains('is-collapsed');
         listEl.classList.toggle('is-collapsed', nowCollapsed);
         localStorage.setItem(collapseKey, nowCollapsed ? '1' : '0');
@@ -909,6 +919,8 @@ function renderLists(){
       });
     }
     listEl.appendChild(head);
+    // Trello-style column reorder — drag the header to move a whole list.
+    enableListDrag(head, listEl, list);
 
     const cardsWrap = document.createElement('div');
     cardsWrap.className = 'b-list-cards';
@@ -1045,6 +1057,131 @@ function computeDropPosition(listId, beforeId, excludeId){
   const prev = inDest[idx - 1].position || 0;
   const cur  = inDest[idx].position || 0;
   return (prev + cur) / 2;                    // midpoint between neighbours
+}
+
+// ─── List (column) drag-to-reorder ───────────────────────────────────────
+// The list header is the grab handle. Mouse: move past a threshold to pick
+// up. Touch: hold, then drag (a plain swipe stays a horizontal scroll). Drop
+// next to another column to reorder. Lists are few, so on drop we just
+// renumber 0..n and write the rows that changed.
+function enableListDrag(head, listEl, list){
+  let P = null;
+  const HOLD_MS = 300, MOVE_THRESH = 8;
+  const clearTargets = () => document.querySelectorAll('.b-list.list-drop-target').forEach(l => l.classList.remove('list-drop-target'));
+
+  const pickUp = () => {
+    P.dragging = true;
+    head.style.cursor = 'grabbing';
+    const r = listEl.getBoundingClientRect();
+    const clone = listEl.cloneNode(true);
+    clone.classList.remove('is-list-dragging');
+    clone.classList.add('b-list-dragclone');
+    clone.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${Math.min(r.height, window.innerHeight*0.6)}px;margin:0;pointer-events:none;z-index:3000`;
+    document.body.appendChild(clone);
+    listEl.classList.add('is-list-dragging');
+    P.clone = clone; P.offX = P.startX - r.left; P.offY = P.startY - r.top;
+    try { navigator.vibrate?.(6); } catch(_) {}
+  };
+
+  const dragTo = (x, y) => {
+    if (P.clone) {
+      P.clone.style.left = (x - P.offX) + 'px';
+      P.clone.style.top  = (y - P.offY) + 'px';
+      P.clone.style.visibility = 'hidden';
+    }
+    const under = document.elementFromPoint(x, y);
+    if (P.clone) P.clone.style.visibility = '';
+    const over = under && under.closest('.b-list:not(.b-list-new):not(.is-list-dragging)');
+    clearTargets();
+    P.overListId = null; P.dropAfter = false;
+    if (over) {
+      over.classList.add('list-drop-target');
+      const r = over.getBoundingClientRect();
+      P.overListId = over.dataset.listId;
+      P.dropAfter = x > r.left + r.width / 2;   // right half → drop after
+    }
+    const sc = listEl.closest('.b-lists');
+    if (sc) {
+      const m = 52;
+      if (x < m) sc.scrollLeft -= 18;
+      else if (x > window.innerWidth - m) sc.scrollLeft += 18;
+    }
+  };
+
+  const drop = async () => {
+    const overId = P.overListId, after = P.dropAfter;
+    if (P.clone) P.clone.remove();
+    listEl.classList.remove('is-list-dragging');
+    clearTargets();
+    head.style.cursor = 'grab';
+    if (overId && String(overId) !== String(list.id)) {
+      await reorderList(list.id, overId, after);
+    }
+  };
+
+  head.addEventListener('pointerdown', e => {
+    if (e.target.closest('button')) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    P = { startX: e.clientX, startY: e.clientY, dragging: false, moved: false, clone: null, ptr: e.pointerId, type: e.pointerType };
+    if (e.pointerType !== 'mouse') {
+      P.holdTimer = setTimeout(() => {
+        if (P && !P.dragging && !P.moved) { pickUp(); try { head.setPointerCapture(P.ptr); } catch(_) {} }
+      }, HOLD_MS);
+    }
+  });
+  head.addEventListener('pointermove', e => {
+    if (!P) return;
+    const dx = Math.abs(e.clientX - P.startX), dy = Math.abs(e.clientY - P.startY);
+    if (!P.dragging && (dx > MOVE_THRESH || dy > MOVE_THRESH)) {
+      if (P.type === 'mouse') { P.moved = true; pickUp(); try { head.setPointerCapture(P.ptr); } catch(_) {} }
+      else { clearTimeout(P.holdTimer); P.moved = true; }   // pre-hold move = scroll
+    }
+    if (P.dragging) { e.preventDefault(); dragTo(e.clientX, e.clientY); }
+  });
+  head.addEventListener('pointerup', async () => {
+    if (!P) return;
+    clearTimeout(P.holdTimer);
+    const wasDragging = P.dragging;
+    P = null;
+    if (wasDragging) { listEl._suppressClick = Date.now(); await drop(); }
+  });
+  head.addEventListener('pointercancel', () => {
+    if (!P) return;
+    clearTimeout(P.holdTimer);
+    if (P.clone) P.clone.remove();
+    listEl.classList.remove('is-list-dragging');
+    clearTargets();
+    head.style.cursor = 'grab';
+    P = null;
+  });
+}
+
+async function reorderList(dragId, overId, after){
+  const ordered = [...lists].sort((a,b) => (a.position||0) - (b.position||0));
+  const dragIdx = ordered.findIndex(l => String(l.id) === String(dragId));
+  if (dragIdx < 0) return;
+  const [moved] = ordered.splice(dragIdx, 1);
+  let overIdx = ordered.findIndex(l => String(l.id) === String(overId));
+  if (overIdx < 0) { ordered.push(moved); }
+  else { ordered.splice(after ? overIdx + 1 : overIdx, 0, moved); }
+
+  // Renumber densely; write only the rows whose position actually changed.
+  const prev = lists;
+  const updates = [];
+  ordered.forEach((l, i) => { if (l.position !== i) { l.position = i; updates.push({ id: l.id, position: i }); } });
+  if (!updates.length) return;
+  lists = ordered;
+  render();
+  try{
+    for (const u of updates){
+      const { error } = await NX.sb.from('board_lists').update({ position: u.position }).eq('id', u.id);
+      if (error) throw error;
+    }
+  }catch(e){
+    console.error('[board] reorderList:', e);
+    lists = prev; render();
+    NX.toast && NX.toast('Failed to reorder list — reverted', 'error');
+  }
 }
 
 function createCardEl(card){
