@@ -230,6 +230,7 @@
     phone:    '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>',
     alert:    '<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
     lock:     '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+    mail:     '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>',
     chevronRight: '<path d="m9 18 6-6-6-6"/>',
     refresh:  '<path d="M21 12a9 9 0 1 1-6.219-8.56"/><path d="M21 3v6h-6"/>',
   };
@@ -1976,53 +1977,11 @@
         e.preventDefault();
         openIssueModal(eq, { mode: 'call', contact });
       } else if (action === 'email') {
-        // Compose a service-request email to the vendor. Prefer the shared
-        // composer engine (editable To/CC/BCC, recipients remembered per
-        // vendor); degrade to a plain mailto: draft if it isn't loaded.
+        // Same discipline as Call: capture WHY first (creates the ticket
+        // paper trail), then the composer opens with the note driving the
+        // vendor's template. No note → no email.
         e.preventDefault();
-        // Vendor-table contact (repair/service_vendor_id link) → the
-        // template-aware path: renders the vendor's saved dispatch template
-        // with THIS unit's details.
-        if (contact && contact._vendor && window.NX && typeof NX.vendorEmail === 'function') {
-          NX.vendorEmail(contact._vendor, {
-            restaurant: eq.location || '',
-            equipment:  eq.name || '',
-            unit:       [eq.manufacturer, eq.model].filter(Boolean).join(' '),
-            serial:     eq.serial_number || '',
-            area:       eq.area || '',
-          });
-          return;
-        }
-        const ems = (contact && contact.emails) || [];
-        const tos  = ems.filter(x => x.role === 'to' || !x.role).map(x => x.email);
-        const ccs  = ems.filter(x => x.role === 'cc').map(x => x.email);
-        const bccs = ems.filter(x => x.role === 'bcc').map(x => x.email);
-        const to = tos[0] || (ems[0] && ems[0].email) || '';
-        const subject = `Service request — ${eq.name}${eq.location ? ' at ' + eq.location : ''}`;
-        const body =
-`Hi${contact && contact.name ? ' ' + contact.name : ''},
-
-We need service on the following equipment:
-
-  ${eq.name}
-  Location: ${eq.location || ''}${eq.area ? ' · ' + eq.area : ''}
-${eq.manufacturer || eq.model ? `  Unit: ${[eq.manufacturer, eq.model].filter(Boolean).join(' ')}\n` : ''}${eq.serial_number ? `  Serial: ${eq.serial_number}\n` : ''}
-Please let us know your earliest availability.
-
-Thanks.`;
-        if (window.NX && typeof NX.composeEmail === 'function') {
-          NX.composeEmail({
-            recipientsKey: 'vendor:' + ((contact && contact.contractorId) || (contact && contact.name) || 'unknown'),
-            to, cc: ccs, bcc: bccs, subject, body,
-            title: 'Email ' + ((contact && contact.name) || 'vendor'),
-          });
-        } else {
-          const enc = s => encodeURIComponent(s || '').replace(/\+/g, '%20');
-          const params = [`subject=${enc(subject)}`, `body=${enc(body)}`];
-          if (ccs.length)  params.push(`cc=${enc(ccs.join(','))}`);
-          if (bccs.length) params.push(`bcc=${enc(bccs.join(','))}`);
-          window.location.href = `mailto:${enc(to)}?${params.join('&')}`;
-        }
+        openIssueModal(eq, { mode: 'email', contact });
       } else if (action === 'report') {
         openIssueModal(eq, { mode: 'report' });
       } else if (action === 'login') {
@@ -2261,18 +2220,26 @@ Thanks.`;
 
   function openIssueModal(eq, { mode, contact } = {}) {
     const isCall = mode === 'call';
+    // Email mirrors the call flow exactly: capture WHY first, create the
+    // same ticket/board/daily-log paper trail, THEN open the composer with
+    // the reason filled into the vendor's template. Without this the email
+    // left no record anywhere (the "why didn't my email to Coker appear"
+    // bug) — and the note is what populates the template's {issue}.
+    const isEmail = mode === 'email';
     const commonIssues = [
       'Not cooling', 'Leaking', 'Making noise', 'Not turning on',
       'Temperature wrong', 'Smells strange', 'Fan issue', 'Ice buildup'
     ];
     const rememberedName = localStorage.getItem('nx_reporter_name') || '';
 
-    const title       = isCall ? 'Call Contractor' : 'Report Issue';
+    const title       = isCall ? 'Call Contractor' : isEmail ? 'Email Vendor' : 'Report Issue';
     const subLine     = isCall
       ? `${esc(eq.name)} · Will create ticket then call ${esc(contact?.name || 'contractor')}`
+      : isEmail
+      ? `${esc(eq.name)} · Will create ticket then email ${esc(contact?.name || 'vendor')}`
       : `${esc(eq.name)} · ${esc(eq.location || '')}`;
-    const sendLabel   = isCall ? `Create ticket & Call` : 'Send Report';
-    const iconHTML    = icon(isCall ? 'phone' : 'alert', 28);
+    const sendLabel   = isCall ? `Create ticket & Call` : isEmail ? 'Create ticket & Email' : 'Send Report';
+    const iconHTML    = icon(isCall ? 'phone' : isEmail ? 'mail' : 'alert', 28);
 
     const bg = document.createElement('div');
     bg.className = 'nx-ps-modal-bg';
@@ -2415,12 +2382,17 @@ Thanks.`;
         //   status ('open'|'closed'), reported_by, photo_url, ai_troubleshoot
         // No equipment_id column — equipment reference lives in title/notes.
         const locStr = [eq.location, eq.area].filter(Boolean).join(' · ');
-        const titlePrefix = isCall ? '[CALL]' : '[Equipment]';
+        const titlePrefix = isCall ? '[CALL]' : isEmail ? '[EMAIL]' : '[Equipment]';
         const ticketTitle = `${titlePrefix} ${eq.name}: ${problem.slice(0, 80)}`;
 
+        const emailAddr = isEmail
+          ? (((contact && contact.emails) || []).map(x => x.email)[0] || '')
+          : '';
         const notesParts = [
           isCall
             ? `Contractor called via QR scan landing page.`
+            : isEmail
+            ? `Vendor emailed via QR scan landing page.`
             : `Reported via QR scan landing page.`,
           ``,
           `Equipment: ${eq.name}`,
@@ -2431,6 +2403,7 @@ Thanks.`;
           eq.qr_code ? `QR: ${eq.qr_code}` : null,
           `Reporter: ${reporter}`,
           isCall && contact ? `Calling: ${contact.name} (${contact.phone})` : null,
+          isEmail && contact ? `Emailing: ${contact.name}${emailAddr ? ' (' + emailAddr + ')' : ''}` : null,
           ``,
           `Problem description:`,
           problem,
@@ -2509,7 +2482,7 @@ Thanks.`;
         // prior behaviour. Uses the public `sb` client so it works even in
         // kiosk mode where the full NX app isn't loaded.
         let issueId = null;
-        if (!isCall) {
+        if (!isCall && !isEmail) {
           try {
             const issuePriority = priority === 'urgent' ? 'critical' : priority === 'low' ? 'low' : 'normal';
             const issueSeverity = priority === 'urgent' ? 'high'     : priority === 'low' ? 'low' : 'medium';
@@ -2613,13 +2586,13 @@ Thanks.`;
         // Also drop a line into daily_logs so it shows up on the log
         // view alongside everything else happening today. Non-fatal if fails.
         try {
-          const logIconName = isCall ? 'phone' : 'wrench';
+          const logIconName = isCall ? 'phone' : isEmail ? 'mail' : 'wrench';
         const logIcon = `<i data-lucide="${logIconName}"></i>`;
-          const logPrefix = isCall ? 'CONTRACTOR CALLED' : 'TICKET';
+          const logPrefix = isCall ? 'CONTRACTOR CALLED' : isEmail ? 'VENDOR EMAILED' : 'TICKET';
           const logLoc = eq.location || 'unknown';
           await sb.from('daily_logs').insert({
             user_name: reporter || null,
-            entry: `${logIcon} ${logPrefix} [${priority.toUpperCase()}] by ${reporter} @ ${logLoc}: ${eq.name} — ${problem.slice(0, 160)}${isCall && contact ? ` → calling ${contact.name}` : ''}`
+            entry: `${logIcon} ${logPrefix} [${priority.toUpperCase()}] by ${reporter} @ ${logLoc}: ${eq.name} — ${problem.slice(0, 160)}${isCall && contact ? ` → calling ${contact.name}` : ''}${isEmail && contact ? ` → emailing ${contact.name}` : ''}`
           });
         } catch (logErr) {
           console.warn('[scan] daily_logs insert failed (non-fatal):', logErr?.message);
@@ -2639,6 +2612,46 @@ Thanks.`;
           setTimeout(() => {
             window.location.href = contact.phoneHref;
             setTimeout(() => bg.remove(), 1200);
+          }, 700);
+        } else if (isEmail) {
+          // Ticket landed — now open the composer with the WHY note driving
+          // the vendor's template ({issue}/{description}). Mirrors the call
+          // flow: paper trail first, contact action second.
+          bg.querySelector('.nx-ps-modal').innerHTML = `
+            <div class="nx-ps-modal-success">
+              <div class="nx-ps-modal-success-icon">${icon('mail', 40)}</div>
+              <h2>Ticket created</h2>
+              <div class="nx-ps-modal-sub">Opening email to ${esc(contact.name)}…</div>
+            </div>
+          `;
+          const emailCtx = {
+            restaurant:  eq.location || '',
+            equipment:   eq.name || '',
+            unit:        [eq.manufacturer, eq.model].filter(Boolean).join(' '),
+            serial:      eq.serial_number || '',
+            area:        eq.area || '',
+            issue:       problem.slice(0, 140),
+            description: problem,
+            user:        reporter,
+          };
+          setTimeout(() => {
+            bg.remove();
+            if (contact._vendor && window.NX && typeof NX.vendorEmail === 'function') {
+              NX.vendorEmail(contact._vendor, emailCtx);
+            } else {
+              // Node-based contact — generic body through the composer/mailto.
+              const ems = (contact && contact.emails) || [];
+              const to = (ems[0] && ems[0].email) || '';
+              const ccs = ems.slice(1).map(x => x.email);
+              const subject = `Service Request — ${eq.location || ''} · ${eq.name}`;
+              const body = `Hi ${contact.name || 'team'},\n\nWe need service on:\n• Equipment: ${eq.name}\n• Unit: ${emailCtx.unit || '—'}\n• Serial: ${eq.serial_number || '—'}\n• Location: ${eq.location || ''}${eq.area ? ' · ' + eq.area : ''}\n\nIssue: ${problem}\n\nThanks,\n${reporter}`;
+              if (window.NX && typeof NX.composeEmail === 'function') {
+                NX.composeEmail({ recipientsKey: 'vendor:' + (contact.contractorId || contact.name || 'unknown'), to, cc: ccs, subject, body });
+              } else {
+                const enc = s => encodeURIComponent(s || '').replace(/\+/g, '%20');
+                window.location.href = `mailto:${enc(to)}?subject=${enc(subject)}&body=${enc(body)}${ccs.length ? '&cc=' + enc(ccs.join(',')) : ''}`;
+              }
+            }
           }, 700);
         } else {
           bg.querySelector('.nx-ps-modal').innerHTML = `

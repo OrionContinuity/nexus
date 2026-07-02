@@ -11959,11 +11959,12 @@ async function loadRecentDispatches(equipId, limit = 3) {
   } catch (e) { return []; }
 }
 
-/* Email the equipment's linked vendor through the shared composer engine
-   (NX.vendorEmail) with the vendor's saved dispatch template rendered from
-   THIS unit's details. Wired to the ✉ Email button on the SERVICED BY /
-   REPAIRS BY cards. Falls back to the contractor node's email as a
-   pseudo-vendor when no vendors-table link exists. */
+/* Email the equipment's linked vendor — note-first, like calling.
+   Tapping ✉ Email asks WHY first; the note (a) creates the same ticket +
+   board-card paper trail a call does (via NX.work.create), so the email
+   shows up in the daily log, and (b) fills the {issue}/{description}
+   tokens of the vendor's saved dispatch template. Only then does the
+   composer open. No note → no email. */
 async function emailVendor(vendorId, equipId, role) {
   try {
     const { data: eq } = await NX.sb.from('equipment').select('*').eq('id', equipId).single();
@@ -11995,16 +11996,86 @@ async function emailVendor(vendorId, equipId, role) {
       }
     }
     if (!vendor) { NX.toast && NX.toast('No vendor email on file — link a vendor in Edit → Links.', 'warning'); return; }
-    if (!(window.NX && typeof NX.vendorEmail === 'function')) {
-      window.location.href = 'mailto:' + encodeURIComponent(vendor.email || '');
-      return;
-    }
-    NX.vendorEmail(vendor, {
-      restaurant: eq.location || '',
-      equipment:  eq.name || '',
-      unit:       [eq.manufacturer, eq.model].filter(Boolean).join(' '),
-      serial:     eq.serial_number || '',
-      area:       eq.area || '',
+
+    const vName = vendor.company || vendor.name || 'vendor';
+
+    // ── WHY sheet — the email only populates once a reason is entered ──
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9300;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.55)';
+    overlay.innerHTML = `
+      <div style="position:relative;width:100%;max-width:520px;background:var(--surface,#171512);border:1px solid var(--nx-gold-line,rgba(212,164,78,.3));border-radius:16px 16px 0 0;padding:20px 18px 26px">
+        <div style="font-size:17px;font-weight:700;margin-bottom:4px">Email ${esc(vName)}</div>
+        <div style="font-size:12px;color:var(--muted,#9a9284);margin-bottom:12px">${esc(eq.name)} · creates a ticket, then opens the email</div>
+        <div style="font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted,#9a9284);margin-bottom:5px">Why are you emailing? *</div>
+        <textarea id="eqEmailWhy" rows="3" maxlength="600" placeholder="e.g. Igniter popping sound on the Rational — needs service visit"
+          style="width:100%;box-sizing:border-box;padding:11px 12px;border-radius:9px;border:1px solid var(--border,rgba(255,255,255,.12));background:var(--surface-2,rgba(255,255,255,.03));color:var(--text,#ece4d4);font-family:inherit;font-size:15px;resize:vertical"></textarea>
+        <div style="display:flex;gap:10px;margin-top:14px">
+          <button id="eqEmailCancel" style="flex:1;padding:13px;border-radius:10px;border:1px solid var(--border,rgba(255,255,255,.12));background:none;color:var(--text,#ece4d4);font-family:inherit;cursor:pointer">Cancel</button>
+          <button id="eqEmailGo" disabled style="flex:2;padding:13px;border-radius:10px;border:none;background:var(--nx-gold,#d4a44e);color:#000;font-weight:700;font-family:inherit;cursor:pointer;opacity:.5">Create ticket &amp; Email</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+    overlay.querySelector('#eqEmailCancel').addEventListener('click', close);
+    const whyEl = overlay.querySelector('#eqEmailWhy');
+    const goBtn = overlay.querySelector('#eqEmailGo');
+    whyEl.addEventListener('input', () => {
+      const ok = whyEl.value.trim().length >= 3;
+      goBtn.disabled = !ok;
+      goBtn.style.opacity = ok ? '1' : '.5';
+    });
+    setTimeout(() => whyEl.focus(), 60);
+
+    goBtn.addEventListener('click', async () => {
+      const why = whyEl.value.trim();
+      if (why.length < 3) return;
+      goBtn.disabled = true; goBtn.textContent = 'Creating ticket…';
+      const reporter = NX.currentUser?.name || 'Staff';
+      const primaryEmail = vendor.email || (Array.isArray(vendor.emails) && vendor.emails[0] && (vendor.emails[0].value || vendor.emails[0].email)) || '';
+
+      // Paper trail FIRST (same as calling) — ticket + mirrored board card.
+      try {
+        if (NX.work && typeof NX.work.create === 'function') {
+          await NX.work.create({
+            title: `[EMAIL] ${eq.name}: ${why.slice(0, 80)}`,
+            notes: [
+              `Vendor emailed from the equipment detail.`,
+              ``,
+              `Equipment: ${eq.name}`,
+              `Location: ${[eq.location, eq.area].filter(Boolean).join(' · ') || '—'}`,
+              eq.serial_number ? `Serial: ${eq.serial_number}` : null,
+              `Emailing: ${vName}${primaryEmail ? ' (' + primaryEmail + ')' : ''}`,
+              ``,
+              `Reason:`,
+              why,
+            ].filter(x => x !== null).join('\n'),
+            priority: 'normal',
+            location: eq.location || null,
+            equipmentId: eq.id,
+            reportedBy: reporter,
+          });
+        }
+      } catch (e2) {
+        console.warn('[equipment] emailVendor ticket trail failed (non-fatal):', e2);
+      }
+      close();
+
+      const ctx = {
+        restaurant:  eq.location || '',
+        equipment:   eq.name || '',
+        unit:        [eq.manufacturer, eq.model].filter(Boolean).join(' '),
+        serial:      eq.serial_number || '',
+        area:        eq.area || '',
+        issue:       why.slice(0, 140),
+        description: why,
+        user:        reporter,
+      };
+      if (window.NX && typeof NX.vendorEmail === 'function') {
+        NX.vendorEmail(vendor, ctx);
+      } else {
+        window.location.href = 'mailto:' + encodeURIComponent(primaryEmail);
+      }
     });
   } catch (e) {
     console.error('[equipment] emailVendor:', e);

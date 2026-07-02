@@ -1342,7 +1342,7 @@
     // Strip emoji first (upstream importers inject urgency/category prefixes
     // labels into ticket titles), then editorial bracket prefixes.
     const cleaned = stripEmoji(title);
-    return cleaned.replace(/^\[(Equipment|CALL|Ticket)\]\s*/i, '').replace(/^[^:]+:\s*/, (m) => {
+    return cleaned.replace(/^\[(Equipment|CALL|EMAIL|Ticket)\]\s*/i, '').replace(/^[^:]+:\s*/, (m) => {
       // Keep the actual issue description, drop "Hot Expo Low Boy: " prefix
       return '';
     }) || cleaned;
