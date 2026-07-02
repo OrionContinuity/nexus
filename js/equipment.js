@@ -4562,7 +4562,7 @@ async function openDetail(id) {
             <button class="eq-overflow-item eq-overflow-item-primary" onclick="NX.modules.equipment.openPmLogger('${eq.id}')" style="color:var(--nx-gold)">${uiSvg('clipboard', '14px')}<span>Log PM <small style="opacity:0.6">(restarts countdown)</small></span></button>
             <button class="eq-overflow-item" onclick="NX.modules.equipment.logService('${eq.id}')">${uiSvg('pen', '14px')}<span>Log Service / Repair</span></button>
             <button class="eq-overflow-item" onclick="NX.modules.equipment.openIssueTracker('${eq.id}')">${uiSvg('alert', '14px')}<span>Issue Tracker</span></button>
-            <button class="eq-overflow-item" onclick="NX.modules.equipment.completeWorkOrder('${eq.id}')">${uiSvg('wrench', '14px')}<span>Complete Work Order</span></button>
+            <button class="eq-overflow-item" onclick="NX.modules.equipment.completeWorkOrder('${eq.id}')">${uiSvg('wrench', '14px')}<span>Complete Issue</span></button>
             <button class="eq-overflow-item" onclick="NX.modules.equipment.openPartsForEquipment('${eq.id}')">${uiSvg('settings', '14px')}<span>View Parts</span></button>
             <div class="eq-overflow-divider"></div>
             <div class="eq-overflow-section-label">Manage</div>
@@ -5386,7 +5386,7 @@ function renderTimeline(eq, maint, pending) {
 
   return `
     <div class="eq-timeline-bar">
-      <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.logService('${eq.id}')">+ Log service</button>
+      <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.logService('${eq.id}')">+ Log Service</button>
     </div>
     <div class="eq-timeline">
       ${pendingHtml}
@@ -10474,316 +10474,11 @@ function quickPrint(equipId) {
    8. PUBLIC SCAN — no-auth QR view
    ════════════════════════════════════════════════════════════════════════════ */
 
-function renderPublicScanView(qrCode) {
-  // Apply theme-from-coin BEFORE first paint so the user sees the right
-  // theme on initial render. Same logic as the main app's IIFE in
-  // index.html — read nexus_theme_pref + nexus_active_persona, default
-  // to dark + Providentia for new visitors.
-  try {
-    let pref = localStorage.getItem('nexus_theme_pref');
-    if (!pref) {
-      const legacy = localStorage.getItem('nexus_theme');
-      pref = (legacy === 'dark' || legacy === 'light') ? legacy : 'auto';
-    }
-    let theme;
-    if (pref === 'dark' || pref === 'light') theme = pref;
-    else {
-      const persona = localStorage.getItem('nexus_active_persona') || 'providentia';
-      theme = persona === 'trajan' ? 'light' : 'dark';
-    }
-    document.documentElement.setAttribute('data-theme', theme);
-  } catch (_) { /* no localStorage — defaults to dark via attribute below */ }
-
-  // Mark body so the public-views.css can scope its overrides without
-  // affecting the main app surface.
-  document.body.classList.add('public-view');
-
-  const persona = localStorage.getItem('nexus_active_persona') || 'providentia';
-  const coinSrc = persona === 'trajan'
-    ? 'assets/coin-trajan.png'
-    : 'assets/coin-providentia.png';
-  const coinName = persona === 'trajan' ? 'Trajan' : 'Providentia';
-
-  document.body.innerHTML = `
-    <div class="public-scan-container">
-      <header class="public-scan-masthead">
-        <button class="public-coin" id="publicCoin" type="button" aria-label="Flip coin — change theme">
-          <img src="${coinSrc}" alt="${coinName}" draggable="false">
-          <span class="public-coin-name">${coinName}</span>
-        </button>
-        <div class="public-scan-brand">NEXUS</div>
-      </header>
-      <div class="public-scan-body" id="publicScanBody">
-        <div class="public-scan-loading">
-          <div class="public-scan-loader"></div>
-          <div>Loading…</div>
-        </div>
-      </div>
-    </div>
-  `;
-  wirePublicCoin();
-  loadPublicScan(qrCode);
-}
-
-// Mounted on every public view. Tap → flip persona + theme. Persists
-// to the same localStorage keys the main app reads, so the choice
-// follows the user when they log in.
-function wirePublicCoin() {
-  const coin = document.getElementById('publicCoin');
-  if (!coin) return;
-  coin.addEventListener('click', () => {
-    const cur = localStorage.getItem('nexus_active_persona') || 'providentia';
-    const next = cur === 'trajan' ? 'providentia' : 'trajan';
-    const newTheme = next === 'trajan' ? 'light' : 'dark';
-    localStorage.setItem('nexus_active_persona', next);
-    localStorage.setItem('nexus_theme_pref', 'auto');
-    document.documentElement.setAttribute('data-theme', newTheme);
-    const img = coin.querySelector('img');
-    const lbl = coin.querySelector('.public-coin-name');
-    if (img) {
-      img.src = next === 'trajan'
-        ? 'assets/coin-trajan.png'
-        : 'assets/coin-providentia.png';
-      img.alt = next === 'trajan' ? 'Trajan' : 'Providentia';
-    }
-    if (lbl) lbl.textContent = next === 'trajan' ? 'Trajan' : 'Providentia';
-    coin.classList.add('public-coin-flipped');
-    setTimeout(() => coin.classList.remove('public-coin-flipped'), 600);
-  });
-}
-
-async function loadPublicScan(qrCode) {
-  try {
-    // Try the full select including repair_contractor_* columns. Fall back
-    // to the legacy select if those columns aren't on the schema yet (the
-    // SQL migration hasn't been run). Without this fallback the entire scan
-    // page breaks for users running pre-migration code.
-    const FULL_COLS = 'id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, service_contractor_name, service_contractor_phone, service_contractor_node_id, repair_contractor_name, repair_contractor_phone, repair_contractor_node_id';
-    const LEGACY_COLS = 'id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, service_contractor_name, service_contractor_phone, service_contractor_node_id';
-    let data, error;
-    {
-      const r = await NX.sb.from('equipment').select(FULL_COLS).eq('qr_code', qrCode).single();
-      if (r.error && /column.+repair_contractor.+does not exist/i.test(r.error.message || '')) {
-        const r2 = await NX.sb.from('equipment').select(LEGACY_COLS).eq('qr_code', qrCode).single();
-        data = r2.data; error = r2.error;
-      } else {
-        data = r.data; error = r.error;
-      }
-    }
-    if (error || !data) throw new Error('Equipment not found');
-
-    const { data: maint } = await NX.sb.from('equipment_maintenance')
-      .select('event_type, event_date, description, performed_by')
-      .eq('equipment_id', data.id)
-      .order('event_date', { ascending: false })
-      .limit(5);
-
-    // Pull both contractors when their FKs are set. The QR scan defaults
-    // to the REPAIR contractor (since staff scan when something is wrong),
-    // but we fetch both so we can fall back to the maintenance contractor
-    // if no repair contractor is assigned. Best-effort — failures fall
-    // through to the equipment's plain-text contact fields.
-    const fetchNode = async (id) => {
-      if (!id) return null;
-      try {
-        const { data: cnode } = await NX.sb.from('nodes')
-          .select('id, name, links, notes')
-          .eq('id', id)
-          .maybeSingle();
-        return cnode || null;
-      } catch (_) { return null; }
-    };
-    const [repairContractor, serviceContractor] = await Promise.all([
-      fetchNode(data.repair_contractor_node_id),
-      fetchNode(data.service_contractor_node_id),
-    ]);
-
-    renderPublicScanHTML(data, maint || [], repairContractor, serviceContractor);
-  } catch (err) {
-    document.getElementById('publicScanBody').innerHTML = `
-      <div class="public-scan-error">
-        <h2>Equipment Not Found</h2>
-        <p>This QR code isn't registered or has been removed.</p>
-        <button onclick="window.location.href='${window.location.origin}${window.location.pathname}'">Go to NEXUS</button>
-      </div>`;
-  }
-}
-
-function _publicSvg(path, size) {
-  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle">${path}</svg>`;
-}
-
-function renderPublicScanHTML(eq, maint, repairContractor, serviceContractor) {
-  // ─── Contractor resolution for the public scan ──────────────────
-  // Public QR scans default to the REPAIR contractor. Real-world flow:
-  // a line cook scans because the ice machine just stopped working —
-  // they need the repair guy NOW, not the PM scheduler. Maintenance
-  // contractor is for scheduled work and is surfaced inside the app.
-  // Resolution order:
-  //   1. repair_contractor_node_id (preferred — primary case)
-  //   2. repair_contractor_phone / repair_contractor_name (plain-text)
-  //   3. service_contractor_node_id (fallback — they handle both)
-  //   4. service_contractor_phone / service_contractor_name (plain-text)
-  let contractor = null;
-  let plainPhone = '';
-  let plainName = '';
-  if (repairContractor) {
-    contractor = repairContractor;
-  } else if (eq.repair_contractor_phone || eq.repair_contractor_name) {
-    plainPhone = eq.repair_contractor_phone || '';
-    plainName  = eq.repair_contractor_name  || '';
-  } else if (serviceContractor) {
-    contractor = serviceContractor;
-  } else if (eq.service_contractor_phone || eq.service_contractor_name) {
-    plainPhone = eq.service_contractor_phone || '';
-    plainName  = eq.service_contractor_name  || '';
-  }
-  // Status palette — tokens, no raw web colors. Editorial set:
-  // olive (operational), gold (needs service), oxblood (down),
-  // graphite (retired). Same family the equipment list uses
-  // post-login, so the public scan reads consistent.
-  const status = ({
-    operational:    { label: 'Operational',    color: 'var(--nx-green)' },
-    needs_service:  { label: 'Needs Service',  color: 'var(--nx-amber)' },
-    down:           { label: 'Down',           color: 'var(--nx-red)' },
-    retired:        { label: 'Retired',        color: 'var(--nx-faint)' },
-  })[eq.status] || { label: eq.status || 'Unknown', color: 'var(--nx-faint)' };
-
-  const pm = eq.next_pm_date ? new Date(eq.next_pm_date) : null;
-  const pmStr = pm ? pm.toLocaleDateString() : 'Not scheduled';
-  const pmOverdue = pm && pm < new Date();
-
-  const PIN_ICON   = '<path d="M20 10c0 7-8 13-8 13s-8-6-8-13a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/>';
-  const ALERT_ICON = '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>';
-  const LOGIN_ICON = '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/>';
-  const PHONE_ICON = '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>';
-  const MAIL_ICON  = '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>';
-
-  // Resolve contact channels: prefer the linked contractor's full set
-  // (multi-phone, multi-email with TO/CC/BCC), fall back to the resolved
-  // plain-text phone+name from the repair-or-service preference chain
-  // built above.
-  const phones = contractor ? extractContractorPhones(contractor) : [];
-  const emails = contractor ? extractContractorEmails(contractor) : [];
-  if (!phones.length && plainPhone) {
-    phones.push({ phone: plainPhone, label: '' });
-  }
-  const contactName = (contractor && contractor.name) || plainName || '';
-
-  // Build the email mailto: link with primary in to:, others in cc:.
-  let emailMailto = '';
-  let emailLabel = '';
-  if (emails.length) {
-    const toAddrs   = emails.filter(e => e.role === 'to' || !e.role).map(e => e.email);
-    const ccAddrs   = emails.filter(e => e.role === 'cc').map(e => e.email);
-    const bccAddrs  = emails.filter(e => e.role === 'bcc').map(e => e.email);
-    // If no explicit TOs (everything was marked CC), promote the first
-    // entry to TO so the email is deliverable.
-    const finalTos  = toAddrs.length ? toAddrs : (emails[0] ? [emails[0].email] : []);
-    const finalCcs  = toAddrs.length ? ccAddrs : ccAddrs.concat(emails.slice(1).filter(e => e.role !== 'bcc').map(e => e.email));
-
-    const subject = encodeURIComponent(`${eq.name} — service request`);
-    const body = encodeURIComponent(
-      `Hi${contactName ? ' ' + contactName : ''},\n\n` +
-      `We need service on the following equipment:\n\n` +
-      `  ${eq.name}\n` +
-      `  Location: ${eq.location}${eq.area ? ' · ' + eq.area : ''}\n` +
-      (eq.manufacturer || eq.model ? `  ${[eq.manufacturer, eq.model].filter(Boolean).join(' · ')}\n` : '') +
-      (eq.serial_number ? `  Serial: ${eq.serial_number}\n` : '') +
-      `\nPlease let us know your earliest availability.\n\nThanks.`
-    );
-    const params = [`subject=${subject}`, `body=${body}`];
-    if (finalCcs.length)  params.push(`cc=${encodeURIComponent(finalCcs.join(','))}`);
-    if (bccAddrs.length)  params.push(`bcc=${encodeURIComponent(bccAddrs.join(','))}`);
-    emailMailto = `mailto:${finalTos.join(',')}?${params.join('&')}`;
-    emailLabel  = finalTos[0] || emails[0].email;
-  }
-
-  // Build the Call button. If multiple phones, the primary is the tap
-  // target and a small "+N" chip hints at additional numbers (the
-  // user can long-press / tap-and-hold to pick — handled by browser).
-  const primaryPhone = phones[0]?.phone || '';
-  const primaryLabel = phones[0]?.label || '';
-  const extraPhoneCount = Math.max(0, phones.length - 1);
-
-  document.getElementById('publicScanBody').innerHTML = `
-    <div class="public-scan-card">
-      ${eq.photo_url ? `<img src="${esc(eq.photo_url)}" class="public-scan-photo" onerror="this.style.display='none'">` : ''}
-      <h1 class="public-scan-name">${esc(eq.name)}</h1>
-      <div class="public-scan-loc">${_publicSvg(PIN_ICON, '14')} ${esc(eq.location)}${eq.area ? ' · ' + esc(eq.area) : ''}</div>
-      <div class="public-scan-status" style="--pill-c:${status.color}">
-        <span class="public-scan-dot"></span>
-        <span class="public-scan-status-label">${status.label}</span>
-      </div>
-      <div class="public-scan-fields">
-        ${eq.manufacturer ? `<div><label>Manufacturer</label><div>${esc(eq.manufacturer)}</div></div>` : ''}
-        ${eq.model ? `<div><label>Model</label><div>${esc(eq.model)}</div></div>` : ''}
-        ${eq.serial_number ? `<div><label>Serial Number</label><div>${esc(eq.serial_number)}</div></div>` : ''}
-        ${eq.install_date ? `<div><label>Installed</label><div>${new Date(eq.install_date).toLocaleDateString()}</div></div>` : ''}
-        ${eq.warranty_until ? `<div><label>Warranty</label><div>${new Date(eq.warranty_until).toLocaleDateString()}</div></div>` : ''}
-        <div><label>Next PM</label><div${pmOverdue ? ' class="public-scan-overdue"' : ''}>${pmStr}${pmOverdue ? ' (overdue)' : ''}</div></div>
-      </div>
-
-      ${(primaryPhone || emailMailto) ? `
-        <div class="public-scan-contact-card">
-          ${contactName ? `<div class="public-scan-contact-name">${esc(contactName)}</div>` : ''}
-          <div class="public-scan-contact-actions">
-            ${primaryPhone ? `
-              <a class="public-scan-contact-btn public-scan-contact-call" href="tel:${esc(primaryPhone.replace(/\s+/g, ''))}">
-                <span class="public-scan-contact-icon">${_publicSvg(PHONE_ICON, '18')}</span>
-                <span class="public-scan-contact-text">
-                  <span class="public-scan-contact-label">Call ${primaryLabel ? esc(primaryLabel) : 'service'}</span>
-                  <span class="public-scan-contact-value">${esc(primaryPhone)}</span>
-                </span>
-                ${extraPhoneCount > 0 ? `<span class="public-scan-contact-extra">+${extraPhoneCount}</span>` : ''}
-              </a>
-            ` : ''}
-            ${emailMailto ? `
-              <a class="public-scan-contact-btn public-scan-contact-email" href="${esc(emailMailto)}">
-                <span class="public-scan-contact-icon">${_publicSvg(MAIL_ICON, '18')}</span>
-                <span class="public-scan-contact-text">
-                  <span class="public-scan-contact-label">Email service request</span>
-                  <span class="public-scan-contact-value">${esc(emailLabel)}</span>
-                </span>
-                ${emails.length > 1 ? `<span class="public-scan-contact-extra">+${emails.length - 1}</span>` : ''}
-              </a>
-            ` : ''}
-          </div>
-          ${phones.length > 1 ? `
-            <div class="public-scan-contact-extras">
-              ${phones.slice(1).map(p => `
-                <a class="public-scan-contact-extra-row" href="tel:${esc(p.phone.replace(/\s+/g, ''))}">
-                  <span class="public-scan-contact-extra-label">${p.label ? esc(p.label) : 'alt'}</span>
-                  <span class="public-scan-contact-extra-value">${esc(p.phone)}</span>
-                </a>
-              `).join('')}
-            </div>
-          ` : ''}
-        </div>
-      ` : ''}
-
-      ${maint.length ? `
-        <div class="public-scan-section">
-          <h3>Recent Service History</h3>
-          ${maint.map(m => `
-            <div class="public-scan-history">
-              <div class="public-scan-hist-date">${new Date(m.event_date).toLocaleDateString()}</div>
-              <div>
-                <div class="public-scan-hist-type">${(m.event_type || 'service').toUpperCase()}</div>
-                <div class="public-scan-hist-desc">${esc(m.description || '')}</div>
-                ${m.performed_by ? `<div class="public-scan-hist-who">${esc(m.performed_by)}</div>` : ''}
-              </div>
-            </div>
-          `).join('')}
-        </div>` : ''}
-      <div class="public-scan-actions" id="publicScanActions">
-        <button class="public-scan-btn public-scan-btn-primary" onclick="NX.modules.equipment.publicReportIssue('${eq.qr_code}')">${_publicSvg(ALERT_ICON, '16')} Report Issue</button>
-        <button class="public-scan-btn" onclick="window.location.href='${window.location.origin}${window.location.pathname}?equip=${eq.qr_code}&login=1'">${_publicSvg(LOGIN_ICON, '16')} Sign In</button>
-      </div>
-      <div class="public-scan-footer">Restaurant Operations · NEXUS</div>
-    </div>
-  `;
-}
+// (renderPublicScanView / loadPublicScan / renderPublicScanHTML lived here —
+//  the legacy in-module public-scan renderer, ~380 lines with ZERO callers
+//  since the standalone js/equipment-public-scan.js page replaced it.
+//  Removed in the equipment consolidation. publicReportIssue below survives
+//  as a fallback used by equipment-public-pm.js.)
 
 function publicReportIssue(qrCode) {
   const modal = document.createElement('div');
@@ -11165,7 +10860,7 @@ async function openFullEditor(equipId) {
         ${(eq.archived_at || eq.archived) ? `
           <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.restoreEquipment('${equipId}'); NX.modules.equipment.closeFullEdit();" style="color:#3a7;border-color:#3a7">${uiSvg("check","14px")} Restore from log</button>
         ` : `
-          <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.closeFullEdit(); NX.modules.equipment.archiveEquipment('${equipId}');" style="color:#c44;border-color:#c44">${uiSvg("trash","14px")} Send to log</button>
+          <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.closeFullEdit(); NX.modules.equipment.archiveEquipment('${equipId}');" style="color:#c44;border-color:#c44">${uiSvg("trash","14px")} Archive</button>
         `}
         <span style="flex:1"></span>
         <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.closeFullEdit()">Cancel</button>
@@ -14703,13 +14398,29 @@ async function openBulkContractorAssign() {
         if (match) phone = match[1].trim();
       }
 
-      // Bulk update.
+      // Bulk update — vendor era. The picker picks a contractor NODE, so
+      // resolve (or create) the matching vendors row by company name and link
+      // THAT, same as the single-assign flow. Writing the retired node-era
+      // column here was the last writer keeping the old generation alive.
       const ids = Array.from(bulkSelectionState.selected);
-      const update = {
-        service_contractor_node_id: contractorId,
-      };
+      const update = {};
       if (phone) update.service_contractor_phone = phone;
       if (contractor.name) update.service_contractor_name = contractor.name;
+      try {
+        let { data: v } = await NX.sb.from('vendors')
+          .select('id').ilike('company', contractor.name || '').maybeSingle();
+        if (!v && contractor.name) {
+          const ins = await NX.sb.from('vendors')
+            .insert({ company: contractor.name, active: true }).select('id').single();
+          v = ins.data;
+        }
+        if (v && v.id) {
+          update.service_vendor_id = v.id;
+          update.service_contractor_node_id = null;   // node era retired
+        }
+      } catch (mapErr) {
+        console.warn('[equipment] bulk assign: vendor mapping failed, name/phone only', mapErr);
+      }
 
       try {
         const { error } = await NX.sb.from('equipment')
@@ -20924,7 +20635,6 @@ const __nxeExports = {
   printInventoryStickers,    // Phase C — inventory uses the same sticker engine
 
   // Public scan (pre-auth)
-  renderPublicScanView,
   publicReportIssue,
 
   // Lineage

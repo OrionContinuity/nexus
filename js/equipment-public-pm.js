@@ -242,7 +242,7 @@
         <button class="pm-public-btn pm-public-btn-primary" id="pmLogBtn">
           <span class="pm-public-btn-icon">${svg('wrench', 1.4)}</span>
           <span class="pm-public-btn-label">
-            <span class="pm-public-btn-title">PM Logger</span>
+            <span class="pm-public-btn-title">Log Service</span>
             <span class="pm-public-btn-sub">Service contractors — no login</span>
           </span>
         </button>
@@ -712,7 +712,7 @@
       // Default filter: same category as scanned equipment
       const { data: similar } = await NX.sb.from('equipment')
         .select('id, name, location, area, category')
-        .eq('is_deleted', false)
+        .is('archived_at', null)
         .eq('category', currentEq.category)
         .order('location').order('name');
       
@@ -915,18 +915,34 @@
             if (!cErr && created) contractorId = created.id;
           }
 
-          // Link each equipment that doesn't already have a contractor
-          // FK to this one. We don't overwrite an existing assignment.
-          if (contractorId) {
+          // Link each equipment that doesn't already have a contractor to
+          // this one — VENDOR era (service_vendor_id), matching what the
+          // admin UI writes. This flow used to write the retired node-era
+          // column, which is how the two generations kept diverging. The
+          // contractor NODE above still exists for the Contractors view;
+          // equipment linkage goes through vendors. Never overwrites an
+          // existing assignment.
+          let vendorId = null;
+          try {
+            const { data: v } = await NX.sb.from('vendors')
+              .select('id').ilike('company', company).maybeSingle();
+            if (v) vendorId = v.id;
+            else {
+              const ins = await NX.sb.from('vendors')
+                .insert({ company, active: true }).select('id').single();
+              if (ins.data) vendorId = ins.data.id;
+            }
+          } catch (_) { /* vendor mapping best-effort */ }
+          if (contractorId || vendorId) {
             for (const eqId of equipIds) {
               try {
                 const { data: eqRow } = await NX.sb.from('equipment')
-                  .select('service_contractor_node_id, service_contractor_phone, service_contractor_name')
+                  .select('service_vendor_id, service_contractor_node_id, service_contractor_phone, service_contractor_name')
                   .eq('id', eqId).maybeSingle();
                 if (!eqRow) continue;
                 const update = {};
-                if (!eqRow.service_contractor_node_id) {
-                  update.service_contractor_node_id = contractorId;
+                if (vendorId && !eqRow.service_vendor_id && !eqRow.service_contractor_node_id) {
+                  update.service_vendor_id = vendorId;
                 }
                 if (!eqRow.service_contractor_name && company) {
                   update.service_contractor_name = company;

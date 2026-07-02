@@ -278,7 +278,7 @@
       { icon: cmSvg('sparkles'), label: 'Extract Parts from Manual', action: () => triggerExtractFromManual(equipId) },
       { icon: cmSvg('family'), label: 'Set Parent / Add Child', action: () => openFamilyManager(equipId, equipName) },
       { icon: cmSvg('audit'), label: 'Audit Log', action: () => openItemAuditLog('equipment', equipId, equipName) },
-      { icon: cmSvg('trash'), label: 'Delete', danger: true, action: () => softDeleteWithConfirm('equipment', equipId, equipName) }
+      { icon: cmSvg('trash'), label: 'Archive', danger: true, action: () => softDeleteWithConfirm('equipment', equipId, equipName) }
     ];
   }
 
@@ -489,7 +489,7 @@
       reload: () => NX.brain?.rebuild?.()
     },
     tickets: { 
-      label: 'Ticket', 
+      label: 'Issue', 
       reload: () => NX.modules.tickets?.refresh?.() 
     },
     kanban_cards: { 
@@ -554,6 +554,14 @@
           deleted_by: userName(),
           deleted_reason: reason || null
         };
+        // Equipment has ONE trash system: the archive (archived_at) — the
+        // same one the equipment list, Archived filter, and Restore/Delete
+        // forever menu use. Writing is_deleted here used to create a second,
+        // invisible trash the main UI never filtered.
+        if (table === 'equipment') {
+          delete updates.is_deleted;
+          updates.archived_at = updates.deleted_at;
+        }
         const { error } = await NX.sb.from(table).update(updates).eq('id', id);
         if (error) throw error;
 
@@ -587,6 +595,9 @@
         deleted_by: null,
         deleted_reason: null
       };
+      // Equipment's one trash system is the archive — clear that too, so a
+      // restore here is identical to Restore in the equipment Archived view.
+      if (table === 'equipment') updates.archived_at = null;
       const { error } = await NX.sb.from(table).update(updates).eq('id', id);
       if (error) throw error;
       try {
@@ -1368,7 +1379,7 @@
       NX.sb.from('equipment_maintenance').select('*').eq('equipment_id', equipId).order('event_date', { ascending: false }),
       NX.sb.from('dispatch_events').select('*').eq('equipment_id', equipId).order('dispatched_at', { ascending: false }),
       NX.sb.from('pm_logs').select('*').eq('equipment_id', equipId).eq('review_status', 'approved').eq('is_deleted', false).order('service_date', { ascending: false }),
-      NX.sb.from('equipment').select('id, name, location, model').eq('parent_equipment_id', equipId).eq('is_deleted', false),
+      NX.sb.from('equipment').select('id, name, location, model').eq('parent_equipment_id', equipId).is('archived_at', null),
       eq.parent_equipment_id ? NX.sb.from('equipment').select('id, name, location, model').eq('id', eq.parent_equipment_id).single() : Promise.resolve({ data: null })
     ]);
     
@@ -2029,7 +2040,7 @@
 
     const { data: allEq } = await NX.sb.from('equipment')
       .select('id, name, location, manufacturer, model, parent_equipment_id')
-      .eq('is_deleted', false)
+      .is('archived_at', null)
       .neq('id', equipId)
       .order('name');
 

@@ -1858,7 +1858,7 @@
               <button class="nx-ps-btn nx-ps-btn-primary nx-ps-btn-complete" data-action="complete-wo">
                 <div class="nx-ps-btn-icon-wrap"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
                 <div class="nx-ps-btn-label">
-                  <div class="nx-ps-btn-title">Complete Work Order</div>
+                  <div class="nx-ps-btn-title">Complete Issue</div>
                   <div class="nx-ps-btn-sub">Mark this job done — closes the card</div>
                 </div>
                 <div class="nx-ps-btn-arrow">${icon('chevronRight', 16)}</div>

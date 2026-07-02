@@ -181,8 +181,9 @@
 
       if (!eq) return;
       
-      // Soft-deleted equipment? Soft-delete the matching node too
-      if (eq.is_deleted) {
+      // Archived (or legacy soft-deleted) equipment? Soft-delete the matching
+      // node too. archived_at is equipment's one trash system now.
+      if (eq.archived_at || eq.is_deleted) {
         if (eq.equipment_node_id) {
           await NX.sb.from('nodes').update({
             is_deleted: true,
@@ -240,8 +241,8 @@
   async function syncAllEquipment() {
     try {
       const { data: allEq } = await NX.sb.from('equipment')
-        .select('id, equipment_node_id, is_deleted')
-        .eq('is_deleted', false);
+        .select('id, equipment_node_id, archived_at')
+        .is('archived_at', null);
       if (!allEq?.length) return;
       
       // Only sync the ones missing a node link OR that haven't been synced recently
