@@ -1848,34 +1848,62 @@ async function moveCard(card, targetList, opts){
 async function closeOutCleaningSection(card) {
   const location = card.cleaning_link_location;
   const section = card.cleaning_link_section;
-  const today = new Date().toISOString().slice(0, 10);
+  // Cleaning's day runs 8am-to-8am LOCAL (a 1am close-out belongs to the
+  // shift that started yesterday). This used to write the UTC calendar
+  // date: any card closed after ~7pm Central stamped logs dated TOMORROW —
+  // the OVERDUE pill didn't clear that evening, and the next morning the
+  // whole section showed pre-checked "done" for a day nobody worked.
+  const d = new Date();
+  if (d.getHours() < 8) d.setDate(d.getDate() - 1);
+  const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const completedAt = new Date().toISOString();
+  const completedBy = (NX.currentUser && NX.currentUser.name) || 'Board close-out';
+  const completedById = (NX.currentUser && NX.currentUser.id) || null;
   try {
-    // Find all task_indices that have ever existed for this section.
-    // De-dupe in JS since Supabase doesn't have a clean DISTINCT in
-    // its query builder for arbitrary columns.
-    const { data } = await NX.sb.from('cleaning_logs')
-      .select('task_index')
+    // Mark the section's CURRENT live tasks done — with task identity.
+    // The old approach replayed every task_index that had EVER been
+    // logged for the section, resurrecting archived/reordered indices
+    // and stamping daily tasks that weren't part of the escalation.
+    const { data: tasks } = await NX.sb.from('cleaning_tasks')
+      .select('id, task_order')
       .eq('location', location)
-      .eq('section', section)
-      .limit(500);
-    const indices = Array.from(new Set((data || []).map(r => r.task_index)));
-    if (!indices.length) indices.push(0);  // fallback: at least mark task_index 0
-
-    // Upsert one row per task_index for today's date, marking done.
-    const rows = indices.map(idx => ({
-      location,
-      log_date: today,
-      task_index: idx,
-      section,
-      done: true,
-      completed_at: completedAt,
-    }));
-    // Supabase upsert with onConflict — handles re-runs if the user
-    // moves the card to Done, back to In Progress, then to Done again.
-    const { error } = await NX.sb.from('cleaning_logs').upsert(rows, {
+      .eq('section_es', section)
+      .eq('archived', false);
+    let rows;
+    if (tasks && tasks.length) {
+      rows = tasks.map(t => ({
+        location, log_date: today, section,
+        task_index: t.task_order, task_id: t.id,
+        done: true, completed_at: completedAt,
+        completed_by: completedBy, completed_by_id: completedById,
+      }));
+    } else {
+      // Section no longer exists under this name — legacy fallback:
+      // replay historical indices so the close-out still registers.
+      const { data } = await NX.sb.from('cleaning_logs')
+        .select('task_index')
+        .eq('location', location)
+        .eq('section', section)
+        .limit(500);
+      const indices = Array.from(new Set((data || []).map(r => r.task_index)));
+      if (!indices.length) indices.push(0);
+      rows = indices.map(idx => ({
+        location, log_date: today, task_index: idx, section,
+        done: true, completed_at: completedAt, completed_by: completedBy,
+      }));
+    }
+    // Upsert with onConflict — handles re-runs if the user moves the card
+    // to Done, back to In Progress, then to Done again.
+    let { error } = await NX.sb.from('cleaning_logs').upsert(rows, {
       onConflict: 'location,log_date,task_index,section'
     });
+    if (error && /task_id|completed_by_id|column|schema cache/i.test(error.message || '')) {
+      // Pre-migration tolerance: strip the new columns and retry.
+      const legacy = rows.map(({ task_id, completed_by_id, ...rest }) => rest);
+      ({ error } = await NX.sb.from('cleaning_logs').upsert(legacy, {
+        onConflict: 'location,log_date,task_index,section'
+      }));
+    }
     if (error) throw error;
     NX.toast && NX.toast(`${section} marked done in Cleaning · ${location}`, 'success');
   } catch (err) {

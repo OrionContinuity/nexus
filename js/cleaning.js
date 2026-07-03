@@ -89,6 +89,9 @@
     .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 
   // ─── CONSTANTS ────────────────────────────────────────────────────────
+  // Base trio always present; loadLocationMeta() APPENDS any additional
+  // non-archived rows from the locations table (normalized to a key), so a
+  // 4th restaurant (Karaz…) joins the cleaning pane without a code change.
   const LOCATIONS = ['suerte', 'este', 'toti'];
   const FREQUENCY_DEFINITIONS = [
     { type: 'daily',     days:   1, labelEn: 'Daily',     labelEs: 'Diario' },
@@ -115,6 +118,8 @@
   let progressByLoc = {};  // { cleaningKey: pct } — today's daily completion
   let tasksByLoc = {};        // { suerte: [tasks], este: [...], toti: [...] }
   let lastDoneByKey = {};     // { 'sectionEs_taskOrder': { date: 'YYYY-MM-DD', by: 'name' } }
+  let lastDoneByTaskId = {};  // { task_uuid: { date, by } } — identity-based history (v18.37)
+  const autoEscalationsRan = new Set();  // 'loc__date' — one auto-escalation sweep per shift-day
   let todayStateByKey = {};   // { 'sectionEs_taskOrder': { done: true, by: 'Orion' } }
   let usersList = [];         // [{ id, name, role }]
   let editingTaskId = null;   // uuid of task currently being edited inline
@@ -265,8 +270,7 @@
    */
   function freshnessForTask(task) {
     const freq = task.frequency_days || FREQ_BY_TYPE[task.frequency_type]?.days || 30;
-    const histKey = task.section_es + '_' + task.task_order;
-    const hist = lastDoneByKey[histKey];
+    const hist = lastDoneFor(task);   // identity-first, positional fallback
     if (!hist) return 0;  // never done
     const daysSince = daysBetween(hist.date, today);
     if (daysSince <= 0) return 100;
@@ -338,16 +342,35 @@
   // ─── DB: load history (most-recent done per task, for freshness calc) ─
   async function loadHistory() {
     lastDoneByKey = {};
+    lastDoneByTaskId = {};
     if (!NX.sb || NX.paused) return;
     try {
-      const { data, error } = await NX.sb.from('cleaning_logs')
+      // Server-side latest-per-task (cleaning_last_done RPC). The old
+      // client-side approach pulled the newest 1000 rows and derived
+      // per-task latest from them — anything last done before that window
+      // (quarterlies, annuals) silently read as "never done", producing
+      // false OVERDUEs and spurious auto-escalations.
+      const { data, error } = await NX.sb.rpc('cleaning_last_done', { p_location: activeLoc });
+      if (!error && Array.isArray(data)) {
+        data.forEach(r => {
+          const entry = { date: r.log_date, by: r.completed_by || '' };
+          const key = r.section + '_' + r.task_index;
+          if (!lastDoneByKey[key] || lastDoneByKey[key].date < r.log_date) lastDoneByKey[key] = entry;
+          if (r.task_id && (!lastDoneByTaskId[r.task_id] || lastDoneByTaskId[r.task_id].date < r.log_date)) {
+            lastDoneByTaskId[r.task_id] = entry;
+          }
+        });
+        return;
+      }
+      // RPC missing (pre-migration) — legacy capped query.
+      const fb = await NX.sb.from('cleaning_logs')
         .select('section, task_index, log_date, completed_by')
         .eq('location', activeLoc)
         .eq('done', true)
         .order('log_date', { ascending: false })
         .limit(1000);
-      if (error) { console.warn('[cleaning] loadHistory:', error); return; }
-      (data || []).forEach(r => {
+      if (fb.error) { console.warn('[cleaning] loadHistory:', fb.error); return; }
+      (fb.data || []).forEach(r => {
         const key = r.section + '_' + r.task_index;
         if (!lastDoneByKey[key]) {
           lastDoneByKey[key] = { date: r.log_date, by: r.completed_by || '' };
@@ -356,6 +379,69 @@
     } catch (e) {
       console.warn('[cleaning] loadHistory exception:', e);
     }
+  }
+  // Identity-first lookup: prefer the task's own id (survives reorders and
+  // section renames), fall back to the legacy positional key.
+  function lastDoneFor(task) {
+    return lastDoneByTaskId[task.id] || lastDoneByKey[task.section_es + '_' + task.task_order] || null;
+  }
+
+  // Last-7-shift-days score for the active location: done-count per day vs
+  // the current daily-task count, plus a streak (consecutive days ≥80%).
+  // Powers the week strip in the Lite header — the "how are we actually
+  // doing" signal the pane never had.
+  let weekStats = null;
+  async function loadWeekStats() {
+    weekStats = null;
+    if (!NX.sb || NX.paused) return;
+    try {
+      const start = new Date(today + 'T12:00:00');
+      start.setDate(start.getDate() - 6);
+      const startISO = start.toISOString().slice(0, 10);
+      const { data, error } = await NX.sb.from('cleaning_logs')
+        .select('log_date')
+        .eq('location', activeLoc)
+        .eq('done', true)
+        .gte('log_date', startISO)
+        .lte('log_date', today);
+      if (error) { console.warn('[cleaning] loadWeekStats:', error); return; }
+      const byDay = {};
+      (data || []).forEach(r => { byDay[r.log_date] = (byDay[r.log_date] || 0) + 1; });
+      const expected = (tasksByLoc[activeLoc] || []).filter(t => DAILY_TYPES.has(t.frequency_type)).length || 1;
+      const days = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(today + 'T12:00:00');
+        d.setDate(d.getDate() - i);
+        const iso = d.toISOString().slice(0, 10);
+        const done = byDay[iso] || 0;
+        days.push({ date: iso, done, pct: Math.min(100, Math.round(100 * done / expected)) });
+      }
+      // Streak: consecutive ≥80% days ending yesterday; today joins live
+      // once it crosses the bar (so the number grows during the shift).
+      let streak = 0;
+      for (let i = days.length - 2; i >= 0; i--) {
+        if (days[i].pct >= 80) streak++; else break;
+      }
+      if (days[days.length - 1].pct >= 80) streak++;
+      weekStats = { days, streak, expected };
+    } catch (e) { console.warn('[cleaning] loadWeekStats exception:', e); }
+  }
+
+  // ONE loader set for every location switch. The old code had two
+  // switchers loading two different subsets (.clean-tab skipped
+  // assignments/profiles/guides; the Lite pills skipped attachments/
+  // linked-cards/notes), so avatars, guides, and the end-of-shift email
+  // could show the PREVIOUS location's data.
+  async function reloadLocationState() {
+    await loadTodayState();
+    await loadHistory();
+    await loadAssignments();
+    await loadProfiles();
+    await loadAttachments();
+    await loadLinkedCards();
+    await loadGuideLinks();
+    await loadTaskNotes();
+    await loadWeekStats();
   }
 
   // ─── DB: load users list for assignee dropdowns ───────────────────────
@@ -540,7 +626,18 @@
       if (error) { console.warn('[cleaning] loadLocationMeta:', error); return; }
       (data || []).forEach(r => {
         const lc = (r.label || '').toLowerCase();
-        LOCATIONS.forEach(key => { if (lc.includes(key)) locationMeta[key] = r; });
+        let matched = false;
+        LOCATIONS.forEach(key => { if (lc.includes(key)) { locationMeta[key] = r; matched = true; } });
+        // New restaurant (no matching base key): derive a stable key from
+        // the label and add it to the working set so its pills, tasks, and
+        // progress all light up without touching code.
+        if (!matched) {
+          const key = lc.replace(/[^a-z0-9]+/g, '') || null;
+          if (key && !LOCATIONS.includes(key)) {
+            LOCATIONS.push(key);
+            locationMeta[key] = r;
+          }
+        }
       });
     } catch (e) { console.warn('[cleaning] loadLocationMeta ex:', e); }
   }
@@ -1087,61 +1184,13 @@
   // completion for each linked module. All three caches keyed by ID.
   // Cheap to call repeatedly — short-circuits when training mode is off.
   async function loadTrainingData() {
-    if (!NX.sb || NX.paused) return;
-    // Step 1: links for this location's tasks
-    const taskIds = (tasksByLoc[activeLoc] || []).map(t => t.id);
-    if (!taskIds.length) {
-      linksByTaskId = {};
-      trainingModulesById = {};
-      myTrainingByModule = {};
-      return;
-    }
-    try {
-      const { data: links, error: linkErr } = await NX.sb
-        .from('cleaning_task_training_links')
-        .select('cleaning_task_id, training_module_id')
-        .in('cleaning_task_id', taskIds);
-      if (linkErr) { console.warn('[cleaning] training links:', linkErr); return; }
-
-      linksByTaskId = {};
-      const moduleIds = new Set();
-      (links || []).forEach(l => {
-        if (!linksByTaskId[l.cleaning_task_id]) linksByTaskId[l.cleaning_task_id] = [];
-        linksByTaskId[l.cleaning_task_id].push(l.training_module_id);
-        moduleIds.add(l.training_module_id);
-      });
-
-      if (!moduleIds.size) {
-        trainingModulesById = {};
-        myTrainingByModule = {};
-        return;
-      }
-
-      // Step 2: the linked modules
-      const { data: mods } = await NX.sb.from('training_modules')
-        .select('*')
-        .in('id', Array.from(moduleIds))
-        .eq('archived', false);
-      trainingModulesById = {};
-      (mods || []).forEach(m => { trainingModulesById[m.id] = m; });
-
-      // Step 3: my completions for those modules (latest first per module)
-      const userId = getCurrentUserId();
-      if (userId) {
-        const { data: completions } = await NX.sb.from('training_completions')
-          .select('id, module_id, user_id, completed_at, expires_at')
-          .eq('user_id', userId)
-          .in('module_id', Array.from(moduleIds))
-          .order('completed_at', { ascending: false });
-        myTrainingByModule = {};
-        (completions || []).forEach(c => {
-          // Most-recent wins (we ordered desc, so first one we see is latest)
-          if (!myTrainingByModule[c.module_id]) myTrainingByModule[c.module_id] = c;
-        });
-      }
-    } catch (e) {
-      console.warn('[cleaning] loadTrainingData exception:', e);
-    }
+    // NO-OP (v18.37). This queried cleaning_task_training_links — a table
+    // that does not exist in the database — silently 404ing on every
+    // location switch, and its output (trainingPillHTML) was rendered
+    // nowhere. Zone guides use cleaning_task_guides instead (loadGuideLinks).
+    linksByTaskId = {};
+    trainingModulesById = {};
+    myTrainingByModule = {};
   }
 
   // Returns [done, total] for a cleaning task's linked training, for current user
@@ -1174,21 +1223,54 @@
       lastDoneByKey[k] = { date: today, by: getUserName() };
     }
   }
-  async function persistDone(sectionEs, taskOrder, done) {
-    if (!NX.sb || NX.paused) return;
+  // Persist a check-off. Returns true on success, false on ANY failure —
+  // and on failure it ROLLS BACK the optimistic UI itself, so a checkmark
+  // on screen always means a row in the database. (The old version never
+  // inspected the upsert result: supabase-js RESOLVES with {error}, so its
+  // catch was unreachable and RLS/constraint/network failures produced
+  // phantom completions that silently never saved.)
+  async function persistDone(sectionEs, taskOrder, done, taskId) {
+    const rollback = () => {
+      setDoneState(sectionEs, taskOrder, !done);
+      // A failed "mark done" also bumped the in-session freshness — undo it.
+      if (done) {
+        delete lastDoneByKey[sectionEs + '_' + taskOrder];
+        if (taskId) delete lastDoneByTaskId[taskId];
+      }
+      toast('Could not save — check connection and tap again', 'error', 3200);
+      render();
+    };
+    if (!NX.sb || NX.paused) { rollback(); return false; }
     try {
-      await NX.sb.from('cleaning_logs').upsert({
-        location:     activeLoc,
-        log_date:     today,
-        section:      sectionEs,
-        task_index:   taskOrder,
-        done:         done,
-        completed_by: done ? getUserName() : null,
-        completed_at: done ? new Date().toISOString() : null,
+      const { error } = await NX.sb.from('cleaning_logs').upsert({
+        location:        activeLoc,
+        log_date:        today,
+        section:         sectionEs,
+        task_index:      taskOrder,
+        task_id:         taskId || null,          // identity-based history (v18.37)
+        done:            done,
+        completed_by:    done ? getUserName() : null,
+        completed_by_id: done ? getCurrentUserId() : null,
+        completed_at:    done ? new Date().toISOString() : null,
       }, { onConflict: 'location,log_date,task_index,section' });
+      if (error) {
+        // Pre-migration column tolerance: retry without the new columns.
+        if (/task_id|completed_by_id|column|schema cache/i.test(error.message || '')) {
+          const { error: e2 } = await NX.sb.from('cleaning_logs').upsert({
+            location: activeLoc, log_date: today, section: sectionEs, task_index: taskOrder,
+            done, completed_by: done ? getUserName() : null,
+            completed_at: done ? new Date().toISOString() : null,
+          }, { onConflict: 'location,log_date,task_index,section' });
+          if (e2) throw e2;
+        } else {
+          throw error;
+        }
+      }
+      return true;
     } catch (e) {
       console.error('[cleaning] persistDone:', e);
-      toast('Could not save — retry by tapping again', 'error');
+      rollback();
+      return false;
     }
   }
 
@@ -1423,6 +1505,12 @@
 
   async function runAutoEscalations() {
     if (!NX.sb) return;
+    // Once per location per shift-day per session. Two timers used to race
+    // here (init + tab handler), both passing the linkedBoardCards check
+    // before either insert landed → duplicate cards.
+    const guardKey = activeLoc + '__' + today;
+    if (autoEscalationsRan.has(guardKey)) return;
+    autoEscalationsRan.add(guardKey);
     const groups = tasksBySection(activeLoc);
     // Find overdue groups where no card is linked yet
     const candidates = [];
@@ -1436,8 +1524,18 @@
       let worstRatio = 0;
       for (const t of nonDaily) {
         const freq = t.frequency_days || FREQ_BY_TYPE[t.frequency_type]?.days || 30;
-        const hist = lastDoneByKey[t.section_es + '_' + t.task_order];
-        const since = hist ? daysBetween(hist.date, today) : 9999;
+        const hist = lastDoneFor(t);
+        let since;
+        if (hist) {
+          since = daysBetween(hist.date, today);
+        } else {
+          // Never done: measure from the task's creation, not "forever".
+          // A brand-new monthly task used to escalate ~1.5s after being
+          // created (since=9999 → infinitely overdue → instant board card).
+          const created = t.created_at ? String(t.created_at).slice(0, 10) : null;
+          if (!created) continue;                     // unknown age → don't guess
+          since = daysBetween(created, today);
+        }
         if (since <= freq) continue;
         const overRatio = (since - freq) / freq;
         if (overRatio > worstRatio) worstRatio = overRatio;
@@ -4415,6 +4513,16 @@
       return;
     }
 
+    // ONE email engine (v18.37): route through the shared NX.composeEmail
+    if (window.NX && typeof NX.composeEmail === 'function') {
+      NX.composeEmail({
+        recipientsKey: 'clean:report:' + activeLoc,
+        subject, body,
+        title: 'Email cleaning report — ' + locName,
+      });
+      return;
+    }
+
     // Resolve sensible defaults for the recipient list.
     // - Default To: current user's email (if known)
     // - Default CC/BCC: empty (user adds whoever they want)
@@ -4673,6 +4781,7 @@
     if (!parsed || typeof parsed !== 'object') return;
 
     let migrated = 0;
+    let failures = 0;
     for (const loc of Object.keys(parsed)) {
       const customs = parsed[loc] || [];
       if (!customs.length) continue;
@@ -4708,20 +4817,26 @@
             frequency_days: 1,
           });
           if (!error) migrated++;
+          else failures++;
         } catch (e) {
+          failures++;
           console.warn('[cleaning] migrate failed for one custom:', e);
         }
       }
     }
 
     if (migrated > 0) {
-      try { localStorage.removeItem('nexus_custom_tasks'); } catch (e) {}
       console.log(`[cleaning] migrated ${migrated} custom task(s) from localStorage`);
       toast(`Restored ${migrated} custom task${migrated === 1 ? '' : 's'} from this device`, 'info', 3000);
-    } else if (raw) {
-      // Nothing migrated but we did have a payload — still clear it,
-      // it was either all-duplicates or empty arrays.
+    }
+    // Only clear the device payload when nothing FAILED. If every insert
+    // errored (offline / RLS), the old code deleted the backup anyway —
+    // the user's custom tasks were gone forever. All-duplicates/empty is
+    // safe to clear; failures keep the payload so a later open can retry.
+    if (failures === 0) {
       try { localStorage.removeItem('nexus_custom_tasks'); } catch (e) {}
+    } else {
+      console.warn(`[cleaning] migration kept localStorage payload (${failures} failure(s)) — will retry next load`);
     }
   }
 
@@ -4801,18 +4916,28 @@
         activeLoc = tab.dataset.cloc;
         editingTaskId = null;
         addingToSection = null;
-        await loadTodayState();
-        await loadHistory();
-        await loadAttachments();
-        await loadCosts();
-        await loadLinkedCards();
-        await loadTrainingData();
-        await loadTaskNotes();
+        await reloadLocationState();
         render();
         // Auto-escalate after a short delay so the user sees the
         // location's data first before any toast fires.
         setTimeout(() => { runAutoEscalations().catch(() => {}); }, 800);
       });
+    });
+
+    // Shift-day watchdog: a device parked on this screen across the 8am
+    // rollover must not keep writing to yesterday. Whenever the tab comes
+    // back to the foreground, re-derive the shift date and refresh.
+    document.addEventListener('visibilitychange', async () => {
+      if (document.visibilityState !== 'visible') return;
+      const liveDay = getCleaningDate();
+      if (liveDay !== today && !(window.NX && NX.editingReport)) {
+        today = liveDay;
+        const dateEl2 = document.getElementById('cleanDate');
+        if (dateEl2) dateEl2.textContent = today;
+        await loadTodayState();
+        await loadAttachments();
+        render();
+      }
     });
 
     // Wire the consolidated Cleaning Actions button (v18.6 — replaces
@@ -4842,18 +4967,10 @@
       console.warn('[cleaning] migration error:', e);
     }
 
-    // Load all data, then render
+    // Load all data, then render (one loader set — same as every switch)
     await loadAllTasks();
     await loadUsers();
-    await loadTodayState();
-    await loadHistory();
-    await loadAttachments();
-    await loadCosts();
-    await loadLinkedCards();
-    await loadTrainingData();
-    await loadTaskNotes();
-    await loadAssignments();
-    await loadGuideLinks();
+    await reloadLocationState();
 
     // Person filter defaults to "Everyone" — user can opt-in to person view
     // by tapping the pill at the top. Auto-defaulting to current user was
@@ -5008,7 +5125,7 @@
   async function liteSwitchLoc(loc) {
     if (loc === '__all__') { liteOverview = true; await loadAllLocProgress(); render(); return; }
     liteOverview = false; activeLoc = loc;
-    await loadTodayState(); await loadHistory(); await loadAssignments(); await loadProfiles();
+    await reloadLocationState();
     render();
   }
 
@@ -5044,19 +5161,39 @@
   // Resolve who works a zone for a given scope ('all' | 1..7). For 'all',
   // returns the common person across all 7 days, '__varies__' if mixed, or the
   // profile-derived fallback. For a specific day, the config value (or fallback).
+  // DB-first day resolution: the cleaning_task_assignments written by
+  // "Apply"/zone assignment are the shared, per-location truth. The old
+  // order read the per-device localStorage map first — a schedule set on
+  // the manager's phone didn't exist on the kitchen tablet, and because
+  // that map is keyed by section NAME only, assigning "COCINA" at Este
+  // silently changed COCINA's displayed crew at Suerte and Toti too.
+  function liteZoneDbPerson(sectionEs, dow) {
+    const tasks = (tasksByLoc[activeLoc] || []).filter(t => t.section_es === sectionEs);
+    for (const t of tasks) {
+      const rows = (assignmentsByTaskId[t.id] || []).filter(r => r.scope === 'weekly' && r.day_of_week === dow);
+      if (rows.length) return rows[0].user_id;
+    }
+    return null;
+  }
+  function liteZonePersonForDay(sectionEs, d) {
+    const db = liteZoneDbPerson(sectionEs, d);
+    if (db != null) return db;
+    const dc = liteDayCrewMap();
+    if (dc[d] && dc[d][sectionEs] != null) return dc[d][sectionEs];   // legacy device map (schedule-only staff)
+    return null;
+  }
   function liteZonePerson(sectionEs, scope) {
     const s = (scope === undefined) ? liteDay : scope;
-    const dc = liteDayCrewMap();
     if (s === 'all') {
       const ids = [];
-      for (let d = 1; d <= 7; d++) ids.push((dc[d] || {})[sectionEs] == null ? null : (dc[d] || {})[sectionEs]);
+      for (let d = 1; d <= 7; d++) ids.push(liteZonePersonForDay(sectionEs, d));
       const set = new Set(ids.map(x => x == null ? '' : String(x)));
       if (set.size === 1 && !set.has('')) return ids[0];
       if (ids.some(x => x != null)) return '__varies__';
       return liteProfilePerson(sectionEs);
     }
-    if (dc[s] && dc[s][sectionEs] != null) return dc[s][sectionEs];
-    return liteProfilePerson(sectionEs);
+    const v = liteZonePersonForDay(sectionEs, s);
+    return v != null ? v : liteProfilePerson(sectionEs);
   }
   function liteProfilePerson(sectionEs) {
     const p = Object.values(profilesByUserId).find(pp =>
@@ -5197,17 +5334,140 @@
 
   // ─── Tap-to-complete ─────────────────────────────────────────────────────
   async function liteToggleTask(t, rowEl) {
-    const now = !getDoneState(t.section_es, t.task_order);
-    setDoneState(t.section_es, t.task_order, now);
-    if (rowEl) rowEl.classList.toggle('is-done', now);
+    // Shift-day guard: a phone parked on this screen across the 8am rollover
+    // (or overnight) must not keep writing to yesterday. Re-derive the date;
+    // if it moved, reload today's state and repaint instead of toggling.
+    const liveDay = getCleaningDate();
+    if (liveDay !== today) {
+      today = liveDay;
+      await loadTodayState();
+      render();
+      toast('New shift day — checklist refreshed', 'info', 2200);
+      return;
+    }
+    // Photo-required gate (v18.37): the flagged task needs proof before it
+    // can be checked off. Cancelling the picker cancels the completion.
+    const turningOn = !getDoneState(t.section_es, t.task_order);
+    if (turningOn && t.photo_required && !photoTakenToday(t)) {
+      const ok = await capturePhotoForTask(t);
+      if (!ok) { toast('Photo required to complete this task', 'warn', 2400); return; }
+    }
+    setDoneState(t.section_es, t.task_order, turningOn);
+    // Keep the identity-based freshness map in step with the optimistic UI.
+    if (turningOn) {
+      lastDoneByTaskId[t.id] = { date: today, by: getUserName() };
+    } else {
+      const k = t.section_es + '_' + t.task_order;
+      if (lastDoneByTaskId[t.id] && lastDoneByTaskId[t.id].date === today) delete lastDoneByTaskId[t.id];
+      if (lastDoneByKey[k] && lastDoneByKey[k].date === today) delete lastDoneByKey[k];
+    }
+    if (rowEl) rowEl.classList.toggle('is-done', turningOn);
     liteUpdateZonePill(t.section_es);
-    try { await persistDone(t.section_es, t.task_order, now); } catch (e) { console.warn('[cleanlite] persist:', e); }
+    await persistDone(t.section_es, t.task_order, turningOn, t.id);
+  }
+
+  // Has this task had a photo attached today? loadAttachments only pulls
+  // rows for the current shift day, so presence in the map = taken today.
+  function photoTakenToday(t) {
+    return (attachmentsByKey[t.section_es + '_' + t.task_order] || []).length > 0;
+  }
+  // Open the camera/picker for a specific task; resolve true once uploaded.
+  function capturePhotoForTask(t) {
+    return new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file'; input.accept = 'image/*'; input.capture = 'environment';
+      input.style.display = 'none';
+      document.body.appendChild(input);
+      let settled = false;
+      const finish = (val) => { if (!settled) { settled = true; input.remove(); resolve(val); } };
+      input.addEventListener('change', async () => {
+        const f = input.files && input.files[0];
+        if (!f) { finish(false); return; }
+        try {
+          const url = await uploadCleaningPhoto(f, t);
+          finish(!!url);
+        } catch (_) { finish(false); }
+      });
+      // Cancelled pickers fire no event — sweep up when focus returns.
+      window.addEventListener('focus', () => setTimeout(() => finish(false), 1200), { once: true });
+      input.click();
+    });
+  }
+  // Upload + record an attachment for a task (identity + positional keys).
+  async function uploadCleaningPhoto(f, t) {
+    if (!NX.sb || !f) return null;
+    if (f.size > 12 * 1024 * 1024) { toast('Photo too large (12MB max)', 'warn'); return null; }
+    const path = `cleaning/${activeLoc}/${today}/${Date.now()}_${(f.name || 'photo').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const { error: upErr } = await NX.sb.storage.from('nexus-files').upload(path, f, { contentType: f.type || 'image/jpeg' });
+    if (upErr) { toast('Upload failed', 'error'); return null; }
+    const { data: urlData } = NX.sb.storage.from('nexus-files').getPublicUrl(path);
+    const url = urlData && urlData.publicUrl;
+    if (!url) return null;
+    const { error } = await NX.sb.from('cleaning_attachments').insert({
+      location: activeLoc, log_date: today, section: t.section_es, task_index: t.task_order,
+      task_id: t.id, file_url: url, mime_type: f.type || null, file_size: f.size || null,
+      uploaded_by: getUserName(), uploaded_by_id: getCurrentUserId(),
+    });
+    if (error) {
+      // Pre-migration tolerance for the new task_id column.
+      const { error: e2 } = await NX.sb.from('cleaning_attachments').insert({
+        location: activeLoc, log_date: today, section: t.section_es, task_index: t.task_order,
+        file_url: url, mime_type: f.type || null, file_size: f.size || null,
+        uploaded_by: getUserName(), uploaded_by_id: getCurrentUserId(),
+      });
+      if (e2) { toast('Photo saved but not recorded', 'warn'); return url; }
+    }
+    const k = t.section_es + '_' + t.task_order;
+    attachmentsByKey[k] = attachmentsByKey[k] || [];
+    attachmentsByKey[k].push({ log_date: today, file_url: url });
+    toast('Photo attached', 'success', 1600);
+    return url;
+  }
+  // AM/PM shift filter for the daily checklist. Tasks carry an optional
+  // shift_pattern ('am' | 'pm' | anything else = both); untagged tasks show
+  // in every shift. Defaults to the shift we're currently in (3pm boundary).
+  let liteShift = (new Date().getHours() < 15) ? 'am' : 'pm';
+  function liteShiftMatch(t) {
+    if (liteShift === 'all') return true;
+    const p = (t.shift_pattern || '').toLowerCase();
+    if (p !== 'am' && p !== 'pm') return true;   // untagged → both shifts
+    return p === liteShift;
   }
   function liteZoneCounts(sectionEs) {
     const z = liteZones().find(z => z.es === sectionEs);
     let done = 0, total = 0;
-    (z ? z.tasks : []).forEach(t => { if (DAILY_TYPES.has(t.frequency_type)) { total++; if (getDoneState(t.section_es, t.task_order)) done++; } });
+    (z ? z.tasks : []).forEach(t => {
+      if (DAILY_TYPES.has(t.frequency_type) && liteShiftMatch(t)) {
+        total++;
+        if (getDoneState(t.section_es, t.task_order)) done++;
+      }
+    });
     return { done, total };
+  }
+  // Overdue periodic tasks at the active location — powers the header chip.
+  function liteOverdueCount() {
+    let n = 0;
+    (tasksByLoc[activeLoc] || []).forEach(t => {
+      if (t.archived || DAILY_TYPES.has(t.frequency_type)) return;
+      const next = periodicNextDue(t);
+      if (!periodicLastDone(t) || (next && next < today)) n++;
+    });
+    return n;
+  }
+  // Seven mini bars + streak — the "how did this week actually go" signal.
+  function liteWeekStripHTML() {
+    if (!weekStats || !weekStats.days) return '';
+    const bars = weekStats.days.map(d => {
+      const cls = d.pct >= 80 ? 'is-good' : d.pct >= 40 ? 'is-mid' : 'is-low';
+      const dow = LITE_DOW[new Date(d.date + 'T12:00:00').getDay()][0];
+      return `<div class="cleanlite-wk-day" title="${esc(d.date)} · ${d.done}/${weekStats.expected} (${d.pct}%)">
+        <div class="cleanlite-wk-bar"><div class="cleanlite-wk-fill ${cls}" style="height:${Math.max(6, d.pct)}%"></div></div>
+        <span class="cleanlite-wk-lbl">${dow}</span>
+      </div>`;
+    }).join('');
+    const streak = weekStats.streak > 1
+      ? `<span class="cleanlite-wk-streak" title="Consecutive days at 80%+">🔥 ${weekStats.streak}</span>` : '';
+    return `<div class="cleanlite-week">${bars}${streak}</div>`;
   }
   function liteUpdateZonePill(sectionEs) {
     const { done, total } = liteZoneCounts(sectionEs);
@@ -5463,7 +5723,7 @@
      to today), and create / edit / delete of cards + tasks. Daily tasks stay
      in the zone cards. All on existing tables — no schema change. */
   function periodicFreqDays(t) { return parseInt(t.frequency_days, 10) || FREQ_BY_TYPE[t.frequency_type]?.days || 30; }
-  function periodicLastDone(t) { const h = lastDoneByKey[t.section_es + '_' + t.task_order]; return h ? h.date : null; }
+  function periodicLastDone(t) { const h = lastDoneFor(t); return h ? h.date : null; }
   function periodicNextDue(t) {
     const last = periodicLastDone(t);
     if (!last) return null;
@@ -5587,6 +5847,10 @@
       <select class="cleanlite-ov-input" data-f="freq">${freqOpts}</select>
       <label class="cleanlite-ov-lbl">Last done (optional — anchors the cycle)</label>
       <input class="cleanlite-ov-input" type="date" data-f="last" value="${esc(periodicLastDone(t) || '')}">
+      <label class="cleanlite-ov-lbl" style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0">
+        <input type="checkbox" data-f="photoreq" ${t && t.photo_required ? 'checked' : ''} style="width:16px;height:16px">
+        Photo required to complete
+      </label>
       <div class="cleanlite-ov-actions">
         ${isNew ? '' : '<button class="cleanlite-ov-btn cleanlite-ov-del">Delete</button>'}
         <button class="cleanlite-ov-btn cleanlite-ov-cancel">Cancel</button>
@@ -5599,9 +5863,10 @@
       const name = ov.querySelector('[data-f="name"]').value.trim();
       const freq = ov.querySelector('[data-f="freq"]').value;
       const last = ov.querySelector('[data-f="last"]').value;
+      const photoRequired = !!(ov.querySelector('[data-f="photoreq"]') || {}).checked;
       if (!name) { toast('Name required', 'warn'); return; }
       ov.remove();
-      await litePeriodicSave({ t, isNew, sec, secEn, name, freq, last });
+      await litePeriodicSave({ t, isNew, sec, secEn, name, freq, last, photoRequired });
     });
   }
 
@@ -5610,27 +5875,40 @@
     const def = FREQ_BY_TYPE[o.freq] || FREQ_BY_TYPE.monthly;
     try {
       let taskOrder = o.t ? o.t.task_order : null;
+      let taskId = o.t ? o.t.id : null;
+      const photoReq = !!o.photoRequired;
       if (o.isNew) {
         const inSec = (tasksByLoc[activeLoc] || []).filter(x => x.section_es === o.sec);
         taskOrder = inSec.reduce((m, x) => Math.max(m, x.task_order || 0), -1) + 1;
         const secOrder = inSec.length ? inSec[0].section_order : ((tasksByLoc[activeLoc] || []).reduce((m, x) => Math.max(m, x.section_order || 0), -1) + 1);
-        const { error } = await NX.sb.from('cleaning_tasks').insert({
+        const { data: ins, error } = await NX.sb.from('cleaning_tasks').insert({
           location: activeLoc, section_es: o.sec, section_en: o.secEn, section_order: secOrder, task_order: taskOrder,
           name_es: o.name, name_en: o.name, frequency_type: o.freq, frequency_days: def.days,
-        });
+          photo_required: photoReq,
+        }).select('id').single();
         if (error) throw error;
+        taskId = ins && ins.id;
       } else {
-        const { error } = await NX.sb.from('cleaning_tasks').update({ name_es: o.name, name_en: o.name, frequency_type: o.freq, frequency_days: def.days }).eq('id', o.t.id);
+        const { error } = await NX.sb.from('cleaning_tasks').update({
+          name_es: o.name, name_en: o.name, frequency_type: o.freq, frequency_days: def.days,
+          photo_required: photoReq,
+        }).eq('id', o.t.id);
         if (error) throw error;
       }
       if (o.last) {
-        await NX.sb.from('cleaning_logs').upsert({
-          location: activeLoc, log_date: o.last, section: o.sec, task_index: taskOrder, done: true,
-          completed_by: getUserName(), completed_at: new Date(o.last + 'T12:00:00').toISOString(),
+        const { error: le } = await NX.sb.from('cleaning_logs').upsert({
+          location: activeLoc, log_date: o.last, section: o.sec, task_index: taskOrder, task_id: taskId || null, done: true,
+          completed_by: getUserName(), completed_by_id: getCurrentUserId(),
+          completed_at: new Date(o.last + 'T12:00:00').toISOString(),
         }, { onConflict: 'location,log_date,task_index,section' });
+        if (le) console.warn('[cleanlite] anchor log:', le);
       }
       toast('Saved', 'success');
-      await loadTasksForLocation(activeLoc); await loadHistory(); await loadAssignments();
+      // ASSIGN the reload — loadTasksForLocation RETURNS rows, it doesn't
+      // mutate tasksByLoc. The old code discarded the result, so the UI
+      // showed stale data until the user left and re-entered the view.
+      tasksByLoc[activeLoc] = await loadTasksForLocation(activeLoc);
+      await loadHistory(); await loadAssignments();
       render();
     } catch (e) { console.warn('[cleanlite] periodicSave:', e); toast('Could not save', 'error'); }
   }
@@ -5639,9 +5917,11 @@
     if (!t || !NX.sb) return;
     if (!confirm('Delete this periodic task?')) return;
     try {
-      await NX.sb.from('cleaning_tasks').update({ archived: true, archived_at: new Date().toISOString() }).eq('id', t.id);
+      const { error } = await NX.sb.from('cleaning_tasks').update({ archived: true, archived_at: new Date().toISOString() }).eq('id', t.id);
+      if (error) throw error;
       toast('Deleted', 'success');
-      await loadTasksForLocation(activeLoc); render();
+      tasksByLoc[activeLoc] = await loadTasksForLocation(activeLoc);
+      render();
     } catch (e) { console.warn('[cleanlite] periodicDelete:', e); toast('Could not delete', 'error'); }
   }
 
@@ -5656,7 +5936,8 @@
         });
         if (error) throw error;
         toast('Card created', 'success');
-        await loadTasksForLocation(activeLoc); render();
+        tasksByLoc[activeLoc] = await loadTasksForLocation(activeLoc);
+        render();
       } catch (e) { console.warn('[cleanlite] newCard:', e); toast('Could not create', 'error'); }
     };
     if (window.NX && window.NX.composer && window.NX.composer.modal) {
@@ -5722,11 +6003,17 @@
       const { done, total } = liteZoneCounts(z.es);
       // Daily zone cards show DAILY tasks only — periodic (biweekly+) tasks
       // live in their own "Periodic & deep cleans" group below (no dupes).
-      const taskRows = z.tasks.filter(t => DAILY_TYPES.has(t.frequency_type)).map(t => {
-        const isDone = getDoneState(t.section_es, t.task_order);
+      // Rows respect the AM/PM shift filter; done rows show who checked
+      // them off (accountability visible right on the list).
+      const taskRows = z.tasks.filter(t => DAILY_TYPES.has(t.frequency_type) && liteShiftMatch(t)).map(t => {
+        const st = todayStateByKey[t.section_es + '_' + t.task_order];
+        const isDone = !!(st && st.done);
+        const by = isDone && st.by ? `<span class="cleanlite-task-by">${esc(st.by.split(' ')[0])}</span>` : '';
+        const cam = t.photo_required ? `<span class="cleanlite-task-cam" title="Photo required">📷</span>` : '';
         return `<button class="cleanlite-task ${isDone ? 'is-done' : ''}" data-task-id="${esc(t.id)}">
           <span class="cleanlite-check">${svg('check', 13)}</span>
           <span class="cleanlite-task-name">${esc(t.name_en || t.name_es || '')}</span>
+          ${cam}${by}
         </button>`;
       }).join('');
       return `<div class="cleanlite-zone" data-zone="${esc(z.es)}">
@@ -5744,14 +6031,24 @@
       </div>`;
     }).join('');
 
+    const overdueN = liteOverdueCount();
+    const shiftSeg = `<div class="cleanlite-shift" role="tablist" aria-label="Shift">
+        ${['am', 'pm', 'all'].map(s => `<button class="cleanlite-shift-btn ${liteShift === s ? 'is-active' : ''}" data-shift="${s}">${s === 'all' ? 'All' : s.toUpperCase()}</button>`).join('')}
+      </div>`;
     wrap.innerHTML = `
       <div class="cleanlite-top">
         <div class="cleanlite-loc-picker">${locPills}</div>
       </div>
+      ${liteWeekStripHTML()}
+      ${overdueN ? `<button class="cleanlite-overdue" data-goto-periodic>⚠ ${overdueN} deep-clean${overdueN === 1 ? '' : 's'} overdue — tap to review</button>` : ''}
       <div class="cleanlite-dayrow">
         <span class="cleanlite-dayrow-label">Crew · ${esc(scopeLabel)}</span>
         <div class="cleanlite-days">${dayPills}</div>
         ${liteDay !== 'all' ? `<button class="cleanlite-mini" data-copy-all title="Copy this day's crew to every day">${svg('calendar', 12)} → all days</button>` : ''}
+      </div>
+      <div class="cleanlite-dayrow">
+        <span class="cleanlite-dayrow-label">Shift</span>
+        ${shiftSeg}
       </div>
       <div class="cleanlite-zones">${zoneCards || '<div class="cleanlite-empty">No zones yet — add tasks for this location first.</div>'}</div>
       ${renderPeriodicGroup()}
@@ -5768,6 +6065,12 @@
       const v = b.dataset.day; liteDay = v === 'all' ? 'all' : parseInt(v, 10); render();
     }));
     const copyAll = wrap.querySelector('[data-copy-all]'); if (copyAll) copyAll.addEventListener('click', liteCopyDayToAll);
+    wrap.querySelectorAll('[data-shift]').forEach(b => b.addEventListener('click', () => { liteShift = b.dataset.shift; render(); }));
+    const odBtn = wrap.querySelector('[data-goto-periodic]');
+    if (odBtn) odBtn.addEventListener('click', () => {
+      const p = document.querySelector('.cleanlite-periodic');
+      if (p) p.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
     wrap.querySelectorAll('[data-pick-zone]').forEach(b => b.addEventListener('click', () => liteOpenPersonPicker(b.dataset.pickZone)));
     wrap.querySelectorAll('[data-guide-zone]').forEach(b => b.addEventListener('click', () => liteOpenZoneGuide(b.dataset.guideZone)));
     wrap.querySelectorAll('[data-zone-menu]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); liteOpenZoneMenu(b.dataset.zoneMenu, b); }));

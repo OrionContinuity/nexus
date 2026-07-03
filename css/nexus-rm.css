@@ -2703,3 +2703,37 @@
 .dlog-loc-weather { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .02em; color: var(--nx-faint, #8a93a3); margin: 0 0 10px; }
 .dlog-loc-weather::before { content: '\2601\FE0F  '; opacity: .8; }
 .dlog-loc-weather:empty { display: none; }
+
+/* ─── Cleaning Lite v18.37 additions: week strip, overdue chip, shift seg ── */
+#cleanView .cleanlite-week {
+  display: flex; align-items: flex-end; gap: 8px;
+  padding: 10px 12px 6px; margin: 8px 0 2px;
+  background: var(--nx-surface-2, rgba(255,255,255,.03));
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,.16));
+  border-radius: 12px;
+}
+#cleanView .cleanlite-wk-day { display: flex; flex-direction: column; align-items: center; gap: 3px; flex: 1; }
+#cleanView .cleanlite-wk-bar { width: 100%; max-width: 26px; height: 34px; border-radius: 5px; background: rgba(255,255,255,.05); display: flex; align-items: flex-end; overflow: hidden; }
+#cleanView .cleanlite-wk-fill { width: 100%; border-radius: 5px 5px 0 0; }
+#cleanView .cleanlite-wk-fill.is-good { background: var(--nx-green, #7a9b6c); }
+#cleanView .cleanlite-wk-fill.is-mid  { background: var(--nx-gold, #d4a44e); }
+#cleanView .cleanlite-wk-fill.is-low  { background: rgba(168,62,62,.55); }
+#cleanView .cleanlite-wk-lbl { font-size: 9px; color: var(--nx-text-dim, #b6ad9a); font-family: 'JetBrains Mono', monospace; }
+#cleanView .cleanlite-wk-streak { flex: 0 0 auto; align-self: center; font-size: 13px; font-weight: 700; color: var(--nx-gold, #d4a44e); padding-left: 6px; }
+#cleanView .cleanlite-overdue {
+  display: block; width: 100%; text-align: left;
+  margin: 8px 0 2px; padding: 10px 12px; border-radius: 10px;
+  background: rgba(168,62,62,.12); border: 1px solid rgba(168,62,62,.35);
+  color: var(--nx-red, #c96a5a); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+#cleanView .cleanlite-shift { display: inline-flex; gap: 0; border: 1px solid var(--nx-gold-line, rgba(212,164,78,.25)); border-radius: 9px; overflow: hidden; }
+#cleanView .cleanlite-shift-btn {
+  padding: 6px 14px; font: inherit; font-size: 12px; font-weight: 600;
+  background: transparent; border: 0; color: var(--nx-text-dim, #b6ad9a); cursor: pointer;
+}
+#cleanView .cleanlite-shift-btn.is-active { background: var(--nx-gold-faint, rgba(212,164,78,.16)); color: var(--nx-gold, #d4a44e); }
+#cleanView .cleanlite-task-by {
+  margin-left: auto; flex: 0 0 auto; font-size: 10px; padding: 2px 7px; border-radius: 7px;
+  background: var(--nx-gold-faint, rgba(212,164,78,.12)); color: var(--nx-gold, #d4a44e); font-weight: 600;
+}
+#cleanView .cleanlite-task-cam { flex: 0 0 auto; font-size: 11px; opacity: .75; margin-left: 6px; }
