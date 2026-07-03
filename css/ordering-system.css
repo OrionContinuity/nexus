@@ -9442,3 +9442,21 @@ body.ord-overlay-open .nav {
   opacity: 0.7;
 }
 
+
+/* ═══ v18.39 — par pill stays a pill ═══════════════════════════════
+   The catalog row stretches children to full row height (needed so
+   the tap area + drag surface cover the row). But that also stretched
+   the .ord-qty par stepper, the unit cell, and the move stack — on any
+   row whose name/meta wraps tall, the 999px-radius stepper rendered as
+   a giant egg. Center the inline controls; the tap area keeps
+   stretching. */
+.ord-catalog-overlay .ved-item-row > .ord-qty,
+.ord-catalog-overlay .ved-item-row > .ord-item-unit,
+.ord-catalog-overlay .ved-item-row > .ved-item-move-stack {
+  align-self: center;
+}
+.ved-item-row > .ord-qty,
+.ved-item-row > .ord-item-unit,
+.ved-item-row > .ved-item-move-stack {
+  align-self: center;
+}
