@@ -4665,10 +4665,13 @@ body.ord-overlay-open .nav {
 
 .ord-catalog-overlay {
   position: fixed;
-  top: var(--nx-mast-h, 53px);
+  /* Full-screen takeover — was pinned below the masthead, which left
+     the ORDERING header + location pills peeking above the catalog. */
+  top: 0;
+  padding-top: env(safe-area-inset-top, 0px);
   left: 0; right: 0; bottom: 0;
-  z-index: 41;       /* one above .ord-entry-overlay so it can stack
-                        if the user opens it from inside vendor editor */
+  z-index: 240;      /* above vendor detail (200), below the vendor
+                        editor (250) which can sit on top of it */
   background: var(--nx-bg);
   display: flex;
   flex-direction: column;

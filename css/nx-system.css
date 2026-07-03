@@ -2402,6 +2402,11 @@ html {
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--muted);
+  /* One line only — a vendor with 7 TO/CC addresses was wrapping to
+     4 rows and colliding with the count chip + first card title. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .rx-overlay-count {
   flex-shrink: 0;

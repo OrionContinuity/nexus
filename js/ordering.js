@@ -5038,6 +5038,11 @@ Thanks for your help sorting this out.`;
       `,
     });
 
+    // TO as chips (v18.39) — vendors like PFG have several order inboxes;
+    // the old single text input showed an unreadable comma string.
+    // Storage stays vendor.email as a comma-joined list.
+    const toArr = String(v.email || '').split(/[,;\s]+/).map(x => x.trim()).filter((x, i, a) => x && a.indexOf(x) === i);
+
     // ─── Recipients card (TO + CC chips + BCC chips + Other chips) ──
     // CC/BCC/Other are PER-LOCATION (each restaurant maintains its own
     // recipient profile). The TO is shared across all locations since
@@ -5052,13 +5057,7 @@ Thanks for your help sorting this out.`;
           <span class="rx-loc-scope-icon"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></span>
           <span class="rx-loc-scope-text">CC / BCC / Other are <strong>${esc(activeLocLabel)}'s profile</strong>${otherLocsConfigured ? ' — other locations have separate recipients' : ''}</span>
         </div>
-        <div class="rx-form-field">
-          <label class="rx-form-label">
-            <span class="rx-chip-pill rx-chip-pill-to">TO</span>
-            <span class="rx-form-hint">— required for sending orders, shared across all locations</span>
-          </label>
-          <input type="email" class="rx-form-input" data-rx-vendor-email value="${esc(v.email || '')}" placeholder="orders@vendor.com" autocomplete="off" inputmode="email">
-        </div>
+        ${RX.buildChipGroupHTML(toArr, 'to', { label: 'TO', hint: 'required for sending orders — shared across all locations', inputType: 'email', inputMode: 'email', placeholder: 'orders@vendor.com', addLabel: 'Add TO' })}
         <!-- v18.25 — Recipient names for the email greeting line.
              Used by defaultEmailBody to render "Hey {names}!" instead
              of "Hi {vendor} team,". Optional — empty falls back to the
@@ -5278,7 +5277,7 @@ Thanks for your help sorting this out.`;
       saveLabel:   isNew ? 'Create vendor' : 'Save changes',
       cancelLabel: 'Cancel',
       state: {
-        chips: { cc: ccArr, bcc: bccArr, alt: altArr },
+        chips: { to: toArr, cc: ccArr, bcc: bccArr, alt: altArr },
       },
 
       onMount: (overlay, state) => {
@@ -5290,16 +5289,17 @@ Thanks for your help sorting this out.`;
         });
         RX.wireHuePicker(overlay, state);
 
-        // Recipient chip groups (cc / bcc / alt)
-        ['cc', 'bcc', 'alt'].forEach(kind => {
+        // Recipient chip groups (to / cc / bcc / alt)
+        ['to', 'cc', 'bcc', 'alt'].forEach(kind => {
           RX.wireChipGroup(overlay, kind, state, {
             label: kind === 'alt' ? 'OTHER' : kind.toUpperCase(),
-            hint: kind === 'cc' ? 'always copied on every order'
+            hint: kind === 'to'  ? 'orders send here — all locations'
+                : kind === 'cc'  ? 'always copied on every order'
                 : kind === 'bcc' ? "silent copies — others can't see them"
                 : 'stored only — NOT auto-sent (backups)',
             inputType: 'email',
             inputMode: 'email',
-            placeholder: 'email@example.com',
+            placeholder: kind === 'to' ? 'orders@vendor.com' : 'email@example.com',
             addLabel: kind === 'alt' ? 'Add other' : `Add ${kind.toUpperCase()}`,
             validate: emailValidator,
           });
@@ -5463,7 +5463,7 @@ Thanks for your help sorting this out.`;
         // values to BCC + OTHER as well, and the email would mysteriously
         // appear in all three groups on the next open. That was the bug.
         const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        ['cc', 'bcc', 'alt'].forEach(kind => {
+        ['to', 'cc', 'bcc', 'alt'].forEach(kind => {
           const inp = overlay.querySelector(`[data-rx-chip-input="${kind}"]`);
           if (!inp) return;
           const wrap = inp.closest('.rx-chip-input-wrap');
@@ -5476,7 +5476,8 @@ Thanks for your help sorting this out.`;
           state.chips[kind].push(v);
         });
 
-        const email = (overlay.querySelector('[data-rx-vendor-email]') || {}).value || '';
+        // TO chips → comma-joined string (same storage shape as before)
+        const email = (state.chips.to || []).map(x => String(x).trim()).filter(Boolean).join(',');
         const recipientNames = ((overlay.querySelector('[data-rx-recipient-names]') || {}).value || '').trim();
         const subject = (overlay.querySelector('[data-rx-subject]') || {}).value || '';
         const body    = (overlay.querySelector('[data-rx-body]')    || {}).value || '';
