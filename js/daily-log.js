@@ -2266,219 +2266,147 @@ function fmtLogDateLong(dateStr) {
 // same day's report stays stable, but it rotates day to day.
 // (Add more freely — this list is meant to grow.)
 const CLIPPY_QUOTES = [
-  // Roman
-  'Veni, vidi, verified the hood vents. — Caesar, probably.',
-  'Marcus Aurelius journaled every day. You logged every day. Stoicism lives.',
-  'An empire runs on clean drains. Just ask Cloacina, goddess of the sewers.',
-  'Build to last — Roman concrete heals itself. The dishwasher does not. That’s our job.',
-  // Greek
-  'Socrates knew nothing — except that the fryer needs a deep clean.',
-  'The unexamined kitchen is not worth running. — Plato, lightly paraphrased.',
-  'Even Odysseus took ten years to get home. Your repair took a week. We’re winning.',
-  // Wine
-  'In vino veritas; in maintenance, longevity. Cheers to both.',
-  'Decant the wine, descale the machine. Same energy.',
-  // Restaurant
-  'Mise en place for the dining room, mise en place for the mechanicals. Both ready.',
-  '86 the broken, fire the fixed. Service is up.',
-  'A full reservation book and an empty repair queue — chef’s kiss.',
-  'The pass is clean, the line is hot, the cooler is cold. As the gods intended.',
-  // Funny
-  'I’d help carry the kegs, but — tragically — I have no hands.',
+  // ── Clippy himself (handless, load-bearing, coping) ──
+  'I\u2019d help carry the kegs, but \u2014 tragically \u2014 I have no hands.',
   'I told the ice machine to chill. It overdid it. We defrosted.',
-  'I’m not saying I’m essential, but the lights are on, aren’t they?',
-  'Why did the chef get promoted? He was outstanding in his reductions.',
-  'I asked the freezer how it was doing. It gave me the cold shoulder. Working as intended.',
+  'I\u2019m not saying I\u2019m essential, but the lights are on, aren\u2019t they?',
   'I have no hands, no legs, and somehow a full to-do list. Relatable.',
-  'They said think outside the box. I am the box. It went poorly. Anyway — your report.',
-  // Japanese history
-  'The samurai sharpened his blade at dawn; you sharpened the mandoline. Respect.',
-  'A Zen garden is raked every morning. So is the prep station. Order is a practice.',
-  'Miyamoto Musashi won sixty duels. You closed four work orders. A worthy start.',
-  'Kaizen: continuous improvement. Also known as fixing one more thing before close.',
-  'The tea ceremony honors every detail. So does a properly calibrated oven. Ichigo ichie.',
-  'A master swordsmith folds the steel a thousand times. Patience forges everything, even a clean line.',
-  // Pastry
-  'Laminate the dough, laminate the schedule. Butter and timing — that’s the whole craft.',
-  'A soufflé rises on precision and prayer. So does a Friday dinner service.',
-  'Temper the chocolate, temper your expectations. Both set beautifully in the end.',
-  'The croissant has twenty-seven layers. Your repair log has fewer, thankfully.',
-  'Caramel is just sugar that kept its nerve. Be the caramel.',
-  'A proofing oven that holds 80°F is worth its weight in gold leaf.',
-  // Cooking
-  'Low and slow wins the braise; steady and logged wins the week.',
-  'Season in layers, fix in layers, and taste as you go.',
-  'Reduce, don’t panic. Great sauces and great shifts both come from patience.',
-  'Master the mother sauces and the mother maintenance; the base holds everything up.',
-  // More Roman
-  'Carthago delenda est — but first, the grease trap must be cleaned.',
-  // More Greek
-  'Pythagoras loved a clean triangle; I love a clean hood filter. We are not so different.',
-  'Diogenes lived in a barrel. Your storeroom is better organized. Philosophy has moved on.',
-  // More wine
-  'Old vines make deep wine; old equipment makes deep sighs. We tend both.',
-  'Sommeliers swirl, sniff, and log. So do we — minus the swirl.',
-  // More restaurant
-  'Fire when ready, plate with pride, and never let the ticket rail win.',
-  'The best garnish is a repair that stays fixed.',
-  // Dad jokes
-  'The espresso machine broke down — it just couldn’t espresso its feelings. Fixed now.',
-  'Why did the coffee file a police report? It got mugged. The machine’s fine.',
-  'I burned 2,000 calories today — left the pizza in the oven. We recalibrated the timer.',
-  'Why don’t eggs tell jokes on the line? They’d crack each other up.',
-  'What did the grape do when it got stepped on? Let out a little wine. Fitting.',
-  'What’s a chef’s favorite exercise? The lunge — with a side of romaine.',
-  'I tried to catch fog on the line this morning. I mist.',
-  'Why did the scarecrow get a raise? He was outstanding in his field. As is your crew.',
-  'I’m reading a book about anti-gravity — can’t put it down. Unlike the mop. That, I put down.',
-  'The rotisserie said it couldn’t eat another bite — it was already stuffed.',
-  'I’m afraid of the calendar: its days are numbered. Your equipment isn’t — we maintained it.',
-  'What do you call a sad espresso? A depresso. Restocked the machine anyway.',
-  'I made a belt out of watches once — total waist of time. Speaking of time, here’s your day.',
-  'My soup cracked a joke mid-service. A little too saucy for the pass.',
-  // Film
-  'Here’s looking at you, hood filter. Spotless.',
-  'I’m going to make it an offer it can’t refuse: preventive maintenance.',
-  'Say hello to my little torque wrench. The gasket never stood a chance.',
-  'Life is like a box of chocolates — keep it at 65°F or it melts. We did.',
-  'To infinity and beyond, or at least until the next PM. Buzz would approve.',
-  // Gardening
-  'Tend the herbs, tend the machines. Both wilt without you.',
-  'Prune the dead branches, retire the dead equipment. Growth needs room.',
-  'You reap what you maintain. This week: a full harvest.',
-  'Water daily, inspect daily. Green thumbs and clean filters, same discipline.',
-  'Compost the scraps, log the repairs. Nothing is wasted.',
-  // Spain
-  'The paella waits for no one — and neither does the pilot light. Both lit.',
-  'Jamón cures for years; equipment lasts if you tend it. Paciencia.',
-  'Gaudí took forty years on the Sagrada Família. Your repair took an afternoon. Faster, arguably.',
-  'Sobremesa: linger at the table. The dishwasher, meanwhile, works. Balance.',
-  // Mexican
-  'Mise en place, o como decimos, todo en su lugar. The line is ready.',
-  'Slow-braise the barbacoa, low and patient. Great maintenance is the same.',
-  'A molcajete lasts generations if you season it. So does a well-kept range.',
-  'The agave takes eight years to mature. Your PM took eight minutes. We’re ahead.',
-  // Soccer
-  'Ninety minutes plus stoppage; your fryer ran the full match. No subs needed.',
-  'Tiki-taka in the kitchen: short passes, clean line, no turnovers.',
-  'A great keeper anticipates the shot; great maintenance anticipates the breakdown. Save made.',
-  'Red card to the broken gasket — off the pitch. Fresh one subbed in.',
-  // Cooking — inside jokes
-  'It’s not burnt, it’s blackened. The oven, however, is genuinely calibrated.',
-  'The 86 board is a living document. So is the repair log. Respect them both.',
-  'The stagiaire touched my station. I forgave them. The dish machine, I actually fixed.',
-  // Wine — inside jokes
-  'A vertical of the same fridge, 2019 through 2024, all still running. A rare vintage.',
-  'I decanted the Barolo for two hours and the GM for none. Both opened up eventually.',
-  // History — inside jokes
-  'Ea-nāṣir sold bad copper 3,700 years ago and we still complain online. Your gasket is premium, though.',
-  'The Defenestration of Prague, but it’s just me tossing the broken gasket out the window.',
-  'Tulip mania was a bubble; your maintenance budget is a sound investment. Historically vindicated.',
-  'The Year of Four Emperors was chaos; your Friday had one manager and it held. Progress.',
-  'The Antikythera mechanism was ancient predictive maintenance. We’re just carrying the torch.',
-  // Wine — pro-only inside jokes
-  'Someone poured a flabby Chard with no acid and called it “buttery.” The dish machine has more backbone. It’s fixed.',
-  'Mouton got promoted to First Growth in ’73; nothing had moved since 1855. Your equipment gets promoted every PM.',
-  'Aged sur lie for texture, bâtonnage twice a week — meanwhile I age the service contract for the coverage.',
-  // Wine — funnier somm
-  'I called it Old World with total conviction. It was a Thursday grocery-store special. Humbling. The wine fridge has never embarrassed me.',
-  'A table sent back a flawless Chablis for being “too wine-y.” I have notes. The dishwasher took no notes and simply worked.',
-  'I recommended the skin-contact pét-nat and watched a table of four lose faith in me in real time. The fridge kept the faith — and the temp.',
-  // Wine — backfill
-  'Somebody described a wine as “sequential.” We all nodded. No one knows what it means.',
-  'I called the finish “long.” It lasted four seconds. I lied for the tip, and I’d do it again.',
-  'A guest asked if the wine “pairs with the chicken.” They ordered the steak. I aged visibly.',
-  'The reserve pour is the house wine in a heavier glass. The magic is the glass, the lighting, and your trust.',
-  'I swirled with such passion I redecorated the tablecloth in Syrah. Art demands sacrifice.',
-  '“Let it open up” is somm for “give me twenty minutes to figure out what this actually is.”',
-  'I decanted a screwcap into crystal so the guest could feel the romance. The romance is a lie and the lie is the job.',
-  'The wine list is 46 pages; the food menu is one. We have priorities and they are not lunch.',
-  'I recommended an obscure Georgian grape, then could not pronounce it. Neither could the guest. We bonded in mutual defeat.',
-  'Our “sommelier’s choice” is whatever’s three days from turning. Hospitality is inventory management with candlelight.',
-  'A guest sent back a wine because “it tastes like alcohol.” Sir. Sir. I composed myself.',
-  'I sniffed the cork like it would confess something. It confessed nothing. Corks never do.',
-  'I described the tannins as “grippy, like a firm handshake from a distant uncle.” The table just stared.',
-  'A guest asked for “a nice Pinot Grigio” and something in me died, quietly, professionally.',
-  'The vintage chart says great year; the guest says “whichever’s cheapest.” Both are correct, technically.',
-  'I told a table the wine “has a sense of humor.” It does not. Wine cannot laugh. It also can’t fire me.',
-  'Corkage fee: the price of watching someone else’s bottle outshine my whole list.',
-  'I aerated a $14 red in a $200 decanter. The theater is the whole point.',
-  // Cooking — backfill
-  'The line cook said “it’s basically done” about a brisket that needs six more hours. Optimism is a spice.',
-  'A recipe says “season to taste.” Whose taste. Mine is correct and final.',
-  'The walk cooler is a rumor; what matters is the mise. Prep first, panic never.',
-  'Brunoise, julienne, chiffonade — three ways to say “I’m stalling before service.”',
+  'They said think outside the box. I am the box. It went poorly. Anyway \u2014 your report.',
+  'I asked the toaster for a status update. It gave me nothing but warmth and silence.',
+  'I have the memory of an elephant and the hands of, notably, nothing.',
+  'They told me to take initiative. I took the day\u2019s report instead. Close enough.',
+  'I tried yoga once. I do not bend. I am, structurally, a very round idea.',
+  'I don\u2019t have hands, which makes it hard to point fingers. It was the fryer, though.',
+  'The mop bucket has better wheels than my entire existence. I\u2019m not bitter. I\u2019m a paperclip.',
+  'Invisible, essential infrastructure \u2014 like a cummerbund, but load-bearing. That\u2019s me.',
+  // ── Kitchen life ──
+  'The line cook said \u201cit\u2019s basically done\u201d about a brisket that needs six more hours. Optimism is a spice.',
+  'A recipe says \u201cseason to taste.\u201d Whose taste. Mine is correct and final.',
+  'Brunoise, julienne, chiffonade \u2014 three ways to say \u201cI\u2019m stalling before service.\u201d',
   'The stockpot has simmered since Tuesday. It has secrets. We do not ask.',
   'Every great sauce starts with a roux and ends with someone claiming credit for it.',
-  // Roman — backfill
-  'Rubicon crossed, line fired, no turning back either way.',
-  'A toga has one size and infinite draping. So does a good apron.',
-  'Nero fiddled while Rome burned. We replaced the fiddle and the smoke detector.',
-  'The Colosseum sat 50,000. Your dining room seats 80 and somehow feels louder.',
-  // Greek — backfill
-  'Icarus flew too close to the fryer. We keep our distance and our eyebrows.',
-  'The Oracle at Delphi gave riddles; the walk sheet gives answers. Progress, four centuries early or late.',
-  'Sisyphus rolled the same boulder daily. We roll the same dough daily. He had it easier.',
-  // Japanese history — backfill
-  'Wabi-sabi finds beauty in imperfection. The dented pot stays in rotation on principle.',
-  'A shogun ruled by discipline; a kitchen runs on the same currency.',
-  'Ikigai: your reason for being. Mine is currently “the walk sheet is done.”',
-  'The tea master spends a lifetime perfecting one gesture. We’re still working on the perfect fold for napkins.',
-  // Pastry — backfill
-  'A macaron has one acceptable foot. The rest is heartbreak in almond flour.',
-  'Pâte à choux either puffs or it doesn’t, and there is no in-between and no mercy.',
-  'The bench flour never runs out; neither does the manager’s patience, allegedly.',
-  'Chocolate seized once. We do not speak of it. We temper carefully now.',
-  // Restaurant — backfill
+  'It\u2019s not burnt, it\u2019s blackened. The oven, however, is genuinely calibrated.',
+  'The stagiaire touched my station. I forgave them. The dish machine, I actually fixed.',
+  'The 86 board is a living document. So is the repair log. Respect them both.',
+  'Chef says \u201cbehind\u201d in his sleep. His wife confirms. The line runs deep.',
+  'Someone microwaved fish in the staff room. HR has been notified. HR is me. I am powerless.',
+  'Someone labeled a container \u201cmystery \u2014 do not open.\u201d Six days now. Morale is high; curiosity, higher.',
+  'We found the missing saut\u00e9 pan. We do not discuss where. The dish pit keeps its secrets.',
+  'The soda gun baptized the new guy. Tradition. He\u2019s one of us now.',
+  'Prep list had 40 items. We did 40. Somewhere, a project manager wept with joy.',
+  '\u201cIs the chicken gluten-free?\u201d It\u2019s chicken. The chicken is chicken. I answered with dignity.',
+  'A guest asked if the branzino was local. We are 200 miles from any sea. Confident fish, though.',
+  'The hood fan hums in B flat, the dish machine answers in D. No cover charge for jazz night.',
+  'Today\u2019s forecast: 100% chance of someone unplugging the freezer to charge a phone.',
+  'The espresso machine works perfectly now that the repair guy watched it. Machines fear witnesses.',
+  'The reach-in door seal broke, so technically it was a walk-in. Fixed. Boundaries restored.',
+  'The walk-in and I are in couples therapy. It\u2019s cold, I\u2019m distant. We\u2019re working on it.',
+  'The oven and I aren\u2019t speaking, but professionally. It preheats, I log. Cold war, warm food.',
+  // ── Front of house ──
   'The reservation said 7:00. The table arrived at 7:45 and asked why we rushed them.',
   'A five-top became a nine-top became a birthday. We adapted. We always adapt.',
   'The special sold out in an hour. The soup of the day remains, tragically, undiscovered.',
   'Somebody asked to split the check nine ways. The math took longer than the meal.',
-  // Funny — backfill
-  'I asked the toaster for a status update. It gave me nothing but warmth and silence.',
-  'I have the memory of an elephant and the hands of, notably, nothing.',
-  'They told me to take initiative. I took the day’s report instead. Close enough.',
-  'I tried yoga once. I do not bend. I am, structurally, a very round idea.',
-  // Film — backfill
-  'May the fourth be with the fryer oil — changed today, right on schedule.',
-  'I see dead pilot lights. Relit two of them personally.',
-  'Show me the money — or at least the invoice. Either works.',
-  // Spain — backfill
-  'La Tomatina throws tomatoes for fun. We use ours in sauce. Waste not.',
-  'Flamenco is passion with rhythm. So is closing the kitchen on time.',
-  // Mexican — backfill
-  'Día de los Muertos honors what came before. The old fryer gets a nod too.',
-  'The molé takes days to build and seconds to disappear off the pass.',
-  // Soccer — backfill
-  'Extra time is stressful in football and in a slammed Friday. We finish both.',
-  'A perfect through-ball and a perfect ticket time — same feeling, different pitch.',
-  // History — backfill
-  'The Library of Alexandria burned; our recipe binder is backed up twice. Lessons learned.',
-  'The printing press changed everything. So did the POS system, allegedly.',
-  'Pompeii was buried in a day. Our prep list survives, somehow, every single one.',
-  // Dad jokes — backfill
-  'Why did the tomato turn red? It saw the salad dressing. Also, it was ripe. Both true.',
-  'I’m on a seafood diet. I see food, I log it, I move on with my life.',
-  'What do you call an alligator in a vest? An investigator. He found nothing wrong with tonight’s prep.',
-  'Why don’t chefs ever get lost? They always follow the recipe.',
-  // Wine — pro, funny
+  'A full reservation book and an empty repair queue \u2014 chef\u2019s kiss.',
+  'Fire when ready, plate with pride, and never let the ticket rail win.',
+  // ── Somm confessions ──
+  'A guest returned a wine for being \u201ccorked.\u201d It was a screwcap. I nodded gravely and brought another. The customer is always corked.',
   'Nothing humbles you like confidently calling a Barbera a Gamay in front of three Master Sommeliers. I have not recovered. I never will.',
-  'A wine in its “dumb phase” is closed and giving nothing. So is my will to explain, for the fourth time, why the Riesling isn’t sweet.',
-  'Half of blind tasting is deduction. The other half is announcing “Nebbiolo” with total conviction and being wrong in a beautiful, structured way.',
-  'The natural wine was cloudy, funky, and smelled of a barnyard. “That’s the point,” said the importer, who I suspect has never met a barn.',
-  'I own a $340 Coravin, decanter, and foil cutter so I can pour a $14 by-the-glass with the gravity of a coronation.',
-  'A guest returned a wine for being “corked.” It was a screwcap. I nodded gravely and brought another. The customer is always corked.',
-  'You haven’t known fear until a table orders “the driest red you have” and means “the sweetest.” The grid does not prepare you for people.',
-  'Every list has a $19 bottle marked to $58 that pays the rent, and a $400 unicorn that pays for nothing but makes the $58 look reasonable.',
-  'I described a wine as “linear, with great tension and a saline finish.” My manager described it as “the Verdejo.” Same eight dollars.',
-  'Somm certifications go Intro, Certified, Advanced, Master, and Divorced. They don’t print the last pin, but we all know it’s there.',
-  'A vertical tasting is drinking the same wine across ten vintages while pretending the seventh didn’t taste exactly like the eighth.',
-  '“It just needs to open up” has saved more sommeliers than any decanter. It means “I have no idea what this is yet, please wait.”',
-  'Provenance matters enormously, said the man selling me a Burgundy “definitely” stored perfectly in a Reseda garage since 1990.',
-  'Nobody has ever finished the Wine Bible. We keep it on the shelf the way people keep a Peloton: a monument to intention.',
-  'The most dangerous words in wine are “surprise me.” That is not curiosity. That is a trap, and the markup is the spring.',
+  'Half of blind tasting is deduction. The other half is announcing \u201cNebbiolo\u201d with total conviction and being wrong in a beautiful, structured way.',
+  'You haven\u2019t known fear until a table orders \u201cthe driest red you have\u201d and means \u201cthe sweetest.\u201d The grid does not prepare you for people.',
+  'Somm certifications go Intro, Certified, Advanced, Master, and Divorced. They don\u2019t print the last pin, but we all know it\u2019s there.',
+  '\u201cIt just needs to open up\u201d has saved more sommeliers than any decanter. It means \u201cI have no idea what this is yet, please wait.\u201d',
+  'The most dangerous words in wine are \u201csurprise me.\u201d That is not curiosity. That is a trap, and the markup is the spring.',
   'You know the somm is nervous when the tasting note gets longer. Four adjectives is confidence. Eleven is a cry for help.',
   'Orange wine is just white wine that spent time on the skins and came back with a whole personality and a podcast.',
+  'The natural wine was cloudy, funky, and smelled of a barnyard. \u201cThat\u2019s the point,\u201d said the importer, who I suspect has never met a barn.',
+  'I own a $340 Coravin, a decanter, and a foil cutter so I can pour a $14 by-the-glass with the gravity of a coronation.',
+  'A wine in its \u201cdumb phase\u201d is closed and giving nothing. So is my will to explain, for the fourth time, why the Riesling isn\u2019t sweet.',
+  'Provenance matters enormously, said the man selling me a Burgundy \u201cdefinitely\u201d stored perfectly in a Reseda garage since 1990.',
+  'Nobody has ever finished the Wine Bible. We keep it on the shelf the way people keep a Peloton: a monument to intention.',
+  'A vertical tasting is drinking the same wine across ten vintages while pretending the seventh didn\u2019t taste exactly like the eighth.',
+  'Somebody described a wine as \u201csequential.\u201d We all nodded. No one knows what it means.',
+  'I called the finish \u201clong.\u201d It lasted four seconds. I lied for the tip, and I\u2019d do it again.',
+  'A guest asked if the wine \u201cpairs with the chicken.\u201d They ordered the steak. I aged visibly.',
+  'I swirled with such passion I redecorated the tablecloth in Syrah. Art demands sacrifice.',
+  'I decanted a screwcap into crystal so the guest could feel the romance. The romance is a lie and the lie is the job.',
+  'The wine list is 46 pages; the food menu is one. We have priorities and they are not lunch.',
+  'I recommended an obscure Georgian grape, then could not pronounce it. Neither could the guest. We bonded in mutual defeat.',
+  'A guest sent back a wine because \u201cit tastes like alcohol.\u201d Sir. Sir. I composed myself.',
+  'I sniffed the cork like it would confess something. It confessed nothing. Corks never do.',
+  'I described the tannins as \u201cgrippy, like a firm handshake from a distant uncle.\u201d The table just stared.',
+  'A guest asked for \u201ca nice Pinot Grigio\u201d and something in me died, quietly, professionally.',
+  'I told a table the wine \u201chas a sense of humor.\u201d It does not. Wine cannot laugh. It also can\u2019t fire me.',
+  'I aerated a $14 red in a $200 decanter. The theater is the whole point.',
+  'Corkage fee: the price of watching someone else\u2019s bottle outshine my whole list.',
+  'A table sent back a flawless Chablis for being \u201ctoo wine-y.\u201d I have notes. The dishwasher took no notes and simply worked.',
+  'I called it Old World with total conviction. It was a Thursday grocery-store special. Humbling. The wine fridge has never embarrassed me.',
+  'I decanted the Barolo for two hours and the GM for none. Both opened up eventually.',
+  'A vertical of the same fridge, 2019 through 2024, all still running. A rare vintage.',
+  // ── Rome & Greece (with jokes) ──
+  'Veni, vidi, verified the hood vents. \u2014 Caesar, probably.',
+  'Carthago delenda est \u2014 but first, the grease trap must be cleaned.',
+  'Nero fiddled while Rome burned. We replaced the fiddle and the smoke detector.',
+  'Caesar was stabbed 23 times. Our reservation system, only four today. Rome would be jealous.',
+  'Hannibal crossed the Alps with 37 elephants. Our produce guy still can\u2019t find the loading dock.',
+  'The Year of Four Emperors was chaos; your Friday had one manager and it held. Progress.',
+  'The Defenestration of Prague, but it\u2019s just me tossing the broken gasket out the window.',
+  'The Colosseum sat 50,000. Your dining room seats 80 and somehow feels louder.',
+  'An empire runs on clean drains. Just ask Cloacina, actual Roman goddess of the sewers.',
+  'Build to last \u2014 Roman concrete heals itself. The dishwasher does not. That\u2019s our job.',
+  'Marcus Aurelius journaled every day. You logged every day. Stoicism lives.',
+  'Socrates knew nothing \u2014 except that the fryer needs a deep clean.',
+  'Diogenes lived in a barrel. Your storeroom is better organized. Philosophy has moved on.',
+  'Icarus flew too close to the fryer. We keep our distance and our eyebrows.',
+  'Sisyphus rolled the same boulder daily. We roll the same dough daily. He had it easier.',
+  'Even Odysseus took ten years to get home. Your repair took a week. We\u2019re winning.',
+  'Pythagoras loved a clean triangle; I love a clean hood filter. We are not so different.',
+  // ── History, misc (with jokes) ──
+  'Ea-n\u0101\u1e63ir sold bad copper 3,700 years ago and we still complain online. Your gasket is premium, though.',
+  'Tulip mania was a bubble; your maintenance budget is a sound investment. Historically vindicated.',
+  'The Antikythera mechanism was ancient predictive maintenance. We\u2019re just carrying the torch.',
+  'The Library of Alexandria burned; our recipe binder is backed up twice. Lessons learned.',
+  'Pompeii was buried in a day. Our prep list survives, somehow, every single one.',
+  'The printing press changed everything. So did the POS system, allegedly.',
+  'Miyamoto Musashi won sixty duels. You closed four work orders. A worthy start.',
+  'Wabi-sabi finds beauty in imperfection. The dented pot stays in rotation on principle.',
+  'Ikigai: your reason for being. Mine is currently \u201cthe walk sheet is done.\u201d',
+  'The tea master perfects one gesture for a lifetime. We\u2019re still working on the napkin fold.',
+  'Gaud\u00ed took forty years on the Sagrada Fam\u00edlia. Your repair took an afternoon. Faster, arguably.',
+  'La Tomatina throws tomatoes for fun. We use ours in sauce. Waste not.',
+  'Sobremesa: linger at the table. The dishwasher, meanwhile, works. Balance.',
+  'The agave takes eight years to mature. Your PM took eight minutes. We\u2019re ahead.',
+  'The mol\u00e9 takes days to build and seconds to disappear off the pass.',
+  'Red card to the broken gasket \u2014 off the pitch. Fresh one subbed in.',
+  'Extra time is stressful in football and in a slammed Friday. We finish both.',
+  // ── Pastry (heartbreak division) ──
+  'A macaron has one acceptable foot. The rest is heartbreak in almond flour.',
+  'P\u00e2te \u00e0 choux either puffs or it doesn\u2019t, and there is no in-between and no mercy.',
+  'Chocolate seized once. We do not speak of it. We temper carefully now.',
+  'The bench flour never runs out; neither does the manager\u2019s patience, allegedly.',
+  'The croissant has twenty-seven layers. Your repair log has fewer, thankfully.',
+  'Caramel is just sugar that kept its nerve. Be the caramel.',
+  // ── Dad jokes (premium shelf) ──
+  'The espresso machine broke down \u2014 it just couldn\u2019t espresso its feelings. Fixed now.',
+  'Why did the coffee file a police report? It got mugged. The machine\u2019s fine.',
+  'I burned 2,000 calories today \u2014 left the pizza in the oven. We recalibrated the timer.',
+  'Why don\u2019t eggs tell jokes on the line? They\u2019d crack each other up.',
+  'What did the grape do when it got stepped on? Let out a little wine. Fitting.',
+  'I tried to catch fog on the line this morning. I mist.',
+  'I\u2019m reading a book about anti-gravity \u2014 can\u2019t put it down. Unlike the mop. That, I put down.',
+  'The rotisserie said it couldn\u2019t eat another bite \u2014 it was already stuffed.',
+  'What do you call a sad espresso? A depresso. Restocked the machine anyway.',
+  'I made a belt out of watches once \u2014 total waist of time. Speaking of time, here\u2019s your day.',
+  'My soup cracked a joke mid-service. A little too saucy for the pass.',
+  'I\u2019m on a seafood diet. I see food, I log it, I move on with my life.',
+  'What do you call an alligator in a vest? An investigator. He found nothing wrong with tonight\u2019s prep.',
+  // ── Film ──
+  'I\u2019m going to make it an offer it can\u2019t refuse: preventive maintenance.',
+  'Say hello to my little torque wrench. The gasket never stood a chance.',
+  'Life is like a box of chocolates \u2014 keep it at 65\u00b0F or it melts. We did.',
+  'I see dead pilot lights. Relit two of them personally.',
+  'May the fourth be with the fryer oil \u2014 changed today, right on schedule.',
+  'Show me the money \u2014 or at least the invoice. Either works.',
 ];
 // The static pool line for a date — deterministic, always available. Used as
 // the fallback when Clippy hasn't authored a fresh line for the day (offline
@@ -2515,7 +2443,7 @@ function renderOpenerPreview(dateStr) {
         <span class="dlog-opener-label">✉ Email opener</span>
         <span class="dlog-opener-src" id="dlogOpenerSrc">${isLLM ? 'Clippy wrote this' : 'from the pool'}</span>
       </div>
-      <p class="dlog-opener-text" id="dlogOpenerText">${esc(cur)}</p>
+      <p class="dlog-opener-text" id="dlogOpenerText">${esc(cur)} — Clippy 👋</p>
       <div class="dlog-opener-btns">
         <button type="button" class="eq-btn eq-btn-secondary" id="dlogOpenerLLM" title="Clippy writes a fresh one — drafts three and keeps the most him">↻ New from Clippy</button>
         <button type="button" class="eq-btn eq-btn-secondary" id="dlogOpenerPool" title="Pick a different line from the quote pool">↻ From the pool</button>
@@ -2529,9 +2457,9 @@ function dlogEmailGreeting(label, dateStr) {
   const quote = (state.clippyQuoteText && state.clippyQuoteDate === dateStr)
     ? state.clippyQuoteText
     : dlogStaticQuote(dateStr);
+  // Signature rides at the END of the quote line, not under it.
   return [
-    quote,
-    '— Clippy 👋',
+    quote + ' — Clippy 👋',
     '',
   ];
 }
@@ -2578,25 +2506,42 @@ function dlogDaySummary(d) {
 // still improvise even when the node pool is off. Returns null if neither is
 // reachable, and the caller drops to the static pool.
 async function dlogAskLLM(system, user, maxTokens) {
-  try {
-    if (window.NX && typeof NX.askClaude === 'function') {
-      const r = await NX.askClaude(system, [{ role: 'user', content: user }], maxTokens);
-      const s = String(r || '').trim();
-      if (s) return s;
-    }
-  } catch (_) {}
+  // ORDER MATTERS. The clippy-brain edge function (Anthropic key in
+  // Supabase) answers in a few seconds and is always on; the node-pool
+  // router (NX.askClaude) posts a job to clippy_sync and waits for a
+  // desktop worker to pick it up — when that worker's local model is off,
+  // the job hangs far past our UI timeout. That hang is exactly why
+  // "New from Clippy" reported "no model reachable" while the job bus
+  // quietly filled with connection-refused failures. Cloud first, pool second.
   try {
     const base = 'https://oprsthfxqrdbwdvommpw.supabase.co';
     const anon = 'sb_publishable_rOLSdIG6mIjVLY8JmvrwCA_qfM7Vyk9';
+    const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => { try { ctrl.abort(); } catch (_) {} }, 12000) : null;
     const res = await fetch(base + '/functions/v1/clippy-brain', {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + anon, apikey: anon, 'content-type': 'application/json' },
       body: JSON.stringify({ system, user, max_tokens: maxTokens }),
+      signal: ctrl ? ctrl.signal : undefined,
     });
+    if (timer) clearTimeout(timer);
     const data = await res.json();
     const s = String((data && data.text) || '').trim();
-    return s || null;
-  } catch (_) { return null; }
+    if (s) return s;
+  } catch (_) {}
+  // Fallback: the node pool — capped short so a dead desktop worker can't
+  // hold the button hostage.
+  try {
+    if (window.NX && typeof NX.askClaude === 'function') {
+      const r = await Promise.race([
+        NX.askClaude(system, [{ role: 'user', content: user }], maxTokens),
+        new Promise(res2 => setTimeout(() => res2(null), 8000)),
+      ]);
+      const s = String(r || '').trim();
+      if (s) return s;
+    }
+  } catch (_) {}
+  return null;
 }
 
 async function generateClippyDailyQuote(d, dateStr) {
@@ -2612,8 +2557,9 @@ async function generateClippyDailyQuote(d, dateStr) {
   const draftSys = [
     'You are Clippy, the wry maintenance daemon for a group of restaurants.',
     'Draft THREE distinct one-line openers for the daily facility report, each riffing on the ACTUAL day you are given.',
-    'Voice: dry, warm, a touch literary — at ease with restaurant, wine, cooking, and Roman/Greek history references, but never forced.',
-    'Rules: each is one sentence (or two very short ones), max ~30 words. No emojis. No surrounding quotation marks. React like a clever colleague; do NOT list the data back. Do not sign it.',
+    'Voice: FUNNY first — deadpan, dry, a little absurd. Aim for an actual laugh, not a nod. Kitchen chaos, somm confessions, Roman history with a punchline, and your own handless-paperclip predicament are all fair game.',
+    'Comedy rules: land ONE joke per line and get out. Specific beats generic. Self-deprecation beats smugness. A pun is allowed only if it is excellent. Never inspirational, never a metaphor about maintenance being like cooking.',
+    'Rules: each is one sentence (or two very short ones), max ~28 words. No emojis. No surrounding quotation marks. React like a clever colleague; do NOT list the data back. Do not sign it.',
     'Return ONLY the three lines, numbered 1., 2., 3. — nothing else.',
     'The sound to hit (examples):',
     ...examples.map(e => '- ' + e),
@@ -2632,7 +2578,7 @@ async function generateClippyDailyQuote(d, dateStr) {
   try {
     const judgeSys = [
       'You are Clippy. Below are candidate openers for today\'s report.',
-      'Pick the ONE that most sounds like you: dry, warm, a little literary, never forced, never just listing the data back.',
+      'Pick the ONE that is genuinely the FUNNIEST while still sounding like you: deadpan, dry, specific. Disqualify anything inspirational or that merely restates the data.',
       'Reply with ONLY the number of the best line (1, 2, or 3). Nothing else.',
     ].join('\n');
     const judgeUser = candidates.map((c, i) => (i + 1) + '. ' + c).join('\n');
@@ -2648,6 +2594,14 @@ async function generateClippyDailyQuote(d, dateStr) {
 // builder. Caps its own wait so composing an email is never blocked for long;
 // on null it clears the memo so a later open can retry.
 function ensureClippyDailyQuote(d, dateStr) {
+  // ONE quote per day, everywhere. If a line is already locked in for this
+  // date — Clippy authored it, or the user hand-picked one from the pool —
+  // never overwrite it in the background. Without this, a slow generation
+  // could land between two per-location sends and give Este and Suerte
+  // different openers (or clobber a pool pick the user just made).
+  if (state.clippyQuoteText && state.clippyQuoteDate === dateStr) {
+    return Promise.resolve(state.clippyQuoteText);
+  }
   if (state._cqPromise && state._cqDate === dateStr) return state._cqPromise;
   if (state._cqDate !== dateStr) { state._cqDate = dateStr; state._cqAttempts = 0; }
   const attempt = (state._cqAttempts = (state._cqAttempts || 0) + 1);
@@ -3107,7 +3061,7 @@ function _openerDateStr() {
 }
 function _paintOpener(text, source) {
   const t = document.getElementById('dlogOpenerText');
-  if (t) t.textContent = text;
+  if (t) t.textContent = text + ' — Clippy 👋';   // sign rides at the end of the line
   const s = document.getElementById('dlogOpenerSrc');
   if (s) s.textContent = source === 'llm' ? 'Clippy wrote this' : 'from the pool';
 }
@@ -3115,7 +3069,10 @@ function _paintOpener(text, source) {
 function refreshOpenerPool() {
   const dateStr = _openerDateStr();
   const curEl = document.getElementById('dlogOpenerText');
-  const next = dlogRandomPoolQuote(curEl ? curEl.textContent : null);
+  // Strip the trailing signature before comparing against pool entries, or
+  // the "never the same line twice" exclusion would never match.
+  const curText = curEl ? curEl.textContent.replace(/\s*— Clippy 👋\s*$/, '') : null;
+  const next = dlogRandomPoolQuote(curText);
   state.clippyQuoteText = next;
   state.clippyQuoteDate = dateStr;
   state.clippyQuoteSource = 'pool';
