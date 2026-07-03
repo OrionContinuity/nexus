@@ -5167,33 +5167,45 @@
   // the manager's phone didn't exist on the kitchen tablet, and because
   // that map is keyed by section NAME only, assigning "COCINA" at Este
   // silently changed COCINA's displayed crew at Suerte and Toti too.
-  function liteZoneDbPerson(sectionEs, dow) {
+  // v18.38: zones can have SEVERAL people per day. These return arrays
+  // (deduped user ids as strings); liteZonePerson stays as a single-person
+  // compat view for print/paint callers.
+  function liteZoneDbPeople(sectionEs, dow) {
     const tasks = (tasksByLoc[activeLoc] || []).filter(t => t.section_es === sectionEs);
-    for (const t of tasks) {
-      const rows = (assignmentsByTaskId[t.id] || []).filter(r => r.scope === 'weekly' && r.day_of_week === dow);
-      if (rows.length) return rows[0].user_id;
-    }
-    return null;
+    const ids = new Set();
+    tasks.forEach(t => (assignmentsByTaskId[t.id] || [])
+      .filter(r => r.scope === 'weekly' && r.day_of_week === dow)
+      .forEach(r => ids.add(String(r.user_id))));
+    return Array.from(ids);
   }
-  function liteZonePersonForDay(sectionEs, d) {
-    const db = liteZoneDbPerson(sectionEs, d);
-    if (db != null) return db;
+  function liteZonePeopleForDay(sectionEs, d) {
+    const db = liteZoneDbPeople(sectionEs, d);
+    if (db.length) return db;
     const dc = liteDayCrewMap();
-    if (dc[d] && dc[d][sectionEs] != null) return dc[d][sectionEs];   // legacy device map (schedule-only staff)
-    return null;
+    const v = dc[d] ? dc[d][sectionEs] : null;                        // legacy device map (schedule-only staff)
+    if (v == null) return [];
+    return (Array.isArray(v) ? v : [v]).filter(x => x != null).map(String);
   }
-  function liteZonePerson(sectionEs, scope) {
+  function liteZonePeople(sectionEs, scope) {
     const s = (scope === undefined) ? liteDay : scope;
     if (s === 'all') {
-      const ids = [];
-      for (let d = 1; d <= 7; d++) ids.push(liteZonePersonForDay(sectionEs, d));
-      const set = new Set(ids.map(x => x == null ? '' : String(x)));
-      if (set.size === 1 && !set.has('')) return ids[0];
-      if (ids.some(x => x != null)) return '__varies__';
-      return liteProfilePerson(sectionEs);
+      const perDay = [];
+      for (let d = 1; d <= 7; d++) perDay.push(liteZonePeopleForDay(sectionEs, d));
+      const keys = new Set(perDay.map(a => a.slice().sort().join('|')));
+      if (keys.size === 1 && perDay[0].length) return perDay[0];
+      if (perDay.some(a => a.length)) return '__varies__';
+      const p = liteProfilePerson(sectionEs);
+      return p != null ? [String(p)] : [];
     }
-    const v = liteZonePersonForDay(sectionEs, s);
-    return v != null ? v : liteProfilePerson(sectionEs);
+    const v = liteZonePeopleForDay(sectionEs, s);
+    if (v.length) return v;
+    const p = liteProfilePerson(sectionEs);
+    return p != null ? [String(p)] : [];
+  }
+  function liteZonePerson(sectionEs, scope) {
+    const v = liteZonePeople(sectionEs, scope);
+    if (v === '__varies__') return '__varies__';
+    return v.length ? v[0] : null;
   }
   function liteProfilePerson(sectionEs) {
     const p = Object.values(profilesByUserId).find(pp =>
@@ -5201,75 +5213,109 @@
     return p ? p.user_id : null;
   }
 
-  // Assign a person to a zone for the current scope (liteDay). Writes config
-  // (display + print, works for schedule-only staff) and, for real users, the
-  // per-day cleaning_task_assignments so the rest of NEXUS stays in sync.
-  async function liteAssignZone(sectionEs, personId, scope) {
+  // Assign people to a zone for a scope (liteDay | 'all' | day | [days]).
+  // v18.38: accepts one id OR an array of ids — a zone can have a whole crew.
+  // Writes config (display + print, works for schedule-only staff) and, for
+  // real users, the per-day cleaning_task_assignments so NEXUS stays in sync.
+  async function liteAssignZone(sectionEs, personIds, scope) {
+    const ids = (personIds == null) ? []
+      : (Array.isArray(personIds) ? personIds : [personIds]).filter(x => x != null).map(String);
     const s = (scope === undefined) ? liteDay : scope;
-    const days = s === 'all' ? [1,2,3,4,5,6,7] : [s];
+    const days = Array.isArray(s) ? s : (s === 'all' ? [1,2,3,4,5,6,7] : [s]);
     const cfg = liteConfig();
     cfg.dayCrew = cfg.dayCrew || {};
     days.forEach(d => {
       cfg.dayCrew[d] = cfg.dayCrew[d] || {};
-      if (personId == null) delete cfg.dayCrew[d][sectionEs]; else cfg.dayCrew[d][sectionEs] = personId;
+      if (!ids.length) delete cfg.dayCrew[d][sectionEs]; else cfg.dayCrew[d][sectionEs] = ids.slice();
     });
     saveLiteConfig(cfg);
 
     if (!NX.sb) return;
-    const isRealUser = usersList.some(u => String(u.id) === String(personId));
     try {
       const taskIds = (tasksByLoc[activeLoc] || []).filter(t => t.section_es === sectionEs).map(t => t.id);
       if (!taskIds.length) return;
-      // Clear whoever was on these tasks for these days (one person per zone/day).
+      // Clear whoever was on these tasks for these days, then write the new crew.
       await NX.sb.from('cleaning_task_assignments').delete()
         .eq('scope', 'weekly').in('task_id', taskIds).in('day_of_week', days);
-      if (personId != null && isRealUser) {
-        await autofillAssignmentsForUser(personId, days, 'both', [sectionEs]);
+      for (const pid of ids) {
+        if (!usersList.some(u => String(u.id) === String(pid))) continue; // schedule-only staff live in config
+        await autofillAssignmentsForUser(pid, days, 'both', [sectionEs]);
       }
       await loadAssignments();
     } catch (e) { console.warn('[cleanlite] assign zone:', e); }
   }
 
   // ─── Person picker (sheet) + new-employee (+optional login) ──────────────
+  // v18.38: MULTI-SELECT — tap people to build the zone's crew (full login-
+  // user pool + schedule-only staff), then Save. No more one-per-assignment.
   function liteOpenPersonPicker(sectionEs) {
     document.querySelectorAll('.cleanlite-sheet-bg').forEach(m => m.remove());
     const people = litePeople();
-    const current = liteZonePerson(sectionEs);
+    const cur = liteZonePeople(sectionEs);
+    const selected = new Set(cur === '__varies__' ? [] : cur.map(String));
     const bg = document.createElement('div');
     bg.className = 'cleanlite-sheet-bg';
     bg.innerHTML = `
       <div class="cleanlite-sheet" role="dialog" aria-modal="true">
         <div class="cleanlite-sheet-grip"></div>
         <div class="cleanlite-sheet-title">Who works <b>${esc(liteZoneName(sectionEs))}</b> · <span class="cleanlite-sheet-day">${liteDay === 'all' ? 'every day' : esc(LITE_DOW[liteDay - 1])}</span></div>
+        <div class="cleanlite-sheet-hint">Tap everyone on this zone — you can pick more than one.</div>
         <div class="cleanlite-people">
-          <button class="cleanlite-person ${(current == null || current === '__varies__') ? 'is-active' : ''}" data-pid="">
-            <span class="cleanlite-av is-none">${svg('user', 16)}</span><span>Unassigned</span></button>
           ${people.map(p => `
-            <button class="cleanlite-person ${String(p.id) === String(current) ? 'is-active' : ''}" data-pid="${esc(p.id)}">
+            <button class="cleanlite-person ${selected.has(String(p.id)) ? 'is-active' : ''}" data-pid="${esc(p.id)}">
               <span class="cleanlite-av" style="--av-hue:${liteHue(p.id)}">${esc(liteInitials(p.name))}</span>
               <span class="cleanlite-person-name">${esc(p.name)}</span>
               ${p.login ? '<span class="cleanlite-tag">login</span>' : '<span class="cleanlite-tag is-muted">schedule</span>'}
+              <span class="cleanlite-psel">${svg('check', 13)}</span>
             </button>`).join('')}
           <button class="cleanlite-person cleanlite-newemp" data-new>
             <span class="cleanlite-av is-add">${svg('plus', 16)}</span><span>New employee…</span></button>
+        </div>
+        <div class="cleanlite-sheet-actions">
+          <button class="cleanlite-sheet-clear" data-clear>Clear zone</button>
+          <button class="cleanlite-sheet-save" data-save>Save crew</button>
         </div>
       </div>`;
     document.body.appendChild(bg);
     requestAnimationFrame(() => bg.classList.add('open'));
     const close = () => { bg.classList.remove('open'); setTimeout(() => bg.remove(), 200); };
     bg.addEventListener('click', e => { if (e.target === bg) close(); });
-    bg.querySelectorAll('[data-pid]').forEach(btn => btn.addEventListener('click', async () => {
-      const pid = btn.dataset.pid === '' ? null : btn.dataset.pid;
-      close();
-      await liteAssignZone(sectionEs, pid);
-      render();
-      const when = liteDay === 'all' ? 'every day' : LITE_DOW[liteDay - 1];
-      toast(pid == null ? 'Zone cleared' : `${litePersonName(pid)} → ${liteZoneName(sectionEs)} · ${when}`, 'success');
+    const saveBtn = bg.querySelector('[data-save]');
+    const paintSave = () => { saveBtn.textContent = selected.size ? `Save crew (${selected.size})` : 'Save crew'; };
+    paintSave();
+    bg.querySelectorAll('[data-pid]').forEach(btn => btn.addEventListener('click', () => {
+      const pid = btn.dataset.pid;
+      if (selected.has(pid)) { selected.delete(pid); btn.classList.remove('is-active'); }
+      else { selected.add(pid); btn.classList.add('is-active'); }
+      paintSave();
     }));
+    const when = liteDay === 'all' ? 'every day' : LITE_DOW[liteDay - 1];
+    saveBtn.addEventListener('click', async () => {
+      close();
+      const ids = Array.from(selected);
+      await liteAssignZone(sectionEs, ids);
+      render();
+      const names = ids.map(litePersonName).filter(Boolean);
+      toast(names.length ? `${names.join(', ')} → ${liteZoneName(sectionEs)} · ${when}` : 'Zone cleared', 'success');
+    });
+    bg.querySelector('[data-clear]').addEventListener('click', async () => {
+      close();
+      await liteAssignZone(sectionEs, []);
+      render();
+      toast('Zone cleared', 'success');
+    });
     bg.querySelector('[data-new]').addEventListener('click', () => { close(); liteNewEmployee(sectionEs); });
   }
 
   function liteZoneName(es) { const z = liteZones().find(z => z.es === es); return z ? z.en : es; }
+
+  // Add one person to a zone's existing crew (used by the new-employee flows).
+  async function liteAppendZonePerson(sectionEs, pid) {
+    const cur = liteZonePeople(sectionEs);
+    const ids = cur === '__varies__' ? [] : cur.map(String);
+    if (!ids.includes(String(pid))) ids.push(String(pid));
+    await liteAssignZone(sectionEs, ids);
+  }
 
   // New employee → ask name, then ask whether to create a NEXUS login.
   function liteNewEmployee(sectionEs) {
@@ -5313,7 +5359,7 @@
         }
         await loadUsers();
         const created = usersList.find(u => u.name === name);
-        if (created) { await liteAssignZone(sectionEs, created.id); }
+        if (created) { await liteAppendZonePerson(sectionEs, created.id); }
         render();
         toast(`${name} added with a login`, 'success');
       },
@@ -5327,7 +5373,7 @@
     const id = 'staff:' + name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + ':' + (cfg.staff.length + 1);
     cfg.staff.push({ id, name });
     saveLiteConfig(cfg);
-    await liteAssignZone(sectionEs, id);
+    await liteAppendZonePerson(sectionEs, id);
     render();
     toast(`${name} added (schedule only)`, 'success');
   }
@@ -5565,10 +5611,12 @@
     for (let d = 1; d <= 7; d++) {
       const map = dc[d] || {};
       for (const section of Object.keys(map)) {
-        const pid = map[section];
-        if (!usersList.some(u => String(u.id) === String(pid))) continue; // real users only
-        const r = await autofillAssignmentsForUser(pid, [d], 'both', [section]);
-        if (r && r.count) count += r.count;
+        const pids = Array.isArray(map[section]) ? map[section] : [map[section]];
+        for (const pid of pids) {
+          if (!usersList.some(u => String(u.id) === String(pid))) continue; // real users only
+          const r = await autofillAssignmentsForUser(pid, [d], 'both', [section]);
+          if (r && r.count) count += r.count;
+        }
       }
     }
     await loadAssignments();
@@ -5580,10 +5628,48 @@
     if (liteDay === 'all') return;
     const cfg = liteConfig(); cfg.dayCrew = cfg.dayCrew || {};
     const src = cfg.dayCrew[liteDay] || {};
-    for (let d = 1; d <= 7; d++) cfg.dayCrew[d] = Object.assign({}, src);
+    for (let d = 1; d <= 7; d++) cfg.dayCrew[d] = JSON.parse(JSON.stringify(src));
     saveLiteConfig(cfg);
     render();
     toast(`${LITE_DOW[liteDay - 1]}'s crew copied to every day`, 'success');
+  }
+
+  // ─── Autofill the next two weeks ─────────────────────────────────────────
+  // One tap fills every EMPTY day/zone slot from the zone's known crew:
+  // the selected day's crew if set, else the first day that has people.
+  // Already-assigned days are never overwritten. The schedule is weekly-
+  // recurring, so a filled week covers the next two weeks (and beyond).
+  async function liteAutofillTwoWeeks() {
+    const zones = liteZones();
+    let filledSlots = 0, skippedZones = [];
+    toast('Autofilling schedule…', 'info');
+    for (const z of zones) {
+      // Reference crew: prefer the day being viewed, else first assigned day.
+      let ref = (liteDay !== 'all') ? liteZonePeopleForDay(z.es, liteDay) : [];
+      if (!ref.length) {
+        for (let d = 1; d <= 7 && !ref.length; d++) ref = liteZonePeopleForDay(z.es, d);
+      }
+      if (!ref.length) {
+        const p = liteProfilePerson(z.es);
+        if (p != null) ref = [String(p)];
+      }
+      if (!ref.length) { skippedZones.push(z.en); continue; }
+      const emptyDays = [];
+      for (let d = 1; d <= 7; d++) {
+        if (!liteZonePeopleForDay(z.es, d).length) emptyDays.push(d);
+      }
+      if (!emptyDays.length) continue;
+      await liteAssignZone(z.es, ref, emptyDays);
+      filledSlots += emptyDays.length;
+    }
+    render();
+    if (filledSlots) {
+      toast(`Autofilled ${filledSlots} day-slot${filledSlots === 1 ? '' : 's'} — repeats weekly, so the next two weeks are covered${skippedZones.length ? ` (skipped ${skippedZones.join(', ')} — no one assigned yet)` : ''}`, 'success');
+    } else if (skippedZones.length === zones.length) {
+      toast('Assign at least one person to a zone first, then autofill', 'info');
+    } else {
+      toast('Nothing to fill — every zone already has crew all week', 'success');
+    }
   }
 
   // ─── Print week (clean grid + QR) and .xlsx ──────────────────────────────
@@ -5591,7 +5677,11 @@
   // specific tasks; crew comes from the global section-keyed config.
   function cleanPrintTableHtml(loc) {
     const zones = tasksBySection(loc).map(g => ({ es: g.section_es, en: g.section_en || g.section_es, tasks: g.tasks }));
-    const nameFor = (section, d) => litePersonName(liteZonePerson(section, d)) || '';
+    const nameFor = (section, d) => {
+      const v = liteZonePeople(section, d);
+      if (v === '__varies__') return '';
+      return v.map(litePersonName).filter(Boolean).join(', ');
+    };
     const dayHead = LITE_DOW.map(d => `<th>${d}</th>`).join('');
     const rows = zones.map(z => z.tasks.map(t => {
       const cells = [1,2,3,4,5,6,7].map(d => `<td>${esc(nameFor(z.es, d))}</td>`).join('');
@@ -5996,9 +6086,18 @@
       LITE_DOW.map((lbl, i) => `<button class="cleanlite-day ${liteDay === i + 1 ? 'is-active' : ''} ${todayDow === i + 1 ? 'is-today' : ''}" data-day="${i + 1}" title="${esc(lbl)}">${lbl[0]}</button>`).join('');
 
     const zoneCards = zones.map(z => {
-      const pid = liteZonePerson(z.es, liteDay);
-      const varies = pid === '__varies__';
-      const nm = varies ? 'Varies' : litePersonName(pid);
+      const ppl = liteZonePeople(z.es, liteDay);
+      const varies = ppl === '__varies__';
+      const crew = varies ? [] : ppl;
+      const crewNames = crew.map(litePersonName).filter(Boolean);
+      const nm = varies ? 'Varies'
+        : (crewNames.length === 0 ? null
+          : crewNames.length <= 2 ? crewNames.join(' + ')
+          : crewNames.slice(0, 2).join(', ') + ' +' + (crewNames.length - 2));
+      const avStack = varies ? '<span class="cleanlite-av is-varies">~</span>'
+        : (crew.length ? crew.slice(0, 3).map(pid =>
+            `<span class="cleanlite-av" style="--av-hue:${liteHue(pid)}">${esc(liteInitials(litePersonName(pid) || '?'))}</span>`).join('')
+          : `<span class="cleanlite-av is-none">${svg('user', 14)}</span>`);
       const note = liteZoneNoteText(z.es);
       const { done, total } = liteZoneCounts(z.es);
       // Daily zone cards show DAILY tasks only — periodic (biweekly+) tasks
@@ -6019,7 +6118,7 @@
       return `<div class="cleanlite-zone" data-zone="${esc(z.es)}">
         <div class="cleanlite-zone-head">
           <button class="cleanlite-person-btn" data-pick-zone="${esc(z.es)}" title="Set who works this zone on ${esc(scopeLabel)}">
-            <span class="cleanlite-av ${nm ? '' : 'is-none'} ${varies ? 'is-varies' : ''}" ${(!varies && nm) ? `style="--av-hue:${liteHue(pid)}"` : ''}>${varies ? '~' : (nm ? esc(liteInitials(nm)) : svg('user', 14))}</span>
+            ${avStack}
           </button>
           <div class="cleanlite-zone-titles"><div class="cleanlite-zone-name">${esc(z.en)}</div><div class="cleanlite-zone-person">${nm ? esc(nm) : 'Tap to assign'}</div></div>
           <span class="cleanlite-zone-count ${total > 0 && done === total ? 'is-complete' : ''}">${done}/${total}</span>
@@ -6045,6 +6144,7 @@
         <span class="cleanlite-dayrow-label">Crew · ${esc(scopeLabel)}</span>
         <div class="cleanlite-days">${dayPills}</div>
         ${liteDay !== 'all' ? `<button class="cleanlite-mini" data-copy-all title="Copy this day's crew to every day">${svg('calendar', 12)} → all days</button>` : ''}
+        <button class="cleanlite-mini is-accent" data-autofill title="Fill every empty day for every zone from its current crew — covers the next two weeks">⚡ Autofill 2 wks</button>
       </div>
       <div class="cleanlite-dayrow">
         <span class="cleanlite-dayrow-label">Shift</span>
@@ -6065,6 +6165,7 @@
       const v = b.dataset.day; liteDay = v === 'all' ? 'all' : parseInt(v, 10); render();
     }));
     const copyAll = wrap.querySelector('[data-copy-all]'); if (copyAll) copyAll.addEventListener('click', liteCopyDayToAll);
+    const autoBtn = wrap.querySelector('[data-autofill]'); if (autoBtn) autoBtn.addEventListener('click', liteAutofillTwoWeeks);
     wrap.querySelectorAll('[data-shift]').forEach(b => b.addEventListener('click', () => { liteShift = b.dataset.shift; render(); }));
     const odBtn = wrap.querySelector('[data-goto-periodic]');
     if (odBtn) odBtn.addEventListener('click', () => {

@@ -2737,3 +2737,24 @@
   background: var(--nx-gold-faint, rgba(212,164,78,.12)); color: var(--nx-gold, #d4a44e); font-weight: 600;
 }
 #cleanView .cleanlite-task-cam { flex: 0 0 auto; font-size: 11px; opacity: .75; margin-left: 6px; }
+
+/* ═══ Cleaning Lite v18.38 — multi-person zone crews + autofill ═══ */
+#cleanView .cleanlite-person-btn { display: inline-flex; align-items: center; }
+#cleanView .cleanlite-person-btn .cleanlite-av { box-shadow: 0 0 0 2px var(--nx-bg, #101626); }
+#cleanView .cleanlite-person-btn .cleanlite-av + .cleanlite-av { margin-left: -16px; }
+.cleanlite-sheet-hint { font-size: 12px; color: var(--nx-muted, #9aa3b2); margin: -6px 4px 10px; }
+.cleanlite-person .cleanlite-psel { display: none; flex: 0 0 auto; color: var(--nx-gold, #d4a44e); }
+.cleanlite-person.is-active .cleanlite-psel { display: inline-flex; }
+.cleanlite-sheet-actions { display: flex; gap: 10px; margin-top: 14px; }
+.cleanlite-sheet-clear {
+  flex: 0 0 auto; padding: 11px 16px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,.22)); background: transparent;
+  color: var(--nx-muted, #9aa3b2); font-weight: 600; font-size: 13px;
+}
+.cleanlite-sheet-save {
+  flex: 1; padding: 11px 16px; border-radius: 999px; border: 0; cursor: pointer;
+  background: var(--nx-gold, #d4a44e); color: var(--nx-gold-on, #101626);
+  font-weight: 700; font-size: 13.5px;
+}
+#cleanView .cleanlite-mini.is-accent { border-color: var(--nx-gold, #d4a44e); color: var(--nx-gold, #d4a44e); }
+#cleanView .cleanlite-mini + .cleanlite-mini { margin-left: 8px; }
