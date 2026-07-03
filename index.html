@@ -132,8 +132,15 @@
      a border-radius clip. We do still want the soft outer glow to make
      the coin feel lit and grounded against the dark background. */
   filter:
-    drop-shadow(0 4px 16px rgba(0, 0, 0, 0.5))
+    drop-shadow(0 6px 18px rgba(0, 0, 0, 0.32))
     drop-shadow(0 0 24px rgba(212, 164, 78, 0.18));
+}
+/* Light theme: a warm, soft ground shadow — the old black halo read as
+   a dirty outline against the cream background. */
+[data-theme="light"] .nx-coin-face {
+  filter:
+    drop-shadow(0 6px 16px rgba(93, 64, 22, 0.28))
+    drop-shadow(0 0 20px rgba(176, 131, 58, 0.15));
 }
 
 .nx-coin-front { transform: rotateY(0deg); }
@@ -532,9 +539,11 @@
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line);
   border-radius: 18px;
-  height: 280px;          /* tightened from 360 — see comment above */
+  /* Auto height — the punch log moved out of this card; the old fixed
+     280px budget left a dead zone under "My Timesheet". */
+  height: auto;
   max-height: 50vh;       /* on very small screens, never overflow viewport */
-  overflow: hidden;       /* internal scroll only happens in tc-pin-log */
+  overflow: hidden;
   flex-shrink: 0;
 }
 
@@ -568,16 +577,19 @@
 /* One-tap punch: location chips (last-used preselected) + undo row.
    Chips replace the old two-step confirm screen — pick, tap, done. */
 #pinScreen .tc-loc-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  justify-content: center;
+  /* Even 2-up grid — the old centered wrap left an orphan chip on its
+     own row (Este / Remy / Suerte / ...Toti). */
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
   margin: 0 0 12px;
   flex-shrink: 0;
 }
 #pinScreen .tc-loc-chips:empty { display: none; }
 #pinScreen .tc-loc-chip {
-  padding: 8px 15px;
+  text-align: center;
+  width: 100%;
+  padding: 10px 12px;
   border-radius: 999px;
   font-size: 13px;
   font-weight: 500;

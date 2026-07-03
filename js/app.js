@@ -4712,7 +4712,7 @@ NX.timeClock = {
         // screen, but the location makes the state legible at a glance).
         const loc = isIn && this._activeEntry?.location ? ' · ' + String(this._activeEntry.location).toUpperCase() : '';
         tcS.textContent = isIn ? 'CLOCKED IN' + loc : 'NOT CLOCKED IN';
-        tcS.style.color = isIn ? 'var(--green)' : 'rgba(255,255,255,.4)';
+        tcS.style.color = isIn ? 'var(--green)' : '';  // idle color comes from the theme token (white 40% was invisible on light)
       }
       // Location chips only matter before the punch — hide once clocked in.
       const chipsRow = document.getElementById('tcLocChipsRow');
