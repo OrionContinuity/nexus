@@ -399,15 +399,32 @@
       start.setDate(start.getDate() - 6);
       const startISO = start.toISOString().slice(0, 10);
       const { data, error } = await NX.sb.from('cleaning_logs')
-        .select('log_date')
+        .select('log_date, task_id, section, task_index')
         .eq('location', activeLoc)
         .eq('done', true)
         .gte('log_date', startISO)
         .lte('log_date', today);
       if (error) { console.warn('[cleaning] loadWeekStats:', error); return; }
+      // Count DAILY-task completions only. Periodic tasks also write done
+      // rows (including noon "last done" anchors from the editor), and
+      // counting those against a daily-only denominator painted 100% bars
+      // on days nobody cleaned. Match by task_id, legacy rows by position.
+      const dailyTasks = (tasksByLoc[activeLoc] || []).filter(t => DAILY_TYPES.has(t.frequency_type));
+      const dailyById = new Set(dailyTasks.map(t => String(t.id)));
+      const dailyByKey = new Set(dailyTasks.map(t => t.section_es + '#' + t.task_order));
       const byDay = {};
-      (data || []).forEach(r => { byDay[r.log_date] = (byDay[r.log_date] || 0) + 1; });
-      const expected = (tasksByLoc[activeLoc] || []).filter(t => DAILY_TYPES.has(t.frequency_type)).length || 1;
+      const seen = new Set();
+      (data || []).forEach(r => {
+        const isDaily = (r.task_id != null)
+          ? dailyById.has(String(r.task_id))
+          : dailyByKey.has(r.section + '#' + r.task_index);
+        if (!isDaily) return;
+        const key = r.log_date + '|' + (r.task_id != null ? r.task_id : r.section + '#' + r.task_index);
+        if (seen.has(key)) return;   // dupes (legacy + identity rows) count once
+        seen.add(key);
+        byDay[r.log_date] = (byDay[r.log_date] || 0) + 1;
+      });
+      const expected = dailyTasks.length || 1;
       const days = [];
       for (let i = 6; i >= 0; i--) {
         const d = new Date(today + 'T12:00:00');
