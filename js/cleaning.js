@@ -144,6 +144,14 @@
   let calloutsByDate = {};  // { 'YYYY-MM-DD': Set(userId string) } — last-minute call-outs
   // Local YYYY-MM-DD (toISOString is UTC → can be a day off in the evening).
   function localISO(d) { const x = d || new Date(); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; }
+  // The 7 Dates of the current week, Sunday-first (matches LITE_DOW and
+  // day_of_week 1..7). Used by the weekly print + Excel exports.
+  function currentWeekDates() {
+    const sun = new Date();
+    sun.setHours(12, 0, 0, 0);
+    sun.setDate(sun.getDate() - sun.getDay());
+    return [...Array(7)].map((_, i) => { const d = new Date(sun); d.setDate(d.getDate() + i); return d; });
+  }
   // Linked education guides per task. Each value is an array of guide
   // objects with at least { id, title_en, primary_kind }.
   let guidesLinkedByTaskId = {};
@@ -753,38 +761,96 @@
     const label = locLabel(loc);
     let aoa, cols, sheetName, fnameTag;
 
+    // This sheet gets printed WEEKLY — autofill the current week's real
+    // dates into the day headers, and carry the app's last-done/due dates
+    // for every periodic task. Dates come from the RPC (not the live
+    // caches) so exporting a non-active location stays correct.
+    const lastByTask = {}, lastByKey = {};
+    try {
+      const { data: ld } = await NX.sb.rpc('cleaning_last_done', { p_location: loc });
+      (ld || []).forEach(r => {
+        if (r.task_id && (!lastByTask[r.task_id] || lastByTask[r.task_id] < r.log_date)) lastByTask[r.task_id] = r.log_date;
+        const k = r.section + '_' + r.task_index;
+        if (!lastByKey[k] || lastByKey[k] < r.log_date) lastByKey[k] = r.log_date;
+      });
+    } catch (e) { console.warn('[cleaning] export last-done:', e); }
+    const lastFor = t => lastByTask[t.id] || lastByKey[t.section_es + '_' + t.task_order] || null;
+    const dueFor = t => {
+      const l = lastFor(t); if (!l) return null;
+      const d = new Date(l + 'T00:00:00'); if (isNaN(d)) return null;
+      d.setDate(d.getDate() + periodicFreqDays(t));
+      return localISO(d);
+    };
+    const whoFor = t => (byTask[t.id] || []).filter(a => a.scope === 'periodic')
+      .map(a => nameById[a.user_id]).filter(Boolean).join(', ');
+    const weekDates = currentWeekDates();
+    const dm = d => `${d.getMonth() + 1}/${d.getDate()}`;
+    const weekLabel = `${weekDates[0].toLocaleDateString([], { month: 'short', day: 'numeric' })} – ${weekDates[6].toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
+    const shiftLbl = t => { const s = t.shift_pattern || 'am'; return s === 'both' ? 'AM+PM' : s.toUpperCase(); };
+
     if (mode === 'person') {
       const personName = nameById[userId] || 'Person';
       sheetName = personName.slice(0, 28);
       fnameTag = personName.replace(/\s+/g, '-').toLowerCase();
-      aoa = [[`${label} · ${personName} — cleaning tasks`], [], ['Section', 'Task', 'Tarea', 'Frequency', 'Days', 'Shift']];
+      aoa = [[`${label} · ${personName} — cleaning tasks · week of ${weekLabel}`], [],
+        ['Section', 'Task', 'Tarea', 'Frequency', 'Days', 'Shift', 'Photo', 'Last done', 'Due']];
       tasks.forEach(t => {
         const mine = (byTask[t.id] || []).filter(a => String(a.user_id) === String(userId));
         if (!mine.length) return;
+        const isDaily = DAILY_TYPES.has(t.frequency_type);
         const days = [...new Set(mine.map(a => a.day_of_week).filter(Boolean))].sort((a, b) => a - b).map(d => WEEKDAY_LABEL[d - 1]).join(' ');
         const shift = [...new Set(mine.map(a => a.shift).filter(Boolean))].map(s => s.toUpperCase()).join('/');
-        aoa.push([t.section_en || t.section_es || '', t.name_en || '', t.name_es || '', freqLabelFor(t), days || 'any', shift || '—']);
+        const last = isDaily ? '' : (pShortDate(lastFor(t)) || 'never');
+        const due = isDaily ? '' : (pShortDate(dueFor(t)) || 'NOW');
+        aoa.push([t.section_en || t.section_es || '', t.name_en || '', t.name_es || '', freqLabelFor(t),
+          days || (isDaily ? 'any' : 'on due date'), shift || shiftLbl(t), t.photo_required ? 'YES' : '', last, due]);
       });
-      if (aoa.length === 3) aoa.push(['—', 'No tasks assigned to this person', '', '', '', '']);
-      cols = [22, 30, 30, 14, 16, 10];
+      if (aoa.length === 3) aoa.push(['—', 'No tasks assigned to this person', '', '', '', '', '', '', '']);
+      cols = [22, 30, 30, 14, 16, 10, 7, 11, 11];
     } else {
       sheetName = 'Schedule';
-      fnameTag = 'full';
-      aoa = [[`${label} — cleaning schedule (${today})`], [], ['Section', 'Task', 'Tarea', 'Frequency', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']];
+      fnameTag = 'week';
+      aoa = [[`${label} — cleaning schedule · week of ${weekLabel}`],
+        [`Printed ${today} · Photo = a picture is required to check off`], [],
+        ['Section', 'Task', 'Tarea', 'Frequency', 'Shift', 'Photo', 'Last done', 'Due',
+          ...WEEKDAY_LABEL.map((w, i) => `${w} ${dm(weekDates[i])}`)]];
       tasks.forEach(t => {
-        const cells = ['', '', '', '', '', '', ''];
+        const isDaily = DAILY_TYPES.has(t.frequency_type);
+        // Merge each person's AM+PM rows into one clean tag per day.
+        const dayUsers = [...Array(7)].map(() => new Map());
         (byTask[t.id] || []).forEach(a => {
-          if (!a.day_of_week) return;
+          if (a.scope !== 'weekly' || !a.day_of_week) return;
           const nm = nameById[a.user_id] || '';
-          if (!nm) return;
           const i = a.day_of_week - 1;
-          if (i < 0 || i > 6) return;
-          const tag = a.shift ? `${nm} (${String(a.shift).toUpperCase()})` : nm;
-          cells[i] = cells[i] ? cells[i] + ', ' + tag : tag;
+          if (!nm || i < 0 || i > 6) return;
+          if (!dayUsers[i].has(nm)) dayUsers[i].set(nm, new Set());
+          if (a.shift) dayUsers[i].get(nm).add(a.shift);
         });
-        aoa.push([t.section_en || t.section_es || '', t.name_en || '', t.name_es || '', freqLabelFor(t), ...cells]);
+        const cells = dayUsers.map(m => Array.from(m.entries()).map(([nm, sh]) =>
+          (sh.size === 1) ? `${nm} (${Array.from(sh)[0].toUpperCase()})` : nm).join(', '));
+        let last = '', due = '';
+        if (!isDaily) {
+          last = pShortDate(lastFor(t)) || 'never';
+          const dueIso = dueFor(t);
+          due = pShortDate(dueIso) || 'NOW';
+          // Drop the due marker (+ periodic crew) into the matching day
+          // column so the printed week shows WHEN it lands and WHO owns it.
+          const who = whoFor(t);
+          if (dueIso) {
+            const wk0 = localISO(weekDates[0]), wk6 = localISO(weekDates[6]);
+            if (dueIso < wk0) cells[0] = ['OVERDUE', who].filter(Boolean).join(' — ');
+            else if (dueIso <= wk6) {
+              const idx = weekDates.findIndex(d => localISO(d) === dueIso);
+              if (idx >= 0) cells[idx] = ['DUE', who].filter(Boolean).join(' — ');
+            }
+          } else {
+            cells[0] = ['DUE NOW', who].filter(Boolean).join(' — ');
+          }
+        }
+        aoa.push([t.section_en || t.section_es || '', t.name_en || '', t.name_es || '', freqLabelFor(t),
+          shiftLbl(t), t.photo_required ? 'YES' : '', last, due, ...cells]);
       });
-      cols = [20, 28, 28, 12, 13, 13, 13, 13, 13, 13, 13];
+      cols = [20, 28, 28, 12, 8, 7, 11, 11, 15, 15, 15, 15, 15, 15, 15];
     }
 
     try {
@@ -5699,7 +5765,10 @@
       if (v === '__varies__') return '';
       return v.map(litePersonName).filter(Boolean).join(', ');
     };
-    const dayHead = LITE_DOW.map(d => `<th>${d}</th>`).join('');
+    // Weekly print sheet — put the week's real dates in the headers.
+    const weekDates = currentWeekDates();
+    const dayHead = LITE_DOW.map((d, i) =>
+      `<th>${d} ${weekDates[i].getMonth() + 1}/${weekDates[i].getDate()}</th>`).join('');
     const rows = zones.map(z => z.tasks.map(t => {
       const cells = [1,2,3,4,5,6,7].map(d => `<td>${esc(nameFor(z.es, d))}</td>`).join('');
       return `<tr><td class="zn">${esc(z.en)}</td><td>${esc(t.name_en || t.name_es || '')}</td>${cells}</tr>`;
@@ -5927,14 +5996,21 @@
   }
 
   async function savePeriodicAssignees(taskId, userIds) {
-    if (!NX.sb) return;
+    if (!NX.sb) return false;
+    // supabase-js RESOLVES with {error} — the old try/catch never fired,
+    // so a rejected insert (scope CHECK) still toasted "Assigned".
     try {
-      await NX.sb.from('cleaning_task_assignments').delete().eq('task_id', taskId).eq('scope', 'periodic');
+      const { error: delErr } = await NX.sb.from('cleaning_task_assignments')
+        .delete().eq('task_id', taskId).eq('scope', 'periodic');
+      if (delErr) { console.warn('[cleanlite] savePeriodicAssignees delete:', delErr); toast('Could not save: ' + delErr.message, 'error'); return false; }
       if (userIds.length) {
-        await NX.sb.from('cleaning_task_assignments').insert(userIds.map(uid => ({ task_id: taskId, user_id: uid, scope: 'periodic' })));
+        const { error: insErr } = await NX.sb.from('cleaning_task_assignments')
+          .insert(userIds.map(uid => ({ task_id: taskId, user_id: uid, scope: 'periodic', day_of_week: null, shift: null, year_month: null })));
+        if (insErr) { console.warn('[cleanlite] savePeriodicAssignees insert:', insErr); toast('Could not save: ' + insErr.message, 'error'); return false; }
       }
       toast('Assigned', 'success');
-    } catch (e) { console.warn('[cleanlite] savePeriodicAssignees:', e); toast('Could not save', 'error'); }
+      return true;
+    } catch (e) { console.warn('[cleanlite] savePeriodicAssignees:', e); toast('Could not save', 'error'); return false; }
   }
 
   function litePeriodicEditor(taskOrNew, sectionEs) {
