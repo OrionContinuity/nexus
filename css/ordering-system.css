@@ -3147,7 +3147,12 @@ body.ord-overlay-open .nav {
 
 .ord-vdetail-overlay {
   position: fixed;
-  inset: var(--nx-mast-h, 60px) 0 0 0;
+  /* Full-screen takeover — covers the masthead and the ORDERING header
+     underneath (was inset below the masthead, so the page header kept
+     peeking above the vendor screen). Safe-area padding keeps the back
+     button clear of the status bar, matching the editor + entry overlays. */
+  inset: 0;
+  padding-top: env(safe-area-inset-top, 0px);
   z-index: 200;
   background: var(--nx-bg);
   display: flex;
