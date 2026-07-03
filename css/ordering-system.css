@@ -9460,3 +9460,65 @@ body.ord-overlay-open .nav {
 .ved-item-row > .ved-item-move-stack {
   align-self: center;
 }
+
+/* ═══ v18.39 — section header declutter ════════════════════════════
+   Six icons crushed the section name to "CLEANING SUPPL…"; the four
+   management actions live in the ⋮ popup now. */
+.ved-section-kebab {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--nx-faint);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ved-section-kebab:hover,
+.ved-section-kebab.is-active {
+  color: var(--nx-gold);
+  border-color: var(--nx-gold-line);
+}
+.ved-sec-menu {
+  position: fixed;
+  z-index: 400;
+  min-width: 210px;
+  padding: 6px;
+  border-radius: 14px;
+  background: var(--nx-surface-1, #182236);
+  border: 1px solid var(--nx-gold-line);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ved-sec-menu button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 11px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--nx-text);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ved-sec-menu button:hover { background: var(--nx-gold-faint, rgba(212,164,78,.1)); color: var(--nx-gold); }
+.ved-sec-menu button.is-danger { color: #e07070; }
+.ved-sec-menu button.is-danger:hover { background: rgba(224, 112, 112, 0.1); color: #e07070; }
+
+/* Item reorder arrows — bigger tap targets on phones (were 20×14). */
+@media (max-width: 500px) {
+  .ved-item-move-btn { width: 26px !important; height: 18px !important; }
+}

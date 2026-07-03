@@ -373,7 +373,11 @@
     const hue = (typeof opts.hue === 'number') ? opts.hue : 'auto';
     const previewHue = (typeof opts.hue === 'number') ? opts.hue : hashHue(name);
     const initials = getInitials(name);
-    const photoStyle = photoUrl ? `style="background-image:url('${esc(photoUrl)}')"` : '';
+    // NOTE: merged into the single style attribute below — emitting a
+    // second style="…" used to silently drop the background-image
+    // (duplicate attributes: browser keeps the first), so uploaded
+    // photos showed an empty circle in the editor.
+    const photoStyle = photoUrl ? `;background-image:url('${esc(photoUrl)}')` : '';
     const photoCls = photoUrl ? 'rx-avatar-preview has-photo' : 'rx-avatar-preview';
     const swatchHues = [15, 35, 55, 90, 130, 165, 200, 230, 265, 295, 325, 355];
     const showPin = !!opts.showPin;
@@ -386,7 +390,7 @@
     return `
       <div class="rx-identity-row">
         <button type="button" class="rx-avatar-btn" data-rx-avatar aria-label="Upload photo">
-          <div class="${photoCls}" data-rx-avatar-preview style="--avatar-hue:${previewHue}" ${photoStyle}>
+          <div class="${photoCls}" data-rx-avatar-preview style="--avatar-hue:${previewHue}${photoStyle}">
             ${photoUrl ? '' : `<span class="rx-avatar-initials">${esc(initials)}</span>`}
           </div>
           <span class="rx-avatar-badge" aria-hidden="true">${ICON.camera}</span>

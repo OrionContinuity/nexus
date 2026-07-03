@@ -5834,33 +5834,10 @@ Thanks for your help sorting this out.`;
           ${esc(sec || 'Uncategorized')}
         </span>
         <span class="ved-section-count">${items.length}</span>
-        <div class="ved-section-move-stack" role="group" aria-label="Reorder this section">
-          <button type="button" class="ved-section-move-btn" data-section-move="up" data-section="${esc(sec)}" aria-label="Move section up">
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="18 15 12 9 6 15"/></svg>
-          </button>
-          <button type="button" class="ved-section-move-btn" data-section-move="down" data-section="${esc(sec)}" aria-label="Move section down">
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-        </div>
-        ${items.length > 0 ? `
-          <button class="ved-section-bulk-btn${isBulkActive ? ' is-active' : ''}" data-section-bulk="${esc(sec)}" aria-label="Bulk apply par + unit to all items in this section" title="Bulk apply to all ${items.length} items">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
-            </svg>
-          </button>
-        ` : ''}
-        ${!isUncat ? `
-          <button class="ved-section-rename-btn" data-section="${esc(sec)}" aria-label="Rename section ${esc(sec)}">${editIcon()}</button>
-          <button class="ved-section-delete-btn" data-section-delete="${esc(sec)}" aria-label="Delete section ${esc(sec)}" title="Delete section + all items in it">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <polyline points="3 6 5 6 21 6"/>
-              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-              <path d="M10 11v6"/>
-              <path d="M14 11v6"/>
-              <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/>
-            </svg>
-          </button>
-        ` : ''}
+        <!-- v18.39 — the six-icon header truncated the section name to
+             "CLEANING SUPPL…". Move/bulk/rename/delete now live behind
+             one ⋮ menu; the header keeps name + count + ⋮ + chevron. -->
+        <button class="ved-section-kebab${isBulkActive ? ' is-active' : ''}" data-section-menu="${esc(sec)}" data-has-items="${items.length > 0 ? '1' : ''}" data-uncat="${isUncat ? '1' : ''}" type="button" aria-label="Section options — move, bulk apply, rename, delete" title="Section options">⋮</button>
         <button class="ved-section-collapse" data-section="${esc(sec)}" type="button" aria-expanded="${!isCollapsed}" aria-label="${isCollapsed ? 'Expand' : 'Collapse'} section ${esc(sec || 'uncategorized')}">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <polyline points="6 9 12 15 18 9"/>
@@ -6353,6 +6330,67 @@ Thanks for your help sorting this out.`;
             if (inp) inp.focus();
           }, 30);
         }
+      });
+    });
+
+    // ─── v18.39 — Section ⋮ menu (move / bulk / rename / delete) ──────
+    // One anchored popup replaces the four header icon buttons. Each
+    // action reuses the exact behavior of the button it replaced.
+    list.querySelectorAll('.ved-section-kebab[data-section-menu]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        document.querySelectorAll('.ved-sec-menu').forEach(m => m.remove());
+        const sec = btn.dataset.sectionMenu;
+        const hasItems = btn.dataset.hasItems === '1';
+        const isUncat = btn.dataset.uncat === '1';
+        const menu = document.createElement('div');
+        menu.className = 'ved-sec-menu';
+        menu.innerHTML = `
+          <button type="button" data-act="up">↑&ensp;Move section up</button>
+          <button type="button" data-act="down">↓&ensp;Move section down</button>
+          ${hasItems ? '<button type="button" data-act="bulk">✎&ensp;Bulk par + unit…</button>' : ''}
+          ${!isUncat ? '<button type="button" data-act="rename">✏&ensp;Rename…</button>' : ''}
+          ${!isUncat ? '<button type="button" class="is-danger" data-act="delete">🗑&ensp;Delete section…</button>' : ''}
+        `;
+        document.body.appendChild(menu);
+        const r = btn.getBoundingClientRect();
+        menu.style.top = Math.min(r.bottom + 4, window.innerHeight - menu.offsetHeight - 8) + 'px';
+        menu.style.right = Math.max(8, window.innerWidth - r.right) + 'px';
+        const close = (ev) => {
+          if (ev && menu.contains(ev.target)) return;
+          menu.remove();
+          document.removeEventListener('click', close, true);
+        };
+        setTimeout(() => document.addEventListener('click', close, true), 0);
+        menu.querySelectorAll('[data-act]').forEach(item => item.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          const act = item.dataset.act;
+          menu.remove();
+          document.removeEventListener('click', close, true);
+          if (act === 'up' || act === 'down') { moveSectionByOne(sec, act); return; }
+          if (act === 'bulk') {
+            catalogState.bulkSection = sec;
+            catalogState.collapsedSections.delete(sec);
+            renderItemsAreaOnly();
+            setTimeout(() => {
+              const inp = list.querySelector(`.ved-bulk-par[data-section="${cssEsc(sec)}"]`);
+              if (inp) inp.focus();
+            }, 30);
+            return;
+          }
+          if (act === 'rename') {
+            catalogState.collapsedSections.delete(sec);
+            catalogState.renamingSection = sec;
+            renderItemsAreaOnly();
+            setTimeout(() => {
+              const inp = list.querySelector('.ved-section-rename-input');
+              if (inp) { inp.focus(); inp.select(); }
+            }, 30);
+            return;
+          }
+          if (act === 'delete') deleteSection(sec);
+        }));
       });
     });
 
