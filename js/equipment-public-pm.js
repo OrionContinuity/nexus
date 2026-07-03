@@ -871,7 +871,13 @@
       // the same identity.
       try {
         const company = (data.contractor_company || '').trim();
-        if (company && NX.sb) {
+        // In-house submissions are NOT contractors. Staff logging their own
+        // PM used to mint a contractor node + vendor named after the
+        // restaurant (with the submitter's email/phone) and attach it to
+        // every unlinked equipment — vendor emails then went to the staffer.
+        const IN_HOUSE = /^(suerte|este|bar\s*toti|toti)(\s+(restaurant|restaurants|atx))?$/i;
+        const isInHouse = IN_HOUSE.test(company.replace(/\s+/g, ' '));
+        if (company && !isInHouse && NX.sb) {
           // Look up by case-insensitive name match.
           const { data: existing } = await NX.sb.from('nodes')
             .select('id, name, links')

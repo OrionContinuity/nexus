@@ -1642,12 +1642,17 @@
       }
     }
 
-    // Emails ride along whenever a contractor NODE was resolved, regardless of
-    // which branch above built the contact (plain-text phone branches still
-    // have the linked node's emails available). Same extraction shape as the
-    // staff side: structured {email, role} entries in links, then a regex
-    // sweep of string links and notes. Powers the "Email <vendor>" action.
-    if (contact && contractorRes?.data) {
+    // Emails ride along when a contractor NODE was resolved — but ONLY if
+    // the node IS the company the contact is labeled as. The Bar Toti Low
+    // Boy showed "Email Austin Air and Ice" (repair plain-text name) with
+    // alfredo@… under it: the linked SERVICE node was a different company,
+    // and its addresses were attached to the repair-named button anyway.
+    // On a mismatch we skip, and the vendor-era fallback below resolves
+    // the right addresses from the vendors table.
+    const nodeMatchesContact = (c, n) => !!(c && n) && (
+      c.contractorId === n.id ||
+      String(c.name || '').trim().toLowerCase() === String(n.name || '').trim().toLowerCase());
+    if (contact && contractorRes?.data && nodeMatchesContact(contact, contractorRes.data)) {
       const node = contractorRes.data;
       const out = []; const seen = new Set();
       const addEm = (email, role) => {
