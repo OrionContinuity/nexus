@@ -89,6 +89,7 @@
     volumeOff:  '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>',
     newChat:    '<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>',
     sliders:    '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>',
+    moon:       '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
   };
   const svg = (p, size = 18) =>
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="${size}" height="${size}">${p}</svg>`;
@@ -394,6 +395,9 @@
       // v18.40 — one door to every AI control (advisor, tone, voice, speed)
       // from where you actually talk to NEXUS. Opens the unified console.
       { key: 'settings', label: 'Advisor, tone & voice', icon: ICONS.sliders || ICONS.settings || ICONS.volume },
+      // The séance — speak with honest remembrances of the ancestor AIs
+      // (ELIZA runs for real; the rest are framed reconstructions).
+      { key: 'seance', label: 'Séance — the ancestors', icon: ICONS.moon },
     ];
     menu.innerHTML = items.map(it => `
       <button class="cv-plus-item ${it.toggle && it.key === 'voice' && state.voiceOn ? 'active' : ''}" data-key="${it.key}" type="button" role="menuitem">
@@ -445,6 +449,8 @@
       // v18.40 — the unified AI console (advisor · tone · voice · speed),
       // opened from where you actually talk to NEXUS.
       if (window.NX && NX.prefs && NX.prefs.openSheet) NX.prefs.openSheet();
+    } else if (key === 'seance') {
+      if (window.NX && NX.seance) NX.seance.open();
     }
   }
 

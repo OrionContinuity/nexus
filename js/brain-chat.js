@@ -1455,8 +1455,9 @@ Keep it casual and warm. No markdown formatting.`;
         badge.title=confidence+' confidence';
         th.appendChild(badge);
       }
-      // Add timestamp
-      const ts=document.createElement('span');ts.className='chat-time';ts.textContent=timeStr();th.appendChild(ts);
+      // Add timestamp + answer provenance (which brain answered: Claude
+      // cloud vs a Clippy PC node — set by askClaude/askLocal/askPool)
+      const ts=document.createElement('span');ts.className='chat-time';ts.textContent=timeStr()+(NX._answerSource?' · '+NX._answerSource:'');th.appendChild(ts);
       // Auto-scroll to bottom
       requestAnimationFrame(()=>{const c=document.getElementById('chatMessages');c.scrollTop=c.scrollHeight;});
       chatHistory.push({role:'assistant',content:cleanAns});if(voiceOn)speak(cleanAns);

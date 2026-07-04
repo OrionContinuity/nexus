@@ -3721,6 +3721,9 @@ td.check{background:#F0EDE6 !important}
     const _p = this.getProvider();
     if (_p === 'clippy') return this.askLocal(system, messages, maxTokens);
     if (_p === 'clippy-pool') return this.askPool(this._flattenMessages(messages), { system });
+    // Provenance — the chat UI stamps each answer with who produced it
+    // (Claude cloud vs a local Clippy node), so Alfredo can always tell.
+    this._answerSource = '';
     const key = this.getApiKey();
     if (!key) throw new Error('No API key. Admin → save your Anthropic key.');
     const body = { model: this.getModel(), max_tokens: maxTokens, system, messages };
@@ -3732,6 +3735,7 @@ td.check{background:#F0EDE6 !important}
     });
     const data = await resp.json();
     if (data.error) throw new Error(data.error.message || 'API error');
+    this._answerSource = 'Claude cloud · ' + this.getModel();
     return data.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
   },
 
@@ -3833,6 +3837,7 @@ td.check{background:#F0EDE6 !important}
   // POST /ask {prompt, system?, timeout?} → {id, reply}. Flattens the
   // Anthropic system + messages shape into a single prompt for Clippy.
   async askLocal(system, messages, maxTokens = 600) {
+    this._answerSource = '';
     const base = this.getClippyEndpoint();
     const toText = c => Array.isArray(c)
       ? c.map(b => (typeof b === 'string' ? b : (b.text || ''))).join('\n')
@@ -3847,6 +3852,7 @@ td.check{background:#F0EDE6 !important}
       }, { timeout: 130000, warmHint: true });
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       const data = await resp.json();
+      this._answerSource = 'Clippy (this PC)' + (this.getClippyModel() ? ' · ' + this.getClippyModel() : '');
       return data.reply || '';
     } catch (e) {
       throw new Error('Clippy (local AI) unreachable at ' + base +
@@ -3921,6 +3927,7 @@ td.check{background:#F0EDE6 !important}
   },
   // Enqueue a job, then poll for the answer a Clippy node writes back.
   async askPool(prompt, opts = {}) {
+    this._answerSource = '';
     if (!this.sb) throw new Error('Clippy pool needs the Supabase connection.');
     const rid = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
               : (Date.now() + '-' + Math.random().toString(36).slice(2));
@@ -3959,7 +3966,10 @@ td.check{background:#F0EDE6 !important}
         await new Promise(r => setTimeout(r, 1500));
         const { data } = await this.sb.from('clippy_sync').select('data').eq('id', id).maybeSingle();
         const d = data && data.data;
-        if (d && d.status === 'done') return d.result || '';
+        if (d && d.status === 'done') {
+          this._answerSource = 'PC pool · ' + (d.node || 'node') + (d.model ? ' · ' + d.model : '');
+          return d.result || '';
+        }
         if (d && d.status === 'error') throw new Error('Clippy pool: ' + (d.error || 'a node reported an error'));
       }
       throw new Error('Clippy pool: no node answered within ' + Math.round(timeoutMs / 1000) +
