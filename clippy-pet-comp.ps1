@@ -201,6 +201,20 @@ public class ClippyComp : Form {
       } catch (Exception pe) { L("grid err: " + pe.Message); }
     };
     probe.Start();
+    // ── MECHANISM TEST (temporary) ──────────────────────────────────────────
+    // Set WS_EX_TRANSPARENT PERMANENTLY on the whole overlay and disable the
+    // per-message NCHITTEST gate (see WndProc). This isolates ONE question: does
+    // WS_EX_LAYERED|WS_EX_TRANSPARENT actually make THIS NOREDIRECTIONBITMAP
+    // window click-through to the desktop? If yes, the mechanism works and we
+    // re-enable Clippy via a correct toggle; if the desktop is STILL dead, the
+    // layered/transparent path is inert here and we go to a two-window design.
+    // Clippy is intentionally NOT clickable in this build.
+    _mechTest = true;
+    try {
+      int ex0 = GetWindowLong(this.Handle, GWL_EXSTYLE);
+      SetWindowLong(this.Handle, GWL_EXSTYLE, ex0 | WS_EX_TRANSPARENT);
+      L("MECHTEST WS_EX_TRANSPARENT set; exstyle 0x" + ex0.ToString("X") + " -> 0x" + GetWindowLong(this.Handle, GWL_EXSTYLE).ToString("X"));
+    } catch (Exception te) { L("mechtest err: " + te.Message); }
     // Display self-heal: poll the primary work area every 3s and re-fit if it
     // changed. Belt-and-suspenders with the WM_DISPLAYCHANGE handler below —
     // a hidden top-level tool window doesn't always receive that message, but
@@ -357,6 +371,7 @@ public class ClippyComp : Form {
   }
 
   volatile int _lastHit = -2;   // -2 unknown, 0 through, 1 over — for throttled logging
+  public bool _mechTest = false;  // MECHANISM TEST: when true, the NCHITTEST gate is bypassed so ONLY permanent WS_EX_TRANSPARENT is under test
   protected override void WndProc(ref Message m){
     // WM_DISPLAYCHANGE (0x7E) fires on resolution/monitor changes; WM_DPICHANGED
     // (0x2E0) on a per-monitor DPI change. Re-fit so the overlay tracks the new
@@ -368,7 +383,7 @@ public class ClippyComp : Form {
     // desktop/other windows below. Per-message and deterministic — no global
     // WS_EX_TRANSPARENT flag, no 25ms race. We set m.Result and return WITHOUT
     // base.WndProc so DefWindowProc's default HTCLIENT can't override us.
-    if (m.Msg == 0x0084) {
+    if (m.Msg == 0x0084 && !_mechTest) {
       bool over = false;
       try {
         int lp = (int)m.LParam.ToInt64();
