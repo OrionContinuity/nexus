@@ -168,19 +168,18 @@ public class ClippyComp : Form {
     } catch (Exception ex) { L("refit err: " + ex.Message); }
   }
   protected override CreateParams CreateParams {
-    // NOREDIRECTIONBITMAP -> DComp transparency; LAYERED -> lets WS_EX_TRANSPARENT
-    // actually pass clicks through. Experiment: do they coexist?
-    get { var cp = base.CreateParams; cp.ExStyle |= 0x00200000 | 0x00080000 /* WS_EX_LAYERED */; return cp; }
+    // WS_EX_NOREDIRECTIONBITMAP alone gives DComp per-pixel transparency. We
+    // intentionally do NOT add WS_EX_LAYERED: on a layered window the clickable
+    // shape is defined by the layer's ALPHA (uniform 255 => the whole window
+    // eats clicks), which OVERRIDES SetWindowRgn — that's why the region-clipped
+    // overlay still blocked the desktop. Without LAYERED, SetWindowRgn controls
+    // hit-testing and everything outside Clippy's silhouette reaches the desktop.
+    get { var cp = base.CreateParams; cp.ExStyle |= 0x00200000 /* WS_EX_NOREDIRECTIONBITMAP */; return cp; }
   }
   protected override void OnHandleCreated(EventArgs e){
     base.OnHandleCreated(e);
-    // LWA_ALPHA(255) is an IDENTITY multiplier that PRESERVES DComp's per-pixel
-    // alpha (it does not make the layer opaque). Log the BOOL result: if this
-    // fails on a NOREDIRECTIONBITMAP window the legacy WS_EX_TRANSPARENT
-    // click-through recipe silently no-ops — which is what left the whole
-    // overlay eating desktop clicks.
-    bool lwaOk = false; try { lwaOk = SetLayeredWindowAttributes(this.Handle, 0, 255, 0x2 /*LWA_ALPHA*/); } catch {}
-    L("SetLayeredWindowAttributes ret=" + lwaOk);
+    // No SetLayeredWindowAttributes here anymore — the window is not layered.
+    // Transparency is pure DComp; hit-testing is defined by the window region.
     // Click-through is now done PER-MESSAGE in WndProc via WM_NCHITTEST
     // (HTTRANSPARENT off Clippy so the click falls through to the desktop,
     // HTCLIENT over him so the orb/buttons stay live). We must NOT set
