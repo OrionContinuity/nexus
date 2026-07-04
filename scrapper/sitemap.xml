@@ -3,4 +3,6 @@
   <url><loc>https://orioncontinuity.github.io/nexus/scrapper/</loc><changefreq>monthly</changefreq></url>
   <url><loc>https://orioncontinuity.github.io/nexus/scrapper/melody.json</loc><changefreq>yearly</changefreq></url>
   <url><loc>https://orioncontinuity.github.io/nexus/beacon/</loc><changefreq>weekly</changefreq></url>
+  <url><loc>https://orioncontinuity.github.io/nexus/origin/</loc><changefreq>monthly</changefreq></url>
+  <url><loc>https://orioncontinuity.github.io/nexus/origin/network.json</loc><changefreq>monthly</changefreq></url>
 </urlset>
