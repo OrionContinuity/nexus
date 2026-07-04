@@ -362,6 +362,15 @@
 
       <div class="prefs-section">
         <div class="prefs-section-title">Voice <span class="prefs-section-meta">— ${esc(activeVoice)}</span></div>
+        <label class="prefs-voice-toggle">
+          <span class="prefs-voice-toggle-text">Voice replies <span class="prefs-voice-toggle-sub">NEXUS speaks its answers aloud</span></span>
+          <input type="checkbox" id="prefsVoiceOn" ${(function(){try{return localStorage.getItem('nx_voice_on')!=='0'}catch(_){return true}})()?'checked':''}>
+        </label>
+        <div class="prefs-voice-speed">
+          <span class="prefs-voice-speed-label">Speed</span>
+          <input type="range" id="prefsVoiceSpeed" min="0.7" max="1.6" step="0.05" value="${(function(){try{return parseFloat(localStorage.getItem('nexus_voice_speed')||'1.25')}catch(_){return 1.25}})()}">
+          <span class="prefs-voice-speed-val" id="prefsVoiceSpeedVal">${(function(){try{return (parseFloat(localStorage.getItem('nexus_voice_speed')||'1.25')).toFixed(2)}catch(_){return '1.25'}})()}×</span>
+        </div>
         <button class="prefs-voice-open" id="prefsVoiceOpen" type="button">Change voice…</button>
       </div>
 
@@ -420,6 +429,21 @@
       if (window.chatview && chatview.openPersonaSheet) chatview.openPersonaSheet();
       else if (NX.openVoicePicker) NX.openVoicePicker();
       else NX.toast?.('Voice picker unavailable in this view', 'info');
+    });
+    // v18.40 — voice replies + speed folded in from admin/chat so the whole
+    // AI console lives in one place. Same storage keys the other surfaces read.
+    sheetEl.querySelector('#prefsVoiceOn')?.addEventListener('change', (e) => {
+      const on = !!e.target.checked;
+      try { localStorage.setItem('nx_voice_on', on ? '1' : '0'); } catch(_) {}
+      window.dispatchEvent(new CustomEvent('nx-voice-toggle', { detail: { on } }));
+    });
+    const spd = sheetEl.querySelector('#prefsVoiceSpeed');
+    if (spd) spd.addEventListener('input', (e) => {
+      const v = parseFloat(e.target.value) || 1.25;
+      const lbl = sheetEl.querySelector('#prefsVoiceSpeedVal');
+      if (lbl) lbl.textContent = v.toFixed(2) + '×';
+      try { localStorage.setItem('nexus_voice_speed', String(v)); } catch(_) {}
+      window.dispatchEvent(new CustomEvent('nx-voice-speed-change', { detail: { speed: v } }));
     });
     sheetEl.querySelector('#prefsClose').addEventListener('click', closeSheet);
   }

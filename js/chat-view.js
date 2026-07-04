@@ -88,6 +88,7 @@
     volume:     '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>',
     volumeOff:  '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>',
     newChat:    '<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>',
+    sliders:    '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>',
   };
   const svg = (p, size = 18) =>
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="${size}" height="${size}">${p}</svg>`;
@@ -390,6 +391,9 @@
       { key: 'camera', label: 'Scan document', icon: ICONS.camera },
       { key: 'mic',    label: 'Voice input',   icon: ICONS.mic },
       { key: 'voice',  label: 'Voice replies', icon: state.voiceOn ? ICONS.volume : ICONS.volumeOff, toggle: true },
+      // v18.40 — one door to every AI control (advisor, tone, voice, speed)
+      // from where you actually talk to NEXUS. Opens the unified console.
+      { key: 'settings', label: 'Advisor, tone & voice', icon: ICONS.sliders || ICONS.settings || ICONS.volume },
     ];
     menu.innerHTML = items.map(it => `
       <button class="cv-plus-item ${it.toggle && it.key === 'voice' && state.voiceOn ? 'active' : ''}" data-key="${it.key}" type="button" role="menuitem">
@@ -437,6 +441,10 @@
       localStorage.setItem('nx_voice_on', state.voiceOn ? '1' : '0');
       // Signal brain-chat so its internal voiceOn stays in sync
       window.dispatchEvent(new CustomEvent('nx-voice-toggle', { detail: { on: state.voiceOn } }));
+    } else if (key === 'settings') {
+      // v18.40 — the unified AI console (advisor · tone · voice · speed),
+      // opened from where you actually talk to NEXUS.
+      if (window.NX && NX.prefs && NX.prefs.openSheet) NX.prefs.openSheet();
     }
   }
 
