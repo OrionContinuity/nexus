@@ -38,7 +38,7 @@ param(
   [int]$MinBatteryPct  = 40,    # when on battery, only install above this charge
   [switch]$AllowOnBattery,      # permit installs while on battery (still honours -MinBatteryPct)
   [switch]$IncludeHeavy,        # also provision the large GPU model-gen deps (multi-GB)
-  [string]$VisionModel = 'llava',  # Ollama vision model for Scan Plate. llava is reliable + light; 'llama3.2-vision' fails to load on some Ollama builds and heavier models thrash low-RAM boxes. The worker also auto-falls-back if this can't load.
+  [string]$VisionModel = 'qwen2.5vl:7b',  # Ollama vision model for Scan Plate. qwen2.5-VL transcribes invoice text character-perfect on an 8GB 3070 (llava hallucinated every number; 'llama3.2-vision'='mllama' won't load on the shipped Ollama build). ~6GB, fits 8GB. The worker auto-falls-back to moondream if a node can't load it.
   [string]$CmdToken = $env:CLIPPY_CMD_TOKEN, # enables "Push update" / remote commands; persisted for the user
   [switch]$NoAutostart,         # skip registering the logon Scheduled Task
   [switch]$Supervise,           # run as a persistent supervisor (Clippy launches this): keep the worker alive + self-heal from GitHub

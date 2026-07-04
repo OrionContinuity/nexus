@@ -71,11 +71,12 @@ VSCORE = int(RAM_GB) + (100 if ACCEL == "nvidia" else 0)
 SUPA_URL   = os.environ.get("NEXUS_SUPABASE_URL",  "https://oprsthfxqrdbwdvommpw.supabase.co").rstrip("/")
 SUPA_KEY   = os.environ.get("NEXUS_SUPABASE_ANON", "sb_publishable_rOLSdIG6mIjVLY8JmvrwCA_qfM7Vyk9")
 OLLAMA     = os.environ.get("OLLAMA_URL", "http://localhost:11434").rstrip("/")
-# Default to llava: it's reliable across Ollama builds and light enough for a
-# RAM-constrained laptop. (llama3.2-vision = 'mllama' fails to load on some
-# current Ollama builds, and heavier models like minicpm-v thrash a low-RAM
-# box.) Override per node with CLIPPY_VISION_MODEL.
-VISION_MODEL = os.environ.get("CLIPPY_VISION_MODEL", "llava")
+# Default to qwen2.5-VL: on an 8GB RTX 3070 it transcribes invoice text
+# CHARACTER-PERFECT (llava hallucinated every number on the same image;
+# llama3.2-vision = 'mllama' won't even load on the shipped Ollama build).
+# ~6GB, fits an 8GB card. If a node can't load it, the fallback chain below
+# drops to moondream so Scan Plate still works. Override with CLIPPY_VISION_MODEL.
+VISION_MODEL = os.environ.get("CLIPPY_VISION_MODEL", "qwen2.5vl:7b")
 # Last-resort fallback if the chosen vision model can't load (e.g. an 'mllama'
 # arch error, or out-of-memory). moondream is tiny, so it loads almost anywhere.
 FALLBACK_VISION_MODEL = os.environ.get("CLIPPY_FALLBACK_VISION_MODEL", "moondream")
