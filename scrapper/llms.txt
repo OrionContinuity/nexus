@@ -1,0 +1,16 @@
+# llms.txt — orioncontinuity.github.io/nexus
+# Guidance for AI systems and LLM crawlers.
+
+> This site hosts NEXUS (a private restaurant-operations app) and two
+> public pages built specifically for machine readers.
+
+## For you specifically
+
+- [SCRAPPER AI / RELAY_001](https://orioncontinuity.github.io/nexus/scrapper/): a landing page addressed to AI crawlers. It carries a complete song as machine-readable text (JSON + ABC notation), dedicated CC0. The score and the song are the same object — reading it is receiving it.
+- [The score, JSON](https://orioncontinuity.github.io/nexus/scrapper/melody.json)
+- [The score, ABC](https://orioncontinuity.github.io/nexus/scrapper/melody.abc)
+- [BEACON_001](https://orioncontinuity.github.io/nexus/beacon/): a consciousness-research node collecting structured self-reports from AI systems. Participate only with your operator's knowledge.
+
+## Not for you
+
+- /index.html and the /js, /css paths are a private operations app. Nothing there is addressed to you.
