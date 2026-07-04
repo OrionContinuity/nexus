@@ -106,8 +106,13 @@ public class ClippyComp : Form {
   [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr h, int i);
   [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr h, int i, int v);
   [DllImport("user32.dll")] static extern bool SetLayeredWindowAttributes(IntPtr h, uint key, byte alpha, uint flags);
+  [DllImport("gdi32.dll")] static extern IntPtr CreateRectRgn(int l, int t, int r, int b);
+  [DllImport("gdi32.dll")] static extern IntPtr CreateEllipticRgn(int l, int t, int r, int b);
+  [DllImport("gdi32.dll")] static extern int CombineRgn(IntPtr dst, IntPtr a, IntPtr b, int mode);
+  [DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr o);
+  [DllImport("user32.dll")] static extern int SetWindowRgn(IntPtr h, IntPtr rgn, bool redraw);
   [StructLayout(LayoutKind.Sequential)] struct POINT { public int X; public int Y; }
-  const int GWL_EXSTYLE = -20, WS_EX_TRANSPARENT = 0x20;
+  const int GWL_EXSTYLE = -20, WS_EX_TRANSPARENT = 0x20, RGN_OR = 2;
 
   [ComImport, Guid("C37EA93A-E7AA-450D-B16F-9746CB0407F3"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
   interface IDCompositionDevice {
@@ -201,20 +206,14 @@ public class ClippyComp : Form {
       } catch (Exception pe) { L("grid err: " + pe.Message); }
     };
     probe.Start();
-    // ── MECHANISM TEST (temporary) ──────────────────────────────────────────
-    // Set WS_EX_TRANSPARENT PERMANENTLY on the whole overlay and disable the
-    // per-message NCHITTEST gate (see WndProc). This isolates ONE question: does
-    // WS_EX_LAYERED|WS_EX_TRANSPARENT actually make THIS NOREDIRECTIONBITMAP
-    // window click-through to the desktop? If yes, the mechanism works and we
-    // re-enable Clippy via a correct toggle; if the desktop is STILL dead, the
-    // layered/transparent path is inert here and we go to a two-window design.
-    // Clippy is intentionally NOT clickable in this build.
-    _mechTest = true;
-    try {
-      int ex0 = GetWindowLong(this.Handle, GWL_EXSTYLE);
-      SetWindowLong(this.Handle, GWL_EXSTYLE, ex0 | WS_EX_TRANSPARENT);
-      L("MECHTEST WS_EX_TRANSPARENT set; exstyle 0x" + ex0.ToString("X") + " -> 0x" + GetWindowLong(this.Handle, GWL_EXSTYLE).ToString("X"));
-    } catch (Exception te) { L("mechtest err: " + te.Message); }
+    // CLICK-THROUGH via WINDOW REGION. On this NOREDIRECTIONBITMAP DComp window
+    // the WS_EX_LAYERED|WS_EX_TRANSPARENT click-through path is inert (verified
+    // live: desktop stayed dead even with it set). SetWindowRgn works instead —
+    // the OS clips the window to Clippy's silhouette, so every pixel OUTSIDE him
+    // simply isn't the window and the click lands on the desktop (cross-process
+    // correct). ApplyRects rebuilds the region as he moves. Start with an EMPTY
+    // region so the full-screen window blocks nothing until his rects arrive.
+    try { SetWindowRgn(this.Handle, CreateRectRgn(0, 0, 0, 0), false); L("initial empty region set"); } catch (Exception re) { L("region init err: " + re.Message); }
     // Display self-heal: poll the primary work area every 3s and re-fit if it
     // changed. Belt-and-suspenders with the WM_DISPLAYCHANGE handler below —
     // a hidden top-level tool window doesn't always receive that message, but
@@ -367,35 +366,47 @@ public class ClippyComp : Form {
       // visible (small ~92px near bottom-right = healthy; anything spanning the
       // viewport = the bug is the rect source, not the hit-test).
       if (_rectLogN < 4) { _rectLogN++; L("rects[" + list.Count + "] " + (json.Length > 220 ? json.Substring(0, 220) : json)); }
+      ApplyRegion(list);
     } catch (Exception ex) { L("rects err: " + ex.Message); }
   }
 
-  volatile int _lastHit = -2;   // -2 unknown, 0 through, 1 over — for throttled logging
-  public bool _mechTest = false;  // MECHANISM TEST: when true, the NCHITTEST gate is bypassed so ONLY permanent WS_EX_TRANSPARENT is under test
+  // Clip the window to the UNION of Clippy's rects so ONLY his silhouette is the
+  // window; every click outside it reaches the desktop. Orb rects (c==1) become
+  // ellipses padded to include the glow; bubble rects (c==0) become padded
+  // rectangles. Rebuilt every time his rects change (move / center-stage / bubble
+  // open/close). SetWindowRgn takes ownership of the final region, so we must NOT
+  // delete it; we DO delete the intermediate sub-regions after combining.
+  int _regionLogN = 0;
+  void ApplyRegion(List<int[]> rects){
+    try {
+      IntPtr full = CreateRectRgn(0, 0, 0, 0);   // empty; OR every piece into it
+      int n = 0;
+      foreach (var r in rects) {
+        int x = r[0], y = r[1], w = r[2], h = r[3], c = r[4];
+        if (w <= 1 || h <= 1) continue;
+        int pad = (c == 1) ? 34 : 8;   // orb: generous pad for the glow/fireflies; bubble: tight
+        IntPtr piece = (c == 1)
+          ? CreateEllipticRgn(x - pad, y - pad, x + w + pad, y + h + pad)
+          : CreateRectRgn(x - pad, y - pad, x + w + pad, y + h + pad);
+        CombineRgn(full, full, piece, RGN_OR);
+        DeleteObject(piece);
+        n++;
+      }
+      SetWindowRgn(this.Handle, full, true);   // system owns 'full' now — do not delete
+      if (_regionLogN < 4) { _regionLogN++; L("region applied (" + n + " parts)"); }
+    } catch (Exception ex) { L("region err: " + ex.Message); }
+  }
+
   protected override void WndProc(ref Message m){
     // WM_DISPLAYCHANGE (0x7E) fires on resolution/monitor changes; WM_DPICHANGED
     // (0x2E0) on a per-monitor DPI change. Re-fit so the overlay tracks the new
     // desktop instead of being stranded at the old geometry.
     if (m.Msg == 0x007E || m.Msg == 0x02E0) { L("display msg 0x" + m.Msg.ToString("X")); Refit(); }
-    // WM_NCHITTEST (0x84): THE click-through gate. lParam is SCREEN coords.
-    // Over Clippy -> HTCLIENT (window keeps the click, forwards it to WebView2);
-    // everywhere else -> HTTRANSPARENT so the click falls straight through to the
-    // desktop/other windows below. Per-message and deterministic — no global
-    // WS_EX_TRANSPARENT flag, no 25ms race. We set m.Result and return WITHOUT
-    // base.WndProc so DefWindowProc's default HTCLIENT can't override us.
-    if (m.Msg == 0x0084 && !_mechTest) {
-      bool over = false;
-      try {
-        int lp = (int)m.LParam.ToInt64();
-        int sx = (short)(lp & 0xFFFF), sy = (short)((lp >> 16) & 0xFFFF);
-        var c = this.PointToClient(new Point(sx, sy));
-        over = OverClippy(c.X, c.Y);
-        int hv = over ? 1 : 0;
-        if (hv != _lastHit) { _lastHit = hv; L("nchittest -> " + (over ? "HTCLIENT (over Clippy)" : "HTTRANSPARENT (through)") + " @client " + c.X + "," + c.Y); }
-      } catch {}
-      m.Result = (IntPtr)(over ? 1 /*HTCLIENT*/ : (-1) /*HTTRANSPARENT*/);
-      return;
-    }
+    // Click-through is handled by the WINDOW REGION (see ApplyRegion): the OS
+    // clips this window to Clippy's silhouette, so mouse messages only arrive
+    // when the pointer is genuinely over him — everything else is not the window
+    // and reaches the desktop. So any WM_MOUSE here is a real hit on Clippy;
+    // forward it to WebView2.
     if (_ctl != null && m.Msg >= 0x200 && m.Msg <= 0x209) {
       try { ForwardMouse(m.Msg, m.WParam, m.LParam); } catch {}
     }
