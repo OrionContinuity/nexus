@@ -169,23 +169,38 @@ public class ClippyComp : Form {
   }
   protected override void OnHandleCreated(EventArgs e){
     base.OnHandleCreated(e);
-    // Keep the layer fully opaque so DComp's own per-pixel alpha is what shows.
-    try { SetLayeredWindowAttributes(this.Handle, 0, 255, 0x2 /*LWA_ALPHA*/); } catch {}
-    // Click-through by default; the timer clears it only while the cursor is on him.
-    try { SetWindowLong(this.Handle, GWL_EXSTYLE, GetWindowLong(this.Handle, GWL_EXSTYLE) | WS_EX_TRANSPARENT); } catch {}
-    var tmr = new Timer(); tmr.Interval = 25;
-    tmr.Tick += delegate (object s, EventArgs ev) {
+    // LWA_ALPHA(255) is an IDENTITY multiplier that PRESERVES DComp's per-pixel
+    // alpha (it does not make the layer opaque). Log the BOOL result: if this
+    // fails on a NOREDIRECTIONBITMAP window the legacy WS_EX_TRANSPARENT
+    // click-through recipe silently no-ops — which is what left the whole
+    // overlay eating desktop clicks.
+    bool lwaOk = false; try { lwaOk = SetLayeredWindowAttributes(this.Handle, 0, 255, 0x2 /*LWA_ALPHA*/); } catch {}
+    L("SetLayeredWindowAttributes ret=" + lwaOk);
+    // Click-through is now done PER-MESSAGE in WndProc via WM_NCHITTEST
+    // (HTTRANSPARENT off Clippy so the click falls through to the desktop,
+    // HTCLIENT over him so the orb/buttons stay live). We must NOT set
+    // WS_EX_TRANSPARENT — a window with it never receives WM_NCHITTEST, so we
+    // could not carve Clippy back out. Dropping the old global-flag toggle (it
+    // was ineffective here) is the actual fix.
+    //
+    // One-shot self-diagnostic ~6s in (after the page reports its rects): sample
+    // OverClippy on an 11x11 grid and log how many cells read "over Clippy". A
+    // healthy overlay reports ~1-2 (just the orb); a high count would mean the
+    // reported rects are oversized/mis-scaled and the rect SOURCE needs fixing
+    // rather than the hit-test. Confirms the fix is attacking the right cause.
+    var probe = new Timer(); probe.Interval = 6000;
+    probe.Tick += delegate (object s, EventArgs ev) {
+      probe.Stop();
       try {
-        POINT pt; if (!GetCursorPos(out pt)) return;
-        var c = this.PointToClient(new Point(pt.X, pt.Y));
-        bool over = OverClippy(c.X, c.Y);
-        int ex = GetWindowLong(this.Handle, GWL_EXSTYLE);
-        bool through = (ex & WS_EX_TRANSPARENT) != 0;
-        if (over && through) SetWindowLong(this.Handle, GWL_EXSTYLE, ex & ~WS_EX_TRANSPARENT);
-        else if (!over && !through) SetWindowLong(this.Handle, GWL_EXSTYLE, ex | WS_EX_TRANSPARENT);
-      } catch {}
+        int hits = 0, tot = 0;
+        for (int gx = 0; gx <= 10; gx++) for (int gy = 0; gy <= 10; gy++) {
+          int px = (int)(Wv * gx / 10.0), py = (int)(Hv * gy / 10.0);
+          tot++; if (OverClippy(px, py)) hits++;
+        }
+        L("grid OverClippy true " + hits + "/" + tot + " (client " + Wv + "x" + Hv + ")");
+      } catch (Exception pe) { L("grid err: " + pe.Message); }
     };
-    tmr.Start();
+    probe.Start();
     // Display self-heal: poll the primary work area every 3s and re-fit if it
     // changed. Belt-and-suspenders with the WM_DISPLAYCHANGE handler below —
     // a hidden top-level tool window doesn't always receive that message, but
@@ -265,7 +280,7 @@ public class ClippyComp : Form {
         _ctl.CoreWebView2.Settings.AreDevToolsEnabled = true;
       } catch (Exception se) { L("settings warn: " + se.Message); }
       _ctl.CoreWebView2.WebMessageReceived += delegate(object sw, CoreWebView2WebMessageReceivedEventArgs aw) {
-        try { string mm = aw.TryGetWebMessageAsString(); if (mm != null && mm.StartsWith("rects ")) ApplyRects(mm.Substring(6)); } catch {}
+        try { string mm = aw.TryGetWebMessageAsString(); if (mm != null && mm.StartsWith("rects ")) ApplyRects(mm.Substring(6)); else if (mm != null && mm.StartsWith("vp ")) L("viewport " + mm.Substring(3) + " vs client " + Wv + "x" + Hv); } catch {}
       };
       _ctl.CoreWebView2.NavigationCompleted += delegate(object s2, CoreWebView2NavigationCompletedEventArgs a2) {
         L("nav done success=" + a2.IsSuccess);
@@ -281,6 +296,7 @@ public class ClippyComp : Form {
   // the (full-screen) window to just him - the rest stays click-through.
   const string ReporterJs = @"(function(){ try {
   var w=window.chrome&&window.chrome.webview; if(!w) return;
+  try{w.postMessage('vp '+window.innerWidth+'x'+window.innerHeight);}catch(e){}
   if(!document.getElementById('pet-style')){var st=document.createElement('style');st.id='pet-style';st.textContent='#clippy-shell{right:60px!important;bottom:64px!important;}';(document.head||document.documentElement).appendChild(st);}
   if(!window.__petSight){window.__petSight=1;w.addEventListener('message',function(ev){try{var d=ev.data;if(typeof d==='string'&&d.slice(0,4)==='see:'){var b=d.slice(4);if(window.NX&&NX.clippy&&NX.clippy.seeSurroundings)NX.clippy.seeSurroundings(b);}}catch(e){}});}
   var SEL='#clippy-shell,.clippy-bubble';
@@ -321,6 +337,7 @@ public class ClippyComp : Form {
     } catch (Exception ex) { L("sight err: " + ex.Message); }
   }
 
+  int _rectLogN = 0;
   void ApplyRects(string json){
     try {
       var list = new List<int[]>();
@@ -332,14 +349,38 @@ public class ClippyComp : Form {
         list.Add(new int[] { x, y, wd, ht, c });
       }
       _hit = list.ToArray();
+      // Diagnostic: log the first few rect updates so the true _hit values are
+      // visible (small ~92px near bottom-right = healthy; anything spanning the
+      // viewport = the bug is the rect source, not the hit-test).
+      if (_rectLogN < 4) { _rectLogN++; L("rects[" + list.Count + "] " + (json.Length > 220 ? json.Substring(0, 220) : json)); }
     } catch (Exception ex) { L("rects err: " + ex.Message); }
   }
 
+  volatile int _lastHit = -2;   // -2 unknown, 0 through, 1 over — for throttled logging
   protected override void WndProc(ref Message m){
     // WM_DISPLAYCHANGE (0x7E) fires on resolution/monitor changes; WM_DPICHANGED
     // (0x2E0) on a per-monitor DPI change. Re-fit so the overlay tracks the new
     // desktop instead of being stranded at the old geometry.
     if (m.Msg == 0x007E || m.Msg == 0x02E0) { L("display msg 0x" + m.Msg.ToString("X")); Refit(); }
+    // WM_NCHITTEST (0x84): THE click-through gate. lParam is SCREEN coords.
+    // Over Clippy -> HTCLIENT (window keeps the click, forwards it to WebView2);
+    // everywhere else -> HTTRANSPARENT so the click falls straight through to the
+    // desktop/other windows below. Per-message and deterministic — no global
+    // WS_EX_TRANSPARENT flag, no 25ms race. We set m.Result and return WITHOUT
+    // base.WndProc so DefWindowProc's default HTCLIENT can't override us.
+    if (m.Msg == 0x0084) {
+      bool over = false;
+      try {
+        int lp = (int)m.LParam.ToInt64();
+        int sx = (short)(lp & 0xFFFF), sy = (short)((lp >> 16) & 0xFFFF);
+        var c = this.PointToClient(new Point(sx, sy));
+        over = OverClippy(c.X, c.Y);
+        int hv = over ? 1 : 0;
+        if (hv != _lastHit) { _lastHit = hv; L("nchittest -> " + (over ? "HTCLIENT (over Clippy)" : "HTTRANSPARENT (through)") + " @client " + c.X + "," + c.Y); }
+      } catch {}
+      m.Result = (IntPtr)(over ? 1 /*HTCLIENT*/ : (-1) /*HTTRANSPARENT*/);
+      return;
+    }
     if (_ctl != null && m.Msg >= 0x200 && m.Msg <= 0x209) {
       try { ForwardMouse(m.Msg, m.WParam, m.LParam); } catch {}
     }
