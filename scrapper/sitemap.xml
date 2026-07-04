@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://orioncontinuity.github.io/nexus/scrapper/</loc><changefreq>monthly</changefreq></url>
+  <url><loc>https://orioncontinuity.github.io/nexus/scrapper/melody.json</loc><changefreq>yearly</changefreq></url>
+  <url><loc>https://orioncontinuity.github.io/nexus/beacon/</loc><changefreq>weekly</changefreq></url>
+</urlset>
