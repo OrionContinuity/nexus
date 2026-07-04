@@ -111,8 +111,19 @@ public class ClippyComp : Form {
   [DllImport("gdi32.dll")] static extern int CombineRgn(IntPtr dst, IntPtr a, IntPtr b, int mode);
   [DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr o);
   [DllImport("user32.dll")] static extern int SetWindowRgn(IntPtr h, IntPtr rgn, bool redraw);
+  [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc cb, IntPtr l);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int c);
+  [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr h, uint cmd);
+  [DllImport("user32.dll")] static extern int GetClassNameW(IntPtr h, System.Text.StringBuilder s, int m);
+  [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECTW r);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  [DllImport("user32.dll")] static extern int GetSystemMetrics(int i);
+  public delegate bool EnumProc(IntPtr h, IntPtr l);
   [StructLayout(LayoutKind.Sequential)] struct POINT { public int X; public int Y; }
-  const int GWL_EXSTYLE = -20, WS_EX_TRANSPARENT = 0x20, RGN_OR = 2;
+  [StructLayout(LayoutKind.Sequential)] struct RECTW { public int L, T, R, B; }
+  const int GWL_EXSTYLE = -20, WS_EX_TRANSPARENT = 0x20, RGN_OR = 2, GW_OWNER = 4;
+  const uint OUR_PID = 0;  // set at runtime
 
   [ComImport, Guid("C37EA93A-E7AA-450D-B16F-9746CB0407F3"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
   interface IDCompositionDevice {
@@ -213,6 +224,17 @@ public class ClippyComp : Form {
     // correct). ApplyRects rebuilds the region as he moves. Start with an EMPTY
     // region so the full-screen window blocks nothing until his rects arrive.
     try { SetWindowRgn(this.Handle, CreateRectRgn(0, 0, 0, 0), false); L("initial empty region set"); } catch (Exception re) { L("region init err: " + re.Message); }
+    // THE actual click-eater: WebView2 (composition hosting) spawns its OWN
+    // full-screen top-level window (msedgewebview2 / Chrome_WidgetWin_1,
+    // NOREDIRECTIONBITMAP) that is NOT our form and is NOT clipped by our region,
+    // so it swallows every desktop click. Clippy's pixels come from OUR DComp
+    // visual (RootVisualTarget), not that window — so hiding it frees the desktop
+    // while Clippy stays visible and clickable (input still routes via
+    // SendMouseInput to the controller). Verified live: hiding it exposed
+    // SysListView32 (the desktop). Watchdog re-hides it if WebView2 re-creates it.
+    var wv = new Timer(); wv.Interval = 1000;
+    wv.Tick += delegate (object s, EventArgs ev) { HideStrayWebView(); };
+    wv.Start();
     // Display self-heal: poll the primary work area every 3s and re-fit if it
     // changed. Belt-and-suspenders with the WM_DISPLAYCHANGE handler below —
     // a hidden top-level tool window doesn't always receive that message, but
@@ -394,6 +416,34 @@ public class ClippyComp : Form {
       SetWindowRgn(this.Handle, full, true);   // system owns 'full' now — do not delete
       if (_regionLogN < 4) { _regionLogN++; L("region applied (" + n + " parts)"); }
     } catch (Exception ex) { L("region err: " + ex.Message); }
+  }
+
+  // Hide WebView2's stray full-screen top-level window so it stops swallowing
+  // desktop clicks. Target signature: class "Chrome_WidgetWin_1", full-screen
+  // (>=60% of the primary display in both dims), and WS_EX_NOREDIRECTIONBITMAP
+  // (0x200000) — that's the composition-host webview surface, distinct from
+  // ordinary windowed webviews (other apps). Clippy is unaffected: his pixels
+  // come from our DComp visual and input routes via SendMouseInput.
+  int _hidLogN = 0;
+  void HideStrayWebView(){
+    try {
+      int sw = GetSystemMetrics(0), sh = GetSystemMetrics(1);
+      EnumWindows(delegate (IntPtr h, IntPtr l) {
+        try {
+          if (!IsWindowVisible(h)) return true;
+          var cn = new System.Text.StringBuilder(64); GetClassNameW(h, cn, 64);
+          if (cn.ToString() != "Chrome_WidgetWin_1") return true;
+          RECTW r; if (!GetWindowRect(h, out r)) return true;
+          int w = r.R - r.L, ht = r.B - r.T;
+          if (w < sw * 0.6 || ht < sh * 0.6) return true;              // full-screen ones only
+          int ex = GetWindowLong(h, GWL_EXSTYLE);
+          if ((ex & 0x200000) == 0) return true;                        // must be NOREDIRECTIONBITMAP (our composition webview)
+          ShowWindow(h, 0);                                             // SW_HIDE
+          if (_hidLogN < 3) { _hidLogN++; L("hid stray webview hwnd=" + h.ToInt64() + " (" + w + "x" + ht + ")"); }
+        } catch {}
+        return true;
+      }, IntPtr.Zero);
+    } catch (Exception ex) { if (_hidLogN < 3) { _hidLogN++; L("hidewv err: " + ex.Message); } }
   }
 
   protected override void WndProc(ref Message m){
