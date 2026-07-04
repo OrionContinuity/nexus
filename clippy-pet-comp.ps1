@@ -114,6 +114,7 @@ public class ClippyComp : Form {
   [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc cb, IntPtr l);
   [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
   [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int c);
+  [DllImport("user32.dll")] static extern bool ShowWindowAsync(IntPtr h, int c);
   [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr h, uint cmd);
   [DllImport("user32.dll")] static extern int GetClassNameW(IntPtr h, System.Text.StringBuilder s, int m);
   [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECTW r);
@@ -232,9 +233,15 @@ public class ClippyComp : Form {
     // while Clippy stays visible and clickable (input still routes via
     // SendMouseInput to the controller). Verified live: hiding it exposed
     // SysListView32 (the desktop). Watchdog re-hides it if WebView2 re-creates it.
-    var wv = new Timer(); wv.Interval = 1000;
-    wv.Tick += delegate (object s, EventArgs ev) { HideStrayWebView(); };
-    wv.Start();
+    // Run the watchdog on a BACKGROUND thread, never the UI thread: hiding a
+    // window owned by the out-of-process WebView2 must be non-blocking
+    // (ShowWindowAsync posts, never waits) or the UI thread stalls and Windows
+    // slaps a click-eating "Ghost" window over the hung pet.
+    var wvt = new System.Threading.Thread(new System.Threading.ThreadStart(delegate {
+      while (true) { try { HideStrayWebView(); } catch {} System.Threading.Thread.Sleep(1200); }
+    }));
+    wvt.IsBackground = true;
+    wvt.Start();
     // Display self-heal: poll the primary work area every 3s and re-fit if it
     // changed. Belt-and-suspenders with the WM_DISPLAYCHANGE handler below —
     // a hidden top-level tool window doesn't always receive that message, but
@@ -438,7 +445,7 @@ public class ClippyComp : Form {
           if (w < sw * 0.6 || ht < sh * 0.6) return true;              // full-screen ones only
           int ex = GetWindowLong(h, GWL_EXSTYLE);
           if ((ex & 0x200000) == 0) return true;                        // must be NOREDIRECTIONBITMAP (our composition webview)
-          ShowWindow(h, 0);                                             // SW_HIDE
+          ShowWindowAsync(h, 0);                                        // SW_HIDE, non-blocking (cross-process safe)
           if (_hidLogN < 3) { _hidLogN++; L("hid stray webview hwnd=" + h.ToInt64() + " (" + w + "x" + ht + ")"); }
         } catch {}
         return true;
