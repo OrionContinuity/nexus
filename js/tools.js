@@ -278,8 +278,12 @@
       var latest = rel.version || null;
       var rows = nodes.length ? nodes.map(function (n) {
         var stale = latest && n.version && String(n.version) !== String(latest);
+        // A node can only receive a remote push if its worker advertises the
+        // 'cmd' cap (CLIPPY_CMD_TOKEN set). Legacy app-only nodes can't — the
+        // first worker install on those is a one-time paste on the PC itself.
+        var canPush = (n.caps || []).indexOf('cmd') >= 0;
         return '<div class="nxt-node on"><div class="nxt-node-top"><span class="nxt-dot"></span><span class="nxt-node-name">' + esc(nodeId(n)) + '</span>' +
-          '<span class="nxt-tag">v' + esc(n.version || '?') + (stale ? ' · update' : ' · current') + '</span></div></div>';
+          '<span class="nxt-tag">v' + esc(n.version || '?') + (stale ? ' · update' : ' · current') + (canPush ? '' : ' · no remote-exec — run clippy-update.ps1 on the PC once') + '</span></div></div>';
       }).join('') : '<div class="nxt-empty">○ no nodes online to update</div>';
       host.innerHTML =
         '<div class="nxt-info">Ships the latest Clippy to every online node. The node downloads <code>clippy-update.ps1</code> from Supabase Storage and runs it (PowerShell), then restarts. Watch it stream under <b>Activity</b>.</div>' +
@@ -306,8 +310,13 @@
   }
   function sendCmd(nodes, cmd, idPrefix, token) {
     var ts = Date.now();
+    // Ride the 'vis:' lane, not 'job:'. Legacy Clippy-app pollers (≤2.4.3)
+    // claim every job: row as a CHAT prompt — a cmd job sent there gets
+    // answered by qwen with a greeting instead of executed (verified live
+    // on the 3070). Only clippy-worker.py polls vis:, and it runs cmd jobs
+    // from any lane, so vis: is the race-proof path.
     return Promise.all(nodes.map(function (n, i) {
-      return busPost({ id: 'job:' + idPrefix + '-' + ts + '-' + i, from_id: 'nexus', data: { status: 'pending', cmd: cmd, token: token, shell: 'powershell', ts: ts } });
+      return busPost({ id: 'vis:' + idPrefix + '-' + ts + '-' + i, from_id: 'nexus', data: { status: 'pending', cmd: cmd, token: token, shell: 'powershell', ts: ts } });
     }));
   }
   function pushUpdate(nodes, pb) {
