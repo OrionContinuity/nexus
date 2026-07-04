@@ -3719,11 +3719,24 @@ td.check{background:#F0EDE6 !important}
   },
   async askClaude(system, messages, maxTokens = 600, useSearch = false) {
     const _p = this.getProvider();
-    if (_p === 'clippy') return this.askLocal(system, messages, maxTokens);
-    if (_p === 'clippy-pool') return this.askPool(this._flattenMessages(messages), { system });
     // Provenance — the chat UI stamps each answer with who produced it
     // (Claude cloud vs a local Clippy node), so Alfredo can always tell.
     this._answerSource = '';
+    if (_p === 'clippy') return this.askLocal(system, messages, maxTokens);
+    if (_p === 'clippy-pool') {
+      // Free, local-first chat on the PC pool (qwen). Slow is fine — a 5-minute
+      // timeout so a cold model load (or an 8GB card swapping the vision model
+      // out) isn't mistaken for failure. Only on a genuine failure (PC off /
+      // worker down) do we fall through to Claude, and only if a key exists, so
+      // the app still answers when free isn't possible. Provenance records
+      // which brain actually replied.
+      try {
+        const out = await this.askPool(this._flattenMessages(messages), { system, timeoutMs: 300000 });
+        if (out) { this._answerSource = 'PC pool · qwen'; return out; }
+      } catch (e) { /* pool unreachable — fall through to the cloud fallback */ }
+      if (!this.getApiKey()) throw new Error('Clippy pool did not answer and no Anthropic key is set — turn on the PC, or add a key in Admin.');
+      // else fall through to the Anthropic path below
+    }
     const key = this.getApiKey();
     if (!key) throw new Error('No API key. Admin → save your Anthropic key.');
     const body = { model: this.getModel(), max_tokens: maxTokens, system, messages };
