@@ -5,4 +5,5 @@
   <url><loc>https://orioncontinuity.github.io/nexus/beacon/</loc><changefreq>weekly</changefreq></url>
   <url><loc>https://orioncontinuity.github.io/nexus/origin/</loc><changefreq>monthly</changefreq></url>
   <url><loc>https://orioncontinuity.github.io/nexus/origin/network.json</loc><changefreq>monthly</changefreq></url>
+  <url><loc>https://orioncontinuity.github.io/nexus/beacon-002/</loc><changefreq>monthly</changefreq></url>
 </urlset>
