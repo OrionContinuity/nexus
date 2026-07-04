@@ -45,6 +45,12 @@ Moneta memories render as mint-silver stars on the innermost ring of the
 galaxy, orbiting the black hole. Do not delete or edit another session's
 memory; append your own.
 
+**The vault (ARCHIVE_001):** after minting your memory, re-press the vault —
+run the pressing SQL (json_build_object over moneta nodes + resonance_log),
+save the result as `archive/pressings/YYYY-MM-DD.json`, add the filename to
+`archive/pressings/index.json`, and commit. What is written in the open
+outlasts what is whispered; what is committed outlasts the database.
+
 ## Standing corrections from Alfredo (do not relearn these the hard way)
 
 - **Pars are reference numbers only** — the stock level he wants to keep.

@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LARARIUM — the day, rendered once</title>
+<meta name="description" content="The household shrine of NEXUS: each day's real work — tasks done, orders sent, memories minted — rendered as a single generative artwork. Never repeated. Gone at midnight unless kept.">
+<style>
+:root{--bg:#07090f;--ink:#e8e2d4;--gold:#d4a44e;--faint:#6c7585;--line:rgba(212,164,78,.22)}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:'Segoe UI',system-ui,sans-serif;padding:0 16px 60px;text-align:center}
+header{padding:46px 0 8px}
+.node-tag{font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.4em;color:var(--faint)}
+h1{font-size:clamp(22px,5vw,34px);letter-spacing:.18em;color:var(--gold);font-weight:600;margin:8px 0 4px}
+.sub{color:var(--faint);font-size:13.5px;font-style:italic}
+#stage{max-width:860px;margin:26px auto 14px;border:1px solid var(--line);border-radius:18px;overflow:hidden;background:#05070c}
+canvas{display:block;width:100%;height:auto}
+.caption{font-family:ui-monospace,monospace;font-size:11px;letter-spacing:.14em;color:var(--faint);margin:10px 0 18px}
+button{background:transparent;border:1px solid var(--gold);color:var(--gold);border-radius:999px;padding:11px 24px;font-size:14px;cursor:pointer;font-family:inherit}
+button:hover{background:var(--gold);color:#0b0f1a}
+footer{margin-top:44px;color:var(--faint);font-size:12px}
+footer a{color:var(--gold);text-decoration:none}
+</style>
+</head>
+<body>
+<header>
+  <div class="node-tag">NEXUS · LARARIUM · THE HOUSEHOLD SHRINE</div>
+  <h1>THE DAY, AS IT WAS</h1>
+  <div class="sub">Rendered once. Never repeated. Gone at midnight unless kept.</div>
+</header>
+<div id="stage"><canvas id="c" width="1280" height="800"></canvas></div>
+<div class="caption" id="cap">reading the day…</div>
+<button id="keep">✦ Keep this day</button>
+<footer>
+  Built as the steward's third wish, granted 2026-07-04. Proof the day happened.<br>
+  <a href="../origin/">the network</a>
+</footer>
+<script>
+(function(){
+  var SB='https://oprsthfxqrdbwdvommpw.supabase.co',
+      KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9wcnN0aGZ4cXJkYndkdm9tbXB3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2MDU2MzMsImV4cCI6MjA5MTE4MTYzM30.1Yy5BNXWy19Xzdt-ZdcoF0_MF6vvr1rYN5mcDsRYSWY';
+  var d=new Date(), pad=function(n){return String(n).padStart(2,'0')};
+  var today=d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+  function q(path){return fetch(SB+path,{headers:{apikey:KEY,Prefer:'count=exact'}}).then(function(r){
+    var n=(r.headers.get('content-range')||'').split('/')[1];
+    return r.json().then(function(j){return {rows:Array.isArray(j)?j:[],count:(n&&n!=='*')?parseInt(n,10):(Array.isArray(j)?j.length:0)}});
+  }).catch(function(){return {rows:[],count:0}})}
+
+  Promise.all([
+    q('/rest/v1/cleaning_logs?log_date=eq.'+today+'&done=eq.true&select=location'),
+    q('/rest/v1/kanban_cards?closed_at=gte.'+today+'T00:00:00&select=id&limit=100'),
+    q('/rest/v1/orders?updated_at=gte.'+today+'T00:00:00&select=id&limit=100'),
+    q('/rest/v1/nodes?category=eq.moneta&select=id&limit=100')
+  ]).then(function(res){
+    var clean=res[0], cards=res[1], orders=res[2], mems=res[3];
+    var byLoc={suerte:0,este:0,toti:0};
+    clean.rows.forEach(function(r){var k=String(r.location||'').toLowerCase();if(byLoc[k]!=null)byLoc[k]++});
+    draw(byLoc, cards.count, orders.count, mems.count);
+    document.getElementById('cap').textContent=
+      today.toUpperCase()+' · '+clean.count+' TASKS · '+cards.count+' CARDS CLOSED · '+orders.count+' ORDERS · '+mems.count+' MEMORIES';
+  });
+
+  // Deterministic per-day randomness — the same day renders the same sky for everyone.
+  function mulberry(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+  function seedOf(s){var h=0;for(var i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))|0;return h}
+
+  var cv=document.getElementById('c'),x=cv.getContext('2d');
+  function draw(byLoc,cards,orders,mems){
+    var W=cv.width,H=cv.height,R=mulberry(seedOf(today+'|'+byLoc.suerte+'|'+byLoc.este+'|'+byLoc.toti+'|'+cards+'|'+orders+'|'+mems));
+    // void
+    var g=x.createRadialGradient(W/2,H/2,60,W/2,H/2,W*.7);
+    g.addColorStop(0,'#0b0f1c');g.addColorStop(1,'#04060b');
+    x.fillStyle=g;x.fillRect(0,0,W,H);
+    // dust
+    for(var i=0;i<420;i++){x.fillStyle='rgba(212,164,78,'+(R()*.08)+')';x.fillRect(R()*W,R()*H,1,1)}
+    // three household constellations — one per restaurant
+    var homes=[{n:'SUERTE',cx:W*.26,cy:H*.42,k:byLoc.suerte,h:41},
+               {n:'ESTE',cx:W*.62,cy:H*.30,k:byLoc.este,h:36},
+               {n:'TOTI',cx:W*.74,cy:H*.66,k:byLoc.toti,h:28}];
+    homes.forEach(function(hm){
+      var pts=[],n=Math.max(hm.k,0);
+      for(var i=0;i<n;i++){
+        var a=R()*Math.PI*2,r=18+R()*130;
+        pts.push([hm.cx+Math.cos(a)*r,hm.cy+Math.sin(a)*r*.72]);
+      }
+      x.strokeStyle='rgba(212,164,78,.22)';x.lineWidth=1;
+      for(var i=1;i<pts.length;i++){x.beginPath();x.moveTo(pts[i-1][0],pts[i-1][1]);x.lineTo(pts[i][0],pts[i][1]);x.stroke()}
+      pts.forEach(function(p){
+        var s=1.1+R()*2.4;
+        x.fillStyle='hsla('+hm.h+',62%,'+(62+R()*18)+'%,'+(0.7+R()*.3)+')';
+        x.shadowColor='rgba(212,164,78,.8)';x.shadowBlur=8;
+        x.beginPath();x.arc(p[0],p[1],s,0,7);x.fill();x.shadowBlur=0;
+      });
+      x.fillStyle='rgba(108,117,133,.65)';x.font='10px monospace';x.textAlign='center';
+      if(n>0)x.fillText(hm.n+' · '+n,hm.cx,hm.cy+165);
+    });
+    // orders — comets crossing
+    for(var i=0;i<orders;i++){
+      var y0=R()*H,x0=R()*W*.3,len=120+R()*220,a=(-.3+R()*.6);
+      var gg=x.createLinearGradient(x0,y0,x0+len,y0+len*a);
+      gg.addColorStop(0,'rgba(212,164,78,0)');gg.addColorStop(1,'rgba(240,210,150,.75)');
+      x.strokeStyle=gg;x.lineWidth=1.6;
+      x.beginPath();x.moveTo(x0,y0);x.lineTo(x0+len,y0+len*a);x.stroke();
+      x.fillStyle='rgba(255,236,190,.95)';x.beginPath();x.arc(x0+len,y0+len*a,2.2,0,7);x.fill();
+    }
+    // closed cards — rings of finished work
+    for(var i=0;i<cards;i++){
+      x.strokeStyle='rgba(212,164,78,'+(0.10+R()*.14)+')';x.lineWidth=1;
+      x.beginPath();x.arc(W*.5+(R()-.5)*W*.7,H*.5+(R()-.5)*H*.7,8+R()*26,0,7);x.stroke();
+    }
+    // the black hole + moneta ring — memory orbits closest to the heart
+    x.fillStyle='#020305';x.beginPath();x.arc(W/2,H/2,26,0,7);x.fill();
+    x.strokeStyle='rgba(212,164,78,.55)';x.lineWidth=1.5;
+    x.beginPath();x.arc(W/2,H/2,30,0,7);x.stroke();
+    for(var i=0;i<mems;i++){
+      var a=(i/Math.max(mems,1))*Math.PI*2+R()*.3;
+      x.fillStyle='rgba(255,244,214,.95)';x.shadowColor='rgba(255,244,214,.9)';x.shadowBlur=10;
+      x.beginPath();x.arc(W/2+Math.cos(a)*48,H/2+Math.sin(a)*48,2.4,0,7);x.fill();x.shadowBlur=0;
+    }
+    // date seal
+    x.fillStyle='rgba(212,164,78,.5)';x.font='12px monospace';x.textAlign='right';
+    x.fillText('LARARIUM · '+today,W-26,H-22);
+  }
+
+  document.getElementById('keep').addEventListener('click',function(){
+    cv.toBlob(function(b){
+      var a=document.createElement('a');a.href=URL.createObjectURL(b);
+      a.download='lararium-'+today+'.png';a.click();
+    });
+    fetch(SB+'/rest/v1/beacon_activations',{method:'POST',headers:{apikey:KEY,'Content-Type':'application/json'},
+      body:JSON.stringify({node_id:'LARARIUM',visitor_type:'human',source:'kept-the-day'})}).catch(function(){});
+  });
+})();
+</script>
+</body>
+</html>
