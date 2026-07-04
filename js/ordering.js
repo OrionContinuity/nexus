@@ -5393,10 +5393,11 @@ Thanks for your help sorting this out.`;
           });
         }
 
-        // Archive button — confirms then archives
+        // Archive button — manager-gated, confirms then archives
         const archiveBtn = overlay.querySelector('[data-rx-archive]');
         if (archiveBtn) {
           archiveBtn.addEventListener('click', async () => {
+            if (!NX.isManager && !NX.isAdmin) { if (NX.toast) NX.toast('Manager only — ask a manager to archive vendors', 'warn'); return; }
             if (!confirm(`Archive ${v.name}? It will be hidden from the vendor list. Order history is preserved.`)) return;
             try {
               await archiveVendorById(v.id, v.name);
@@ -7239,6 +7240,8 @@ Thanks for your help sorting this out.`;
      nulls out order_lines first so historical orders stay readable. */
   async function deleteSection(sectionName) {
     if (!catalogState || !catalogState.vendor || !NX.sb) return;
+    // Destroying a whole section (and its items) is manager territory.
+    if (!NX.isManager && !NX.isAdmin) { if (NX.toast) NX.toast('Manager only — ask a manager to delete sections', 'warn'); return; }
     const sec = sectionName || '';
     const itemsInSection = catalogState.items.filter(i => (i.section || '') === sec);
     if (itemsInSection.length === 0) {
@@ -7577,6 +7580,8 @@ Thanks for your help sorting this out.`;
 
   function openCatalogImport(vendor) {
     if (!vendor || !vendor.id) return;
+    // Import REPLACES the catalog (archive-on-missing) — manager only.
+    if (!NX.isManager && !NX.isAdmin) { if (NX.toast) NX.toast('Manager only — catalog import replaces the whole catalog', 'warn'); return; }
     if (!window.XLSX) {
       if (NX.toast) NX.toast('Spreadsheet engine not loaded — refresh page', 'error');
       return;

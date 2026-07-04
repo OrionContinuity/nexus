@@ -3081,6 +3081,7 @@
 
   async function litePeriodicDelete(t) {
     if (!t || !NX.sb) return;
+    if (!NX.isManager && !NX.isAdmin) { toast('Manager only — ask a manager to delete tasks', 'warn'); return; }
     if (!confirm('Delete this periodic task?')) return;
     try {
       const { error } = await NX.sb.from('cleaning_tasks').update({ archived: true, archived_at: new Date().toISOString() }).eq('id', t.id);
