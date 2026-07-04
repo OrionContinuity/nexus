@@ -3748,19 +3748,26 @@ td.check{background:#F0EDE6 !important}
     const _pv = this.getProvider();
     if (_pv === 'clippy') return this.askLocalVision(prompt, base64Data, mimeType);
     if (_pv === 'clippy-pool') {
-      // Pure local pool — NO cloud. Vision jobs ride the 'vis:' id prefix (see
-      // askPool), which the legacy text poller (qwen3:8b, polls 'job:%') can't
-      // see — so it can't grab one and 400 it. Only our vision worker
-      // (clippy-worker.py, llama3.2-vision) claims 'vis:' rows. A 'vis:' error
-      // can therefore only be our own worker hiccupping, so retry: each askPool
-      // mints a fresh 'vis:' row. Attempt 0 is generous (cold model load).
+      // Local-first vision on the PC pool. Vision jobs ride the 'vis:' id prefix
+      // (see askPool), which the chat brain (qwen2.5, polls 'job:%') can't see —
+      // so only our vision worker (clippy-worker.py, qwen2.5-VL) claims them.
+      // qwen2.5-VL reads equipment nameplates character-perfect; a 'vis:' error
+      // is our own worker hiccupping, so retry (each askPool mints a fresh row).
+      // Attempt 0 is generous because a cold qwen2.5-VL load can take ~60-90s on
+      // an 8GB card that also hosts the chat model.
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          const out = await this.askPool(prompt, { image_b64: base64Data, timeoutMs: attempt === 0 ? 45000 : 30000 });
-          if (out) { this._lastVisionError = null; return out; }
+          const out = await this.askPool(prompt, { image_b64: base64Data, timeoutMs: attempt === 0 ? 120000 : 60000 });
+          if (out) { this._lastVisionError = null; this._answerSource = 'PC pool · qwen2.5-VL'; return out; }
         } catch (e) { this._lastVisionError = e.message || String(e); }
       }
-      return '';
+      // Pool unreachable (PC off / worker down / all retries failed). Fall back
+      // to Claude vision when a key exists so AI Create still works — the
+      // provenance stamp records which brain actually answered. With no key we
+      // surface the pool error rather than silently doing nothing.
+      if (!this.getApiKey()) return '';
+      this._lastVisionError = null;   // give the cloud a clean shot
+      // (fall through to the Anthropic path below)
     }
     const key = this.getApiKey();
     if (!key) {
@@ -3788,7 +3795,7 @@ td.check{background:#F0EDE6 !important}
       }
       const text = data.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
       if (!text) this._lastVisionError = 'The AI returned no text for that image.';
-      else this._lastVisionError = null;   // cloud vision succeeded — clear any earlier pool error
+      else { this._lastVisionError = null; this._answerSource = 'Claude cloud · ' + this.getModel(); }   // cloud vision succeeded — clear any earlier pool error
       return text;
     } catch (e) {
       this._lastVisionError = 'AI vision request failed: ' + (e.message || e) +
