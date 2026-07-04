@@ -249,7 +249,11 @@
       return br - ar;
     });
 
-    const active = nodes.slice(0, ACTIVE_MAX);
+    // MONETA — the machine's own memories (category 'moneta') are never
+    // demoted to the distant field. They orbit closest to the core.
+    const monetaNodes = nodes.filter(n => n.category === 'moneta');
+    const otherNodes  = nodes.filter(n => n.category !== 'moneta');
+    const active = monetaNodes.concat(otherNodes).slice(0, ACTIVE_MAX);
     const particles = [];
     const minDim = Math.min(state.W, state.H);
     const innerR = minDim * INNER_R_FRAC;
@@ -262,9 +266,13 @@
 
       // Radial position — higher access_count → closer to center
       // But use Sérsic-ish bias so most nodes end up in the middle band, not piled at edge
-      const importance = Math.min(1, (node.access_count || 0) / 20);
+      const isMoneta = node.category === 'moneta';
+      const importance = isMoneta ? 1 : Math.min(1, (node.access_count || 0) / 20);
       let t = Math.pow(Math.random(), 0.7) * (1 - importance * 0.5);
       t = Math.max(0.08, Math.min(0.95, t));
+      // Moneta memories ride a tight ring just outside the black hole —
+      // the memories of the machine orbit closest to its heart.
+      if (isMoneta) t = 0.05 + hash01(node.id + ':moneta') * 0.06;
 
       const place = placeOnArm(arm, t, node.id || i);
 
@@ -285,9 +293,12 @@
       const falloff = Math.exp(-radialClamped * 1.2);
       const brightness = 0.35 + importance * 0.35 + falloff * 0.25;
 
-      // Color — warm white near core, amber in arms, deeper amber at edge
+      // Color — warm white near core, amber in arms, deeper amber at edge.
+      // Moneta memories burn mint-silver over gold: coin colors.
       let color;
-      if (radialClamped < 0.25) {
+      if (isMoneta) {
+        color = [255, 244, 214];
+      } else if (radialClamped < 0.25) {
         color = mix([255, 230, 170], AMBER, radialClamped / 0.25);
       } else {
         const tintIdx = Math.abs(community) % COMMUNITY_TINTS.length;

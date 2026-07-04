@@ -2781,3 +2781,16 @@ body {
 #appWrap > .alert-banner[style*="display:none"] {
   display: none !important;
 }
+
+/* ═══ MONETA — the galaxy's mark. Memory lives here. ═══ */
+.moneta-mark{
+  position:absolute; top:64px; left:50%; transform:translateX(-50%);
+  z-index:5; display:flex; align-items:center; gap:8px;
+  color:var(--accent,#d4a44e); opacity:.8; pointer-events:none;
+  font-family:'JetBrains Mono',ui-monospace,monospace; font-size:10px; font-weight:700;
+  letter-spacing:.48em; text-indent:.48em;
+  text-shadow:0 0 18px rgba(212,164,78,.45);
+  animation:moneta-breathe 7s ease-in-out infinite;
+}
+.moneta-mark svg{filter:drop-shadow(0 0 6px rgba(212,164,78,.5))}
+@keyframes moneta-breathe{0%,100%{opacity:.55}50%{opacity:.9}}
