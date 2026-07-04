@@ -40,11 +40,16 @@ if ([Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
   return
 }
 
-# Single instance (match this script's -File invocation, never the worker's -Command shell).
-$others = Get-CimInstance Win32_Process -EA SilentlyContinue |
-  Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and
-                 $_.CommandLine -match 'clippy-pet-comp\.ps1' -and $_.CommandLine -notmatch '(?i)-Command' }
-if ($others) { Log "another comp host running (pid $($others[0].ProcessId)) - exiting"; return }
+# Single instance via a session-named mutex. The old process-scan check had a
+# TOCTOU race — two hosts launched close together each saw "no other" before
+# registering, so two GhostGlass layers ended up stacked and fighting over the
+# click-through region. A mutex is atomic. Held for this process's lifetime
+# ($script scope keeps it off the GC).
+$createdNew = $false
+try {
+  $script:petMutex = New-Object System.Threading.Mutex($true, 'NexusClippyGhostGlassPet', [ref]$createdNew)
+} catch { $createdNew = $true }   # if the mutex API itself fails, don't block startup
+if (-not $createdNew) { Log 'another GhostGlass already running (mutex held) - exiting'; return }
 
 # --- WebView2 .NET SDK (shared cache with the region host) --------------------
 $sdk = Join-Path $logDir 'webview2-sdk'
@@ -120,8 +125,17 @@ public class ClippyComp : Form {
   IDCompositionTarget _target;
   CoreWebView2CompositionController _ctl;
 
+  // Null/zero-safe primary work area. On a headless boot (no monitor) or the
+  // instant a monitor sleeps, Screen.PrimaryScreen can be null or report 0x0 —
+  // reading .WorkingArea directly then throws and the overlay dies. Fall back to
+  // a sane default; the 3s re-fit timer corrects to the real screen when it
+  // appears (monitor wake, RDP connect, resolution change).
+  static Rectangle ScreenWA(){
+    try { var s = Screen.PrimaryScreen; if (s != null){ var r = s.WorkingArea; if (r.Width > 0 && r.Height > 0) return r; } } catch {}
+    return new Rectangle(0, 0, 1920, 1080);
+  }
   public ClippyComp(){
-    var wa = Screen.PrimaryScreen.WorkingArea;   // GhostGlass: full screen, click-through everywhere but on him
+    var wa = ScreenWA();   // GhostGlass: full screen, click-through everywhere but on him
     Wv = wa.Width; Hv = wa.Height;
     this.FormBorderStyle = FormBorderStyle.None;
     this.ShowInTaskbar   = false;
@@ -129,6 +143,24 @@ public class ClippyComp : Form {
     this.StartPosition   = FormStartPosition.Manual;
     this.Left = wa.Left; this.Top = wa.Top;
     this.Width = Wv; this.Height = Hv;
+  }
+  // Re-fit the full-screen overlay to the CURRENT primary work area. Called on
+  // WM_DISPLAYCHANGE and on a slow poll, so Clippy survives monitor sleep/wake,
+  // disconnect/reconnect, an RDP session grabbing a different resolution, and
+  // DPI/scale changes — instead of being stranded at the launch-time geometry
+  // (off-screen or with a misaligned click-through region). No-ops when nothing
+  // moved, so the poll is cheap.
+  void Refit(){
+    try {
+      var wa = ScreenWA();
+      if (wa.Width == Wv && wa.Height == Hv && this.Left == wa.Left && this.Top == wa.Top) return;
+      Wv = wa.Width; Hv = wa.Height;
+      this.Left = wa.Left; this.Top = wa.Top;
+      this.Width = Wv; this.Height = Hv;
+      if (_ctl != null) { try { _ctl.Bounds = new Rectangle(0, 0, Wv, Hv); } catch {} }
+      if (_dcomp != null) { try { _dcomp.Commit(); } catch {} }
+      L("refit -> " + Wv + "x" + Hv + " @ " + this.Left + "," + this.Top);
+    } catch (Exception ex) { L("refit err: " + ex.Message); }
   }
   protected override CreateParams CreateParams {
     // NOREDIRECTIONBITMAP -> DComp transparency; LAYERED -> lets WS_EX_TRANSPARENT
@@ -154,6 +186,13 @@ public class ClippyComp : Form {
       } catch {}
     };
     tmr.Start();
+    // Display self-heal: poll the primary work area every 3s and re-fit if it
+    // changed. Belt-and-suspenders with the WM_DISPLAYCHANGE handler below —
+    // a hidden top-level tool window doesn't always receive that message, but
+    // the poll always catches a monitor sleep/wake, RDP resize, or DPI change.
+    var refit = new Timer(); refit.Interval = 3000;
+    refit.Tick += delegate (object s, EventArgs ev) { Refit(); };
+    refit.Start();
     // Sight: a first peek ~35s after he's up, then an occasional glance.
     var first = new Timer(); first.Interval = 35000;
     first.Tick += delegate (object s, EventArgs ev) { first.Stop(); SendSight(); };
@@ -297,6 +336,10 @@ public class ClippyComp : Form {
   }
 
   protected override void WndProc(ref Message m){
+    // WM_DISPLAYCHANGE (0x7E) fires on resolution/monitor changes; WM_DPICHANGED
+    // (0x2E0) on a per-monitor DPI change. Re-fit so the overlay tracks the new
+    // desktop instead of being stranded at the old geometry.
+    if (m.Msg == 0x007E || m.Msg == 0x02E0) { L("display msg 0x" + m.Msg.ToString("X")); Refit(); }
     if (_ctl != null && m.Msg >= 0x200 && m.Msg <= 0x209) {
       try { ForwardMouse(m.Msg, m.WParam, m.LParam); } catch {}
     }
