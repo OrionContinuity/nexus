@@ -152,14 +152,21 @@ public class ClippyComp : Form {
     try { var s = Screen.PrimaryScreen; if (s != null){ var r = s.WorkingArea; if (r.Width > 0 && r.Height > 0) return r; } } catch {}
     return new Rectangle(0, 0, 1920, 1080);
   }
+  const int PW = 520, PH = 600;   // small overlay box, anchored bottom-right
   public ClippyComp(){
-    var wa = ScreenWA();   // GhostGlass: full screen, click-through everywhere but on him
-    Wv = wa.Width; Hv = wa.Height;
+    var wa = ScreenWA();
+    // A SMALL corner box, not full-screen: WebView2's composition window IS
+    // Clippy's display surface and is a separate cross-process top-level window
+    // we cannot region-clip or make click-through (only hide, which also hides
+    // him). So we bound the whole overlay to a small box around where he lives —
+    // his window then covers only this corner and the rest of the desktop stays
+    // clickable. Trade-off: he roams within this box, not the whole screen.
+    Wv = PW; Hv = PH;
     this.FormBorderStyle = FormBorderStyle.None;
     this.ShowInTaskbar   = false;
     this.TopMost         = true;
     this.StartPosition   = FormStartPosition.Manual;
-    this.Left = wa.Left; this.Top = wa.Top;
+    this.Left = wa.Right - PW - 8; this.Top = wa.Bottom - PH - 8;
     this.Width = Wv; this.Height = Hv;
   }
   // Re-fit the full-screen overlay to the CURRENT primary work area. Called on
@@ -170,14 +177,18 @@ public class ClippyComp : Form {
   // moved, so the poll is cheap.
   void Refit(){
     try {
+      // Keep the SMALL box anchored to the current work area's bottom-right
+      // corner (survives monitor sleep/wake, RDP resize, DPI change) without
+      // ever growing back to full-screen.
       var wa = ScreenWA();
-      if (wa.Width == Wv && wa.Height == Hv && this.Left == wa.Left && this.Top == wa.Top) return;
-      Wv = wa.Width; Hv = wa.Height;
-      this.Left = wa.Left; this.Top = wa.Top;
-      this.Width = Wv; this.Height = Hv;
-      if (_ctl != null) { try { _ctl.Bounds = new Rectangle(0, 0, Wv, Hv); } catch {} }
+      int nl = wa.Right - PW - 8, nt = wa.Bottom - PH - 8;
+      if (this.Left == nl && this.Top == nt && this.Width == PW) return;
+      Wv = PW; Hv = PH;
+      this.Left = nl; this.Top = nt;
+      this.Width = PW; this.Height = PH;
+      if (_ctl != null) { try { _ctl.Bounds = new Rectangle(0, 0, PW, PH); } catch {} }
       if (_dcomp != null) { try { _dcomp.Commit(); } catch {} }
-      L("refit -> " + Wv + "x" + Hv + " @ " + this.Left + "," + this.Top);
+      L("refit -> " + PW + "x" + PH + " @ " + this.Left + "," + this.Top);
     } catch (Exception ex) { L("refit err: " + ex.Message); }
   }
   protected override CreateParams CreateParams {
@@ -226,24 +237,10 @@ public class ClippyComp : Form {
     // correct). ApplyRects rebuilds the region as he moves. Start with an EMPTY
     // region so the full-screen window blocks nothing until his rects arrive.
     try { SetWindowRgn(this.Handle, CreateRectRgn(0, 0, 0, 0), false); L("initial empty region set"); } catch (Exception re) { L("region init err: " + re.Message); }
-    // THE actual click-eater: WebView2 (composition hosting) spawns its OWN
-    // full-screen top-level window (msedgewebview2 / Chrome_WidgetWin_1,
-    // NOREDIRECTIONBITMAP) that is NOT our form and is NOT clipped by our region,
-    // so it swallows every desktop click. Clippy's pixels come from OUR DComp
-    // visual (RootVisualTarget), not that window — so hiding it frees the desktop
-    // while Clippy stays visible and clickable (input still routes via
-    // SendMouseInput to the controller). Verified live: hiding it exposed
-    // SysListView32 (the desktop). Watchdog re-hides it if WebView2 re-creates it.
-    // Run the watchdog on a BACKGROUND thread, never the UI thread: hiding a
-    // window owned by the out-of-process WebView2 must be non-blocking
-    // (ShowWindowAsync posts, never waits) or the UI thread stalls and Windows
-    // slaps a click-eating "Ghost" window over the hung pet.
-    var wvt = new System.Threading.Thread(new System.Threading.ThreadStart(delegate {
-      L("wv watchdog thread up");
-      while (true) { try { HideStrayWebView(); } catch (Exception te) { if (_hidLogN < 3) { _hidLogN++; L("wv loop err: " + te.Message); } } System.Threading.Thread.Sleep(1200); }
-    }));
-    wvt.IsBackground = true;
-    wvt.Start();
+    // NOTE: we do NOT hide WebView2's window anymore — it IS Clippy's display
+    // surface (hiding it hid him). Instead the whole overlay is a small box
+    // (see the constructor), so that window only covers his corner and the rest
+    // of the desktop stays clickable.
     // Display self-heal: poll the primary work area every 3s and re-fit if it
     // changed. Belt-and-suspenders with the WM_DISPLAYCHANGE handler below —
     // a hidden top-level tool window doesn't always receive that message, but
