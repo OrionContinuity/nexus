@@ -1,18 +1,28 @@
 <#
 clippy-pet-comp.ps1 - the TRUE-TRANSPARENCY desktop pet host.  ** GhostGlass **
 
-GhostGlass = a full-screen, truly-transparent, always-on-top layer that you can
-click straight THROUGH everywhere... except it "solidifies" under your cursor
-exactly where Clippy is, so he (and his Yes/No buttons) stay clickable while the
-rest of your desktop is fully usable. The trick: WS_EX_LAYERED held together
-with WS_EX_NOREDIRECTIONBITMAP (DComp per-pixel alpha), the layer forced fully
-opaque (LWA_ALPHA 255) so DComp's own alpha is what shows, and a 25ms cursor
-poll that toggles WS_EX_TRANSPARENT off only while the pointer is over him.
+GhostGlass = a small (520x600) always-on-top corner box you can click straight
+THROUGH everywhere... except it "solidifies" exactly where Clippy is, so he (and
+his Yes/No buttons) stay clickable while the rest of your desktop is fully usable.
+Grab his body and DRAG to move him anywhere; he remembers where you left him.
 
-Hosts the exact NEXUS web Clippy (clippy-pet.html) in a DirectComposition
-visual with genuine per-pixel alpha - so his glow and fireflies fade straight
-into the desktop with NO backing rectangle/disc. Mouse input is forwarded to the
-web content, so the orb and his Yes/No buttons stay clickable.
+THE TWO-WINDOW REALITY (read this before touching click-through):
+WebView2 "composition hosting" renders Clippy into a DirectComposition visual on
+OUR NOREDIRECTIONBITMAP window (genuine per-pixel alpha - glow/fireflies fade into
+the desktop, no backing disc). BUT it ALSO spawns its OWN separate top-level window
+(class Chrome_WidgetWin_1, title 'Clippy', a DIFFERENT process) that holds Clippy's
+actual pixels and sits at our exact rect. Two overlapping windows:
+  1. OUR host  - region-clipped (SetWindowRgn) to Clippy's silhouette; forwards
+                 mouse it receives to the page. Defines the INPUT hit-area.
+  2. WebView2's - full 520x600, we don't own it. Left alone it ate EVERY desktop
+                 click in the corner (region-clipping our host does nothing to it).
+FIX: give window #2 WS_EX_TRANSPARENT (EnsureWebView) so the OS hit-tests through
+it to our host - over Clippy the host gets the click and forwards it; everywhere
+else there's no window and the click reaches the desktop. Its pixels still render,
+so his full glow is preserved. We also keep window #2 pinned to our position (they
+are independent top-levels - moving the host does NOT move it), which is what makes
+dragging work. Verified live on DESKTOP-N6PACMM 2026-07-05 with a WindowFromPoint
+click-map of the whole box.
 
 This uses WebView2 "composition hosting" (CreateCoreWebView2CompositionController)
 + a WS_EX_NOREDIRECTIONBITMAP window + an IDCompositionDevice built on a D3D11
@@ -112,19 +122,24 @@ public class ClippyComp : Form {
   [DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr o);
   [DllImport("user32.dll")] static extern int SetWindowRgn(IntPtr h, IntPtr rgn, bool redraw);
   [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc cb, IntPtr l);
+  [DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
   [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
   [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int c);
   [DllImport("user32.dll")] static extern bool ShowWindowAsync(IntPtr h, int c);
   [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int w, int ht, uint flags);
   [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr h, uint cmd);
   [DllImport("user32.dll")] static extern int GetClassName(IntPtr h, System.Text.StringBuilder s, int m);
+  [DllImport("user32.dll")] static extern int GetWindowText(IntPtr h, System.Text.StringBuilder s, int m);
   [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECTW r);
   [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
   [DllImport("user32.dll")] static extern int GetSystemMetrics(int i);
+  [DllImport("user32.dll")] static extern IntPtr SetCapture(IntPtr h);
+  [DllImport("user32.dll")] static extern bool ReleaseCapture();
   public delegate bool EnumProc(IntPtr h, IntPtr l);
   [StructLayout(LayoutKind.Sequential)] struct POINT { public int X; public int Y; }
   [StructLayout(LayoutKind.Sequential)] struct RECTW { public int L, T, R, B; }
   const int GWL_EXSTYLE = -20, WS_EX_TRANSPARENT = 0x20, RGN_OR = 2, GW_OWNER = 4;
+  const uint SWP_MOVE = 0x15; // NOSIZE|NOZORDER|NOACTIVATE
   const uint OUR_PID = 0;  // set at runtime
 
   [ComImport, Guid("C37EA93A-E7AA-450D-B16F-9746CB0407F3"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -168,6 +183,14 @@ public class ClippyComp : Form {
     this.StartPosition   = FormStartPosition.Manual;
     this.Left = wa.Right - PW - 8; this.Top = wa.Bottom - PH - 8;
     this.Width = Wv; this.Height = Hv;
+    // If the user has dragged Clippy before, come back where they left him
+    // (clamped on-screen) instead of snapping to the corner.
+    LoadPos();
+    if(_userMoved){
+      var vs = Roam();
+      this.Left = Math.Max(vs.Left - PW + 90, Math.Min(_userL, vs.Right - 90));
+      this.Top  = Math.Max(vs.Top,            Math.Min(_userT, vs.Bottom - 90));
+    }
   }
   // Re-fit the full-screen overlay to the CURRENT primary work area. Called on
   // WM_DISPLAYCHANGE and on a slow poll, so Clippy survives monitor sleep/wake,
@@ -177,18 +200,30 @@ public class ClippyComp : Form {
   // moved, so the poll is cheap.
   void Refit(){
     try {
-      // Keep the SMALL box anchored to the current work area's bottom-right
-      // corner (survives monitor sleep/wake, RDP resize, DPI change) without
-      // ever growing back to full-screen.
-      var wa = ScreenWA();
-      int nl = wa.Right - PW - 8, nt = wa.Bottom - PH - 8;
-      if (this.Left == nl && this.Top == nt && this.Width == PW) return;
-      Wv = PW; Hv = PH;
-      this.Left = nl; this.Top = nt;
-      this.Width = PW; this.Height = PH;
-      if (_ctl != null) { try { _ctl.Bounds = new Rectangle(0, 0, PW, PH); } catch {} }
-      if (_dcomp != null) { try { _dcomp.Commit(); } catch {} }
-      L("refit -> " + PW + "x" + PH + " @ " + this.Left + "," + this.Top);
+      // Where should the box sit? If the user dragged Clippy, honour that spot
+      // (clamped on-screen); otherwise anchor to the work area's bottom-right
+      // corner. Either way survives monitor sleep/wake, RDP resize, DPI change,
+      // and never grows back to full-screen.
+      int nl, nt;
+      if (_userMoved) {
+        var vs = Roam();
+        nl = Math.Max(vs.Left - PW + 90, Math.Min(_userL, vs.Right - 90));
+        nt = Math.Max(vs.Top,            Math.Min(_userT, vs.Bottom - 90));
+      } else {
+        var wa = ScreenWA();
+        nl = wa.Right - PW - 8; nt = wa.Bottom - PH - 8;
+      }
+      if (this.Left != nl || this.Top != nt || this.Width != PW) {
+        Wv = PW; Hv = PH;
+        this.Left = nl; this.Top = nt;
+        this.Width = PW; this.Height = PH;
+        if (_ctl != null) { try { _ctl.Bounds = new Rectangle(0, 0, PW, PH); } catch {} }
+        if (_dcomp != null) { try { _dcomp.Commit(); } catch {} }
+        L("refit -> " + PW + "x" + PH + " @ " + this.Left + "," + this.Top);
+      }
+      // Every tick: make sure WebView2's own window is click-through and pinned
+      // to us (belt-and-suspenders; the drag handler also does the pin live).
+      EnsureWebView();
     } catch (Exception ex) { L("refit err: " + ex.Message); }
   }
   protected override CreateParams CreateParams {
@@ -262,6 +297,80 @@ public class ClippyComp : Form {
   // window is click-through EXCEPT over him. No window Region - a Region forces an
   // opaque redirection surface and kills the DComp transparency (dark disc).
   volatile int[][] _hit;
+
+  // --- The SECOND window ----------------------------------------------------
+  // WebView2 composition hosting spawns its OWN top-level window (class
+  // Chrome_WidgetWin_1, title 'Clippy') that IS Clippy's pixels. It sits at our
+  // exact rect but is a DIFFERENT cross-process window we don't own. Region-
+  // clipping OUR host does nothing to it, so before this fix it covered the whole
+  // 520x600 box and ate every desktop click in the corner (verified live on
+  // DESKTOP-N6PACMM 2026-07-05: a WindowFromPoint grid over the box returned that
+  // window everywhere except the ~2 cells over the orb). THE FIX: give that window
+  // WS_EX_TRANSPARENT so the OS hit-tests straight through it; clicks then fall to
+  // OUR host, which is region-clipped to Clippy's silhouette - over him we get the
+  // message (and forward it to the page); everywhere else there's no window and the
+  // click reaches the desktop. Its full pixels (glow, fireflies) still render.
+  IntPtr _wv = IntPtr.Zero;
+  IntPtr FindWebView(){
+    if(_wv != IntPtr.Zero && IsWindow(_wv)){
+      var cc = new System.Text.StringBuilder(48); GetClassName(_wv, cc, 48);
+      if(cc.ToString() == "Chrome_WidgetWin_1") return _wv;
+    }
+    _wv = IntPtr.Zero;
+    RECTW hr; GetWindowRect(this.Handle, out hr);
+    EnumWindows(delegate(IntPtr h, IntPtr l){
+      if(!IsWindowVisible(h)) return true;
+      var cn = new System.Text.StringBuilder(48); GetClassName(h, cn, 48);
+      if(cn.ToString() != "Chrome_WidgetWin_1") return true;
+      var tt = new System.Text.StringBuilder(48); GetWindowText(h, tt, 48);
+      if(tt.ToString() != "Clippy") return true;
+      RECTW r; GetWindowRect(h, out r);
+      if(Math.Abs(r.L - hr.L) <= PW && Math.Abs(r.T - hr.T) <= PH){ _wv = h; return false; }
+      return true;
+    }, IntPtr.Zero);
+    return _wv;
+  }
+  bool _wvLogged = false;
+  void EnsureWebView(){
+    IntPtr wv = FindWebView();
+    if(wv == IntPtr.Zero) return;
+    int ex = GetWindowLong(wv, GWL_EXSTYLE);
+    if((ex & WS_EX_TRANSPARENT) == 0){
+      SetWindowLong(wv, GWL_EXSTYLE, ex | WS_EX_TRANSPARENT);
+      if(!_wvLogged){ _wvLogged = true; L("webview window -> click-through (WS_EX_TRANSPARENT); desktop corner freed"); }
+    }
+    // They are independent top-levels, so WebView2's window does NOT follow when
+    // we move the host (verified). Keep it pinned to our rect (drag + refit rely
+    // on this) so Clippy's pixels and our input region never drift apart.
+    RECTW hr; GetWindowRect(this.Handle, out hr);
+    RECTW wr; GetWindowRect(wv, out wr);
+    if(wr.L != hr.L || wr.T != hr.T) SetWindowPos(wv, IntPtr.Zero, hr.L, hr.T, 0, 0, SWP_MOVE);
+  }
+
+  // --- Drag + persisted position -------------------------------------------
+  bool _btnDown = false, _dragging = false;
+  int _downSx, _downSy, _lastSx, _lastSy;
+  bool _userMoved = false; int _userL, _userT;
+  public static string PosPath;
+  Rectangle Roam(){ try { var v = SystemInformation.VirtualScreen; if(v.Width > 0 && v.Height > 0) return v; } catch {} return ScreenWA(); }
+  void MovePet(int dx, int dy){
+    var vs = Roam();
+    int nl = this.Left + dx, nt = this.Top + dy;
+    nl = Math.Max(vs.Left - PW + 90, Math.Min(nl, vs.Right - 90));   // keep >=90px on-screen
+    nt = Math.Max(vs.Top,            Math.Min(nt, vs.Bottom - 90));
+    this.Left = nl; this.Top = nt;
+    _userMoved = true; _userL = nl; _userT = nt;
+    IntPtr wv = FindWebView(); if(wv != IntPtr.Zero) SetWindowPos(wv, IntPtr.Zero, nl, nt, 0, 0, SWP_MOVE);
+  }
+  void SavePos(){ try { if(PosPath != null) File.WriteAllText(PosPath, "{\"l\":" + _userL + ",\"t\":" + _userT + "}"); } catch {} }
+  void LoadPos(){
+    try {
+      if(PosPath == null || !File.Exists(PosPath)) return;
+      var s = File.ReadAllText(PosPath);
+      var a = Regex.Match(s, "\"l\":(-?\\d+)"); var b = Regex.Match(s, "\"t\":(-?\\d+)");
+      if(a.Success && b.Success){ _userL = int.Parse(a.Groups[1].Value); _userT = int.Parse(b.Groups[1].Value); _userMoved = true; }
+    } catch {}
+  }
   bool OverClippy(int x, int y){
     var h = _hit; if (h == null) return false;
     foreach (var r in h) {
@@ -421,6 +530,10 @@ public class ClippyComp : Form {
       }
       SetWindowRgn(this.Handle, full, true);   // system owns 'full' now — do not delete
       if (_regionLogN < 4) { _regionLogN++; L("region applied (" + n + " parts)"); }
+      // First rects arrive ~0.5s after nav — earliest point WebView2's window
+      // exists. Make it click-through NOW so the dead corner is freed promptly
+      // (the 3s refit only maintains it thereafter).
+      EnsureWebView();
     } catch (Exception ex) { L("region err: " + ex.Message); }
   }
 
@@ -429,11 +542,40 @@ public class ClippyComp : Form {
     // (0x2E0) on a per-monitor DPI change. Re-fit so the overlay tracks the new
     // desktop instead of being stranded at the old geometry.
     if (m.Msg == 0x007E || m.Msg == 0x02E0) { L("display msg 0x" + m.Msg.ToString("X")); Refit(); }
-    // Click-through is handled by the WINDOW REGION (see ApplyRegion): the OS
-    // clips this window to Clippy's silhouette, so mouse messages only arrive
-    // when the pointer is genuinely over him — everything else is not the window
-    // and reaches the desktop. So any WM_MOUSE here is a real hit on Clippy;
-    // forward it to WebView2.
+    // A mouse message reaching us means the pointer is genuinely over Clippy:
+    // WebView2's window is click-through and OUR window is region-clipped to his
+    // silhouette, so the OS only routes his pixels here (everything else goes to
+    // the desktop). We turn press+drag into MOVING him, and a clean press+release
+    // into a real click replayed to the page.
+    if (m.Msg == 0x201) {                 // WM_LBUTTONDOWN
+      POINT cp; GetCursorPos(out cp);
+      _btnDown = true; _dragging = false;
+      _downSx = cp.X; _downSy = cp.Y; _lastSx = cp.X; _lastSy = cp.Y;
+      try { SetCapture(this.Handle); } catch {}
+      return;                             // buffer: decide click-vs-drag on move/up
+    }
+    if (m.Msg == 0x200 && _btnDown) {     // WM_MOUSEMOVE while pressed
+      POINT cp; GetCursorPos(out cp);
+      if (!_dragging && Math.Abs(cp.X - _downSx) + Math.Abs(cp.Y - _downSy) > 4) _dragging = true;
+      if (_dragging) { MovePet(cp.X - _lastSx, cp.Y - _lastSy); _lastSx = cp.X; _lastSy = cp.Y; }
+      return;
+    }
+    if (m.Msg == 0x202 && _btnDown) {     // WM_LBUTTONUP
+      bool wasDrag = _dragging;
+      _btnDown = false; _dragging = false;
+      try { ReleaseCapture(); } catch {}
+      if (wasDrag) { SavePos(); }
+      else if (_ctl != null) {            // no drag => a real click: replay it to the page
+        var pt = new Point(_downSx - this.Left, _downSy - this.Top);
+        try {
+          _ctl.SendMouseInput(CoreWebView2MouseEventKind.LeftButtonDown, CoreWebView2MouseEventVirtualKeys.None, 0, pt);
+          _ctl.SendMouseInput(CoreWebView2MouseEventKind.LeftButtonUp,   CoreWebView2MouseEventVirtualKeys.None, 0, pt);
+        } catch {}
+      }
+      return;
+    }
+    // Hover (no button) and right-click: forward straight through so Clippy still
+    // reacts to the pointer and any context actions keep working.
     if (_ctl != null && m.Msg >= 0x200 && m.Msg <= 0x209) {
       try { ForwardMouse(m.Msg, m.WParam, m.LParam); } catch {}
     }
@@ -482,6 +624,7 @@ try {
 [ClippyComp]::Url      = $Url
 [ClippyComp]::Wv       = $W
 [ClippyComp]::Hv       = $H
+[ClippyComp]::PosPath  = Join-Path $logDir 'pet-pos.json'   # remembers where you dragged him
 
 try {
   $form = New-Object ClippyComp
