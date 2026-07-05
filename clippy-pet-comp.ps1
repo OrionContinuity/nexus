@@ -424,35 +424,6 @@ public class ClippyComp : Form {
     } catch (Exception ex) { L("region err: " + ex.Message); }
   }
 
-  // Hide WebView2's stray full-screen top-level window so it stops swallowing
-  // desktop clicks. Target signature: class "Chrome_WidgetWin_1", full-screen
-  // (>=60% of the primary display in both dims), and WS_EX_NOREDIRECTIONBITMAP
-  // (0x200000) — that's the composition-host webview surface, distinct from
-  // ordinary windowed webviews (other apps). Clippy is unaffected: his pixels
-  // come from our DComp visual and input routes via SendMouseInput.
-  int _hidLogN = 0; int _scanN = 0;
-  void HideStrayWebView(){
-    int cand = 0, hid = 0;
-    int sw = GetSystemMetrics(0), sh = GetSystemMetrics(1);
-    EnumWindows(delegate (IntPtr h, IntPtr l) {
-      try {
-        if (!IsWindowVisible(h)) return true;
-        var cn = new System.Text.StringBuilder(64); GetClassName(h, cn, 64);
-        if (cn.ToString() != "Chrome_WidgetWin_1") return true;
-        RECTW r; if (!GetWindowRect(h, out r)) return true;
-        int w = r.R - r.L, ht = r.B - r.T;
-        if (w < sw * 0.6 || ht < sh * 0.6) return true;              // full-screen ones only
-        cand++;
-        // Hide two ways for robustness (both non-blocking / cross-process safe):
-        ShowWindowAsync(h, 0);                                        // SW_HIDE
-        SetWindowPos(h, IntPtr.Zero, 0, 0, 0, 0, 0x4097);            // NOSIZE|NOMOVE|NOZORDER|NOACTIVATE|HIDEWINDOW|ASYNCWINDOWPOS
-        hid++;
-      } catch {}
-      return true;
-    }, IntPtr.Zero);
-    if (cand > 0 && _scanN < 4) { _scanN++; L("wv scan: fullscreen-webview candidates=" + cand + " hidden=" + hid); }
-  }
-
   protected override void WndProc(ref Message m){
     // WM_DISPLAYCHANGE (0x7E) fires on resolution/monitor changes; WM_DPICHANGED
     // (0x2E0) on a per-monitor DPI change. Re-fit so the overlay tracks the new
