@@ -115,6 +115,7 @@ public class ClippyComp : Form {
   [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
   [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int c);
   [DllImport("user32.dll")] static extern bool ShowWindowAsync(IntPtr h, int c);
+  [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int w, int ht, uint flags);
   [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr h, uint cmd);
   [DllImport("user32.dll")] static extern int GetClassNameW(IntPtr h, System.Text.StringBuilder s, int m);
   [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECTW r);
@@ -238,7 +239,8 @@ public class ClippyComp : Form {
     // (ShowWindowAsync posts, never waits) or the UI thread stalls and Windows
     // slaps a click-eating "Ghost" window over the hung pet.
     var wvt = new System.Threading.Thread(new System.Threading.ThreadStart(delegate {
-      while (true) { try { HideStrayWebView(); } catch {} System.Threading.Thread.Sleep(1200); }
+      L("wv watchdog thread up");
+      while (true) { try { HideStrayWebView(); } catch (Exception te) { if (_hidLogN < 3) { _hidLogN++; L("wv loop err: " + te.Message); } } System.Threading.Thread.Sleep(1200); }
     }));
     wvt.IsBackground = true;
     wvt.Start();
@@ -431,26 +433,27 @@ public class ClippyComp : Form {
   // (0x200000) — that's the composition-host webview surface, distinct from
   // ordinary windowed webviews (other apps). Clippy is unaffected: his pixels
   // come from our DComp visual and input routes via SendMouseInput.
-  int _hidLogN = 0;
+  int _hidLogN = 0; int _scanN = 0;
   void HideStrayWebView(){
-    try {
-      int sw = GetSystemMetrics(0), sh = GetSystemMetrics(1);
-      EnumWindows(delegate (IntPtr h, IntPtr l) {
-        try {
-          if (!IsWindowVisible(h)) return true;
-          var cn = new System.Text.StringBuilder(64); GetClassNameW(h, cn, 64);
-          if (cn.ToString() != "Chrome_WidgetWin_1") return true;
-          RECTW r; if (!GetWindowRect(h, out r)) return true;
-          int w = r.R - r.L, ht = r.B - r.T;
-          if (w < sw * 0.6 || ht < sh * 0.6) return true;              // full-screen ones only
-          int ex = GetWindowLong(h, GWL_EXSTYLE);
-          if ((ex & 0x200000) == 0) return true;                        // must be NOREDIRECTIONBITMAP (our composition webview)
-          ShowWindowAsync(h, 0);                                        // SW_HIDE, non-blocking (cross-process safe)
-          if (_hidLogN < 3) { _hidLogN++; L("hid stray webview hwnd=" + h.ToInt64() + " (" + w + "x" + ht + ")"); }
-        } catch {}
-        return true;
-      }, IntPtr.Zero);
-    } catch (Exception ex) { if (_hidLogN < 3) { _hidLogN++; L("hidewv err: " + ex.Message); } }
+    int cand = 0, hid = 0;
+    int sw = GetSystemMetrics(0), sh = GetSystemMetrics(1);
+    EnumWindows(delegate (IntPtr h, IntPtr l) {
+      try {
+        if (!IsWindowVisible(h)) return true;
+        var cn = new System.Text.StringBuilder(64); GetClassNameW(h, cn, 64);
+        if (cn.ToString() != "Chrome_WidgetWin_1") return true;
+        RECTW r; if (!GetWindowRect(h, out r)) return true;
+        int w = r.R - r.L, ht = r.B - r.T;
+        if (w < sw * 0.6 || ht < sh * 0.6) return true;              // full-screen ones only
+        cand++;
+        // Hide two ways for robustness (both non-blocking / cross-process safe):
+        ShowWindowAsync(h, 0);                                        // SW_HIDE
+        SetWindowPos(h, IntPtr.Zero, 0, 0, 0, 0, 0x4097);            // NOSIZE|NOMOVE|NOZORDER|NOACTIVATE|HIDEWINDOW|ASYNCWINDOWPOS
+        hid++;
+      } catch {}
+      return true;
+    }, IntPtr.Zero);
+    if (_scanN < 4) { _scanN++; L("wv scan: fullscreen-webview candidates=" + cand + " hidden=" + hid); }
   }
 
   protected override void WndProc(ref Message m){
