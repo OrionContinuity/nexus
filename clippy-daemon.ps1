@@ -282,6 +282,18 @@ $hasWinget = [bool](Get-Command winget -EA SilentlyContinue)
 $batteryTxt = if ($power.Battery -lt 0) { 'no battery (desktop/AC)' } else { "$($power.Battery)% " + $(if ($power.OnAC) { '(charging/AC)' } else { '(on battery)' }) }
 Log "clippy-daemon - free disk ${freeGB} GB on $($env:SystemDrive) | power: $batteryTxt | winget: $(if($hasWinget){'yes'}else{'no'})" 'Cyan'
 
+# --- Get Clippy ON SCREEN FIRST (supervisor mode) ---------------------------
+# Liveness of the pet + worker must NOT depend on provisioning finishing. On
+# 2026-07-05 a node was found stranded because `ollama list` wedged mid-provision
+# and the daemon never reached the supervisor loop, so Clippy stayed dark for
+# ~20 min. Under -Supervise we now bring the buddy + worker up immediately (both
+# are idempotent + self-guarded; the supervisor loop re-checks them every 30s),
+# THEN provision. Worst case a slow/hung install no longer keeps Clippy off screen.
+if ($Supervise -and -not $ReportOnly -and -not $EnsureOnly) {
+  if (Get-PetProc)    { Log "[boot] pet already up" 'Green' }    else { Start-PetProc | Out-Null }
+  if (Get-WorkerProc) { Log "[boot] worker already up" 'Green' } else { Start-WorkerProc | Out-Null }
+}
+
 # --- The install gate: SPACE and POWER --------------------------------------
 function Test-CanInstall([double]$needGB = 0) {
   $needTotal = $MinFreeGB + $needGB
@@ -411,7 +423,18 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
   $ollamaExe = if ($ollama) { $ollama.Source } else { Join-Path $ProgRoot 'Ollama\ollama.exe' }
   if (Test-Path $ollamaExe) {
     $estGB = if ($VisionModel -match 'moondream') { 3 } else { 9 }
-    $have = (& $ollamaExe list 2>$null | Select-String -SimpleMatch $VisionModel)
+    # Check the model list over the HTTP API: Invoke-RestMethod honours -TimeoutSec
+    # and CANNOT hang, whereas a wedged `ollama list` CLI call (no timeout) is what
+    # stranded a node mid-provision on 2026-07-05 - the daemon blocked here forever
+    # and never reached the supervisor loop, so pet+worker never started. Fall back
+    # to the CLI only if the API itself is unreachable.
+    $have = $false
+    try {
+      $tags = Invoke-RestMethod 'http://127.0.0.1:11434/api/tags' -TimeoutSec 8
+      $have = [bool]($tags.models | Where-Object { $_.name -like "$VisionModel*" -or $_.model -like "$VisionModel*" })
+    } catch {
+      try { $have = [bool](& $ollamaExe list 2>$null | Select-String -SimpleMatch $VisionModel) } catch { $have = $false }
+    }
     if ($have) {
       Log "[have] vision model '$VisionModel'" 'Green'
     } else {
@@ -490,10 +513,13 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
           $heal = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650)
         } catch { $heal = $null }
         $triggers = if ($heal) { @($trg, $heal) } else { @($trg) }
-        # RestartOnFailure is belt-and-suspenders on top of the repeat trigger;
-        # IgnoreNew keeps Task Scheduler from stacking instances (the daemon guards
-        # too, but this avoids even spawning the throwaway that immediately exits).
-        $set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
+        # The 5-min repeat trigger IS the self-heal. Do NOT add RestartOnFailure:
+        # when a launched instance exits (e.g. it found a supervisor already
+        # running, or a provisioning native command left a non-zero $LASTEXITCODE),
+        # Task Scheduler read that as failure and re-launched every 60s forever -
+        # a real churn observed on 2026-07-05 (log spam, wasted CPU, task re-
+        # registered each minute). IgnoreNew alone keeps instances from stacking.
+        $set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
         Register-ScheduledTask -TaskName 'ClippyDaemon' -Action $act -Trigger $triggers -Settings $set -Force -ErrorAction Stop | Out-Null
         Log ("[ok] autostart registered (logon + 5-min self-heal task 'ClippyDaemon' -> $stable)") 'Green'
       } catch { Log "[..] autostart registration skipped: $($_.Exception.Message)" 'Yellow' }
@@ -518,5 +544,11 @@ if ($Supervise -and -not $ReportOnly) {
     Invoke-Supervisor
   }
 }
+
+# Always report success to Task Scheduler. A stray non-zero $LASTEXITCODE left by
+# a provisioning native command (winget/supabase/ollama) would otherwise make the
+# task look "failed" - which, with any restart-on-failure policy, becomes a relaunch
+# storm. The 5-min repeat trigger is the only self-heal we want.
+exit 0
 
 Log 'clippy-daemon done.' 'Cyan'
