@@ -53,7 +53,22 @@ $REF      = 'oprsthfxqrdbwdvommpw'
 $ProgRoot = Join-Path $env:LOCALAPPDATA 'Programs'   # matches the existing supabase/gh layout
 $RAW      = 'https://raw.githubusercontent.com/orioncontinuity/nexus/main'
 
-function Log([string]$m, [string]$c = 'Gray') { Write-Host ((Get-Date -f 'HH:mm:ss') + '  ' + $m) -ForegroundColor $c }
+# Every Log line also lands in ~/.clippy/daemon.log - without this, a daemon
+# launched hidden (the autostart task) reports failures to a console nobody can
+# see, and problems like a silently-failing task registration stay invisible
+# for weeks. Previous log is kept once (daemon.prev.log) for post-mortems.
+$LogFile = Join-Path $env:USERPROFILE '.clippy\daemon.log'
+try {
+  $null = New-Item -ItemType Directory -Force -Path (Split-Path $LogFile)
+  if ((Test-Path $LogFile) -and ((Get-Item $LogFile).Length -gt 2MB)) {
+    Move-Item $LogFile ($LogFile -replace '\.log$', '.prev.log') -Force -EA SilentlyContinue
+  }
+} catch {}
+function Log([string]$m, [string]$c = 'Gray') {
+  $line = (Get-Date -f 'MM-dd HH:mm:ss') + '  ' + $m
+  Write-Host $line -ForegroundColor $c
+  try { Add-Content -Path $LogFile -Value $line -EA SilentlyContinue } catch {}
+}
 
 # --- Worker (slave) lifecycle helpers - used by initial start and the supervisor
 function Find-Python {
@@ -76,6 +91,31 @@ function Start-WorkerProc {
   if (-not $py) { Log "[next] Python not detected yet - rerun after a new shell." 'Yellow'; return $false }
   $env:CLIPPY_VISION_MODEL = $VisionModel
   $env:CLIPPY_MANAGED = 'clippy'     # tells the worker it runs as a Clippy-managed slave
+  # Capture the worker's output. Under pythonw sys.stdout is None, so every
+  # log() print the worker makes is silently swallowed - a dead worker leaves
+  # no trace. Prefer console python.exe (hidden window) with stdout/stderr
+  # redirected to ~/.clippy/worker.log; the dying run's log survives one
+  # restart as worker.prev.log. Falls back to the old pythonw start if needed.
+  $conPy = $null
+  if ($py.Name -match '^pythonw') {
+    $cand = Join-Path (Split-Path $py.Source) 'python.exe'
+    if (Test-Path $cand) { $conPy = $cand }
+    else { $c2 = Get-Command python -EA SilentlyContinue; if ($c2) { $conPy = $c2.Source } }
+  } else { $conPy = $py.Source }
+  if ($conPy) {
+    try {
+      $logDir = Join-Path $env:USERPROFILE '.clippy'
+      $null = New-Item -ItemType Directory -Force -Path $logDir
+      $wLog = Join-Path $logDir 'worker.log'
+      $wErr = Join-Path $logDir 'worker.err.log'
+      foreach ($p in @($wLog, $wErr)) {
+        if (Test-Path $p) { Move-Item $p ($p -replace '\.log$', '.prev.log') -Force -EA SilentlyContinue }
+      }
+      Start-Process -FilePath $conPy -ArgumentList ('-u "' + $worker + '"') -WorkingDirectory $HOMEDIR -WindowStyle Hidden -RedirectStandardOutput $wLog -RedirectStandardError $wErr | Out-Null
+      Log "[ok] clippy-worker started (log: $wLog)" 'Green'
+      return $true
+    } catch { Log "[..] logged worker start failed ($($_.Exception.Message)) - plain start" 'Yellow' }
+  }
   Start-Process -FilePath $py.Source -ArgumentList $worker -WorkingDirectory $HOMEDIR -WindowStyle Hidden | Out-Null
   Log "[ok] clippy-worker started" 'Green'
   return $true
@@ -341,7 +381,13 @@ Log "provision summary - present:$present installed:$installed skipped:$skipped 
 if (-not $EnsureOnly -and -not $ReportOnly) {
   $sb = Join-Path $ProgRoot 'supabase\supabase.exe'
   if (-not (Test-Path $sb)) { $cmd = Get-Command supabase -EA SilentlyContinue; if ($cmd) { $sb = $cmd.Source } }
-  if (Test-Path $sb) {
+  # The CLI resolves the function source relative to the working directory; a
+  # provisioned node (NexusClippy folder) has no supabase/functions checkout, so
+  # deploying from there can only fail with "Entrypoint path does not exist".
+  $fnSrc = Join-Path (Get-Location) 'supabase\functions\clippy-pool\index.ts'
+  if (-not (Test-Path $fnSrc)) {
+    Log "[..] clippy-pool source not in $(Get-Location) (repo-checkout-only step) - skipping deploy"
+  } elseif (Test-Path $sb) {
     & $sb projects list *> $null
     if ($LASTEXITCODE -eq 0) {
       Log "[..] deploying clippy-pool (clears the app's 'HTTP Error 404')"
@@ -433,7 +479,13 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
         #     (a second copy just exits), so repeated launches are harmless and
         #     self-healing — this is what makes "it's not even open" impossible:
         #     a dead node is back within 5 minutes with no human and no re-logon.
-        $trg = New-ScheduledTaskTrigger -AtLogOn
+        # Logon trigger scoped to THIS user: a plain '-AtLogOn' means "any user",
+        # and registering that needs admin rights - every unelevated daemon run
+        # (which is all of them: the task itself runs unelevated) died here with
+        # "Access is denied", so autostart never actually registered and every
+        # reboot stranded Clippy. User-scoped registration works unelevated.
+        # (Verified live on DESKTOP-N6PACMM 2026-07-05.)
+        $trg = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
         try {
           $heal = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650)
         } catch { $heal = $null }
