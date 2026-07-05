@@ -117,7 +117,7 @@ public class ClippyComp : Form {
   [DllImport("user32.dll")] static extern bool ShowWindowAsync(IntPtr h, int c);
   [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int w, int ht, uint flags);
   [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr h, uint cmd);
-  [DllImport("user32.dll")] static extern int GetClassNameW(IntPtr h, System.Text.StringBuilder s, int m);
+  [DllImport("user32.dll")] static extern int GetClassName(IntPtr h, System.Text.StringBuilder s, int m);
   [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECTW r);
   [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
   [DllImport("user32.dll")] static extern int GetSystemMetrics(int i);
@@ -440,7 +440,7 @@ public class ClippyComp : Form {
     EnumWindows(delegate (IntPtr h, IntPtr l) {
       try {
         if (!IsWindowVisible(h)) return true;
-        var cn = new System.Text.StringBuilder(64); GetClassNameW(h, cn, 64);
+        var cn = new System.Text.StringBuilder(64); GetClassName(h, cn, 64);
         if (cn.ToString() != "Chrome_WidgetWin_1") return true;
         RECTW r; if (!GetWindowRect(h, out r)) return true;
         int w = r.R - r.L, ht = r.B - r.T;
@@ -453,7 +453,7 @@ public class ClippyComp : Form {
       } catch {}
       return true;
     }, IntPtr.Zero);
-    if (_scanN < 4) { _scanN++; L("wv scan: fullscreen-webview candidates=" + cand + " hidden=" + hid); }
+    if (cand > 0 && _scanN < 4) { _scanN++; L("wv scan: fullscreen-webview candidates=" + cand + " hidden=" + hid); }
   }
 
   protected override void WndProc(ref Message m){
