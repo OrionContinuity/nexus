@@ -383,11 +383,15 @@ def ollama_generate(model, prompt, system=None, image_b64=None, _retry=True):
             return ollama_generate(model, prompt, system, image_b64, _retry=False)
         # Vision model can't load on this node - unsupported arch (e.g.
         # llama3.2-vision = 'mllama') or out-of-memory on a low-RAM box -> fall
-        # back to the tiny model so Scan Plate still works.
+        # back to the tiny model so Scan Plate still works. "Failed to load
+        # image or audio file" is the IMAGE being rejected (HTTP 400), not the
+        # model - falling back on it swaps qwen2.5vl for moondream for nothing,
+        # and the fallback then 400s on the same image anyway.
         if (_retry and image_b64 and model != FALLBACK_VISION_MODEL
                 and ("unknown model architecture" in low or "mllama" in low
                      or "out of memory" in low or "cannot allocate" in low
-                     or "failed to load" in low or "insufficient memory" in low)):
+                     or ("failed to load" in low and "failed to load image" not in low)
+                     or "insufficient memory" in low)):
             log("vision model '%s' can't load here -> falling back to '%s'" % (model, FALLBACK_VISION_MODEL))
             activity("job", "vision model unavailable here; using " + FALLBACK_VISION_MODEL)
             ollama_pull(FALLBACK_VISION_MODEL)
@@ -738,8 +742,11 @@ def warmup():
     """Warm the vision model on startup so the first real Scan Plate is fast,
     and so the arch-fallback (to llava on older Ollama) resolves now rather than
     on a user-facing job. Best-effort; a failure here never stops the worker."""
-    tiny = ("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
-            "+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC")   # 1x1 png
+    # 16x16 png: current Ollama rejects a 1x1 with HTTP 400 "Failed to load
+    # image or audio file", which made every warmup fail (verified on N6
+    # 2026-07-05; this 16x16 returns HTTP 200 on the same build).
+    tiny = ("iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFklEQVR4nGM4"
+            "UaFBEmIY1TCqYfhqAAADaGgQ43GRdgAAAABJRU5ErkJggg==")
     try:
         set_state(True, "warming up vision (%s)" % VISION_MODEL)
         ollama_generate(VISION_MODEL, "Reply with: ok", None, tiny)
