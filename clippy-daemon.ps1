@@ -426,10 +426,24 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
         }
         $stableDaemon = Join-Path $stable 'clippy-daemon.ps1'
         $act = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $stableDaemon + '" -Supervise')
+        # Two triggers so Clippy is NEVER left dead:
+        #  1) at logon (fresh session), and
+        #  2) a 5-min repeat that re-launches the supervisor if it ever died
+        #     mid-session (crash, kill, bad update). The supervisor self-instances
+        #     (a second copy just exits), so repeated launches are harmless and
+        #     self-healing — this is what makes "it's not even open" impossible:
+        #     a dead node is back within 5 minutes with no human and no re-logon.
         $trg = New-ScheduledTaskTrigger -AtLogOn
-        $set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
-        Register-ScheduledTask -TaskName 'ClippyDaemon' -Action $act -Trigger $trg -Settings $set -Force -ErrorAction Stop | Out-Null
-        Log "[ok] autostart registered (logon task 'ClippyDaemon' -> $stable)" 'Green'
+        try {
+          $heal = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650)
+        } catch { $heal = $null }
+        $triggers = if ($heal) { @($trg, $heal) } else { @($trg) }
+        # RestartOnFailure is belt-and-suspenders on top of the repeat trigger;
+        # IgnoreNew keeps Task Scheduler from stacking instances (the daemon guards
+        # too, but this avoids even spawning the throwaway that immediately exits).
+        $set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
+        Register-ScheduledTask -TaskName 'ClippyDaemon' -Action $act -Trigger $triggers -Settings $set -Force -ErrorAction Stop | Out-Null
+        Log ("[ok] autostart registered (logon + 5-min self-heal task 'ClippyDaemon' -> $stable)") 'Green'
       } catch { Log "[..] autostart registration skipped: $($_.Exception.Message)" 'Yellow' }
     }
   } else {
