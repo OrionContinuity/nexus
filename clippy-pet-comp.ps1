@@ -135,11 +135,19 @@ public class ClippyComp : Form {
   [DllImport("user32.dll")] static extern int GetSystemMetrics(int i);
   [DllImport("user32.dll")] static extern IntPtr SetCapture(IntPtr h);
   [DllImport("user32.dll")] static extern bool ReleaseCapture();
+  [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+  [DllImport("shell32.dll")] static extern int SHQueryUserNotificationState(out int state);
+  [DllImport("wtsapi32.dll")] static extern bool WTSRegisterSessionNotification(IntPtr h, int flags);
+  [DllImport("wtsapi32.dll")] static extern bool WTSUnRegisterSessionNotification(IntPtr h);
   public delegate bool EnumProc(IntPtr h, IntPtr l);
   [StructLayout(LayoutKind.Sequential)] struct POINT { public int X; public int Y; }
   [StructLayout(LayoutKind.Sequential)] struct RECTW { public int L, T, R, B; }
   const int GWL_EXSTYLE = -20, WS_EX_TRANSPARENT = 0x20, RGN_OR = 2, GW_OWNER = 4;
   const uint SWP_MOVE = 0x15; // NOSIZE|NOZORDER|NOACTIVATE
+  const int SW_HIDE = 0, SW_SHOWNA = 8;       // show without stealing focus
+  // SHQueryUserNotificationState: 3 = a D3D fullscreen app (game), 4 = presentation
+  const int QUNS_D3D_FULLSCREEN = 3, QUNS_PRESENTATION = 4;
+  const int WM_WTSSESSION_CHANGE = 0x02B1, WTS_SESSION_LOCK = 0x7, WTS_SESSION_UNLOCK = 0x8;
   const uint OUR_PID = 0;  // set at runtime
 
   [ComImport, Guid("C37EA93A-E7AA-450D-B16F-9746CB0407F3"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -290,6 +298,13 @@ public class ClippyComp : Form {
     var eyes = new Timer(); eyes.Interval = 360000; // ~every 6 min (CPU vision is ~90s)
     eyes.Tick += delegate (object s, EventArgs ev) { SendSight(); };
     eyes.Start();
+    // Politeness poll: every 1s decide whether to step out of the way (fullscreen
+    // game / presentation) or come back. Cheap (a shell state query + maybe one
+    // foreground-window rect check).
+    try { WTSRegisterSessionNotification(this.Handle, 0); } catch {}   // 0 = NOTIFY_FOR_THIS_SESSION -> lock/unlock msgs
+    var poli = new Timer(); poli.Interval = 1000;
+    poli.Tick += delegate (object s, EventArgs ev) { ApplyVisibility(); };
+    poli.Start();
     var t = Setup();
   }
 
@@ -370,6 +385,44 @@ public class ClippyComp : Form {
       var a = Regex.Match(s, "\"l\":(-?\\d+)"); var b = Regex.Match(s, "\"t\":(-?\\d+)");
       if(a.Success && b.Success){ _userL = int.Parse(a.Groups[1].Value); _userT = int.Parse(b.Groups[1].Value); _userMoved = true; }
     } catch {}
+  }
+
+  // --- Politeness: step out of the way for fullscreen + a locked screen -------
+  // A desktop pet that photobombs a game or a fullscreen video is the #1 reason
+  // people rip one out (Vista-gadget research, 2026-07-05). So we vanish while a
+  // game/presentation is up or the session is locked, and come right back after.
+  bool _hidden = false, _locked = false;
+  bool ShouldHide(){
+    if(_locked) return true;
+    // SHQueryUserNotificationState is the one reliable signal: it reports 3 when a
+    // real D3D fullscreen app (a game) owns the screen and 4 during presentation.
+    // We deliberately DON'T try to infer fullscreen from window rectangles: a
+    // maximised window on a monitor without a taskbar fills the whole monitor and
+    // is indistinguishable from fullscreen by geometry (verified 2026-07-05 -
+    // maximised Chrome on the 2nd monitor false-tripped it and hid Clippy). Better
+    // to occasionally stay up during a borderless video than to vanish wrongly.
+    try { int st; if(SHQueryUserNotificationState(out st) == 0 && (st == QUNS_D3D_FULLSCREEN || st == QUNS_PRESENTATION)) return true; } catch {}
+    return false;
+  }
+  void ApplyVisibility(){
+    try {
+      bool hide = ShouldHide();
+      if(hide){
+        if(!_hidden){
+          _hidden = true;
+          IntPtr wv = FindWebView(); if(wv != IntPtr.Zero) ShowWindow(wv, SW_HIDE);
+          ShowWindow(this.Handle, SW_HIDE);
+          L("hide (fullscreen/locked) - stepping out of the way");
+        }
+      } else {
+        if(_hidden){ _hidden = false; L("show - the coast is clear"); EnsureWebView(); }
+        // Self-heal: whenever he SHOULD be visible, make sure he actually is.
+        // If a single transition ShowWindow ever missed, this 1s poll fixes it -
+        // so a game/lock can never leave Clippy stuck invisible (would look dead).
+        if(!IsWindowVisible(this.Handle)) ShowWindow(this.Handle, SW_SHOWNA);
+        IntPtr wv = FindWebView(); if(wv != IntPtr.Zero && !IsWindowVisible(wv)) ShowWindow(wv, SW_SHOWNA);
+      }
+    } catch (Exception ex) { L("visibility err: " + ex.Message); }
   }
   bool OverClippy(int x, int y){
     var h = _hit; if (h == null) return false;
@@ -542,6 +595,14 @@ public class ClippyComp : Form {
     // (0x2E0) on a per-monitor DPI change. Re-fit so the overlay tracks the new
     // desktop instead of being stranded at the old geometry.
     if (m.Msg == 0x007E || m.Msg == 0x02E0) { L("display msg 0x" + m.Msg.ToString("X")); Refit(); }
+    // Session lock/unlock -> hide while the screen is locked (don't render Clippy
+    // to a lock screen), reappear on unlock. The 1s poll also catches it, but this
+    // reacts instantly.
+    if (m.Msg == WM_WTSSESSION_CHANGE) {
+      int ev = (int)m.WParam;
+      if (ev == WTS_SESSION_LOCK)   { _locked = true;  ApplyVisibility(); }
+      if (ev == WTS_SESSION_UNLOCK) { _locked = false; ApplyVisibility(); }
+    }
     // A mouse message reaching us means the pointer is genuinely over Clippy:
     // WebView2's window is click-through and OUR window is region-clipped to his
     // silhouette, so the OS only routes his pixels here (everything else goes to
