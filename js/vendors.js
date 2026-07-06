@@ -125,7 +125,12 @@
             <div class="nxrm-eyebrow">CONTRACTORS &amp; TRADES</div>
             <h1 class="nxrm-h1">Vendors</h1>
           </div>
-          <button class="nxrm-btn-pill" data-act="new-vendor">+ New</button>
+          <div style="display:flex;gap:8px;flex:0 0 auto">
+            <button class="nxrm-btn-pill" data-act="resq-export"
+                    title="Export every active vendor as one CSV for ResQ onboarding — hand it to the CSM once instead of emailing vendors in one at a time"
+                    style="background:none;color:var(--nx-gold,#d4a44e)">→ ResQ</button>
+            <button class="nxrm-btn-pill" data-act="new-vendor">+ New</button>
+          </div>
         </div>
 
         <div class="nxrm-tiles tiles-4">
@@ -269,6 +274,8 @@
     });
     const newBtn = view.querySelector('[data-act="new-vendor"]');
     if (newBtn) newBtn.addEventListener('click', promptNewVendor);
+    const resqBtn = view.querySelector('[data-act="resq-export"]');
+    if (resqBtn) resqBtn.addEventListener('click', exportVendorsToResQ);
   }
 
   // Compact action sheet opened from a vendor row's ⋮ kebab. Mirrors the
@@ -293,6 +300,7 @@
         (v.phone ? item('Text', 'text') : '') +
         item('Schedule PM', 'pm') +
         item('Log service', 'log') +
+        item('Copy for ResQ', 'resq') +
         '<button data-vm="delete" style="display:block;width:100%;text-align:left;padding:15px 18px;border:none;border-top:1px solid var(--nx-line,rgba(255,255,255,.07));background:none;color:var(--nx-red,#a83e3e);font:inherit;font-size:15px;cursor:pointer">Delete vendor</button>' +
         '<button data-vm="cancel" style="display:block;width:100%;text-align:center;padding:15px 18px;border:none;border-top:1px solid var(--nx-line,rgba(255,255,255,.07));background:none;color:var(--nx-faint,#9a9081);font:inherit;font-size:15px;cursor:pointer">Cancel</button>' +
       '</div>';
@@ -307,6 +315,7 @@
       else if (act === 'text' && v.phone) { stampVendorContact(v.id); window.location.href = 'sms:' + String(v.phone).replace(/[^\d+]/g, ''); }
       else if (act === 'pm') openVendorPmScheduler(v);
       else if (act === 'log') openVendorServiceLogger(v);
+      else if (act === 'resq') copyVendorResQPacket(v);
       else if (act === 'delete') deleteVendor(v);
     }));
     document.body.appendChild(ov);
@@ -506,6 +515,8 @@
             <button class="nxrm-vendor-action" data-act="contact-email" type="button">✉ Email</button>
           ` : ''}
           <button class="nxrm-vendor-action" data-act="edit-vendor">⚙ Edit</button>
+          <button class="nxrm-vendor-action" data-act="copy-resq" type="button"
+                  title="Copy this vendor's details, field-for-field what ResQ's invite form asks for">⧉ ResQ</button>
         </div>
         ${(Array.isArray(vendor.phones) && vendor.phones.length > 1) || (Array.isArray(vendor.emails) && vendor.emails.length > 1) ? `
         <div class="nxrm-extra-contacts">
@@ -707,6 +718,8 @@
     });
     const editBtn = view.querySelector('[data-act="edit-vendor"]');
     if (editBtn) editBtn.addEventListener('click', () => promptEditVendor(vendor));
+    const resqCopyBtn = view.querySelector('[data-act="copy-resq"]');
+    if (resqCopyBtn) resqCopyBtn.addEventListener('click', () => copyVendorResQPacket(vendor));
     // Stamp last_contact_at whenever the user taps Call / Text.
     // No preventDefault, so the tel:/sms: link still fires.
     view.querySelectorAll('[data-act="contact-call"],[data-act="contact-text"]').forEach(el => {
@@ -1819,6 +1832,134 @@
   }
 
   // ─────────────────────────────────────────────────────────────────────
+  // RESQ BRIDGE
+  // Management runs ResQ; NEXUS stays the source of truth. ResQ has no
+  // self-serve vendor import — every vendor goes through their "Invite
+  // Your Own Vendor" form or an email thread with the CSM. These helpers
+  // kill the email thread:
+  //   exportVendorsToResQ()   — every active vendor as ONE CSV, handed to
+  //                             the CSM once for bulk onboarding.
+  //   copyVendorResQPacket(v) — one vendor on the clipboard, field-for-
+  //                             field what the invite form asks for.
+  // Companion to the equipment "→ ResQ" exports in equipment.js (v18.32).
+  // ─────────────────────────────────────────────────────────────────────
+
+  // RFC 4180 cell escape — same rules as equipment.js's csv().
+  function csvCell(val) {
+    if (val == null) return '';
+    const s = String(val);
+    return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+
+  // Primary phone/email column first, then extras from the phones/emails
+  // JSON arrays, deduped case-insensitively.
+  function vendorContactList(v, kind) {
+    const primary = kind === 'email' ? v.email : v.phone;
+    const arr = Array.isArray(v[kind + 's']) ? v[kind + 's'] : [];
+    const seen = new Set(), out = [];
+    [primary, ...arr.map(r => r && r.value)].forEach(val => {
+      const t = (val || '').trim();
+      if (t && !seen.has(t.toLowerCase())) { seen.add(t.toLowerCase()); out.push(t); }
+    });
+    return out;
+  }
+
+  async function copyToClipboard(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch (_) {}
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      return ok;
+    } catch (_) { return false; }
+  }
+
+  function exportVendorsToResQ() {
+    const rows = mergeData().slice()
+      .sort((a, b) => (a.company || a.name || '').localeCompare(b.company || b.name || ''));
+    if (!rows.length) { NX.toast && NX.toast('No vendors to export', 'warn', 2200); return; }
+
+    const headers = ['Vendor Company', 'Trade / Category', 'Contact Name', 'Email',
+      'Phone', 'Address', 'Website', 'Our Account #', '24hr Emergency', 'Preferred', 'Notes'];
+    const lines = [headers.join(',')];
+    let missingEmail = 0;
+    for (const v of rows) {
+      const emails = vendorContactList(v, 'email');
+      const phones = vendorContactList(v, 'phone');
+      if (!emails.length) missingEmail++;
+      lines.push([
+        csvCell(v.company || v.name),
+        csvCell(v.category),
+        csvCell(v.contact_name),
+        csvCell(emails.join('; ')),
+        csvCell(phones.join('; ')),
+        csvCell(v.address),
+        csvCell(v.website),
+        csvCell(v.account_number),
+        csvCell(v.is_emergency ? 'YES' : ''),
+        csvCell(v.is_preferred ? 'YES' : ''),
+        csvCell(v.notes),
+      ].join(','));
+    }
+
+    // UTF-8 BOM so Windows Excel renders accents without import fiddling.
+    const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `nexus-resq-vendors-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+    const n = rows.length;
+    const msg = missingEmail
+      ? `${n} vendors exported — ${missingEmail} missing an email (ResQ can't invite those until it's filled in)`
+      : `${n} vendors exported for ResQ onboarding`;
+    NX.toast && NX.toast(msg, missingEmail ? 'warn' : 'success', 5500);
+  }
+
+  async function copyVendorResQPacket(v) {
+    if (!v) return;
+    const nm = v.company || v.name || 'Vendor';
+    const emails = vendorContactList(v, 'email');
+    const phones = vendorContactList(v, 'phone');
+    const row = (label, val) => val ? (label + ' ').padEnd(15, ' ') + val : null;
+    const packet = [
+      nm + ' — vendor details for ResQ',
+      row('Company:', nm),
+      row('Trade:', v.category),
+      row('Contact:', v.contact_name),
+      row('Email:', emails.join(', ') || '⚠ none on file — ResQ needs one to send the invite'),
+      row('Phone:', phones.join(', ')),
+      row('Address:', v.address),
+      row('Website:', v.website),
+      row('Our acct #:', v.account_number),
+      row('Hours:', v.hours),
+      v.is_emergency ? '24h emergency: yes' : null,
+      row('Notes:', v.notes),
+    ].filter(Boolean).join('\n');
+
+    const ok = await copyToClipboard(packet);
+    if (ok) {
+      NX.toast && NX.toast(
+        emails.length
+          ? `${nm} copied — paste into ResQ's "Invite Your Own Vendor" form`
+          : `${nm} copied — ⚠ no email on file, ResQ will need one`,
+        emails.length ? 'success' : 'warn', 4200);
+    } else {
+      // Clipboard blocked (rare — non-HTTPS or permissions): show the packet
+      // so the user can still select-and-copy by hand.
+      alert(packet);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
   // NEW / EDIT
   // ─────────────────────────────────────────────────────────────────────
 
@@ -2317,6 +2458,8 @@
     getByCategory: (cat) => mergeData().filter(v =>
       (v.category || '').toLowerCase() === cat.toLowerCase()),
     openVendor: (id) => mod.openVendor(id),
+    exportResQ: exportVendorsToResQ,
+    copyResQPacket: copyVendorResQPacket,
   };
 
   window.NXDispatch = {
