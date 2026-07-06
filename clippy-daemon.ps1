@@ -218,7 +218,11 @@ function Invoke-Supervisor {
       Log "[supervise] worker down - (re)starting" 'Yellow'
       Start-WorkerProc | Out-Null
     }
-    if (-not (Get-PetProc)) {
+    if (Test-Path (Join-Path $env:USERPROFILE '.clippy\pet-off')) {
+      # User chose Quit from the tray. Honour it: stop the pet if it's up and don't
+      # revive it. The Clippy desktop/Start-menu shortcut clears the flag to summon.
+      if (Get-PetProc) { Log "[supervise] pet-off flag set (user Quit) - stopping pet" 'Yellow'; Stop-PetProc }
+    } elseif (-not (Get-PetProc)) {
       Log "[supervise] pet down - (re)starting" 'Yellow'
       Start-PetProc | Out-Null
     }
@@ -290,7 +294,10 @@ Log "clippy-daemon - free disk ${freeGB} GB on $($env:SystemDrive) | power: $bat
 # are idempotent + self-guarded; the supervisor loop re-checks them every 30s),
 # THEN provision. Worst case a slow/hung install no longer keeps Clippy off screen.
 if ($Supervise -and -not $ReportOnly -and -not $EnsureOnly) {
-  if (Get-PetProc)    { Log "[boot] pet already up" 'Green' }    else { Start-PetProc | Out-Null }
+  $petOff = Test-Path (Join-Path $env:USERPROFILE '.clippy\pet-off')
+  if (Get-PetProc)    { Log "[boot] pet already up" 'Green' }
+  elseif ($petOff)    { Log "[boot] pet-off flag set (user Quit) - leaving Clippy off; summon via the Clippy shortcut" 'Yellow' }
+  else                { Start-PetProc | Out-Null }
   if (Get-WorkerProc) { Log "[boot] worker already up" 'Green' } else { Start-WorkerProc | Out-Null }
 }
 

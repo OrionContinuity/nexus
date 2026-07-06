@@ -139,6 +139,7 @@ public class ClippyComp : Form {
   [DllImport("shell32.dll")] static extern int SHQueryUserNotificationState(out int state);
   [DllImport("wtsapi32.dll")] static extern bool WTSRegisterSessionNotification(IntPtr h, int flags);
   [DllImport("wtsapi32.dll")] static extern bool WTSUnRegisterSessionNotification(IntPtr h);
+  [DllImport("user32.dll")] static extern int RegisterWindowMessage(string s);
   public delegate bool EnumProc(IntPtr h, IntPtr l);
   [StructLayout(LayoutKind.Sequential)] struct POINT { public int X; public int Y; }
   [StructLayout(LayoutKind.Sequential)] struct RECTW { public int L, T, R, B; }
@@ -305,6 +306,7 @@ public class ClippyComp : Form {
     var poli = new Timer(); poli.Interval = 1000;
     poli.Tick += delegate (object s, EventArgs ev) { ApplyVisibility(); };
     poli.Start();
+    SetupTray();
     var t = Setup();
   }
 
@@ -393,6 +395,7 @@ public class ClippyComp : Form {
   // game/presentation is up or the session is locked, and come right back after.
   bool _hidden = false, _locked = false;
   bool ShouldHide(){
+    if(_manualHidden) return true;   // user chose Hide from the tray menu
     if(_locked) return true;
     // SHQueryUserNotificationState is the one reliable signal: it reports 3 when a
     // real D3D fullscreen app (a game) owns the screen and 4 during presentation.
@@ -423,6 +426,53 @@ public class ClippyComp : Form {
         IntPtr wv = FindWebView(); if(wv != IntPtr.Zero && !IsWindowVisible(wv)) ShowWindow(wv, SW_SHOWNA);
       }
     } catch (Exception ex) { L("visibility err: " + ex.Message); }
+  }
+
+  // --- Tray icon: the control surface (show/hide, summon, pause, quit) --------
+  // Until now the only way to hide or stop Clippy was Task Manager. A NotifyIcon
+  // gives him a real presence: right-click for a menu, double-click to summon him
+  // back to the corner. Survives an Explorer restart via the TaskbarCreated
+  // broadcast (tray icons are destroyed when Explorer restarts and must re-add).
+  public static string IconPath, OffPath;
+  System.Windows.Forms.NotifyIcon _tray;
+  bool _manualHidden = false, _asleep = false;
+  int _taskbarCreatedMsg = 0;
+  System.Windows.Forms.ToolStripMenuItem _miHide, _miPause;
+  void SetupTray(){
+    try {
+      _tray = new System.Windows.Forms.NotifyIcon();
+      try { if(IconPath != null && File.Exists(IconPath)) _tray.Icon = new Icon(IconPath); else _tray.Icon = SystemIcons.Application; }
+      catch { _tray.Icon = SystemIcons.Application; }
+      _tray.Text = "Clippy";
+      var menu = new System.Windows.Forms.ContextMenuStrip();
+      _miHide  = new System.Windows.Forms.ToolStripMenuItem("Hide Clippy");     _miHide.Click  += delegate { ToggleManualHide(); };
+      var miCorner = new System.Windows.Forms.ToolStripMenuItem("Bring to corner"); miCorner.Click += delegate { ResetToCorner(); };
+      _miPause = new System.Windows.Forms.ToolStripMenuItem("Pause watching");   _miPause.Click += delegate { TogglePause(); };
+      var miQuit = new System.Windows.Forms.ToolStripMenuItem("Quit Clippy");    miQuit.Click   += delegate { QuitClippy(); };
+      menu.Items.Add(_miHide); menu.Items.Add(miCorner); menu.Items.Add(_miPause);
+      menu.Items.Add(new System.Windows.Forms.ToolStripSeparator()); menu.Items.Add(miQuit);
+      _tray.ContextMenuStrip = menu;
+      _tray.DoubleClick += delegate { ResetToCorner(); };   // double-click tray = summon
+      _tray.Visible = true;
+      _taskbarCreatedMsg = RegisterWindowMessage("TaskbarCreated");
+      L("tray icon up");
+    } catch (Exception ex) { L("tray err: " + ex.Message); }
+  }
+  void ToggleManualHide(){ _manualHidden = !_manualHidden; if(_miHide != null) _miHide.Text = _manualHidden ? "Show Clippy" : "Hide Clippy"; ApplyVisibility(); L(_manualHidden ? "hidden by user (tray)" : "shown by user (tray)"); }
+  void ResetToCorner(){
+    _manualHidden = false; if(_miHide != null) _miHide.Text = "Hide Clippy";
+    _userMoved = false;                                    // back to the auto corner
+    try { if(OffPath != null && File.Exists(OffPath)) File.Delete(OffPath); } catch {}
+    Refit(); ApplyVisibility(); L("summoned to corner (tray)");
+  }
+  void TogglePause(){ _asleep = !_asleep; if(_miPause != null) _miPause.Text = _asleep ? "Resume watching" : "Pause watching"; L(_asleep ? "vision paused (tray)" : "vision resumed (tray)"); }
+  void QuitClippy(){
+    // Write the off-flag FIRST so the supervisor doesn't just revive him in 30s;
+    // clicking the Clippy shortcut (which clears the flag) brings him back.
+    try { if(OffPath != null) File.WriteAllText(OffPath, "off"); } catch {}
+    L("quit by user (tray) - off-flag set");
+    try { if(_tray != null){ _tray.Visible = false; _tray.Dispose(); } } catch {}
+    System.Windows.Forms.Application.Exit();
   }
   bool OverClippy(int x, int y){
     var h = _hit; if (h == null) return false;
@@ -515,6 +565,7 @@ public class ClippyComp : Form {
   void SendSight(){
     try {
       if (_ctl == null) return;
+      if (_asleep || _hidden) return;   // paused from the tray, or hidden - don't grab the screen or spend GPU
       var b = Screen.PrimaryScreen.Bounds;
       string b64;
       using (var full = new Bitmap(b.Width, b.Height))
@@ -603,6 +654,11 @@ public class ClippyComp : Form {
       if (ev == WTS_SESSION_LOCK)   { _locked = true;  ApplyVisibility(); }
       if (ev == WTS_SESSION_UNLOCK) { _locked = false; ApplyVisibility(); }
     }
+    // Explorer restarted (it crashed / was restarted): tray icons are wiped and
+    // must be re-added, or Clippy loses his only control surface.
+    if (_taskbarCreatedMsg != 0 && m.Msg == _taskbarCreatedMsg && _tray != null) {
+      try { _tray.Visible = false; _tray.Visible = true; L("tray re-added after Explorer restart"); } catch {}
+    }
     // A mouse message reaching us means the pointer is genuinely over Clippy:
     // WebView2's window is click-through and OUR window is region-clipped to his
     // silhouette, so the OS only routes his pixels here (everything else goes to
@@ -686,6 +742,9 @@ try {
 [ClippyComp]::Wv       = $W
 [ClippyComp]::Hv       = $H
 [ClippyComp]::PosPath  = Join-Path $logDir 'pet-pos.json'   # remembers where you dragged him
+[ClippyComp]::OffPath  = Join-Path $logDir 'pet-off'        # tray Quit writes this; supervisor honours it
+$icoTry = @((Join-Path $PSScriptRoot 'clippy.ico'), (Join-Path $env:LOCALAPPDATA 'NexusClippy\clippy.ico')) | Where-Object { Test-Path $_ } | Select-Object -First 1
+[ClippyComp]::IconPath = $icoTry
 
 try {
   $form = New-Object ClippyComp

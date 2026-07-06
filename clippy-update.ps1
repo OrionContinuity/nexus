@@ -46,11 +46,14 @@ if (Test-Path $daemon) {
 
 # Shortcuts so anyone can summon Clippy any time (refreshed each update). Both
 # the Desktop and the Start Menu (so he shows up in Windows search / app list).
-# Each points at the daemon in -Supervise mode: launches him if he's gone,
-# otherwise the supervisor just no-ops on already-running processes.
+# Clicking one CLEARS the tray "Quit" off-flag first, then runs the daemon in
+# -Supervise mode - so the shortcut is the way to bring Clippy back after Quit
+# (launches him if he's gone; if a supervisor already runs, it clears the flag
+# and that supervisor revives the pet within its next loop).
 try {
   $ico = Join-Path $dir 'clippy.ico'
   try { Invoke-WebRequest "$raw/clippy.ico" -OutFile $ico -UseBasicParsing -TimeoutSec 30 } catch {}
+  $off = Join-Path $env:USERPROFILE '.clippy\pet-off'
   $ws  = New-Object -ComObject WScript.Shell
   $targets = @(
     (Join-Path ([Environment]::GetFolderPath('Desktop'))  'Clippy.lnk'),
@@ -61,7 +64,7 @@ try {
       New-Item -ItemType Directory -Force -Path (Split-Path $lnk) | Out-Null
       $sc  = $ws.CreateShortcut($lnk)
       $sc.TargetPath       = (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe')
-      $sc.Arguments        = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $daemon + '" -Supervise'
+      $sc.Arguments        = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command ""Remove-Item -Force -EA SilentlyContinue '$off'; & '$daemon' -Supervise"""
       $sc.WorkingDirectory = $dir
       $sc.Description       = 'Summon Clippy - NEXUS desktop buddy + pool node'
       $sc.WindowStyle      = 7
