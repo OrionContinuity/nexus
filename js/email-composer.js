@@ -106,8 +106,14 @@
   // Resolves {ok:true} or {ok:false, err:'human-readable reason'} — the
   // reason is SHOWN to the user on fallback (a silent false left everyone
   // guessing why "the old text email appeared").
+  // NX.drive registers on app.js's lexical `const NX` — which is NOT
+  // window.NX (same trap as NX.email, see sendDraft's comment). Resolve
+  // the lexical binding first, window.NX as fallback.
+  function resolveDrive() {
+    return (T && T.drive) || (window.NX && window.NX.drive) || null;
+  }
   function sendGmailHtml(to, cc, bcc, subject, textBody, htmlBody) {
-    var drive = window.NX && window.NX.drive;
+    var drive = resolveDrive();
     if (!drive || !drive.ensureDriveToken || !window.fetch) {
       return Promise.resolve({ ok: false, err: 'Google module not loaded on this build (try a full close & reopen)' });
     }
@@ -439,7 +445,7 @@
     // pre-warms the Google auth script so the consent popup opens inside the
     // Send tap (a script load mid-gesture gets popup-blocked).
     if (htmlRender) {
-      var drv = window.NX && window.NX.drive;
+      var drv = resolveDrive();
       if (!drv || !drv.ensureDriveToken) {
         setCmpStatus('⚠ Styled send module missing — Send will open the classic draft. Fully close & reopen NEXUS once.', 'warn');
       } else {

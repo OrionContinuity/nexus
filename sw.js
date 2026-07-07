@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v192-styled-send-diagnostics';
+const CACHE_NAME = 'nexus-v193-drive-lexical-nx';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
