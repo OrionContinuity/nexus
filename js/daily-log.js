@@ -2925,12 +2925,19 @@ function dlogLocationReportLines(loc) {
         const overdue = insNext < todayD;
         const days = Math.round((insNext - todayD) / 86400000);
         const sched = pmConfirmNote(eq.id);
+        // The unit's assigned inspection vendor (pool-picked in Equipment)
+        // rides along so the note says who to call.
+        let vendor = '';
+        if (eq.inspection_vendor_id) {
+          const v = (state.vendors || []).find(x => String(x.id) === String(eq.inspection_vendor_id));
+          vendor = v ? (v.company || v.name || '') : '';
+        }
         // Alfredo's rule: an upcoming inspection with the next visit already
         // booked doesn't need to appear at all — the nag is only for
         // UNhandled ones. Overdue inspections always show (with the booking
         // note when one exists), same treatment as overdue PMs.
         if (overdue || !sched) {
-          insItems.push({ name: eq.name || 'Equipment', date: insNext, overdue, days, sched });
+          insItems.push({ name: eq.name || 'Equipment', date: insNext, overdue, days, sched, vendor });
         }
       }
       const dcNext = nextOf(eq.last_deep_clean_date, eq.deep_clean_interval_days);
@@ -2966,8 +2973,8 @@ function dlogLocationReportLines(loc) {
       out.push('· Inspections due: ' + insItems.length + (overdueN ? ' (' + overdueN + ' overdue)' : ''));
       insItems.slice(0, 12).forEach(x => {
         out.push('    ' + (x.overdue
-          ? ('[OVERDUE] ' + x.name + ' — was due ' + shortDate2(x.date) + (x.days <= -1 ? ' (' + Math.abs(x.days) + 'd overdue)' : '') + (x.sched ? ' — ' + x.sched : ''))
-          : ('[DUE] ' + x.name + ' — ' + shortDate2(x.date) + ' (in ' + x.days + 'd)')));
+          ? ('[OVERDUE] ' + x.name + ' — was due ' + shortDate2(x.date) + (x.days <= -1 ? ' (' + Math.abs(x.days) + 'd overdue)' : '') + (x.sched ? ' — ' + x.sched : (x.vendor ? ' — call ' + x.vendor : '')))
+          : ('[DUE] ' + x.name + ' — ' + shortDate2(x.date) + ' (in ' + x.days + 'd)' + (x.vendor ? ' — ' + x.vendor : ''))));
       });
       if (insItems.length > 12) out.push('    +' + (insItems.length - 12) + ' more');
     }

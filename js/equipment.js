@@ -1216,6 +1216,26 @@ function openFieldEditor(equipId, fieldKey, label, currentValue, inputType, opts
         try { await loadEquipment(); } catch (_) {}
       }
       if (typeof openDetail === 'function') openDetail(equipId);
+      // Alfredo's rule: inspection tracking never exists without a vendor
+      // from the pool. Setting either inspection cadence field on a unit
+      // with no inspection vendor forces the picker; dismissing the picker
+      // reverts THIS edit, so half-created inspections can't exist.
+      const needsInspVendor =
+        (fieldKey === 'last_inspection_date' || fieldKey === 'inspection_interval_days')
+        && value != null && !eq.inspection_vendor_id;
+      if (needsInspVendor && typeof openInspectionVendorPicker === 'function') {
+        const prev = (currentValue === '' || currentValue === undefined) ? null : currentValue;
+        NX.toast && NX.toast('Who does this inspection? Pick from your vendors', 'info', 2600);
+        openInspectionVendorPicker(equipId, {
+          required: true,
+          onDismiss: async () => {
+            try { await NX.sb.from('equipment').update({ [fieldKey]: prev }).eq('id', equipId); } catch (_) {}
+            NX.toast && NX.toast(`${label} not saved — every inspection needs a vendor`, 'warn', 3400);
+            if (typeof loadEquipment === 'function') { try { await loadEquipment(); } catch (_) {} }
+            if (typeof openDetail === 'function') openDetail(equipId);
+          },
+        });
+      }
     } catch (e) {
       console.error('[openFieldEditor] save failed:', e);
       NX.toast && NX.toast('Save failed: ' + (e.message || ''), 'error', 3000);
@@ -2184,6 +2204,97 @@ async function loadVendorsForPicker() {
     console.warn('[equipment] loadVendorsForPicker threw:', e);
     return [];
   }
+}
+
+/* ─── Inspection vendor picker ──────────────────────────────────────
+   POOL-ONLY by design (Alfredo's rule): the vendor who does a unit's
+   inspections must come from the vendors table — no free text, no
+   inline creation. New vendors get added on the Vendors screen first.
+   opts.required: opened as an enforcement step after an inspection
+   cadence edit; dismissing it fires opts.onDismiss so the caller can
+   revert the edit ("no inspection without a vendor").              */
+async function openInspectionVendorPicker(equipId, opts) {
+  opts = opts || {};
+  const eq = equipment.find(e => String(e.id) === String(equipId));
+  if (!eq) return;
+  const vendors = await loadVendorsForPicker();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'eq-bulk-sheet-overlay';
+  overlay.style.zIndex = '9300';
+  const dismiss = () => {
+    overlay.remove();
+    if (typeof opts.onDismiss === 'function') opts.onDismiss();
+  };
+
+  const rows = vendors.map(v => `
+    <button class="eq-sched-contractor-row${String(eq.inspection_vendor_id || '') === String(v.id) ? ' is-selected' : ''}"
+            data-iv-id="${esc(v.id)}" data-iv-hay="${esc((v.name + ' ' + v.category).toLowerCase())}" type="button">
+      <span class="eq-sched-contractor-name">${esc(v.name)}${v.category ? ` <span style="opacity:.5;font-size:11px">· ${esc(v.category)}</span>` : ''}</span>
+      ${String(eq.inspection_vendor_id || '') === String(v.id) ? `<span class="eq-sched-check">${uiSvg('check', '14px')}</span>` : ''}
+    </button>
+  `).join('');
+
+  overlay.innerHTML = `
+    <div class="eq-bulk-sheet-backdrop"></div>
+    <div class="eq-bulk-sheet" style="max-height:85vh; overflow-y:auto">
+      <div class="eq-bulk-sheet-handle"></div>
+      <div class="eq-bulk-sheet-title">Inspection vendor — ${esc(eq.name)}</div>
+      <div class="eq-bulk-sheet-sub">${opts.required ? 'Every inspection needs a vendor. ' : ''}Choose from your vendor pool — to use someone new, add them in Vendors first.</div>
+      <div style="padding:12px 16px 4px">
+        <input type="text" id="ivSearch" placeholder="Search vendors…" autocomplete="off"
+          style="width:100%; box-sizing:border-box; padding:11px 13px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:var(--nx-text); font-size:15px">
+      </div>
+      <div class="eq-sched-contractors" style="padding:8px 16px 6px">
+        ${rows || '<div class="eq-sched-empty">No vendors in the pool yet — add one on the Vendors screen.</div>'}
+      </div>
+      <div style="padding:6px 16px 16px">
+        ${(!opts.required && eq.inspection_vendor_id) ? '<button class="eq-bulk-sheet-cancel" data-action="clear" type="button" style="color:#c44; border-color:#c44">Remove inspection vendor</button>' : ''}
+        <button class="eq-bulk-sheet-cancel" data-action="cancel" type="button">Cancel</button>
+      </div>
+    </div>
+  `;
+
+  overlay.querySelector('.eq-bulk-sheet-backdrop').addEventListener('click', dismiss);
+  overlay.querySelector('[data-action="cancel"]').addEventListener('click', dismiss);
+
+  const saveVendor = async (vendorId) => {
+    try {
+      const { error } = await NX.sb.from('equipment')
+        .update({ inspection_vendor_id: vendorId }).eq('id', equipId);
+      if (error) {
+        if (/column.+does not exist/i.test(error.message || '')) {
+          NX.toast?.('inspection_vendor_id column missing — run latest migration', 'warn', 4000);
+          return;
+        }
+        throw error;
+      }
+      eq.inspection_vendor_id = vendorId;
+      const v = vendors.find(x => String(x.id) === String(vendorId));
+      NX.toast?.(vendorId ? `Inspections by ${v ? v.name : 'vendor'}` : 'Inspection vendor removed', 'success', 1800);
+      overlay.remove();   // saved — no onDismiss revert
+      if (typeof openDetail === 'function') openDetail(equipId);
+    } catch (e) {
+      console.error('[inspectionVendorPicker] save:', e);
+      NX.toast?.('Could not save vendor', 'error', 2200);
+    }
+  };
+
+  overlay.querySelectorAll('[data-iv-id]').forEach(b =>
+    b.addEventListener('click', () => saveVendor(b.dataset.ivId)));
+  const clearBtn = overlay.querySelector('[data-action="clear"]');
+  if (clearBtn) clearBtn.addEventListener('click', () => saveVendor(null));
+  // Search filters in place — no re-render, keeps focus.
+  const si = overlay.querySelector('#ivSearch');
+  si.addEventListener('input', () => {
+    const q = si.value.trim().toLowerCase();
+    overlay.querySelectorAll('[data-iv-id]').forEach(b => {
+      b.style.display = (!q || (b.dataset.ivHay || '').includes(q)) ? '' : 'none';
+    });
+  });
+
+  document.body.appendChild(overlay);
+  setTimeout(() => si.focus(), 60);
 }
 
 /* ─── Schedule editor bottom sheet ─────────────────────────────────── */
@@ -4509,13 +4620,15 @@ async function openDetail(id) {
   // at all. Pull the vendor rows so the block can render from them.
   eq._serviceVendor = null;
   eq._repairVendor  = null;
+  eq._inspectionVendor = null;
   try {
-    const vids = [eq.service_vendor_id, eq.repair_vendor_id].filter(Boolean);
+    const vids = [eq.service_vendor_id, eq.repair_vendor_id, eq.inspection_vendor_id].filter(Boolean);
     if (vids.length) {
       const { data: vrows } = await NX.sb.from('vendors').select('*').in('id', vids);
       (vrows || []).forEach(v => {
         if (String(v.id) === String(eq.service_vendor_id)) eq._serviceVendor = v;
         if (String(v.id) === String(eq.repair_vendor_id))  eq._repairVendor  = v;
+        if (String(v.id) === String(eq.inspection_vendor_id)) eq._inspectionVendor = v;
       });
     }
   } catch (_) {}
@@ -4620,6 +4733,12 @@ async function openDetail(id) {
       // schedule editor instead of the generic single-field editor.
       if (type === 'pm_schedule' || fieldKey === 'pm_schedule') {
         openScheduleEditor(eqId);
+        return;
+      }
+      // Inspection vendor is pool-only — routes to its own picker, never
+      // the free-text field editor.
+      if (type === 'inspection_vendor' || fieldKey === 'inspection_vendor_id') {
+        openInspectionVendorPicker(eqId);
         return;
       }
       const eqRow = equipment.find(e => String(e.id) === String(eqId));
@@ -5240,6 +5359,7 @@ function renderOverview(eq, attachments, customFields, maintenance) {
     { label: 'PM scheduled',  value: renderPmScheduledValue(eq.id),                                                                      edit: 'pm_schedule',            type: 'pm_schedule' },
     { label: 'Inspection',    value: _cadSummary(_insCd, eq.last_inspection_date, eq.inspection_interval_days, 'an inspection'),         edit: 'last_inspection_date',   type: 'date' },
     { label: 'Inspect every', value: eq.inspection_interval_days ? `${eq.inspection_interval_days} days` : '—',                          edit: 'inspection_interval_days', type: 'number', min: 1, max: 3650 },
+    { label: 'Inspected by',  value: eq._inspectionVendor ? esc(eq._inspectionVendor.company || eq._inspectionVendor.name || 'Vendor') : ((eq.last_inspection_date || eq.inspection_interval_days) ? '<span style="color:#d24b4b">required — tap to pick</span>' : '—'), edit: 'inspection_vendor_id', type: 'inspection_vendor' },
     { label: 'Deep clean',    value: _cadSummary(_dcCd, eq.last_deep_clean_date, eq.deep_clean_interval_days, 'a deep clean'),           edit: 'last_deep_clean_date',   type: 'date' },
     { label: 'Clean every',   value: eq.deep_clean_interval_days ? `${eq.deep_clean_interval_days} days` : '—',                          edit: 'deep_clean_interval_days', type: 'number', min: 1, max: 3650 },
     { label: 'Last service',  value: _lastSvc ? `${_lastSvcVal}<span class="eq-detail-card-unit"> · tap for all</span>` : 'No service logged yet<span class="eq-detail-card-unit"> · tap to log</span>', edit: null, action: `NX.modules.equipment.showDetailTab('timeline')` },
