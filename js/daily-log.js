@@ -3719,27 +3719,29 @@ async function loadLocationAddresses() {
   return state.locAddr;
 }
 
-// PRIMARY provider: wttr.in - free, no key, CORS-enabled, takes a place/ZIP
-// directly (NO separate geocoding step). Returns a one-line summary or null.
-async function wttrWeather(place) {
-  try {
-    const r = await _wfetch('https://wttr.in/' + encodeURIComponent(place) + '?format=j1', 7000);
-    if (!r.ok) return null;
-    const j = await r.json();
-    const w = j && j.weather && j.weather[0];
-    if (!w || w.avgtempF == null) return null;
-    const noon = (w.hourly || []).find(h => h.time === '1200') || (w.hourly || [])[4] || {};
-    const cur = (j.current_condition || [])[0] || {};
-    const desc = ((noon.weatherDesc && noon.weatherDesc[0] && noon.weatherDesc[0].value)
-      || (cur.weatherDesc && cur.weatherDesc[0] && cur.weatherDesc[0].value) || '').trim();
-    let str = (desc ? desc + ', ' : '') + 'avg ' + w.avgtempF + '°F (H ' + w.maxtempF + ' / L ' + w.mintempF + ')';
-    const rain = parseInt((noon && noon.chanceofrain) || 0, 10);
-    if (rain >= 40) str += ' · ' + rain + '% rain';
-    return str;
-  } catch (_) { return null; }
-}
+// SEEDED COORDINATES — the venues' exact locations, from the addresses in
+// the `locations` table (geocoded once, by hand, 2026-07-07). Weather for a
+// known venue NEVER depends on a live geocoder. Keyed by normLocKey, with a
+// ZIP fallback map for future venues in the same areas.
+//   Suerte        1800 E 6th St, 78702
+//   Este + Toti   2113 Manor Rd, 78722   (Toti is in Este's building)
+//   Karaz         2627 Manor Rd, 78722
+//   Stripe It Up  11824 Tesla Rd, 78725
+const VENUE_COORDS = {
+  suerte:     { lat: 30.2617, lon: -97.7196 },
+  este:       { lat: 30.2866, lon: -97.7207 },
+  toti:       { lat: 30.2866, lon: -97.7207 },
+  karaz:      { lat: 30.2889, lon: -97.7135 },
+  stripeitup: { lat: 30.2270, lon: -97.6060 },
+};
+const ZIP_COORDS = {
+  '78702': { lat: 30.2632, lon: -97.7147 },
+  '78722': { lat: 30.2900, lon: -97.7150 },
+  '78725': { lat: 30.2360, lon: -97.6080 },
+};
 
-// FALLBACK geocoder: Open-Meteo's own geocoding API (reliable, CORS), cached.
+// Geocoder for UNKNOWN venues only (Open-Meteo's geocoding API, cached in
+// localStorage). Known venues resolve from VENUE_COORDS/ZIP_COORDS above.
 async function geocodePlace(place) {
   const cached = _geoGet(place);
   if (cached && isFinite(cached.lat) && isFinite(cached.lon)) return cached;
@@ -3757,38 +3759,76 @@ async function geocodePlace(place) {
   return null;
 }
 
-// FALLBACK provider: Open-Meteo forecast for a coordinate.
+// THE provider: Open-Meteo forecast at exact coordinates. One call returns
+// current conditions + the day's forecast in the venue's own timezone.
+// Composed for a manager's eye — what it's like NOW, the day's range, and
+// when rain starts — not a daily average:
+//   "Partly cloudy · 96°F now (feels 104) · H 101 / L 77 · rain 45% from 5pm"
 async function fetchDayWeather(lat, lon) {
   try {
     const url = 'https://api.open-meteo.com/v1/forecast'
       + '?latitude=' + lat + '&longitude=' + lon
-      + '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum'
+      + '&current=temperature_2m,apparent_temperature,weather_code'
+      + '&daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,precipitation_probability_max'
+      + '&hourly=precipitation_probability'
       + '&temperature_unit=fahrenheit&precipitation_unit=inch&timezone=auto&forecast_days=1';
     const res = await _wfetch(url, 7000);
     if (!res.ok) return null;
     const j = await res.json();
     const dy = j && j.daily;
-    if (!dy || !dy.temperature_2m_max) return null;
-    const hi = dy.temperature_2m_max[0], lo = dy.temperature_2m_min[0];
-    if (hi == null || lo == null) return null;
-    const code = dy.weather_code ? dy.weather_code[0] : null;
-    const precip = (dy.precipitation_sum && dy.precipitation_sum[0]) || 0;
-    const avg = Math.round((hi + lo) / 2);
-    let str = (code != null ? wmoText(code) + ', ' : '')
-      + 'avg ' + avg + '°F (H ' + Math.round(hi) + ' / L ' + Math.round(lo) + ')';
-    if (precip > 0.01) str += ' · ' + precip.toFixed(2) + '" precip';
-    return str;
+    if (!dy || !dy.temperature_2m_max || dy.temperature_2m_max[0] == null) return null;
+    const hi = Math.round(dy.temperature_2m_max[0]);
+    const lo = Math.round(dy.temperature_2m_min[0]);
+    const cur = j.current || {};
+    const nowT = cur.temperature_2m != null ? Math.round(cur.temperature_2m) : null;
+    const feels = cur.apparent_temperature != null ? Math.round(cur.apparent_temperature) : null;
+    const code = (cur.weather_code != null) ? cur.weather_code : (dy.weather_code ? dy.weather_code[0] : null);
+
+    const bits = [];
+    if (code != null) bits.push(wmoText(code));
+    if (nowT != null) {
+      // Only call out feels-like when it meaningfully differs (Texas humidity).
+      bits.push(nowT + '\u00b0F now' + (feels != null && Math.abs(feels - nowT) >= 4 ? ' (feels ' + feels + ')' : ''));
+    }
+    bits.push('H ' + hi + ' / L ' + lo);
+
+    // Rain: probability + WHEN it starts. Scan the remaining hours of today
+    // for the first hour with >= 40% chance.
+    const prob = (dy.precipitation_probability_max && dy.precipitation_probability_max[0]) || 0;
+    if (prob >= 30) {
+      let from = '';
+      try {
+        const hh = j.hourly || {};
+        const times = hh.time || [], probs = hh.precipitation_probability || [];
+        const nowHour = new Date().getHours();
+        for (let i = 0; i < times.length; i++) {
+          const h = parseInt(String(times[i]).slice(11, 13), 10);
+          if (h >= nowHour && (probs[i] || 0) >= 40) {
+            from = ' from ' + (h === 0 ? '12am' : h < 12 ? h + 'am' : h === 12 ? '12pm' : (h - 12) + 'pm');
+            break;
+          }
+        }
+      } catch (_) {}
+      bits.push('rain ' + prob + '%' + from);
+    }
+    return bits.join(' \u00b7 ');
   } catch (_) { return null; }
 }
 
-// Resolve a location's weather: wttr.in by ZIP/city first, then Open-Meteo.
-// Always resolves (default city) unless the network is fully down.
+// Resolve a location's weather. Order: exact venue coordinates (seeded) ->
+// ZIP coordinates (seeded) -> live geocode of the address's place key ->
+// Austin default. wttr.in is GONE: it was the primary and it is why weather
+// was "way off" — overloaded, stale cache, and it routinely resolved bare
+// US ZIPs to the wrong place entirely. Open-Meteo at exact coordinates is
+// the only forecast source now.
 async function weatherForLocationKey(key) {
-  const addr = (state.locAddr && state.locAddr[key]) || '';
-  const place = placeKeyFromAddress(addr);
-  const primary = await wttrWeather(place);
-  if (primary) return primary;
-  const coords = (await geocodePlace(place)) || DEFAULT_COORDS;
+  let coords = VENUE_COORDS[key] || null;
+  if (!coords) {
+    const addr = (state.locAddr && state.locAddr[key]) || '';
+    const place = placeKeyFromAddress(addr);
+    if (/^\d{5}$/.test(place) && ZIP_COORDS[place]) coords = ZIP_COORDS[place];
+    else coords = (await geocodePlace(place)) || DEFAULT_COORDS;
+  }
   return fetchDayWeather(coords.lat, coords.lon);
 }
 

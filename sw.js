@@ -353,8 +353,7 @@ self.addEventListener('fetch', event => {
   if (url.hostname.includes('supabase.co') ||
       url.hostname.includes('anthropic.com') ||
       url.hostname.includes('elevenlabs.io') ||
-      url.hostname.includes('wttr.in') ||             // weather (primary) — must stay fresh
-      url.hostname.includes('open-meteo.com') ||      // weather/geocode (fallback) — stay fresh
+      url.hostname.includes('open-meteo.com') ||      // weather + geocode — must stay fresh
       url.hostname.includes('googleapis.com/gmail')) {
     return; // Let browser handle normally (network only)
   }
