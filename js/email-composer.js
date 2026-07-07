@@ -103,21 +103,98 @@
       : String(s || '');
   }
   var GMAIL_SEND_SCOPE = ['https://www.googleapis.com/auth/gmail.send'];
-  // Resolves {ok:true} or {ok:false, err:'human-readable reason'} — the
-  // reason is SHOWN to the user on fallback (a silent false left everyone
-  // guessing why "the old text email appeared").
-  // NX.drive registers on app.js's lexical `const NX` — which is NOT
-  // window.NX (same trap as NX.email, see sendDraft's comment). Resolve
-  // the lexical binding first, window.NX as fallback.
+  var STYLED_ENGINE_BUILD = 'v194';   // shown in the status strip — ends "which file am I running" forever
+
+  // ── SELF-CONTAINED token machinery ─────────────────────────────────
+  // Styled send must not depend on ANY other file being fresh (zombie
+  // caches served a stale nx-drive for days — same reason work-orders.js
+  // carries its own completion cascade). Prefers NX.drive.ensureDriveToken
+  // when present (keeps its scope-union logic); otherwise does the same
+  // dance itself against the same localStorage token slots.
   function resolveDrive() {
     return (T && T.drive) || (window.NX && window.NX.drive) || null;
   }
-  function sendGmailHtml(to, cc, bcc, subject, textBody, htmlBody) {
+  function gmailClientId() {
+    var lex = null; try { lex = NX; } catch (_) {}
+    try {
+      return (lex && lex.getGoogleClientId && lex.getGoogleClientId())
+        || (window.NX && window.NX.getGoogleClientId && window.NX.getGoogleClientId())
+        || localStorage.getItem('nexus_google_client_id')
+        || (lex && lex.GOOGLE_CLIENT_ID)
+        || null;
+    } catch (_) { return null; }
+  }
+  function gmailStoredToken() {
+    try {
+      var t = localStorage.getItem('nexus_drive_token');
+      var exp = parseInt(localStorage.getItem('nexus_drive_expiry') || '0', 10);
+      var sc = (localStorage.getItem('nexus_drive_scopes') || '').split(/\s+/).filter(Boolean);
+      if (!t || Date.now() > exp - 60000) return null;
+      for (var i = 0; i < GMAIL_SEND_SCOPE.length; i++) if (sc.indexOf(GMAIL_SEND_SCOPE[i]) === -1) return null;
+      return t;
+    } catch (_) { return null; }
+  }
+  function gmailLoadGsi() {
+    return new Promise(function (resolve, reject) {
+      if (window.google && window.google.accounts && window.google.accounts.oauth2) { resolve(); return; }
+      var existing = document.querySelector('script[src*="accounts.google.com/gsi/client"]');
+      if (!existing) {
+        existing = document.createElement('script');
+        existing.src = 'https://accounts.google.com/gsi/client';
+        existing.async = true;
+        document.head.appendChild(existing);
+      }
+      var start = Date.now();
+      var poll = setInterval(function () {
+        if (window.google && window.google.accounts && window.google.accounts.oauth2) { clearInterval(poll); resolve(); }
+        else if (Date.now() - start > 10000) { clearInterval(poll); reject(new Error('Google auth script load timed out')); }
+      }, 100);
+    });
+  }
+  function gmailGetToken() {
     var drive = resolveDrive();
-    if (!drive || !drive.ensureDriveToken || !window.fetch) {
-      return Promise.resolve({ ok: false, err: 'Google module not loaded on this build (try a full close & reopen)' });
+    if (drive && drive.ensureDriveToken) {
+      return Promise.resolve(drive.ensureDriveToken({ scopes: GMAIL_SEND_SCOPE }));
     }
-    return Promise.resolve(drive.ensureDriveToken({ scopes: GMAIL_SEND_SCOPE }))
+    var cached = gmailStoredToken();
+    if (cached) return Promise.resolve(cached);
+    var clientId = gmailClientId();
+    if (!clientId) return Promise.reject(new Error('No Google Client ID on this device — connect Drive in Settings once'));
+    return gmailLoadGsi().then(function () {
+      return new Promise(function (resolve, reject) {
+        // Request the UNION of gmail.send + previously granted scopes so the
+        // Drive upload permissions survive this re-auth.
+        var prev = (localStorage.getItem('nexus_drive_scopes') || '').split(/\s+/).filter(Boolean);
+        var union = GMAIL_SEND_SCOPE.slice();
+        prev.forEach(function (s) { if (union.indexOf(s) === -1) union.push(s); });
+        var tc = google.accounts.oauth2.initTokenClient({
+          client_id: clientId,
+          scope: union.join(' '),
+          callback: function (r) {
+            if (r && r.access_token) {
+              try {
+                localStorage.setItem('nexus_drive_token', r.access_token);
+                localStorage.setItem('nexus_drive_expiry', String(Date.now() + 55 * 60 * 1000));
+                localStorage.setItem('nexus_drive_scopes', r.scope || union.join(' '));
+              } catch (_) {}
+              resolve(r.access_token);
+            } else reject(new Error('Authorization was denied or the popup was closed'));
+          },
+          error_callback: function (e) {
+            reject(new Error('Google OAuth error: ' + ((e && (e.message || e.type)) || 'popup blocked or closed')));
+          },
+        });
+        tc.requestAccessToken();
+      });
+    });
+  }
+
+  // Resolves {ok:true} or {ok:false, err:'human-readable reason'} — the
+  // reason is SHOWN to the user on fallback (a silent false left everyone
+  // guessing why "the old text email appeared").
+  function sendGmailHtml(to, cc, bcc, subject, textBody, htmlBody) {
+    if (!window.fetch) return Promise.resolve({ ok: false, err: 'no fetch in this browser' });
+    return gmailGetToken()
       .then(function (token) {
         if (!token) return { ok: false, err: 'Google did not return a token' };
         var bnd = 'nx' + Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -445,16 +522,14 @@
     // pre-warms the Google auth script so the consent popup opens inside the
     // Send tap (a script load mid-gesture gets popup-blocked).
     if (htmlRender) {
-      var drv = resolveDrive();
-      if (!drv || !drv.ensureDriveToken) {
-        setCmpStatus('⚠ Styled send module missing — Send will open the classic draft. Fully close & reopen NEXUS once.', 'warn');
-      } else {
-        var st = drv.tokenStatus ? drv.tokenStatus(['https://www.googleapis.com/auth/gmail.send']) : 'unknown';
-        if (st === 'no-client-id') setCmpStatus('⚠ Google isn’t connected on this device — Send will open the classic draft. Connect Drive in Settings first.', 'warn');
-        else if (st === 'ready') setCmpStatus('✨ Styled send ready', 'ok');
-        else setCmpStatus('✨ Send will ask for one Google permission (send email) the first time.', '');
-        if (drv.preloadAuth) { try { drv.preloadAuth().catch(function () {}); } catch (_) {} }
-      }
+      // Fully self-contained readiness check — no other file needs to be
+      // fresh for styled send to work. The build tag makes the running
+      // version visible so cache confusion is diagnosable at a glance.
+      var tag = ' · engine ' + STYLED_ENGINE_BUILD;
+      if (gmailStoredToken()) setCmpStatus('✨ Styled send ready' + tag, 'ok');
+      else if (gmailClientId()) setCmpStatus('✨ Send will ask for one Google permission (send email) the first time.' + tag, '');
+      else setCmpStatus('⚠ Google isn’t connected on this device — Send will open the classic draft. Connect Drive in Settings once.' + tag, 'warn');
+      try { gmailLoadGsi().catch(function () {}); } catch (_) {}
     }
 
     document.addEventListener('keydown', onKey, true);
