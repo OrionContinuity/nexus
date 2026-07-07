@@ -86,6 +86,60 @@
     setTimeout(function () { if (a.parentNode) a.parentNode.removeChild(a); }, 0);
   }
 
+  // ── Styled (HTML) sending via the Gmail API ──────────────────────────
+  // When composeEmail gets opts.htmlRender, the SAME Send button sends a
+  // real multipart email (the typed plain text + its styled HTML render)
+  // through gmail.googleapis.com, using the Google login the app already
+  // holds for Drive uploads (one extra consent for gmail.send on first
+  // use). Any failure falls back to the classic plain draft — the send
+  // path is never worse than the original.
+  function b64url(str) {
+    var utf8 = unescape(encodeURIComponent(str));
+    return btoa(utf8).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  function mimeHeader(s) {
+    return /[^\x20-\x7E]/.test(String(s || ''))
+      ? '=?UTF-8?B?' + btoa(unescape(encodeURIComponent(s))) + '?='
+      : String(s || '');
+  }
+  function sendGmailHtml(to, cc, bcc, subject, textBody, htmlBody) {
+    var drive = window.NX && window.NX.drive;
+    if (!drive || !drive.ensureDriveToken || !window.fetch) return Promise.resolve(false);
+    return Promise.resolve(drive.ensureDriveToken({ scopes: ['https://www.googleapis.com/auth/gmail.send'] }))
+      .then(function (token) {
+        if (!token) return false;
+        var bnd = 'nx' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+        var lines = [
+          'To: ' + to,
+          (cc && cc.length) ? 'Cc: ' + cc.join(', ') : null,
+          (bcc && bcc.length) ? 'Bcc: ' + bcc.join(', ') : null,
+          'Subject: ' + mimeHeader(subject),
+          'MIME-Version: 1.0',
+          'Content-Type: multipart/alternative; boundary="' + bnd + '"',
+          '',
+          '--' + bnd,
+          'Content-Type: text/plain; charset=UTF-8',
+          'Content-Transfer-Encoding: 8bit',
+          '',
+          textBody || '',
+          '',
+          '--' + bnd,
+          'Content-Type: text/html; charset=UTF-8',
+          'Content-Transfer-Encoding: 8bit',
+          '',
+          htmlBody || '',
+          '',
+          '--' + bnd + '--',
+        ].filter(function (l) { return l !== null; });
+        return fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ raw: b64url(lines.join('\r\n')) }),
+        }).then(function (res) { return !!(res && res.ok); });
+      })
+      .catch(function (e) { if (T.debug) T.debug('composer.gmailSend', e); return false; });
+  }
+
   function injectStyles() {
     if (document.getElementById('nx-compose-style')) return;
     var st = document.createElement('style');
@@ -144,6 +198,11 @@
     };
     var subject = opts.subject || '';
     var body = opts.body || '';
+    // opts.htmlRender(bodyText) → styled HTML of the CURRENT body text.
+    // A function (not a static string) so edits made in the Message box
+    // are re-rendered at send time — the styled email always matches the
+    // text the user actually sent.
+    var htmlRender = (typeof opts.htmlRender === 'function') ? opts.htmlRender : null;
 
     document.querySelectorAll('.nx-cmp-bg').forEach(function (n) { n.remove(); });
     var bg = document.createElement('div');
@@ -172,7 +231,9 @@
     bg.innerHTML =
       '<div class="nx-cmp">' +
         '<div class="nx-cmp-grip"></div>' +
-        '<div class="nx-cmp-head"><h3>' + escHtml(opts.title || 'Compose email') + '</h3></div>' +
+        '<div class="nx-cmp-head"><h3>' + escHtml(opts.title || 'Compose email') + '</h3>' +
+          (htmlRender ? '<button type="button" class="nx-cmp-btn" data-preview style="padding:6px 14px;font-size:12px">✨ Preview</button>' : '') +
+        '</div>' +
         '<div class="nx-cmp-body">' +
           '<div class="nx-cmp-field">' +
             '<div class="nx-cmp-label"><span class="nx-cmp-pill nx-cmp-pill-to">TO</span><span>primary recipient</span></div>' +
@@ -305,9 +366,53 @@
       }
       state.to = to;
       persistRecipients();   // local + Supabase
+      var finish = function () {
+        close();
+        if (typeof opts.onSend === 'function') { try { opts.onSend({ to: to, cc: state.cc, bcc: state.bcc, subject: subj, body: bod }); } catch (_) {} }
+      };
+      if (htmlRender) {
+        // Styled path: send the real email (plain + HTML) via the Gmail API.
+        // First use asks for the gmail.send permission once (same Google
+        // account as the Drive upload). Any failure → classic plain draft.
+        var sendBtn = bg.querySelector('[data-send]');
+        sendBtn.disabled = true; sendBtn.textContent = 'Sending…';
+        var html = '';
+        try { html = htmlRender(bod) || ''; } catch (e) { if (T.debug) T.debug('composer.htmlRender', e); }
+        (html ? sendGmailHtml(to, state.cc, state.bcc, subj, bod, html) : Promise.resolve(false))
+          .then(function (ok) {
+            if (ok) {
+              if (T.toast) T.toast('Sent ✓ — styled email delivered', 'success', 3200);
+              finish();
+            } else {
+              if (T.toast) T.toast('Styled send unavailable — opening the classic draft instead', 'warn', 4200);
+              try { sendDraft(to, subj, bod, state.cc, state.bcc); } catch (e) { if (T.debug) T.debug('composer.send', e); }
+              finish();
+            }
+          });
+        return;
+      }
       try { sendDraft(to, subj, bod, state.cc, state.bcc); } catch (e) { if (T.debug) T.debug('composer.send', e); }
-      close();
-      if (typeof opts.onSend === 'function') { try { opts.onSend({ to: to, cc: state.cc, bcc: state.bcc, subject: subj, body: bod }); } catch (_) {} }
+      finish();
+    });
+
+    // ✨ Preview — full-screen render of the CURRENT body text as styled HTML.
+    var pvBtn = bg.querySelector('[data-preview]');
+    if (pvBtn && htmlRender) pvBtn.addEventListener('click', function () {
+      var bod = bg.querySelector('[data-body]').value || '';
+      var html = '';
+      try { html = htmlRender(bod) || ''; } catch (_) {}
+      if (!html) { if (T.toast) T.toast('Nothing to preview', 'info'); return; }
+      var ov = document.createElement('div');
+      ov.style.cssText = 'position:fixed;inset:0;z-index:10005;display:flex;flex-direction:column;background:rgba(10,8,5,.75)';
+      ov.innerHTML =
+        '<div style="flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--nx-surface-solid,#161d2e);border-bottom:1px solid var(--nx-gold-line,rgba(212,164,78,.3))">' +
+          '<div style="font-weight:700;font-size:14px;color:var(--nx-text-strong,#f3ede1)">How it will look</div>' +
+          '<button type="button" class="nx-cmp-btn" data-pv-close style="padding:6px 16px">Back</button>' +
+        '</div>' +
+        '<iframe style="flex:1;border:none;background:#f4eddc" sandbox="allow-same-origin"></iframe>';
+      document.body.appendChild(ov);
+      ov.querySelector('iframe').srcdoc = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:0">' + html + '</body></html>';
+      ov.querySelector('[data-pv-close]').addEventListener('click', function () { ov.remove(); });
     });
 
     document.addEventListener('keydown', onKey, true);

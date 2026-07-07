@@ -1298,7 +1298,7 @@ function render() {
             <span class="dlog-autosend-days" id="dlogAutoSendDays" title="Days auto-send is allowed" ${dlogAutoSendOn() ? '' : 'style="display:none"'}>${['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((dd, i) => `<button type="button" class="dlog-day-pill ${dlogAutoSendDays().indexOf(i + 1) !== -1 ? 'is-on' : ''}" data-day="${i + 1}">${dd}</button>`).join('')}</span>
           </span>
           <button type="button" class="eq-btn eq-btn-secondary" id="dlogEmailBtn" title="${esc(emailBtnTitle)}">${esc(emailBtnLabel)}</button>
-          <button type="button" class="eq-btn eq-btn-secondary" id="dlogStyledEmailBtn" title="Styled HTML version of this report — preview it, then copy into a Gmail draft. The plain ✉ Email stays as the reliable original.">✨ Styled email</button>
+          <button type="button" class="eq-btn eq-btn-secondary" id="dlogStyledEmailBtn" title="Same report, same recipients, same Send — delivered as a styled email. First use asks for one Google permission. Falls back to the plain draft if anything fails.">✨ Styled email</button>
           <button type="button" class="eq-btn eq-btn-secondary" id="dlogEmailEachBtn" title="Open one Gmail draft per location at once — just hit Send on each">✉️ Email each location</button>
           <button type="button" class="eq-btn eq-btn-secondary" id="dlogSaveDraftBtn">Save</button>
           <button type="button" class="eq-btn eq-btn-primary"   id="dlogSubmitBtn">${esc(uploadBtnLabel)}</button>
@@ -3239,16 +3239,18 @@ async function openDailyLogEmail() {
 }
 
 // ── STYLED HTML EMAIL ──────────────────────────────────────────────────────
-// A second, visual rendering of the same daily-notes data — email-safe HTML
-// (tables + inline styles only, no <style> blocks: Gmail strips them from
-// pasted content). Deliberately SEPARATE from buildDailyLogEmailBody: the
-// plain-text path is the reliable original and must never change behavior
-// because of this. v2 (Alfredo: "soften it, make everything bigger, it's
-// usually read on mobile, every feature incl. Clippy, use the email engine's
-// recipients"): softer tinted pills instead of outlined tags, larger type
-// throughout, stacked single-column rows, full section parity with the
-// plain-text email, and To/CC/BCC pulled from the composer's saved
-// recipients (nx_recip_* / email_recipients) for the same dlog keys.
+// v3 (Alfredo: "use the original email for all the information and just make
+// it beautiful — I don't know why we are making new systems"): the styled
+// email is now a pure RENDERING of the original plain-text email. One data
+// pipeline — buildDailyLogEmailBody / buildLocationEmailBody stay the single
+// source of truth — and dlogTextToHtml() just typesets that text: section
+// rules become gold eyebrows, [OVERDUE]/[DOWN] brackets become tinted pills,
+// Clippy's opener becomes the soft panel. Any future change to the plain
+// email automatically appears here; the two can never disagree.
+//
+// Sending: the ✨ button opens the ORIGINAL composer (same To/CC/BCC store,
+// same Send button) with opts.htmlRender — the composer sends plain+HTML
+// via the Gmail API and falls back to the classic draft on any failure.
 const DLOG_HTML = {
   cream: '#f4eddc', card: '#fdf9f0', ink: '#2a2318', muted: '#96897a',
   gold: '#c29237', goldSoft: '#d4a44e', line: '#ece1c9',
@@ -3261,314 +3263,180 @@ const DLOG_HTML = {
   sans: "Arial, Helvetica, sans-serif",
 };
 
-function dlogHtmlChip(text, bg, tx) {
-  const C = DLOG_HTML;
-  return `<span style="display:inline-block;padding:6px 14px;margin:0 6px 8px 0;background:${bg || C.mutedBg};border-radius:999px;font-family:${C.sans};font-size:13px;font-weight:bold;letter-spacing:.04em;color:${tx || C.muted};">${text}</span>`;
-}
-
 function dlogHtmlTag(kind) {
   const C = DLOG_HTML;
+  const k = String(kind || '').toUpperCase();
   const map = {
     OVERDUE: [C.redBg, C.redTx], DOWN: [C.redBg, C.redTx], BROKEN: [C.redBg, C.redTx],
+    URGENT: [C.redBg, C.redTx], 'NOT OPERATIONAL': [C.redBg, C.redTx],
     DUE: [C.amberBg, C.amberTx], 'NEEDS SERVICE': [C.amberBg, C.amberTx],
-    DONE: [C.greenBg, C.greenTx], BOOKED: [C.greenBg, C.greenTx],
+    HIGH: [C.amberBg, C.amberTx], PRIORITY: [C.amberBg, C.amberTx],
+    DONE: [C.greenBg, C.greenTx], REPAIRED: [C.greenBg, C.greenTx],
   };
-  const [bg, tx] = map[kind] || [C.mutedBg, C.muted];
-  return `<span style="display:inline-block;padding:4px 11px;background:${bg};border-radius:7px;font-family:${C.sans};font-size:12px;font-weight:bold;letter-spacing:.05em;color:${tx};">${kind}</span>`;
+  const [bg, tx] = map[k] || [C.mutedBg, C.muted];
+  return `<span style="display:inline-block;padding:4px 11px;background:${bg};border-radius:7px;font-family:${DLOG_HTML.sans};font-size:12px;font-weight:bold;letter-spacing:.05em;color:${tx};">${esc(k)}</span>`;
 }
 
-function dlogHtmlSection(label, inner) {
+// Chip for "At a glance" fragments — tone inferred from the words.
+function dlogHtmlChip(text) {
   const C = DLOG_HTML;
-  return `
-    <tr><td style="padding:26px 24px 0;">
-      <div style="border-top:1px solid ${C.line};padding-top:20px;">
-        <div style="font-family:${C.mono};font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:${C.gold};margin-bottom:12px;">${label}</div>
-        ${inner}
-      </div>
-    </td></tr>`;
+  const t = String(text || '').trim();
+  let bg = C.mutedBg, tx = C.muted;
+  if (/down|urgent/i.test(t)) { bg = C.redBg; tx = C.redTx; }
+  else if (/overdue/i.test(t)) { bg = C.amberBg; tx = C.amberTx; }
+  return `<span style="display:inline-block;padding:6px 14px;margin:0 6px 8px 0;background:${bg};border-radius:999px;font-family:${C.sans};font-size:13px;font-weight:bold;letter-spacing:.04em;color:${tx};">${esc(t)}</span>`;
 }
 
-function dlogHtmlSubhead(label) {
+// ── The typesetter ─────────────────────────────────────────────────────────
+// Parses the exact line grammar the plain-text builders emit:
+//   "─── LABEL ─────── suffix"   section header (NX.email.sectionHeader)
+//   "──────────────"             closing rule → everything after = signature
+//   "At a glance: a · b · c"     chips
+//   "· bullet — detail"          primary row (bold head, muted tail)
+//   "    [TAG] name — detail"    tinted pill + row ("confirmed schedule" → green)
+//   "    key: value"             muted sub-line (why:/call: italic)
+//   "Key: value"                 bold-key paragraph (Tomorrow:, FOH:, …)
+//   "<quote> — Clippy 👋"        the opener panel
+function dlogTextToHtml(text, meta) {
   const C = DLOG_HTML;
-  return `<div style="font-family:${C.mono};font-size:11.5px;letter-spacing:.18em;text-transform:uppercase;color:${C.gold};margin:20px 0 8px;">${label}</div>`;
-}
+  meta = meta || {};
+  const lines = String(text || '').replace(/\r/g, '').split('\n');
+  const SEC_RE = /^─── (.+?) ─+(.*)$/;
+  const RULE_RE = /^─{6,}$/;
 
-// One location's block. Same data sources as dlogLocationReportLines, but
-// intentionally independent — the text renderer is the untouchable original.
-function dlogHtmlLocationBlock(loc) {
-  const C = DLOG_HTML;
-  const clean = s => String(s == null ? '' : s).trim();
-  const locKey = normLocKey(loc.label);
-  const here = x => normLocKey(x.location) === locKey;
-  const parts = [];
+  // Split into: preamble (greeting), sections, signature.
+  const pre = [];
+  const sections = [];
+  const sig = [];
+  let cur = null, inSig = false;
+  for (const raw of lines) {
+    const line = raw;
+    if (inSig) { sig.push(line); continue; }
+    const sm = line.match(SEC_RE);
+    if (sm) { cur = { label: sm[1].trim(), suffix: (sm[2] || '').trim(), lines: [] }; sections.push(cur); continue; }
+    if (RULE_RE.test(line.trim())) { inSig = true; continue; }
+    if (cur) cur.lines.push(line); else pre.push(line);
+  }
 
-  // At a glance chips — mirrors the text path's "At a glance" line,
-  // including PM-overdue with its scheduled count.
-  const slices = state.ticketSlices || {};
-  const openC = (slices.open || []).filter(c => normLocKey(c.location) === locKey);
-  const workingC = (slices.working || []).filter(c => normLocKey(c.location) === locKey);
-  const urgent = openC.concat(workingC).filter(c => (c.priority || '').toLowerCase() === 'urgent').length;
-  const downList = (state.equipmentDown || []).filter(eq => here(eq) && eq.archived !== true && String(eq.status || '').toLowerCase() !== 'retired');
-  const eqAll = (state.equipmentHealth || []).filter(eq => here(eq) && eq.archived !== true && String(eq.status || '').toLowerCase() !== 'retired');
-  const todayD = new Date(); todayD.setHours(0, 0, 0, 0);
-  const soonD = new Date(todayD); soonD.setDate(soonD.getDate() + 14);
-  const soonInsD = new Date(todayD); soonInsD.setDate(soonInsD.getDate() + 30);
-  const nextOf = (lastIso, days) => {
-    const n = parseInt(days, 10);
-    if (!lastIso || !n) return null;
-    const dd = new Date(String(lastIso).slice(0, 10) + 'T00:00:00');
-    if (isNaN(dd)) return null;
-    dd.setDate(dd.getDate() + n);
-    return dd;
-  };
-  let pmOverdueN = 0, pmSchedN = 0, dcO = 0, dcS = 0, op = 0;
-  const pmItems = [], insItems = [], warrSoon = [];
-  eqAll.forEach(eq => {
-    if ((eq.status || 'operational').toLowerCase() === 'operational') op++;
-    const pmNext = eq.next_pm_date ? new Date(String(eq.next_pm_date).slice(0, 10) + 'T00:00:00') : nextOf(eq.last_pm_date, eq.pm_interval_days);
-    if (pmNext && !isNaN(pmNext) && pmNext <= soonD) {
-      const overdue = pmNext < todayD;
-      const sched = pmConfirmNote(eq.id);
-      if (overdue) { pmOverdueN++; if (sched) pmSchedN++; }
-      pmItems.push({ name: eq.name || 'Equipment', date: pmNext, overdue, days: Math.round((pmNext - todayD) / 86400000), sched });
-    }
-    const insNext = nextOf(eq.last_inspection_date, eq.inspection_interval_days);
-    if (insNext && !isNaN(insNext) && insNext <= soonInsD) {
-      const overdue = insNext < todayD;
-      const sched = pmConfirmNote(eq.id);
-      let vendor = '';
-      if (eq.inspection_vendor_id) {
-        const v = (state.vendors || []).find(x => String(x.id) === String(eq.inspection_vendor_id));
-        vendor = v ? (v.company || v.name || '') : '';
-      }
-      if (overdue || !sched) insItems.push({ name: eq.name || 'Equipment', date: insNext, overdue, days: Math.round((insNext - todayD) / 86400000), sched, vendor });
-    }
-    const dcNext = nextOf(eq.last_deep_clean_date, eq.deep_clean_interval_days);
-    if (dcNext) { if (dcNext < todayD) dcO++; else if (dcNext <= soonD) dcS++; }
-    if (eq.warranty_until) {
-      const wd = new Date(String(eq.warranty_until).slice(0, 10) + 'T00:00:00');
-      const wdays = Math.round((wd - todayD) / 86400000);
-      if (!isNaN(wd) && wdays >= 0 && wdays <= 90) warrSoon.push({ name: eq.name || 'Equipment', d: wd, days: wdays });
-    }
+  // Weather rides in the masthead, not as a body section.
+  let weatherLine = '';
+  const weatherIdx = sections.findIndex(s => /^weather$/i.test(s.label));
+  if (weatherIdx !== -1) {
+    weatherLine = sections[weatherIdx].lines.map(l => l.trim()).filter(Boolean).join(' ');
+    sections.splice(weatherIdx, 1);
+  }
+
+  // Clippy's opener from the preamble; any other preamble text stays as prose.
+  let clippyQuote = '';
+  const preProse = [];
+  pre.forEach(l => {
+    const t = l.trim();
+    if (!t) return;
+    if (/— Clippy/.test(t)) clippyQuote = t.replace(/\s*— Clippy.*$/, '').trim();
+    else preProse.push(t);
   });
-  pmItems.sort((a, b) => a.date - b.date);
-  insItems.sort((a, b) => a.date - b.date);
-  warrSoon.sort((a, b) => a.days - b.days);
 
-  const chips = [];
-  if (downList.length) chips.push(dlogHtmlChip(downList.length + ' down', C.redBg, C.redTx));
-  if (urgent) chips.push(dlogHtmlChip(urgent + ' urgent', C.redBg, C.redTx));
-  if (pmOverdueN) chips.push(dlogHtmlChip(pmOverdueN + ' PM overdue' + (pmSchedN ? ' · ' + pmSchedN + ' scheduled' : ''), C.amberBg, C.amberTx));
-  const openTotal = openC.length + workingC.length;
-  if (openTotal) chips.push(dlogHtmlChip(openTotal + ' open', C.mutedBg, C.muted));
+  const sub = (s) => `<div style="font-family:${C.sans};font-size:14px;line-height:1.6;color:${C.muted};margin:3px 0 3px 2px;">${esc(s)}</div>`;
+  const prose = (s) => {
+    const kv = s.match(/^([A-Za-z][A-Za-z /&'()-]{1,28}):\s+(.*)$/);
+    if (kv) return `<div style="font-family:${C.sans};font-size:15.5px;line-height:1.7;color:${C.ink};margin:0 0 8px;"><strong style="font-family:${C.serif};font-size:16px;">${esc(kv[1])}:</strong> ${esc(kv[2])}</div>`;
+    return `<div style="font-family:${C.serif};font-size:16.5px;line-height:1.7;color:${C.ink};margin:0 0 8px;">${esc(s)}</div>`;
+  };
 
-  // Notes — the manager's own words lead the block.
-  if (clean(loc.notes)) {
-    parts.push(`<div style="font-family:${C.serif};font-size:17px;line-height:1.7;color:${C.ink};margin:4px 0 6px;white-space:pre-wrap;">${esc(clean(loc.notes))}</div>`);
-  }
+  function renderLine(raw) {
+    if (!raw.trim()) return '<div style="height:6px;"></div>';
+    const indented = /^ {3,}/.test(raw);
+    const s = raw.trim();
 
-  // Equipment status — stacked rows, roomy, mobile-first.
-  if (downList.length) {
-    parts.push(dlogHtmlSubhead('Equipment status'));
-    parts.push(downList.map(eq => {
-      const st = (eq.status || '').replace(/_/g, ' ').trim().toUpperCase() || 'DOWN';
-      const iss = (state.openIssuesByEq || {})[eq.id];
-      let call = 'Call not logged — no open work order yet';
-      if (iss) {
-        const s = (iss.status || '').toLowerCase();
-        const who = iss.contractor_name ? ' to ' + clean(iss.contractor_name) : '';
-        if (s === 'reported' || s === 'open' || s === 'new') call = 'Call NOT placed yet';
-        else if (s === 'contractor_called' || s === 'called' || s === 'dispatched') call = 'Call placed' + who;
-        else if (s === 'eta_set' || s === 'scheduled') call = 'Call placed' + who + (iss.eta_at ? ' — ETA ' + new Date(iss.eta_at).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) : '');
-        else if (s === 'in_progress' || s === 'on_site') call = 'Contractor on site — repair in progress';
-        else if (s === 'awaiting_parts') call = 'Awaiting parts';
-        else call = s.replace(/_/g, ' ');
+    const atG = s.match(/^At a glance:\s*(.+)$/i);
+    if (atG) return `<div style="margin:2px 0 6px;">${atG[1].split(' · ').map(dlogHtmlChip).join('')}</div>`;
+
+    // "[TAG] name — detail — detail" (both bulleted and indented forms).
+    // Names can themselves contain " — " ("Hood — Main Line"), so the
+    // head/detail split happens at the first segment that READS like a
+    // detail (was due…, a date, in Nd…), not blindly at the first dash.
+    const tag = s.replace(/^· /, '').match(/^\[([A-Z][A-Z /_-]*)\]\s*(.*)$/);
+    if (tag) {
+      const segs = tag[2].split(' — ');
+      let cut = segs.length;
+      for (let i = 1; i < segs.length; i++) {
+        if (/^(was due|due |in \d|call |confirmed|\d|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/.test(segs[i])) { cut = i; break; }
       }
+      if (cut === segs.length && segs.length > 1) cut = 1;   // fallback: first dash
+      const head = segs.slice(0, cut).join(' — ');
+      const tail = segs.slice(cut).join(' — ');
+      const good = /confirmed schedule/i.test(tail);
       return `
-      <div style="background:${C.mutedBg};border-radius:14px;padding:16px 18px;margin:0 0 10px;">
-        <div style="margin-bottom:8px;">${dlogHtmlTag(st)}</div>
-        <div style="font-family:${C.serif};font-size:18px;font-weight:bold;color:${C.ink};">${esc(eq.name || 'Equipment')}</div>
-        ${clean(eq.status_note) ? `<div style="font-family:${C.sans};font-size:15px;line-height:1.55;color:${C.ink};margin-top:6px;">${esc(clean(eq.status_note))}</div>` : ''}
-        <div style="font-family:${C.sans};font-size:14px;color:${C.muted};margin-top:6px;font-style:italic;">${esc(call)}</div>
-      </div>`;
-    }).join(''));
+        <div style="padding:10px 0;border-bottom:1px solid ${C.line};">
+          <div>${dlogHtmlTag(tag[1])}<span style="font-family:${C.serif};font-size:17px;font-weight:bold;color:${C.ink};margin-left:8px;">${esc(head)}</span></div>
+          ${tail ? `<div style="font-family:${C.sans};font-size:14.5px;line-height:1.6;color:${good ? C.greenTx : C.muted};margin-top:5px;${good ? 'font-weight:bold;' : ''}">${esc(tail)}</div>` : ''}
+        </div>`;
+    }
+
+    if (/^· /.test(s)) {
+      const rest = s.slice(2);
+      const i = rest.indexOf(' — ');
+      const head = i === -1 ? rest : rest.slice(0, i);
+      const tail = i === -1 ? '' : rest.slice(i + 3);
+      return `
+        <div style="padding:9px 0;border-bottom:1px solid ${C.line};">
+          <span style="font-family:${C.serif};font-size:16.5px;font-weight:bold;color:${C.ink};">${esc(head)}</span>
+          ${tail ? `<div style="font-family:${C.sans};font-size:14.5px;line-height:1.6;color:${C.muted};margin-top:4px;">${esc(tail)}</div>` : ''}
+        </div>`;
+    }
+
+    if (indented) {
+      const kv = s.match(/^(why|call):\s*(.*)$/i);
+      if (kv) return `<div style="font-family:${C.sans};font-size:14px;line-height:1.6;color:${C.muted};font-style:italic;margin:2px 0 6px 2px;">${esc(kv[1] === 'why' ? kv[2] : 'Call: ' + kv[2])}</div>`;
+      return sub(s);
+    }
+
+    return prose(s);
   }
 
-  // Fleet health one-liner (the text path's "N units — N operational").
-  if (eqAll.length) {
-    parts.push(`<div style="font-family:${C.sans};font-size:14px;color:${C.muted};margin:14px 0 0;">${eqAll.length} unit${eqAll.length === 1 ? '' : 's'} tracked · ${op} operational${(dcO + dcS) ? ' · deep cleans due: ' + (dcO + dcS) + (dcO ? ' (' + dcO + ' overdue)' : '') : ''}</div>`);
-  }
+  const sectionHtml = sections.map(sec => {
+    const inner = sec.lines.map(renderLine).join('');
+    if (!inner.replace(/<div style="height:6px;"><\/div>/g, '').trim()) return '';
+    return `
+      <tr><td style="padding:24px 24px 0;">
+        <div style="border-top:1px solid ${C.line};padding-top:18px;">
+          <div style="font-family:${C.mono};font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:${C.gold};margin-bottom:10px;">${esc(sec.label)}${sec.suffix ? ` <span style="color:${C.muted};letter-spacing:.05em;">· ${esc(sec.suffix)}</span>` : ''}</div>
+          ${inner}
+        </div>
+      </td></tr>`;
+  }).join('');
 
-  // PM due + Inspections — bigger rows, tinted pills, booking notes in green.
-  const dueRow = (x, extra, extraGood) => `
-    <div style="padding:12px 0;border-bottom:1px solid ${C.line};">
-      <div>${dlogHtmlTag(x.overdue ? 'OVERDUE' : 'DUE')}
-        <span style="font-family:${C.serif};font-size:17px;font-weight:bold;color:${C.ink};margin-left:8px;">${esc(x.name)}</span></div>
-      <div style="font-family:${C.sans};font-size:14.5px;color:${C.muted};margin-top:5px;">${x.overdue ? 'was due ' + x.date.toLocaleDateString([], { month: 'short', day: 'numeric' }) + (x.days <= -1 ? ' — ' + Math.abs(x.days) + ' days overdue' : '') : x.date.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' — in ' + x.days + ' day' + (x.days === 1 ? '' : 's')}</div>
-      ${extra ? `<div style="font-family:${C.sans};font-size:14.5px;color:${extraGood ? C.greenTx : C.muted};margin-top:4px;${extraGood ? 'font-weight:bold;' : ''}">${esc(extra)}</div>` : ''}
-    </div>`;
-  if (pmItems.length) {
-    parts.push(dlogHtmlSubhead('PM due'));
-    parts.push(pmItems.slice(0, 12).map(x => dueRow(x, x.sched || '', !!x.sched)).join(''));
-    if (pmItems.length > 12) parts.push(`<div style="font-family:${C.sans};font-size:13.5px;color:${C.muted};padding:8px 0;">+${pmItems.length - 12} more</div>`);
-  }
-  if (insItems.length) {
-    parts.push(dlogHtmlSubhead('Inspections'));
-    parts.push(insItems.slice(0, 12).map(x => dueRow(x, x.sched || (x.vendor ? (x.overdue ? 'call ' : '') + x.vendor : ''), !!x.sched)).join(''));
-    if (insItems.length > 12) parts.push(`<div style="font-family:${C.sans};font-size:13.5px;color:${C.muted};padding:8px 0;">+${insItems.length - 12} more</div>`);
-  }
-
-  // Warranties inside the actionable 90-day window.
-  if (warrSoon.length) {
-    parts.push(dlogHtmlSubhead('Warranty expiring'));
-    parts.push(warrSoon.map(w => `
-      <div style="font-family:${C.sans};font-size:15px;color:${C.ink};padding:7px 0;">
-        <strong style="font-family:${C.serif};font-size:16px;">${esc(w.name)}</strong>
-        <span style="color:${C.muted};"> — ${w.d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })} (${w.days} days)</span>
-      </div>`).join(''));
-  }
-
-  // PMs performed today
-  const pmsHere = (state.pmsToday || []).filter(p => normLocKey((p.equipment && p.equipment.location) || '') === locKey);
-  if (pmsHere.length) {
-    parts.push(dlogHtmlSubhead('PMs logged today'));
-    parts.push(pmsHere.map(p => {
-      const eqName = (p.equipment && p.equipment.name) || 'Equipment';
-      const cost = (p.cost != null && !isNaN(p.cost) && Number(p.cost) > 0) ? ' · $' + Math.round(Number(p.cost)).toLocaleString() : '';
-      return `<div style="font-family:${C.sans};font-size:15.5px;line-height:1.6;color:${C.ink};padding:7px 0;"><span style="color:${C.greenTx};font-weight:bold;">✓</span> <strong style="font-family:${C.serif};font-size:16px;">${esc(eqName)}</strong><span style="color:${C.muted};"> — by ${esc(clean(p.performed_by) || 'unassigned')}${cost}</span></div>`;
-    }).join(''));
-  }
-
-  // Vendor & service calls (the rows typed into the log)
-  const vcs = (loc.vendor_calls || []).filter(vc => vc && (clean(vc.vendor) || clean(vc.issue) || clean(vc.status)));
-  if (vcs.length) {
-    parts.push(dlogHtmlSubhead('Vendor & service calls'));
-    parts.push(vcs.map(vc => `
-      <div style="background:${C.mutedBg};border-left:4px solid ${C.goldSoft};border-radius:0 14px 14px 0;padding:14px 18px;margin:0 0 10px;">
-        <div style="font-family:${C.serif};font-size:17px;color:${C.ink};"><strong>${esc(clean(vc.vendor) || 'Vendor')}</strong>${clean(vc.equipment) ? `<span style="color:${C.muted};font-size:15px;"> · ${esc(clean(vc.equipment))}</span>` : ''}</div>
-        ${clean(vc.issue) ? `<div style="font-family:${C.sans};font-size:15px;line-height:1.55;color:${C.ink};margin-top:5px;">${esc(clean(vc.issue))}</div>` : ''}
-        ${clean(vc.status) ? `<div style="font-family:${C.sans};font-size:14px;color:${C.muted};margin-top:5px;font-style:italic;">${esc(clean(vc.status))}</div>` : ''}
-      </div>`).join(''));
-  }
-
-  if (!parts.length && !chips.length) return '';
-  return `
-    <tr><td style="padding:30px 24px 4px;">
-      <div style="font-family:${C.serif};font-size:28px;font-weight:bold;color:${C.ink};letter-spacing:-.01em;">${esc(loc.label || 'Location')}</div>
-      ${chips.length ? `<div style="margin-top:12px;">${chips.join('')}</div>` : ''}
-    </td></tr>
-    <tr><td style="padding:2px 24px 8px;">${parts.join('')}</td></tr>`;
-}
-
-// The full email body — one soft card on cream, editorial masthead, Clippy's
-// opener, per-location blocks, every day-level section the plain-text email
-// carries, quiet footer. Section parity with buildDailyLogEmailBody is the
-// contract: if a section exists there, it exists here.
-function buildDailyLogEmailHtml(d, dateStr) {
-  const C = DLOG_HTML;
-  const clean = s => String(s == null ? '' : s).trim();
-  const locKey = state.activeLoc;
-  const singleLoc = locKey && locKey !== 'all';
-  const locs = singleLoc
-    ? (d.locations || []).filter(l => normLocKey(l.label) === locKey)
-    : (d.locations || []);
-
-  // Clippy's opener — his authored line for this date when he wrote one,
-  // else the static pool. Same source as the plain-text greeting.
-  const quote = (state.clippyQuoteText && state.clippyQuoteDate === dateStr)
-    ? state.clippyQuoteText
-    : (typeof dlogStaticQuote === 'function' ? dlogStaticQuote(dateStr) : '');
-  const clippyBlock = quote ? `
+  const clippyBlock = clippyQuote ? `
     <tr><td style="padding:22px 24px 0;">
       <div style="background:${C.mutedBg};border-radius:16px;padding:18px 20px;">
-        <div style="font-family:${C.serif};font-size:16.5px;line-height:1.65;color:${C.ink};font-style:italic;">${esc(quote)}</div>
+        <div style="font-family:${C.serif};font-size:16.5px;line-height:1.65;color:${C.ink};font-style:italic;">${esc(clippyQuote)}</div>
         <div style="font-family:${C.sans};font-size:14px;color:${C.muted};margin-top:8px;">— Clippy 👋</div>
       </div>
     </td></tr>` : '';
 
-  const sections = [];
-  if (clean(d.header && d.header.significant_events)) {
-    sections.push(dlogHtmlSection('Significant events',
-      `<div style="font-family:${C.serif};font-size:17px;line-height:1.7;color:${C.ink};white-space:pre-wrap;">${esc(clean(d.header.significant_events))}</div>`));
-  }
+  const preBlock = preProse.length ? `
+    <tr><td style="padding:20px 24px 0;">${preProse.map(prose).join('')}</td></tr>` : '';
 
-  const locBlocks = locs.map(dlogHtmlLocationBlock).filter(Boolean).join('');
+  // Signature: keep the sender's name; our own footer supplies the brand line.
+  const sigName = sig.map(l => l.trim()).filter(l => l && !/^powered by nexus$/i.test(l)).join('<br>');
 
-  // Orphan PMs — performed at a location that has no section in this log
-  // (full-day view only; a single-location email is intentionally scoped).
-  let orphanBlock = '';
-  if (!singleLoc) {
-    const matched = new Set((d.locations || []).map(l => normLocKey(l.label)));
-    const orphans = (state.pmsToday || []).filter(p => !matched.has(normLocKey((p.equipment && p.equipment.location) || '')));
-    if (orphans.length) {
-      orphanBlock = dlogHtmlSection('PMs logged · other locations', orphans.map(p => {
-        const eqName = (p.equipment && p.equipment.name) || 'Equipment';
-        const where = (p.equipment && p.equipment.location) || 'Unspecified location';
-        const cost = (p.cost != null && !isNaN(p.cost) && Number(p.cost) > 0) ? ' · $' + Math.round(Number(p.cost)).toLocaleString() : '';
-        return `<div style="font-family:${C.sans};font-size:15.5px;line-height:1.6;color:${C.ink};padding:7px 0;"><span style="color:${C.greenTx};font-weight:bold;">✓</span> <strong style="font-family:${C.serif};font-size:16px;">${esc(eqName)}</strong><span style="color:${C.muted};"> — ${esc(where)} · by ${esc(clean(p.performed_by) || 'unassigned')}${cost}</span></div>`;
-      }).join(''));
-    }
-  }
-
-  // Day-level sections (vendor activity, planning, cleaning, other
-  // properties) belong to the FULL-DAY digest only — the plain
-  // buildLocationEmailBody sends a venue manager just their venue, and
-  // the styled per-location email matches that scoping exactly.
-  const vendorActivityBlock = (!singleLoc && clean(d.vendor_activity_notes))
-    ? dlogHtmlSection('Vendor activity', `<div style="font-family:${C.serif};font-size:17px;line-height:1.7;color:${C.ink};white-space:pre-wrap;">${esc(clean(d.vendor_activity_notes))}</div>`)
-    : '';
-
-  const plan = [];
-  if (!singleLoc && d.planning) {
-    if (clean(d.planning.tomorrow_plan)) plan.push(['Tomorrow', d.planning.tomorrow_plan]);
-    if (clean(d.planning.this_week)) plan.push(['This week', d.planning.this_week]);
-    if (clean(d.planning.side_notes)) plan.push(['Side notes', d.planning.side_notes]);
-  }
-  const planBlock = plan.length ? dlogHtmlSection('Planning',
-    plan.map(p => `<div style="font-family:${C.sans};font-size:15.5px;line-height:1.7;color:${C.ink};margin-bottom:10px;"><strong style="font-family:${C.serif};font-size:16px;">${p[0]}:</strong> ${esc(clean(p[1]))}</div>`).join('')) : '';
-
-  const clLines = [];
-  if (!singleLoc && d.cleaning) CLEANING_FIELDS.forEach(f => {
-    const v = clean(d.cleaning[f.key]);
-    if (v) clLines.push(`<div style="font-family:${C.sans};font-size:15.5px;line-height:1.7;color:${C.ink};margin-bottom:8px;"><strong style="font-family:${C.serif};font-size:16px;">${esc(f.label)}:</strong> ${esc(v)}</div>`);
-  });
-  const cleaningBlock = clLines.length ? dlogHtmlSection('Cleaning', clLines.join('')) : '';
-
-  const others = singleLoc ? [] : (d.other_properties || []).filter(o => clean(o.property_name) || clean(o.notes));
-  const othersBlock = others.length ? dlogHtmlSection('Other properties',
-    others.map(o => `<div style="font-family:${C.sans};font-size:15.5px;line-height:1.7;color:${C.ink};margin-bottom:8px;"><strong style="font-family:${C.serif};font-size:16px;">${esc(clean(o.property_name) || 'Property')}${clean(o.notes) ? ':' : ''}</strong> ${esc(clean(o.notes))}</div>`).join('')) : '';
-
-  // Empty-day friendliness — same as the text path.
-  const hasContent = sections.length || locBlocks || orphanBlock || vendorActivityBlock || planBlock || cleaningBlock || othersBlock;
-  const quietBlock = hasContent ? '' : `
-    <tr><td style="padding:30px 24px 10px;">
-      <div style="font-family:${C.serif};font-size:18px;color:${C.muted};font-style:italic;">Quiet day — nothing flagged.</div>
-    </td></tr>`;
-
-  const me = (window.NX && (NX.user || NX.currentUser)) ? ((NX.user && NX.user.name) || (NX.currentUser && NX.currentUser.name) || '') : '';
-
+  const dateLine = meta.dateStr ? fmtLogDateLong(meta.dateStr) : '';
   return `
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${C.cream};padding:0;margin:0;">
 <tr><td align="center" style="padding:20px 10px;">
   <table role="presentation" width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%;background:${C.card};border:1px solid ${C.line};border-radius:22px;">
     <tr><td style="padding:30px 24px 0;">
       <div style="font-family:${C.mono};font-size:13px;letter-spacing:.3em;color:${C.gold};">&#9679; NEXUS</div>
-      <div style="font-family:${C.serif};font-size:38px;font-weight:bold;color:${C.ink};letter-spacing:-.02em;margin-top:14px;">Daily Log${singleLoc && locs[0] ? ` <span style="color:${C.gold};">· ${esc(locs[0].label)}</span>` : ''}</div>
-      <div style="font-family:${C.mono};font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:${C.muted};margin-top:8px;line-height:1.6;">${esc(fmtLogDateLong(dateStr))}${(() => { const wx = clean((singleLoc && state.weatherByLoc && state.weatherByLoc[locKey]) || (d.header && d.header.weather)); return wx ? '<br>' + esc(wx) : ''; })()}</div>
+      <div style="font-family:${C.serif};font-size:38px;font-weight:bold;color:${C.ink};letter-spacing:-.02em;margin-top:14px;">Daily Log${meta.locLabel ? ` <span style="color:${C.gold};">· ${esc(meta.locLabel)}</span>` : ''}</div>
+      <div style="font-family:${C.mono};font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:${C.muted};margin-top:8px;line-height:1.6;">${esc(dateLine)}${weatherLine ? '<br>' + esc(weatherLine) : ''}</div>
       <div style="border-top:3px solid ${C.goldSoft};border-radius:3px;margin-top:20px;width:64px;"></div>
     </td></tr>
     ${clippyBlock}
-    ${sections.join('')}
-    ${locBlocks}
-    ${orphanBlock}
-    ${vendorActivityBlock}
-    ${planBlock}
-    ${cleaningBlock}
-    ${othersBlock}
-    ${quietBlock}
+    ${preBlock}
+    ${sectionHtml}
     <tr><td style="padding:28px 24px 28px;">
       <div style="border-top:1px solid ${C.line};padding-top:16px;font-family:${C.sans};font-size:14px;line-height:1.7;color:${C.muted};">
-        ${me ? esc(me) + '<br>' : ''}<span style="font-family:${C.mono};font-size:11px;letter-spacing:.2em;">POWERED BY NEXUS</span>
+        ${sigName ? sigName + '<br>' : ''}<span style="font-family:${C.mono};font-size:11px;letter-spacing:.2em;">POWERED BY NEXUS</span>
       </div>
     </td></tr>
   </table>
@@ -3576,99 +3444,50 @@ function buildDailyLogEmailHtml(d, dateStr) {
 </table>`;
 }
 
-// Copy rich HTML to the clipboard (plain-text daily log as the fallback
-// flavor — pasting into a plain-text field degrades to the ORIGINAL email).
-async function dlogCopyRichHtml(html, plainText) {
-  try {
-    if (navigator.clipboard && window.ClipboardItem) {
-      await navigator.clipboard.write([new ClipboardItem({
-        'text/html': new Blob([html], { type: 'text/html' }),
-        'text/plain': new Blob([plainText], { type: 'text/plain' }),
-      })]);
-      return 'rich';
-    }
-  } catch (e) { console.warn('[dlog styled email] rich copy failed:', e); }
-  try { await navigator.clipboard.writeText(plainText); return 'plain'; } catch (_) {}
-  return false;
-}
-
-// The composer's saved recipients for a dlog key — same store the ✉ Email
-// button uses (localStorage nx_recip_*, Supabase email_recipients fallback),
-// so the styled draft opens with the exact same To/CC/BCC.
-async function dlogRecallRecipients(key) {
-  let r = null;
-  try { r = JSON.parse(localStorage.getItem('nx_recip_' + key) || 'null'); } catch (_) {}
-  if (!r && window.NX && NX.sb) {
-    try {
-      const { data } = await NX.sb.from('email_recipients')
-        .select('data').eq('recipient_key', key).maybeSingle();
-      r = (data && data.data) || null;
-    } catch (_) {}
-  }
-  r = r || {};
-  return {
-    to: String(r.to || '').trim(),
-    cc: Array.isArray(r.cc) ? r.cc.filter(Boolean) : [],
-    bcc: Array.isArray(r.bcc) ? r.bcc.filter(Boolean) : [],
-  };
-}
-
-// Preview overlay → copy → Gmail compose with the saved recipients. The
-// plain ✉ Email button is the unchanged original; this path is additive.
+// ✨ Styled email — the ORIGINAL email flow end to end: same body builders,
+// same composer sheet, same remembered To/CC/BCC, same Send button. The only
+// difference is opts.htmlRender: the composer sends the typed text plus its
+// styled render via the Gmail API (classic plain draft on any failure).
 async function openDailyLogStyledEmail() {
   const log = state.currentLog;
   const d = hydrateData(log && log.data);
   const dateStr = (log && log.log_date) || (d.header && d.header.date) || todayISO();
-  // Warm Clippy's authored opener without blocking (same as the plain path);
-  // the render uses it if cached, else the static pool.
   try { Promise.resolve(ensureClippyDailyQuote(d, dateStr)).catch(() => {}); } catch (_) {}
-  const locKey = state.activeLoc;
-  const singleLoc = locKey && locKey !== 'all';
-  const locLabel = singleLoc
-    ? (((d.locations || []).find(l => normLocKey(l.label) === locKey) || {}).label || '')
-    : '';
-  const subject = 'Daily Log — ' + (locLabel ? locLabel + ' — ' : '') + fmtLogDateLong(dateStr);
-  const recipientsKey = singleLoc ? ('dlog:' + locKey) : 'dlog:all';
-  const recips = await dlogRecallRecipients(recipientsKey);
-  const html = buildDailyLogEmailHtml(d, dateStr);
-  const plain = singleLoc
-    ? (() => { const loc = (d.locations || []).find(l => normLocKey(l.label) === locKey); return loc ? buildLocationEmailBody(loc, dateStr, d) : buildDailyLogEmailBody(d, dateStr); })()
-    : buildDailyLogEmailBody(d, dateStr);
 
-  document.querySelectorAll('.dlog-styled-overlay').forEach(n => n.remove());
-  const ov = document.createElement('div');
-  ov.className = 'dlog-styled-overlay';
-  ov.style.cssText = 'position:fixed;inset:0;z-index:9400;display:flex;flex-direction:column;background:rgba(10,8,5,.72)';
-  const toLine = recips.to
-    ? 'To: ' + esc(recips.to) + (recips.cc.length ? ' · CC: ' + esc(recips.cc.join(', ')) : '')
-    : 'No saved recipients yet for this report — send once with ✉ Email to teach it, or type them in Gmail.';
-  ov.innerHTML = `
-    <div style="flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;background:var(--surface,#1b1b24);border-bottom:1px solid var(--nx-gold-line,rgba(212,164,78,.4))">
-      <div style="font-weight:700;font-size:15px;color:var(--nx-text,#f3ede1)">Styled email — preview</div>
-      <div style="display:flex;gap:8px">
-        <button type="button" id="dlogStyledCopy" class="eq-btn eq-btn-secondary" style="border-color:var(--nx-gold);color:var(--nx-gold)">Copy &amp; open Gmail</button>
-        <button type="button" id="dlogStyledClose" class="eq-btn eq-btn-secondary">Close</button>
-      </div>
-    </div>
-    <div style="flex:0 0 auto;padding:8px 16px;background:var(--surface,#1b1b24);font-size:12px;line-height:1.6;color:var(--nx-faint,#9a8f7d)">
-      ${toLine}<br>
-      Copies the styled report, then opens the Gmail draft — tap into the body and paste. If formatting ever fails, the regular ✉ Email is the plain-text original.
-    </div>
-    <iframe style="flex:1;border:none;background:#f4eddc" sandbox="allow-same-origin"></iframe>`;
-  document.body.appendChild(ov);
-  ov.querySelector('iframe').srcdoc = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:0">' + html + '</body></html>';
-  ov.querySelector('#dlogStyledClose').addEventListener('click', () => ov.remove());
-  ov.querySelector('#dlogStyledCopy').addEventListener('click', async () => {
-    const mode = await dlogCopyRichHtml(html, plain);
-    if (!mode) { NX.toast && NX.toast('Could not copy — clipboard blocked', 'error', 3000); return; }
-    NX.toast && NX.toast(mode === 'rich'
-      ? 'Styled report copied — paste into the Gmail body'
-      : 'Clipboard only allowed plain text — pasted version will be the classic report', mode === 'rich' ? 'success' : 'warn', 4200);
-    const url = (window.NX && NX.email && NX.email.gmailComposeUrl)
-      ? NX.email.gmailComposeUrl(recips.to || '', subject, '', recips.cc, recips.bcc)
-      : 'https://mail.google.com/mail/?view=cm&fs=1&su=' + encodeURIComponent(subject);
-    try { window.open(url, '_blank', 'noopener'); } catch (_) {}
-  });
+  let subject, body, recipientsKey, title, locLabel = '';
+  const locKey = state.activeLoc;
+  if (locKey && locKey !== 'all') {
+    const loc = (d.locations || []).find(l => normLocKey(l.label) === locKey);
+    if (!loc) {
+      if (window.NX && NX.alert) await NX.alert('That location has no notes yet.', { title: 'Nothing to send' });
+      return;
+    }
+    locLabel = loc.label || 'Location';
+    subject = 'Daily Log — ' + locLabel + ' — ' + fmtLogDateLong(dateStr);
+    body = buildLocationEmailBody(loc, dateStr, d);
+    recipientsKey = 'dlog:' + locKey;
+    title = '✨ Styled — ' + locLabel;
+  } else {
+    subject = 'Daily Log — ' + fmtLogDateLong(dateStr);
+    body = buildDailyLogEmailBody(d, dateStr);
+    recipientsKey = 'dlog:all';
+    title = '✨ Styled daily log';
+  }
+
+  if (!body || body.split('\n').filter(l => l.trim()).length < 2) {
+    if (window.NX && NX.alert) await NX.alert('This log is empty — add some notes first.', { title: 'Nothing to send' });
+    return;
+  }
+
+  if (window.NX && typeof NX.composeEmail === 'function') {
+    NX.composeEmail({
+      recipientsKey, subject, body, title,
+      htmlRender: (bodyText) => dlogTextToHtml(bodyText, { dateStr, locLabel }),
+    });
+    return;
+  }
+  // Composer missing (stale cache): fall back to the plain email path.
+  openDailyLogEmail();
 }
 
 // ── Weather auto-populate (address-based, per location) ───────────────────
