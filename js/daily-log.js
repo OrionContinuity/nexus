@@ -1298,6 +1298,7 @@ function render() {
             <span class="dlog-autosend-days" id="dlogAutoSendDays" title="Days auto-send is allowed" ${dlogAutoSendOn() ? '' : 'style="display:none"'}>${['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((dd, i) => `<button type="button" class="dlog-day-pill ${dlogAutoSendDays().indexOf(i + 1) !== -1 ? 'is-on' : ''}" data-day="${i + 1}">${dd}</button>`).join('')}</span>
           </span>
           <button type="button" class="eq-btn eq-btn-secondary" id="dlogEmailBtn" title="${esc(emailBtnTitle)}">${esc(emailBtnLabel)}</button>
+          <button type="button" class="eq-btn eq-btn-secondary" id="dlogStyledEmailBtn" title="Styled HTML version of this report — preview it, then copy into a Gmail draft. The plain ✉ Email stays as the reliable original.">✨ Styled email</button>
           <button type="button" class="eq-btn eq-btn-secondary" id="dlogEmailEachBtn" title="Open one Gmail draft per location at once — just hit Send on each">✉️ Email each location</button>
           <button type="button" class="eq-btn eq-btn-secondary" id="dlogSaveDraftBtn">Save</button>
           <button type="button" class="eq-btn eq-btn-primary"   id="dlogSubmitBtn">${esc(uploadBtnLabel)}</button>
@@ -2254,6 +2255,8 @@ function wireForm() {
   if (submitBtn) submitBtn.addEventListener('click', () => commitSave({ submit: true }));
   const emailBtn = view.querySelector('#dlogEmailBtn');
   if (emailBtn) emailBtn.addEventListener('click', () => openDailyLogEmail());
+  const styledBtn = view.querySelector('#dlogStyledEmailBtn');
+  if (styledBtn) styledBtn.addEventListener('click', () => openDailyLogStyledEmail());
   const emailEachBtn = view.querySelector('#dlogEmailEachBtn');
   if (emailEachBtn) emailEachBtn.addEventListener('click', () => emailEachLocation());
   const openerLLMBtn = view.querySelector('#dlogOpenerLLM');
@@ -3233,6 +3236,304 @@ async function openDailyLogEmail() {
     ? NX.email.buildMailtoUrl('', subject, body)
     : 'mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body).replace(/\+/g, '%20');
   window.location.href = url;
+}
+
+// ── STYLED HTML EMAIL ──────────────────────────────────────────────────────
+// A second, visual rendering of the same daily-notes data — email-safe HTML
+// (tables + inline styles only, no <style> blocks: Gmail strips them from
+// pasted content). Deliberately SEPARATE from buildDailyLogEmailBody: the
+// plain-text path is the reliable original and must never change behavior
+// because of this. Flow: preview overlay → copy as rich text/html (with the
+// plain-text body as the clipboard fallback) → Gmail compose opens → paste.
+const DLOG_HTML = {
+  cream: '#f2ead9', card: '#fbf6ea', ink: '#241d12', muted: '#8a7f6d',
+  gold: '#b88830', goldSoft: '#d4a44e', line: '#e2d5b8',
+  red: '#b03a2e', amber: '#a06d1f', green: '#3f7d4e',
+  serif: "Georgia, 'Times New Roman', serif",
+  mono: "'Courier New', Courier, monospace",
+  sans: "Arial, Helvetica, sans-serif",
+};
+
+function dlogHtmlChip(text, color) {
+  const C = DLOG_HTML;
+  return `<span style="display:inline-block;padding:4px 12px;margin:0 6px 6px 0;border:1px solid ${color || C.line};border-radius:999px;font-family:${C.mono};font-size:11px;letter-spacing:.08em;color:${color || C.muted};">${text}</span>`;
+}
+
+function dlogHtmlSection(label, inner) {
+  const C = DLOG_HTML;
+  return `
+    <tr><td style="padding:22px 34px 0;">
+      <div style="border-top:1px solid ${C.line};padding-top:16px;">
+        <div style="font-family:${C.mono};font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:${C.gold};margin-bottom:10px;">${label}</div>
+        ${inner}
+      </div>
+    </td></tr>`;
+}
+
+function dlogHtmlTag(kind) {
+  const C = DLOG_HTML;
+  const map = {
+    OVERDUE: C.red, DUE: C.amber, DOWN: C.red, BROKEN: C.red,
+    'NEEDS SERVICE': C.amber, DONE: C.green,
+  };
+  const col = map[kind] || C.muted;
+  return `<span style="display:inline-block;padding:1px 7px;border:1px solid ${col};border-radius:4px;font-family:${DLOG_HTML.mono};font-size:10px;letter-spacing:.06em;color:${col};vertical-align:1px;">${kind}</span>`;
+}
+
+// One location's block. Same data sources as dlogLocationReportLines, but
+// intentionally independent — the text renderer is the untouchable original.
+function dlogHtmlLocationBlock(loc) {
+  const C = DLOG_HTML;
+  const esc2 = esc;
+  const clean = s => String(s == null ? '' : s).trim();
+  const locKey = normLocKey(loc.label);
+  const here = x => normLocKey(x.location) === locKey;
+  const parts = [];
+
+  // At a glance chips
+  const slices = state.ticketSlices || {};
+  const openC = (slices.open || []).filter(c => normLocKey(c.location) === locKey);
+  const workingC = (slices.working || []).filter(c => normLocKey(c.location) === locKey);
+  const urgent = openC.concat(workingC).filter(c => (c.priority || '').toLowerCase() === 'urgent').length;
+  const downList = (state.equipmentDown || []).filter(eq => here(eq) && eq.archived !== true && String(eq.status || '').toLowerCase() !== 'retired');
+  const chips = [];
+  if (downList.length) chips.push(dlogHtmlChip(downList.length + ' DOWN', C.red));
+  if (urgent) chips.push(dlogHtmlChip(urgent + ' URGENT', C.red));
+  const openTotal = openC.length + workingC.length;
+  if (openTotal) chips.push(dlogHtmlChip(openTotal + ' OPEN', C.muted));
+
+  // Notes
+  if (clean(loc.notes)) {
+    parts.push(`<div style="font-family:${C.serif};font-size:15px;line-height:1.65;color:${C.ink};margin-bottom:4px;white-space:pre-wrap;">${esc2(clean(loc.notes))}</div>`);
+  }
+
+  // Equipment status
+  if (downList.length) {
+    const rows = downList.map(eq => {
+      const st = (eq.status || '').replace(/_/g, ' ').trim().toUpperCase() || 'DOWN';
+      const iss = (state.openIssuesByEq || {})[eq.id];
+      let call = 'call not logged — no open work order yet';
+      if (iss) {
+        const s = (iss.status || '').toLowerCase();
+        const who = iss.contractor_name ? ' to ' + clean(iss.contractor_name) : '';
+        if (s === 'reported' || s === 'open' || s === 'new') call = 'call NOT placed yet';
+        else if (s === 'contractor_called' || s === 'called' || s === 'dispatched') call = 'call placed' + who;
+        else if (s === 'eta_set' || s === 'scheduled') call = 'call placed' + who + (iss.eta_at ? ' — ETA ' + new Date(iss.eta_at).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) : '');
+        else if (s === 'in_progress' || s === 'on_site') call = 'contractor on site — repair in progress';
+        else if (s === 'awaiting_parts') call = 'awaiting parts';
+        else call = s.replace(/_/g, ' ');
+      }
+      return `<tr>
+        <td style="padding:9px 0;border-bottom:1px solid ${C.line};vertical-align:top;width:110px;">${dlogHtmlTag(st)}</td>
+        <td style="padding:9px 0 9px 10px;border-bottom:1px solid ${C.line};font-family:${C.sans};font-size:13.5px;color:${C.ink};">
+          <strong style="font-family:${C.serif};font-size:15px;">${esc2(eq.name || 'Equipment')}</strong>
+          ${clean(eq.status_note) ? `<div style="color:${C.muted};font-size:12.5px;margin-top:3px;">${esc2(clean(eq.status_note))}</div>` : ''}
+          <div style="color:${C.muted};font-size:12px;margin-top:3px;font-style:italic;">${esc2(call)}</div>
+        </td></tr>`;
+    }).join('');
+    parts.push(`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:4px 0 2px;">${rows}</table>`);
+  }
+
+  // Maintenance health — PM + inspections, same windows/rules as the text path.
+  const eqAll = (state.equipmentHealth || []).filter(eq => here(eq) && eq.archived !== true && String(eq.status || '').toLowerCase() !== 'retired');
+  const todayD = new Date(); todayD.setHours(0, 0, 0, 0);
+  const soonD = new Date(todayD); soonD.setDate(soonD.getDate() + 14);
+  const soonInsD = new Date(todayD); soonInsD.setDate(soonInsD.getDate() + 30);
+  const nextOf = (lastIso, days) => {
+    const n = parseInt(days, 10);
+    if (!lastIso || !n) return null;
+    const dd = new Date(String(lastIso).slice(0, 10) + 'T00:00:00');
+    if (isNaN(dd)) return null;
+    dd.setDate(dd.getDate() + n);
+    return dd;
+  };
+  const shortD = dd => dd.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  const dueRow = (x, extra) => `
+    <tr><td style="padding:7px 0;border-bottom:1px solid ${C.line};font-family:${C.sans};font-size:13px;color:${C.ink};">
+      ${dlogHtmlTag(x.overdue ? 'OVERDUE' : 'DUE')}
+      <strong style="font-family:${C.serif};font-size:14.5px;margin-left:6px;">${esc(x.name)}</strong>
+      <span style="color:${C.muted};"> — ${x.overdue ? 'was due ' + shortD(x.date) + (x.days <= -1 ? ' (' + Math.abs(x.days) + 'd overdue)' : '') : shortD(x.date) + ' (in ' + x.days + 'd)'}</span>
+      ${extra ? `<div style="color:${x.overdue && x.sched ? C.green : C.muted};font-size:12px;margin-top:2px;">${esc(extra)}</div>` : ''}
+    </td></tr>`;
+  const pmItems = [], insItems = [];
+  eqAll.forEach(eq => {
+    const pmNext = eq.next_pm_date ? new Date(String(eq.next_pm_date).slice(0, 10) + 'T00:00:00') : nextOf(eq.last_pm_date, eq.pm_interval_days);
+    if (pmNext && !isNaN(pmNext) && pmNext <= soonD) {
+      pmItems.push({ name: eq.name || 'Equipment', date: pmNext, overdue: pmNext < todayD, days: Math.round((pmNext - todayD) / 86400000), sched: pmConfirmNote(eq.id) });
+    }
+    const insNext = nextOf(eq.last_inspection_date, eq.inspection_interval_days);
+    if (insNext && !isNaN(insNext) && insNext <= soonInsD) {
+      const overdue = insNext < todayD;
+      const sched = pmConfirmNote(eq.id);
+      let vendor = '';
+      if (eq.inspection_vendor_id) {
+        const v = (state.vendors || []).find(x => String(x.id) === String(eq.inspection_vendor_id));
+        vendor = v ? (v.company || v.name || '') : '';
+      }
+      if (overdue || !sched) insItems.push({ name: eq.name || 'Equipment', date: insNext, overdue, days: Math.round((insNext - todayD) / 86400000), sched, vendor });
+    }
+  });
+  pmItems.sort((a, b) => a.date - b.date);
+  insItems.sort((a, b) => a.date - b.date);
+  if (pmItems.length) {
+    parts.push(`<div style="font-family:${C.mono};font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:${C.muted};margin:14px 0 2px;">PM due</div>`);
+    parts.push(`<table role="presentation" width="100%" cellpadding="0" cellspacing="0">${pmItems.slice(0, 12).map(x => dueRow(x, x.sched || '')).join('')}</table>`);
+  }
+  if (insItems.length) {
+    parts.push(`<div style="font-family:${C.mono};font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:${C.muted};margin:14px 0 2px;">Inspections</div>`);
+    parts.push(`<table role="presentation" width="100%" cellpadding="0" cellspacing="0">${insItems.slice(0, 12).map(x => dueRow(x, x.sched || (x.vendor ? (x.overdue ? 'call ' : '') + x.vendor : ''))).join('')}</table>`);
+  }
+
+  // PMs performed today
+  const pmsHere = (state.pmsToday || []).filter(p => normLocKey((p.equipment && p.equipment.location) || '') === locKey);
+  if (pmsHere.length) {
+    parts.push(`<div style="font-family:${C.mono};font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:${C.muted};margin:14px 0 2px;">PMs logged today</div>`);
+    parts.push(pmsHere.map(p => {
+      const eqName = (p.equipment && p.equipment.name) || 'Equipment';
+      const cost = (p.cost != null && !isNaN(p.cost) && Number(p.cost) > 0) ? ' · $' + Math.round(Number(p.cost)).toLocaleString() : '';
+      return `<div style="font-family:${C.sans};font-size:13px;color:${C.ink};padding:5px 0;">✓ <strong>${esc(eqName)}</strong><span style="color:${C.muted};"> — by ${esc(clean(p.performed_by) || 'unassigned')}${cost}</span></div>`;
+    }).join(''));
+  }
+
+  // Vendor & service calls (the rows typed into the log)
+  const vcs = (loc.vendor_calls || []).filter(vc => vc && (clean(vc.vendor) || clean(vc.issue) || clean(vc.status)));
+  if (vcs.length) {
+    parts.push(`<div style="font-family:${C.mono};font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:${C.muted};margin:14px 0 2px;">Vendor &amp; service calls</div>`);
+    parts.push(vcs.map(vc => `
+      <div style="border-left:2px solid ${C.goldSoft};padding:6px 0 6px 12px;margin:8px 0;">
+        <div style="font-family:${C.serif};font-size:14.5px;color:${C.ink};"><strong>${esc(clean(vc.vendor) || 'Vendor')}</strong>${clean(vc.equipment) ? `<span style="color:${C.muted};"> · ${esc(clean(vc.equipment))}</span>` : ''}</div>
+        ${clean(vc.issue) ? `<div style="font-family:${C.sans};font-size:13px;color:${C.ink};margin-top:2px;">${esc(clean(vc.issue))}</div>` : ''}
+        ${clean(vc.status) ? `<div style="font-family:${C.sans};font-size:12.5px;color:${C.muted};margin-top:2px;font-style:italic;">${esc(clean(vc.status))}</div>` : ''}
+      </div>`).join(''));
+  }
+
+  if (!parts.length && !chips.length) return '';
+  return `
+    <tr><td style="padding:26px 34px 4px;">
+      <div style="font-family:${C.serif};font-size:24px;font-weight:bold;color:${C.ink};letter-spacing:-.01em;">${esc(loc.label || 'Location')}</div>
+      ${chips.length ? `<div style="margin-top:8px;">${chips.join('')}</div>` : ''}
+    </td></tr>
+    <tr><td style="padding:4px 34px 6px;">${parts.join('')}</td></tr>`;
+}
+
+// The full email body — one centered card on cream, editorial masthead,
+// per-location blocks, day-level sections, quiet footer.
+function buildDailyLogEmailHtml(d, dateStr) {
+  const C = DLOG_HTML;
+  const clean = s => String(s == null ? '' : s).trim();
+  const locKey = state.activeLoc;
+  const locs = (locKey && locKey !== 'all')
+    ? (d.locations || []).filter(l => normLocKey(l.label) === locKey)
+    : (d.locations || []);
+
+  const daySections = [];
+  if (clean(d.header && d.header.significant_events)) {
+    daySections.push(dlogHtmlSection('Significant events',
+      `<div style="font-family:${C.serif};font-size:15px;line-height:1.65;color:${C.ink};white-space:pre-wrap;">${esc(clean(d.header.significant_events))}</div>`));
+  }
+  const locBlocks = locs.map(dlogHtmlLocationBlock).filter(Boolean).join('');
+  const plan = [];
+  if (d.planning) {
+    if (clean(d.planning.tomorrow_plan)) plan.push(['Tomorrow', d.planning.tomorrow_plan]);
+    if (clean(d.planning.this_week)) plan.push(['This week', d.planning.this_week]);
+    if (clean(d.planning.side_notes)) plan.push(['Side notes', d.planning.side_notes]);
+  }
+  const planBlock = plan.length ? dlogHtmlSection('Planning',
+    plan.map(p => `<div style="font-family:${C.sans};font-size:13.5px;line-height:1.6;color:${C.ink};margin-bottom:6px;"><strong style="font-family:${C.serif};">${p[0]}:</strong> ${esc(clean(p[1]))}</div>`).join('')) : '';
+  const clLines = [];
+  if (d.cleaning) CLEANING_FIELDS.forEach(f => {
+    const v = clean(d.cleaning[f.key]);
+    if (v) clLines.push(`<div style="font-family:${C.sans};font-size:13.5px;line-height:1.6;color:${C.ink};margin-bottom:5px;"><strong style="font-family:${C.serif};">${esc(f.label)}:</strong> ${esc(v)}</div>`);
+  });
+  const cleaningBlock = clLines.length ? dlogHtmlSection('Cleaning', clLines.join('')) : '';
+  const me = (window.NX && (NX.user || NX.currentUser)) ? ((NX.user && NX.user.name) || (NX.currentUser && NX.currentUser.name) || '') : '';
+
+  return `
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${C.cream};padding:0;margin:0;">
+<tr><td align="center" style="padding:28px 12px;">
+  <table role="presentation" width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%;background:${C.card};border:1px solid ${C.line};">
+    <tr><td style="padding:30px 34px 0;">
+      <div style="font-family:${C.mono};font-size:12px;letter-spacing:.3em;color:${C.gold};">&#9679; NEXUS</div>
+      <div style="font-family:${C.serif};font-size:34px;font-weight:bold;color:${C.ink};letter-spacing:-.02em;margin-top:14px;">Daily Log</div>
+      <div style="font-family:${C.mono};font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:${C.muted};margin-top:6px;">${esc(fmtLogDateLong(dateStr))}${clean(d.header && d.header.weather) ? ' &nbsp;·&nbsp; ' + esc(clean(d.header.weather)) : ''}</div>
+      <div style="border-top:2px solid ${C.ink};margin-top:18px;"></div>
+    </td></tr>
+    ${daySections.join('')}
+    ${locBlocks}
+    ${planBlock}
+    ${cleaningBlock}
+    <tr><td style="padding:26px 34px 26px;">
+      <div style="border-top:1px solid ${C.line};padding-top:14px;font-family:${C.sans};font-size:12.5px;color:${C.muted};">
+        ${me ? esc(me) + '<br>' : ''}<span style="font-family:${C.mono};font-size:10.5px;letter-spacing:.18em;">POWERED BY NEXUS</span>
+      </div>
+    </td></tr>
+  </table>
+</td></tr>
+</table>`;
+}
+
+// Copy rich HTML to the clipboard (plain-text daily log as the fallback
+// flavor — pasting into a plain-text field degrades to the ORIGINAL email).
+async function dlogCopyRichHtml(html, plainText) {
+  try {
+    if (navigator.clipboard && window.ClipboardItem) {
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/html': new Blob([html], { type: 'text/html' }),
+        'text/plain': new Blob([plainText], { type: 'text/plain' }),
+      })]);
+      return 'rich';
+    }
+  } catch (e) { console.warn('[dlog styled email] rich copy failed:', e); }
+  try { await navigator.clipboard.writeText(plainText); return 'plain'; } catch (_) {}
+  return false;
+}
+
+// Preview overlay → copy → Gmail compose. The plain ✉ Email button is the
+// unchanged original; this whole path is additive.
+async function openDailyLogStyledEmail() {
+  const log = state.currentLog;
+  const d = hydrateData(log && log.data);
+  const dateStr = (log && log.log_date) || (d.header && d.header.date) || todayISO();
+  const locKey = state.activeLoc;
+  const locLabel = (locKey && locKey !== 'all')
+    ? (((d.locations || []).find(l => normLocKey(l.label) === locKey) || {}).label || '')
+    : '';
+  const subject = 'Daily Log — ' + (locLabel ? locLabel + ' — ' : '') + fmtLogDateLong(dateStr);
+  const html = buildDailyLogEmailHtml(d, dateStr);
+  const plain = (locKey && locKey !== 'all')
+    ? (() => { const loc = (d.locations || []).find(l => normLocKey(l.label) === locKey); return loc ? buildLocationEmailBody(loc, dateStr, d) : buildDailyLogEmailBody(d, dateStr); })()
+    : buildDailyLogEmailBody(d, dateStr);
+
+  document.querySelectorAll('.dlog-styled-overlay').forEach(n => n.remove());
+  const ov = document.createElement('div');
+  ov.className = 'dlog-styled-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:9400;display:flex;flex-direction:column;background:rgba(10,8,5,.72)';
+  ov.innerHTML = `
+    <div style="flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;background:var(--surface,#1b1b24);border-bottom:1px solid var(--nx-gold-line,rgba(212,164,78,.4))">
+      <div style="font-weight:700;font-size:15px;color:var(--nx-text,#f3ede1)">Styled email — preview</div>
+      <div style="display:flex;gap:8px">
+        <button type="button" id="dlogStyledCopy" class="eq-btn eq-btn-secondary" style="border-color:var(--nx-gold);color:var(--nx-gold)">Copy &amp; open Gmail</button>
+        <button type="button" id="dlogStyledClose" class="eq-btn eq-btn-secondary">Close</button>
+      </div>
+    </div>
+    <div style="flex:0 0 auto;padding:8px 16px;background:var(--surface,#1b1b24);font-size:12px;color:var(--nx-faint,#9a8f7d)">
+      Copies the styled report, then opens a Gmail draft — click into the body and press <b>Ctrl+V</b> (long-press → Paste on phone). If formatting ever fails to paste, the regular ✉ Email button is the plain-text original.
+    </div>
+    <iframe style="flex:1;border:none;background:#f2ead9" sandbox="allow-same-origin"></iframe>`;
+  document.body.appendChild(ov);
+  ov.querySelector('iframe').srcdoc = '<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0">' + html + '</body></html>';
+  ov.querySelector('#dlogStyledClose').addEventListener('click', () => ov.remove());
+  ov.querySelector('#dlogStyledCopy').addEventListener('click', async () => {
+    const mode = await dlogCopyRichHtml(html, plain);
+    if (!mode) { NX.toast && NX.toast('Could not copy — clipboard blocked', 'error', 3000); return; }
+    NX.toast && NX.toast(mode === 'rich'
+      ? 'Styled report copied — paste into the Gmail body'
+      : 'Clipboard only allowed plain text — pasted version will be the classic report', mode === 'rich' ? 'success' : 'warn', 4200);
+    const url = (window.NX && NX.email && NX.email.gmailComposeUrl)
+      ? NX.email.gmailComposeUrl('', subject, '')
+      : 'https://mail.google.com/mail/?view=cm&fs=1&su=' + encodeURIComponent(subject);
+    try { window.open(url, '_blank', 'noopener'); } catch (_) {}
+  });
 }
 
 // ── Weather auto-populate (address-based, per location) ───────────────────
