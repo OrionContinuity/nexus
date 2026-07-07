@@ -3258,9 +3258,13 @@ const DLOG_HTML = {
   amberBg: '#f5ecd8', amberTx: '#906618',
   greenBg: '#e4efe3', greenTx: '#44704f',
   mutedBg: '#f0e9da',
-  serif: "Georgia, 'Times New Roman', serif",
-  mono: "'Courier New', Courier, monospace",
-  sans: "Arial, Helvetica, sans-serif",
+  // NEXUS's own faces first (Outfit display / DM Sans body / JetBrains Mono
+  // eyebrows) — recipients without them installed fall back to their clean
+  // system sans, never a serif. `serif` keeps its key name (it's referenced
+  // throughout) but is the DISPLAY stack now.
+  serif: "'Outfit', 'DM Sans', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+  mono: "'JetBrains Mono', 'SFMono-Regular', Consolas, 'Courier New', monospace",
+  sans: "'DM Sans', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
 };
 
 function dlogHtmlTag(kind) {
@@ -3426,8 +3430,7 @@ function dlogTextToHtml(text, meta) {
 <tr><td align="center" style="padding:20px 10px;">
   <table role="presentation" width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%;background:${C.card};border:1px solid ${C.line};border-radius:22px;">
     <tr><td style="padding:30px 24px 0;">
-      <div style="font-family:${C.mono};font-size:13px;letter-spacing:.3em;color:${C.gold};">&#9679; NEXUS</div>
-      <div style="font-family:${C.serif};font-size:38px;font-weight:bold;color:${C.ink};letter-spacing:-.02em;margin-top:14px;">Daily Log${meta.locLabel ? ` <span style="color:${C.gold};">· ${esc(meta.locLabel)}</span>` : ''}</div>
+      <div style="font-family:${C.serif};font-size:34px;font-weight:800;color:${C.ink};letter-spacing:-.02em;">Daily Log${meta.locLabel ? ` <span style="color:${C.gold};">· ${esc(meta.locLabel)}</span>` : ''}</div>
       <div style="font-family:${C.mono};font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:${C.muted};margin-top:8px;line-height:1.6;">${esc(dateLine)}${weatherLine ? '<br>' + esc(weatherLine) : ''}</div>
       <div style="border-top:3px solid ${C.goldSoft};border-radius:3px;margin-top:20px;width:64px;"></div>
     </td></tr>
