@@ -150,6 +150,7 @@ let state = {
   // equipment has status != 'operational' AND !archived, it appears
   // in every daily log until fixed.
   equipmentDown: [],
+  pmScheduleByEq: {},   // equipment_id → earliest upcoming pm_schedules row
   // v18.32 — full non-archived fleet (all statuses), for the daily-log
   // Maintenance-health + Warranty stats. Populated by loadEquipmentDown.
   equipmentHealth: [],
@@ -863,6 +864,29 @@ async function loadEquipmentDown() {
         (iss || []).forEach(r => { if (!state.openIssuesByEq[r.equipment_id]) state.openIssuesByEq[r.equipment_id] = r; });
       }
     } catch (e) { console.warn('[daily-log] open issues:', e); }
+    // Upcoming confirmed PM visits — maps equipment_id → the EARLIEST
+    // non-cancelled pm_schedules row dated today or later. Lets the daily
+    // notes say "10d overdue — confirmed schedule on 7/22" instead of
+    // leaving an overdue item looking unhandled. Whole fleet, not just
+    // down units, because PM-overdue lines cover operational equipment
+    // too. Best-effort: on any error the notes just omit the suffix.
+    state.pmScheduleByEq = {};
+    try {
+      const { data: scheds } = await NX.sb.from('pm_schedules').select('*');
+      const tIso = todayISO();
+      (scheds || [])
+        .filter(s => {
+          const st = String(s.status || '').toLowerCase();
+          return st !== 'cancelled' && st !== 'completed' &&
+                 String(s.scheduled_date || '').slice(0, 10) >= tIso;
+        })
+        .sort((a, b) => String(a.scheduled_date).localeCompare(String(b.scheduled_date)))
+        .forEach(s => {
+          if (s.equipment_id && !state.pmScheduleByEq[s.equipment_id]) {
+            state.pmScheduleByEq[s.equipment_id] = s;
+          }
+        });
+    } catch (e) { console.warn('[daily-log] pm schedules:', e); }
     return rows;
   } catch (e) {
     console.warn('[daily-log] loadEquipmentDown exception:', e);
@@ -1469,6 +1493,22 @@ function renderLocationSection(loc, idx) {
 // directly to the equipment row, so the equipment view sees the same
 // state. As long as a piece of equipment is non-operational, it
 // appears here on every daily log.
+// "confirmed schedule on 7/22 (HOODZ)" for a unit with an upcoming
+// pm_schedules visit, '' otherwise. Vendor resolved from state.vendors at
+// render time (both load in the same Promise.all, so the map can't safely
+// bake names in at load time).
+function pmConfirmNote(eqId) {
+  const s = (state.pmScheduleByEq || {})[eqId];
+  if (!s || !s.scheduled_date) return '';
+  const d = new Date(String(s.scheduled_date).slice(0, 10) + 'T00:00:00');
+  if (isNaN(d)) return '';
+  const when = (d.getMonth() + 1) + '/' + d.getDate();
+  const v = s.vendor_id != null
+    && (state.vendors || []).find(x => String(x.id) === String(s.vendor_id));
+  const vn = v ? (v.company || v.name || '') : '';
+  return 'confirmed schedule on ' + when + (vn ? ' (' + vn + ')' : '');
+}
+
 function renderEquipmentStatusSection(d) {
   const items = state.equipmentDown || [];
   const statusLabel = (k) => ({
@@ -1503,13 +1543,15 @@ function renderEquipmentStatusSection(d) {
       : daysDown === 1 ? '1 day'
       : `${daysDown} days`;
     const noteValue = eq.status_note || '';
+    const sched = pmConfirmNote(eq.id);
+    const metaBits = [dayLabel, sched].filter(Boolean).join(' · ');
     return `
       <div class="dlog-eqstatus-row" data-eq-id="${esc(eq.id)}">
         <div class="dlog-eqstatus-head">
           <span class="dlog-eqstatus-pill ${statusPillClass(eq.status)}">${esc(statusLabel(eq.status))}</span>
           <div class="dlog-eqstatus-info">
             <span class="dlog-eqstatus-name">${esc(eq.name || 'Untitled equipment')}</span>
-            <span class="dlog-eqstatus-meta">${dayLabel ? esc(dayLabel) : ''}</span>
+            <span class="dlog-eqstatus-meta">${metaBits ? esc(metaBits) : ''}</span>
           </div>
         </div>
         <textarea
@@ -2754,15 +2796,18 @@ function dlogLocationReportLines(loc) {
     const downG = (state.equipmentDown || []).filter(eq => normLocKey(eq.location) === locKey && eq.archived !== true && String(eq.status || '').toLowerCase() !== 'retired').length;
     const todayG = new Date(); todayG.setHours(0, 0, 0, 0);
     const nextG = (lastIso, days) => { const n = parseInt(days, 10); if (!lastIso || !n) return null; const dd = new Date(String(lastIso).slice(0, 10) + 'T00:00:00'); if (isNaN(dd)) return null; dd.setDate(dd.getDate() + n); return dd; };
-    let pmOverdueG = 0;
+    let pmOverdueG = 0, pmSchedG = 0;
     (state.equipmentHealth || []).filter(eq => normLocKey(eq.location) === locKey && eq.archived !== true && String(eq.status || '').toLowerCase() !== 'retired').forEach(eq => {
       const pmNext = eq.next_pm_date ? new Date(String(eq.next_pm_date).slice(0, 10) + 'T00:00:00') : nextG(eq.last_pm_date, eq.pm_interval_days);
-      if (pmNext && !isNaN(pmNext) && pmNext < todayG) pmOverdueG++;
+      if (pmNext && !isNaN(pmNext) && pmNext < todayG) {
+        pmOverdueG++;
+        if (pmConfirmNote(eq.id)) pmSchedG++;
+      }
     });
     const bits = [];
     if (downG) bits.push(downG + ' down');
     if (urgentG) bits.push(urgentG + ' urgent');
-    if (pmOverdueG) bits.push(pmOverdueG + ' PM overdue');
+    if (pmOverdueG) bits.push(pmOverdueG + ' PM overdue' + (pmSchedG ? ' (' + pmSchedG + ' scheduled)' : ''));
     const openTotalG = openG.length + workingG.length;
     if (openTotalG) bits.push(openTotalG + ' open');
     if (bits.length) { out.push('At a glance: ' + bits.join(' · ')); out.push(''); }
@@ -2870,7 +2915,7 @@ function dlogLocationReportLines(loc) {
       if (pmNext && !isNaN(pmNext) && pmNext <= soonD) {
         const overdue = pmNext < todayD;
         const days = Math.round((pmNext - todayD) / 86400000);
-        pmItems.push({ name: eq.name || 'Equipment', date: pmNext, overdue, days });
+        pmItems.push({ name: eq.name || 'Equipment', date: pmNext, overdue, days, sched: pmConfirmNote(eq.id) });
       }
       const insNext = nextOf(eq.last_inspection_date, eq.inspection_interval_days);
       if (insNext) { if (insNext < todayD) insO++; else if (insNext <= soonD) insS++; }
@@ -2889,10 +2934,12 @@ function dlogLocationReportLines(loc) {
       out.push('· PM due: ' + pmItems.length + (overdueN ? ' (' + overdueN + ' overdue)' : ''));
       pmItems.slice(0, 12).forEach(x => {
         // [OVERDUE]/[DUE] tag front-loaded for the same scannable style as the
-        // work-order and equipment-status tags.
+        // work-order and equipment-status tags. When a pm_schedules visit is
+        // booked, say so — "10d overdue" alone reads as unhandled when the
+        // vendor is in fact confirmed for the 22nd.
         out.push('    ' + (x.overdue
-          ? ('[OVERDUE] ' + x.name + ' — was due ' + shortDate2(x.date) + (x.days <= -1 ? ' (' + Math.abs(x.days) + 'd ago)' : ''))
-          : ('[DUE] ' + x.name + ' — ' + shortDate2(x.date) + (x.days <= 14 ? ' (in ' + x.days + 'd)' : ''))));
+          ? ('[OVERDUE] ' + x.name + ' — was due ' + shortDate2(x.date) + (x.days <= -1 ? ' (' + Math.abs(x.days) + 'd overdue)' : '') + (x.sched ? ' — ' + x.sched : ''))
+          : ('[DUE] ' + x.name + ' — ' + shortDate2(x.date) + (x.days <= 14 ? ' (in ' + x.days + 'd)' : '') + (x.sched ? ' — ' + x.sched : ''))));
       });
       if (pmItems.length > 12) out.push('    +' + (pmItems.length - 12) + ' more');
     }
