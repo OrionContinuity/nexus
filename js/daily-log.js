@@ -3278,7 +3278,7 @@ function dlogHtmlTag(kind) {
     DONE: [C.greenBg, C.greenTx], REPAIRED: [C.greenBg, C.greenTx],
   };
   const [bg, tx] = map[k] || [C.mutedBg, C.muted];
-  return `<span class="nx-pill" style="display:inline-block;padding:3px 10px;background:${bg};border-radius:6px;font-family:${DLOG_HTML.sans};font-size:12px;font-weight:bold;letter-spacing:.04em;color:${tx};">${esc(k)}</span>`;
+  return `<span class="nx-pill" style="display:inline-block;padding:2px 8px;background:${bg};border-radius:6px;font-family:${DLOG_HTML.sans};font-size:10.5px;font-weight:bold;letter-spacing:.04em;color:${tx};">${esc(k)}</span>`;
 }
 
 // Chip for "At a glance" fragments — tone inferred from the words.
@@ -3288,7 +3288,7 @@ function dlogHtmlChip(text) {
   let bg = C.mutedBg, tx = C.muted;
   if (/down|urgent/i.test(t)) { bg = C.redBg; tx = C.redTx; }
   else if (/overdue/i.test(t)) { bg = C.amberBg; tx = C.amberTx; }
-  return `<span class="nx-pill" style="display:inline-block;padding:5px 13px;margin:0 6px 8px 0;background:${bg};border-radius:999px;font-family:${C.sans};font-size:13.5px;font-weight:bold;color:${tx};">${esc(t)}</span>`;
+  return `<span class="nx-pill" style="display:inline-block;padding:4px 12px;margin:0 6px 8px 0;background:${bg};border-radius:999px;font-family:${C.sans};font-size:12px;font-weight:bold;color:${tx};">${esc(t)}</span>`;
 }
 
 // ── The typesetter ─────────────────────────────────────────────────────────
@@ -3342,11 +3342,11 @@ function dlogTextToHtml(text, meta) {
     else preProse.push(t);
   });
 
-  const sub = (s) => `<div class="nx-muted" style="font-family:${C.sans};font-size:15px;line-height:1.55;color:${C.muted};margin:2px 0 2px 2px;">${esc(s)}</div>`;
+  const sub = (s) => `<div class="nx-muted" style="font-family:${C.sans};font-size:13.5px;line-height:1.55;color:${C.muted};margin:2px 0 2px 2px;">${esc(s)}</div>`;
   const prose = (s) => {
     const kv = s.match(/^([A-Za-z][A-Za-z /&'()-]{1,28}):\s+(.*)$/);
-    if (kv) return `<div class="nx-ink" style="font-family:${C.sans};font-size:16px;line-height:1.6;color:${C.ink};margin:0 0 10px;"><strong>${esc(kv[1])}:</strong> ${esc(kv[2])}</div>`;
-    return `<div class="nx-ink" style="font-family:${C.sans};font-size:16px;line-height:1.6;color:${C.ink};margin:0 0 10px;">${esc(s)}</div>`;
+    if (kv) return `<div class="nx-ink" style="font-family:${C.sans};font-size:14.5px;line-height:1.6;color:${C.ink};margin:0 0 9px;"><strong>${esc(kv[1])}:</strong> ${esc(kv[2])}</div>`;
+    return `<div class="nx-ink" style="font-family:${C.sans};font-size:14.5px;line-height:1.6;color:${C.ink};margin:0 0 9px;">${esc(s)}</div>`;
   };
 
   function renderLine(raw) {
@@ -3359,7 +3359,7 @@ function dlogTextToHtml(text, meta) {
 
     // Work-order lane headers: "To Do (4)" / "In Progress (2)" / "Done today (1)"
     const lane = s.match(/^(To Do|In Progress|Done today) \((\d+)\)$/);
-    if (lane) return `<div class="nx-eyebrow" style="font-family:${C.sans};font-size:12.5px;font-weight:bold;letter-spacing:.07em;text-transform:uppercase;color:${C.gold};margin:18px 0 6px;">${esc(lane[1])} <span class="nx-muted" style="color:${C.muted};letter-spacing:0;">· ${esc(lane[2])}</span></div>`;
+    if (lane) return `<div class="nx-eyebrow" style="font-family:${C.sans};font-size:11.5px;font-weight:bold;letter-spacing:.07em;text-transform:uppercase;color:${C.gold};margin:18px 0 6px;">${esc(lane[1])} <span class="nx-muted" style="color:${C.muted};letter-spacing:0;">· ${esc(lane[2])}</span></div>`;
 
     // "[TAG] name — detail" — pill in a fixed top-aligned cell, text beside
     // it, so long names wrap under themselves. The head/detail split happens
@@ -3382,10 +3382,10 @@ function dlogTextToHtml(text, meta) {
       const good = /confirmed schedule/i.test(tail);
       return `
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-          <td style="width:1%;white-space:nowrap;vertical-align:top;padding:7px 10px 7px 0;">${dlogHtmlTag(tag[1])}</td>
-          <td style="vertical-align:top;padding:7px 0;">
-            <span class="nx-ink" style="font-family:${C.sans};font-size:16.5px;font-weight:bold;color:${C.ink};line-height:1.45;">${esc(head)}</span>
-            ${tail ? `<div class="${good ? 'nx-good' : 'nx-muted'}" style="font-family:${C.sans};font-size:15px;line-height:1.55;color:${good ? C.greenTx : C.muted};margin-top:2px;">${esc(tail)}</div>` : ''}
+          <td style="width:1%;white-space:nowrap;vertical-align:top;padding:6px 9px 6px 0;">${dlogHtmlTag(tag[1])}</td>
+          <td style="vertical-align:top;padding:6px 0;">
+            <span class="nx-ink" style="font-family:${C.sans};font-size:15px;font-weight:bold;color:${C.ink};line-height:1.45;">${esc(head)}</span>
+            ${tail ? `<div class="${good ? 'nx-good' : 'nx-muted'}" style="font-family:${C.sans};font-size:13.5px;line-height:1.55;color:${good ? C.greenTx : C.muted};margin-top:2px;">${esc(tail)}</div>` : ''}
           </td>
         </tr></table>`;
     }
@@ -3396,17 +3396,17 @@ function dlogTextToHtml(text, meta) {
       const head = i === -1 ? rest : rest.slice(0, i);
       const tail = i === -1 ? '' : rest.slice(i + 3);
       return `
-        <div style="padding:7px 0;">
-          <span class="nx-ink" style="font-family:${C.sans};font-size:16.5px;font-weight:bold;color:${C.ink};line-height:1.45;">${esc(head)}</span>
-          ${tail ? `<div class="nx-muted" style="font-family:${C.sans};font-size:15px;line-height:1.55;color:${C.muted};margin-top:2px;">${esc(tail)}</div>` : ''}
+        <div style="padding:6px 0;">
+          <span class="nx-ink" style="font-family:${C.sans};font-size:15px;font-weight:bold;color:${C.ink};line-height:1.45;">${esc(head)}</span>
+          ${tail ? `<div class="nx-muted" style="font-family:${C.sans};font-size:13.5px;line-height:1.55;color:${C.muted};margin-top:2px;">${esc(tail)}</div>` : ''}
         </div>`;
     }
 
     if (indented) {
       const wc = s.match(/^(why|call):\s*(.*)$/i);
-      if (wc) return `<div class="nx-muted" style="font-family:${C.sans};font-size:15px;line-height:1.55;color:${C.muted};font-style:italic;margin:0 0 6px 2px;">${esc(wc[1].toLowerCase() === 'why' ? wc[2] : 'Call: ' + wc[2])}</div>`;
+      if (wc) return `<div class="nx-muted" style="font-family:${C.sans};font-size:13.5px;line-height:1.55;color:${C.muted};font-style:italic;margin:0 0 6px 2px;">${esc(wc[1].toLowerCase() === 'why' ? wc[2] : 'Call: ' + wc[2])}</div>`;
       const kv = s.match(/^([A-Za-z][A-Za-z ]{0,18}):\s+(.*)$/);
-      if (kv) return `<div class="nx-muted" style="font-family:${C.sans};font-size:15px;line-height:1.55;color:${C.muted};margin:0 0 6px 2px;"><strong class="nx-ink" style="color:${C.ink};">${esc(kv[1])}:</strong> ${esc(kv[2])}</div>`;
+      if (kv) return `<div class="nx-muted" style="font-family:${C.sans};font-size:13.5px;line-height:1.55;color:${C.muted};margin:0 0 6px 2px;"><strong class="nx-ink" style="color:${C.ink};">${esc(kv[1])}:</strong> ${esc(kv[2])}</div>`;
       return sub(s);
     }
 
@@ -3459,9 +3459,9 @@ function dlogTextToHtml(text, meta) {
   // the at-a-glance chips, which belong to this header context.
   const chipsHtml = renderLines(preExtra);
   modules.push(cardModule(`
-      <div class="nx-ink" style="font-family:${C.serif};font-size:26px;font-weight:800;color:${C.ink};letter-spacing:-.02em;line-height:1.2;">Daily Log${meta.locLabel ? ` <span style="color:${C.goldSoft};">· ${esc(meta.locLabel)}</span>` : ''}</div>
-      <div class="nx-muted" style="font-family:${C.sans};font-size:15px;color:${C.muted};margin-top:6px;line-height:1.5;">${esc(dateLine)}</div>
-      ${weatherLine ? `<div class="nx-muted" style="font-family:${C.sans};font-size:15px;color:${C.muted};margin-top:2px;line-height:1.5;">${esc(weatherLine)}</div>` : ''}
+      <div class="nx-ink" style="font-family:${C.serif};font-size:23px;font-weight:800;color:${C.ink};letter-spacing:-.02em;line-height:1.2;">Daily Log${meta.locLabel ? ` <span style="color:${C.goldSoft};">· ${esc(meta.locLabel)}</span>` : ''}</div>
+      <div class="nx-muted" style="font-family:${C.sans};font-size:13.5px;color:${C.muted};margin-top:6px;line-height:1.5;">${esc(dateLine)}</div>
+      ${weatherLine ? `<div class="nx-muted" style="font-family:${C.sans};font-size:13.5px;color:${C.muted};margin-top:2px;line-height:1.5;">${esc(weatherLine)}</div>` : ''}
       <div style="border-top:3px solid ${C.goldSoft};border-radius:3px;margin-top:16px;width:52px;font-size:0;line-height:0;">&nbsp;</div>
       ${chipsHtml ? `<div style="margin-top:16px;">${chipsHtml}</div>` : ''}`,
     { pad: '26px 24px 22px' }));
@@ -3473,12 +3473,12 @@ function dlogTextToHtml(text, meta) {
   if (clippyQuote) {
     modules.push(GAP + cardModule(`
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-        <td style="width:44px;vertical-align:top;padding-right:12px;">
-          <img src="https://orioncontinuity.github.io/nexus/assets/clippy-email.png" width="40" height="40" alt="Clippy" style="display:block;width:40px;height:40px;border:0;">
+        <td style="width:34px;vertical-align:top;padding-right:10px;">
+          <img src="https://orioncontinuity.github.io/nexus/assets/clippy-email.png" width="30" height="30" alt="Clippy" style="display:block;width:30px;height:30px;border:0;">
         </td>
         <td style="vertical-align:top;">
-          <div class="nx-ink" style="font-family:${C.sans};font-size:16px;line-height:1.6;color:${C.ink};font-style:italic;">${esc(clippyQuote)}</div>
-          <div class="nx-muted" style="font-family:${C.sans};font-size:14px;color:${C.muted};margin-top:6px;">— Clippy</div>
+          <div class="nx-ink" style="font-family:${C.sans};font-size:14px;line-height:1.6;color:${C.ink};font-style:italic;">${esc(clippyQuote)}</div>
+          <div class="nx-muted" style="font-family:${C.sans};font-size:12.5px;color:${C.muted};margin-top:6px;">— Clippy</div>
         </td>
       </tr></table>`,
     { soft: true, pad: '16px 20px' }));
@@ -3493,7 +3493,7 @@ function dlogTextToHtml(text, meta) {
     const inner = renderLines(sec.lines);
     if (!inner.trim()) return;
     modules.push(GAP + cardModule(`
-      <div class="nx-eyebrow" style="font-family:${C.sans};font-size:13px;font-weight:bold;letter-spacing:.08em;text-transform:uppercase;color:${C.gold};margin-bottom:12px;">${esc(sec.label)}${sec.suffix ? ` <span class="nx-muted" style="color:${C.muted};letter-spacing:0;">· ${esc(sec.suffix)}</span>` : ''}</div>
+      <div class="nx-eyebrow" style="font-family:${C.sans};font-size:12px;font-weight:bold;letter-spacing:.08em;text-transform:uppercase;color:${C.gold};margin-bottom:12px;">${esc(sec.label)}${sec.suffix ? ` <span class="nx-muted" style="color:${C.muted};letter-spacing:0;">· ${esc(sec.suffix)}</span>` : ''}</div>
       ${inner}`,
     { pad: '20px 24px 18px' }));
   });
@@ -3501,7 +3501,7 @@ function dlogTextToHtml(text, meta) {
   // Footer — plain quiet text on the page, outside any card.
   const footer = `
     <tr><td style="padding:20px 8px 4px;">
-      <div class="nx-muted" style="font-family:${C.sans};font-size:13.5px;line-height:1.6;color:${C.muted};text-align:center;">
+      <div class="nx-muted" style="font-family:${C.sans};font-size:12px;line-height:1.6;color:${C.muted};text-align:center;">
         ${sigName ? sigName + '<br>' : ''}<span style="font-family:${C.mono};font-size:10px;letter-spacing:.16em;">POWERED BY NEXUS</span>
       </div>
     </td></tr>`;
