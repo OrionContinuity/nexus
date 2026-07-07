@@ -932,6 +932,24 @@
   /* Suppress the existing underline-grow indicator — left border replaces it */
   .nav-tab::after { display: none !important; }
 
+  /* The rail holds 20 items + 4 group labels ≈ 1120px tall, but a 1080p
+     laptop window gives it ~824px — everything past Vendors fell below the
+     fold with the scrollbar hidden, reading as "missing buttons". Always
+     show a slim gold scrollbar on the rail so overflow is discoverable
+     (the compact tier below makes overflow rare in the first place). */
+  .nav-tabs {
+    scrollbar-width: thin;
+    scrollbar-color: var(--nx-gold-line) transparent;
+  }
+  .nav-tabs::-webkit-scrollbar { display: block; width: 10px; }
+  .nav-tabs::-webkit-scrollbar-thumb {
+    background: var(--nx-gold-line);
+    border-radius: 6px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  .nav-tabs::-webkit-scrollbar-track { background: transparent; }
+
   /* Shift main content right by sidebar width + a comfortable gutter on all
      sides so the workspace breathes off the chrome (the views' own padding
      is tight — e.g. equipment is only 16px). A DEFINITE viewport-relative
@@ -991,6 +1009,18 @@
   .b-list-cards::-webkit-scrollbar-track,
   .board-list-cards::-webkit-scrollbar-track,
   .board-lists::-webkit-scrollbar-track { background: transparent; }
+}
+
+/* Compact rail tier — on shorter desktop windows (any 1080p laptop, more so
+   with browser zoom) the 44px comfortable rows can't fit all 20 items, so
+   tighten rows/labels until the full rail fits ~810px. Kicks in by window
+   HEIGHT so tall monitors keep the roomy version. */
+@media (min-width: 900px) and (max-height: 1150px) {
+  .nav-tabs { gap: 1px; padding: 8px 8px 12px; }
+  .nav-tab { min-height: 30px; padding: 5px 12px; font-size: 12.5px; }
+  .nav-tab .nav-icon { width: 15px; height: 15px; }
+  .nav-tabs .nav-group-label { margin: 7px 12px 2px; font-size: 9.5px; }
+  .nav-tabs .nav-group-label:first-child { margin-top: 2px; }
 }
 
 /* ─── v18.32 — DAILY FACILITIES LOG ───────────────────────────────────

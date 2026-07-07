@@ -732,6 +732,17 @@
   outline: 2px solid var(--nx-gold-line-3);
   outline-offset: 3px;
 }
+/* Desktop: there is no bottom nav, and the workspace sits right of the 240px
+   sidebar rail — so viewport-centering drifted the bar 120px left of the
+   content column, and the phantom 56px bnav offset left it floating mid-page
+   over the feed. Anchor it near the true bottom, centered on the content
+   area (offset = (264px left pad − 24px right pad) / 2). */
+@media (min-width: 900px) {
+  .home-ask {
+    left: calc(50% + 120px);
+    bottom: 28px;
+  }
+}
 
 .home-ask-prompt {
   display: inline-flex;
