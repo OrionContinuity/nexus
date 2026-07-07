@@ -2904,8 +2904,11 @@ function dlogLocationReportLines(loc) {
       d.setDate(d.getDate() + n);
       return d;
     };
-    let insO = 0, insS = 0, dcO = 0, dcS = 0, op = 0;
-    const pmItems = [];
+    // Inspections get a LONGER lead time than PMs (30 days vs 14) — they're
+    // usually vendor visits that need booking, so the note flags them early.
+    const soonInsD = new Date(todayD); soonInsD.setDate(soonInsD.getDate() + 30);
+    let dcO = 0, dcS = 0, op = 0;
+    const pmItems = [], insItems = [];
     const shortDate2 = d => d.toLocaleDateString([], { month: 'short', day: 'numeric' });
     eqAll.forEach(eq => {
       if ((eq.status || 'operational').toLowerCase() === 'operational') op++;
@@ -2918,7 +2921,18 @@ function dlogLocationReportLines(loc) {
         pmItems.push({ name: eq.name || 'Equipment', date: pmNext, overdue, days, sched: pmConfirmNote(eq.id) });
       }
       const insNext = nextOf(eq.last_inspection_date, eq.inspection_interval_days);
-      if (insNext) { if (insNext < todayD) insO++; else if (insNext <= soonD) insS++; }
+      if (insNext && !isNaN(insNext) && insNext <= soonInsD) {
+        const overdue = insNext < todayD;
+        const days = Math.round((insNext - todayD) / 86400000);
+        const sched = pmConfirmNote(eq.id);
+        // Alfredo's rule: an upcoming inspection with the next visit already
+        // booked doesn't need to appear at all — the nag is only for
+        // UNhandled ones. Overdue inspections always show (with the booking
+        // note when one exists), same treatment as overdue PMs.
+        if (overdue || !sched) {
+          insItems.push({ name: eq.name || 'Equipment', date: insNext, overdue, days, sched });
+        }
+      }
       const dcNext = nextOf(eq.last_deep_clean_date, eq.deep_clean_interval_days);
       if (dcNext) { if (dcNext < todayD) dcO++; else if (dcNext <= soonD) dcS++; }
     });
@@ -2943,12 +2957,25 @@ function dlogLocationReportLines(loc) {
       });
       if (pmItems.length > 12) out.push('    +' + (pmItems.length - 12) + ' more');
     }
+    // Inspections — itemized like PMs (was a bare count), 30-day window.
+    // Units whose upcoming inspection already has a visit booked were
+    // dropped above, so every line here is actionable.
+    if (insItems.length) {
+      insItems.sort((a, b) => a.date - b.date);
+      const overdueN = insItems.filter(x => x.overdue).length;
+      out.push('· Inspections due: ' + insItems.length + (overdueN ? ' (' + overdueN + ' overdue)' : ''));
+      insItems.slice(0, 12).forEach(x => {
+        out.push('    ' + (x.overdue
+          ? ('[OVERDUE] ' + x.name + ' — was due ' + shortDate2(x.date) + (x.days <= -1 ? ' (' + Math.abs(x.days) + 'd overdue)' : '') + (x.sched ? ' — ' + x.sched : ''))
+          : ('[DUE] ' + x.name + ' — ' + shortDate2(x.date) + ' (in ' + x.days + 'd)')));
+      });
+      if (insItems.length > 12) out.push('    +' + (insItems.length - 12) + ' more');
+    }
     const dueLine = (label, over, soon) => {
       const t = over + soon;
       return t ? ('· ' + label + ' due: ' + t + (over ? ' (' + over + ' overdue)' : '')) : null;
     };
-    [dueLine('Inspections', insO, insS), dueLine('Deep cleans', dcO, dcS)]
-      .filter(Boolean).forEach(l => out.push(l));
+    [dueLine('Deep cleans', dcO, dcS)].filter(Boolean).forEach(l => out.push(l));
     out.push('');
 
     // Warranty — prompt ONLY when a unit's warranty is within 90 days of
