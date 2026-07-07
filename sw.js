@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v189-desktop-rail-fit';
+const CACHE_NAME = 'nexus-v190-styled-email-weather';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
