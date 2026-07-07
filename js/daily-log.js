@@ -3466,11 +3466,21 @@ function dlogTextToHtml(text, meta) {
       ${chipsHtml ? `<div style="margin-top:16px;">${chipsHtml}</div>` : ''}`,
     { pad: '26px 24px 22px' }));
 
-  // Clippy — a soft interlude module of its own.
+  // Clippy — a soft interlude module of his own, with the actual orb as the
+  // avatar (assets/clippy-email.png: the bare orb baked from clippy.svg at
+  // 120px/3x). Served from the site — email clients won't render SVG, and
+  // Gmail's image proxy shows hosted PNGs by default.
   if (clippyQuote) {
     modules.push(GAP + cardModule(`
-      <div class="nx-ink" style="font-family:${C.sans};font-size:15px;line-height:1.6;color:${C.ink};font-style:italic;">${esc(clippyQuote)}</div>
-      <div class="nx-muted" style="font-family:${C.sans};font-size:13px;color:${C.muted};margin-top:6px;">— Clippy 👋</div>`,
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+        <td style="width:44px;vertical-align:top;padding-right:12px;">
+          <img src="https://orioncontinuity.github.io/nexus/assets/clippy-email.png" width="40" height="40" alt="Clippy" style="display:block;width:40px;height:40px;border:0;">
+        </td>
+        <td style="vertical-align:top;">
+          <div class="nx-ink" style="font-family:${C.sans};font-size:15px;line-height:1.6;color:${C.ink};font-style:italic;">${esc(clippyQuote)}</div>
+          <div class="nx-muted" style="font-family:${C.sans};font-size:13px;color:${C.muted};margin-top:6px;">— Clippy</div>
+        </td>
+      </tr></table>`,
     { soft: true, pad: '16px 20px' }));
   }
 
