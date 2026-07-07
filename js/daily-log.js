@@ -3305,8 +3305,13 @@ function dlogTextToHtml(text, meta) {
   const C = DLOG_HTML;
   meta = meta || {};
   const lines = String(text || '').replace(/\r/g, '').split('\n');
+  // BOTH header grammars: the pretty box-drawing form ("─── LABEL ─── sfx")
+  // AND the ASCII fallback ("--- LABEL ---") that ships when NX.email isn't
+  // resolvable at build time — real devices emit the ASCII form, so parsing
+  // only the pretty one rendered the whole email as one blob.
   const SEC_RE = /^─── (.+?) ─+(.*)$/;
-  const RULE_RE = /^─{6,}$/;
+  const SEC_ASCII_RE = /^--- (.+?) ---\s*(.*)$/;
+  const RULE_RE = /^[─-]{6,}$/;
 
   // Split into: preamble (greeting), sections, signature.
   const pre = [];
@@ -3316,17 +3321,23 @@ function dlogTextToHtml(text, meta) {
   for (const raw of lines) {
     const line = raw;
     if (inSig) { sig.push(line); continue; }
-    const sm = line.match(SEC_RE);
+    const sm = line.match(SEC_RE) || line.match(SEC_ASCII_RE);
     if (sm) { cur = { label: sm[1].trim(), suffix: (sm[2] || '').trim(), lines: [] }; sections.push(cur); continue; }
     if (RULE_RE.test(line.trim())) { inSig = true; continue; }
     if (cur) cur.lines.push(line); else pre.push(line);
   }
 
-  // Weather rides in the masthead, not as a body section.
+  // Weather rides in the masthead, not as a body section — but ONLY its
+  // first line. Anything else in that section (the per-location emails put
+  // "At a glance: …" right after weather with no header of its own) renders
+  // as normal content so the chips still appear.
   let weatherLine = '';
+  let preExtra = [];
   const weatherIdx = sections.findIndex(s => /^weather$/i.test(s.label));
   if (weatherIdx !== -1) {
-    weatherLine = sections[weatherIdx].lines.map(l => l.trim()).filter(Boolean).join(' ');
+    const wl = sections[weatherIdx].lines.filter(l => l.trim());
+    weatherLine = (wl.shift() || '').trim();
+    preExtra = wl;
     sections.splice(weatherIdx, 1);
   }
 
@@ -3355,20 +3366,28 @@ function dlogTextToHtml(text, meta) {
     const atG = s.match(/^At a glance:\s*(.+)$/i);
     if (atG) return `<div style="margin:2px 0 6px;">${atG[1].split(' · ').map(dlogHtmlChip).join('')}</div>`;
 
+    // Work-order lane headers: "To Do (4)" / "In Progress (2)" / "Done today (1)"
+    const lane = s.match(/^(To Do|In Progress|Done today) \((\d+)\)$/);
+    if (lane) return `<div style="font-family:${C.mono};font-size:11.5px;letter-spacing:.18em;text-transform:uppercase;color:${C.gold};margin:14px 0 4px;">${esc(lane[1])} <span style="color:${C.muted};letter-spacing:.05em;">· ${esc(lane[2])}</span></div>`;
+
     // "[TAG] name — detail — detail" (both bulleted and indented forms).
     // Names can themselves contain " — " ("Hood — Main Line"), so the
     // head/detail split happens at the first segment that READS like a
     // detail (was due…, a date, in Nd…), not blindly at the first dash.
     const tag = s.replace(/^· /, '').match(/^\[([A-Z][A-Z /_-]*)\]\s*(.*)$/);
     if (tag) {
-      const segs = tag[2].split(' — ');
+      let rest2 = tag[2];
+      let movedNote = '';
+      const mv = rest2.match(/\s*\((moved today)\)\s*$/);
+      if (mv) { movedNote = mv[1]; rest2 = rest2.slice(0, mv.index); }
+      const segs = rest2.split(' — ');
       let cut = segs.length;
       for (let i = 1; i < segs.length; i++) {
         if (/^(was due|due |in \d|call |confirmed|\d|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/.test(segs[i])) { cut = i; break; }
       }
       if (cut === segs.length && segs.length > 1) cut = 1;   // fallback: first dash
       const head = segs.slice(0, cut).join(' — ');
-      const tail = segs.slice(cut).join(' — ');
+      const tail = [segs.slice(cut).join(' — '), movedNote].filter(Boolean).join(' · ');
       const good = /confirmed schedule/i.test(tail);
       return `
         <div style="padding:10px 0;border-bottom:1px solid ${C.line};">
@@ -3390,8 +3409,12 @@ function dlogTextToHtml(text, meta) {
     }
 
     if (indented) {
-      const kv = s.match(/^(why|call):\s*(.*)$/i);
-      if (kv) return `<div style="font-family:${C.sans};font-size:14px;line-height:1.6;color:${C.muted};font-style:italic;margin:2px 0 6px 2px;">${esc(kv[1] === 'why' ? kv[2] : 'Call: ' + kv[2])}</div>`;
+      // why:/call: read as narration → italic. Other "Key: value" sub-lines
+      // (Issue:, Status:, …) keep a bold key.
+      const wc = s.match(/^(why|call):\s*(.*)$/i);
+      if (wc) return `<div style="font-family:${C.sans};font-size:14px;line-height:1.6;color:${C.muted};font-style:italic;margin:2px 0 6px 2px;">${esc(wc[1].toLowerCase() === 'why' ? wc[2] : 'Call: ' + wc[2])}</div>`;
+      const kv = s.match(/^([A-Za-z][A-Za-z ]{0,18}):\s+(.*)$/);
+      if (kv) return `<div style="font-family:${C.sans};font-size:14px;line-height:1.6;color:${C.muted};margin:2px 0 6px 2px;"><strong style="color:${C.ink};">${esc(kv[1])}:</strong> ${esc(kv[2])}</div>`;
       return sub(s);
     }
 
@@ -3418,8 +3441,8 @@ function dlogTextToHtml(text, meta) {
       </div>
     </td></tr>` : '';
 
-  const preBlock = preProse.length ? `
-    <tr><td style="padding:20px 24px 0;">${preProse.map(prose).join('')}</td></tr>` : '';
+  const preBlock = (preProse.length || preExtra.length) ? `
+    <tr><td style="padding:20px 24px 0;">${preProse.map(prose).join('')}${preExtra.map(renderLine).join('')}</td></tr>` : '';
 
   // Signature: keep the sender's name; our own footer supplies the brand line.
   const sigName = sig.map(l => l.trim()).filter(l => l && !/^powered by nexus$/i.test(l)).join('<br>');
