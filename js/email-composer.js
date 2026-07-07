@@ -102,12 +102,18 @@
       ? '=?UTF-8?B?' + btoa(unescape(encodeURIComponent(s))) + '?='
       : String(s || '');
   }
+  var GMAIL_SEND_SCOPE = ['https://www.googleapis.com/auth/gmail.send'];
+  // Resolves {ok:true} or {ok:false, err:'human-readable reason'} — the
+  // reason is SHOWN to the user on fallback (a silent false left everyone
+  // guessing why "the old text email appeared").
   function sendGmailHtml(to, cc, bcc, subject, textBody, htmlBody) {
     var drive = window.NX && window.NX.drive;
-    if (!drive || !drive.ensureDriveToken || !window.fetch) return Promise.resolve(false);
-    return Promise.resolve(drive.ensureDriveToken({ scopes: ['https://www.googleapis.com/auth/gmail.send'] }))
+    if (!drive || !drive.ensureDriveToken || !window.fetch) {
+      return Promise.resolve({ ok: false, err: 'Google module not loaded on this build (try a full close & reopen)' });
+    }
+    return Promise.resolve(drive.ensureDriveToken({ scopes: GMAIL_SEND_SCOPE }))
       .then(function (token) {
-        if (!token) return false;
+        if (!token) return { ok: false, err: 'Google did not return a token' };
         var bnd = 'nx' + Math.random().toString(36).slice(2) + Date.now().toString(36);
         var lines = [
           'To: ' + to,
@@ -135,9 +141,19 @@
           method: 'POST',
           headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
           body: JSON.stringify({ raw: b64url(lines.join('\r\n')) }),
-        }).then(function (res) { return !!(res && res.ok); });
+        }).then(function (res) {
+          if (res && res.ok) return { ok: true };
+          return res.text().then(function (t) {
+            var msg = 'Gmail API ' + (res ? res.status : '?');
+            try { var j = JSON.parse(t); if (j && j.error && j.error.message) msg += ': ' + j.error.message; } catch (_) {}
+            return { ok: false, err: msg };
+          }).catch(function () { return { ok: false, err: 'Gmail API ' + (res ? res.status : 'error') }; });
+        });
       })
-      .catch(function (e) { if (T.debug) T.debug('composer.gmailSend', e); return false; });
+      .catch(function (e) {
+        if (T.debug) T.debug('composer.gmailSend', e);
+        return { ok: false, err: (e && e.message) ? e.message : 'unexpected error' };
+      });
   }
 
   function injectStyles() {
@@ -378,13 +394,16 @@
         sendBtn.disabled = true; sendBtn.textContent = 'Sending…';
         var html = '';
         try { html = htmlRender(bod) || ''; } catch (e) { if (T.debug) T.debug('composer.htmlRender', e); }
-        (html ? sendGmailHtml(to, state.cc, state.bcc, subj, bod, html) : Promise.resolve(false))
-          .then(function (ok) {
-            if (ok) {
+        (html ? sendGmailHtml(to, state.cc, state.bcc, subj, bod, html) : Promise.resolve({ ok: false, err: 'styled render came back empty' }))
+          .then(function (r) {
+            if (r && r.ok) {
               if (T.toast) T.toast('Sent ✓ — styled email delivered', 'success', 3200);
               finish();
             } else {
-              if (T.toast) T.toast('Styled send unavailable — opening the classic draft instead', 'warn', 4200);
+              // Tell the user WHY, then fall back — a silent downgrade to the
+              // plain draft looked like the feature simply didn't exist.
+              var why = (r && r.err) ? r.err : 'unknown reason';
+              if (T.toast) T.toast('Styled send failed (' + why + ') — opening the classic draft instead', 'warn', 6000);
               try { sendDraft(to, subj, bod, state.cc, state.bcc); } catch (e) { if (T.debug) T.debug('composer.send', e); }
               finish();
             }
@@ -414,6 +433,23 @@
       ov.querySelector('iframe').srcdoc = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:0">' + html + '</body></html>';
       ov.querySelector('[data-pv-close]').addEventListener('click', function () { ov.remove(); });
     });
+
+    // Styled-send readiness — shown in the status strip the moment the sheet
+    // opens, so auth problems are visible BEFORE Send instead of after. Also
+    // pre-warms the Google auth script so the consent popup opens inside the
+    // Send tap (a script load mid-gesture gets popup-blocked).
+    if (htmlRender) {
+      var drv = window.NX && window.NX.drive;
+      if (!drv || !drv.ensureDriveToken) {
+        setCmpStatus('⚠ Styled send module missing — Send will open the classic draft. Fully close & reopen NEXUS once.', 'warn');
+      } else {
+        var st = drv.tokenStatus ? drv.tokenStatus(['https://www.googleapis.com/auth/gmail.send']) : 'unknown';
+        if (st === 'no-client-id') setCmpStatus('⚠ Google isn’t connected on this device — Send will open the classic draft. Connect Drive in Settings first.', 'warn');
+        else if (st === 'ready') setCmpStatus('✨ Styled send ready', 'ok');
+        else setCmpStatus('✨ Send will ask for one Google permission (send email) the first time.', '');
+        if (drv.preloadAuth) { try { drv.preloadAuth().catch(function () {}); } catch (_) {} }
+      }
+    }
 
     document.addEventListener('keydown', onKey, true);
     document.body.appendChild(bg);

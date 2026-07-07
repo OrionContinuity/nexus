@@ -3389,11 +3389,17 @@ function dlogTextToHtml(text, meta) {
       const head = segs.slice(0, cut).join(' — ');
       const tail = [segs.slice(cut).join(' — '), movedNote].filter(Boolean).join(' · ');
       const good = /confirmed schedule/i.test(tail);
+      // Two-column table: pill in a fixed top-aligned cell, text in its own
+      // column — long titles wrap under THEMSELVES, never under the pill
+      // (the "cards bigger than the section" wrap Alfredo flagged).
       return `
-        <div style="padding:10px 0;border-bottom:1px solid ${C.line};">
-          <div>${dlogHtmlTag(tag[1])}<span style="font-family:${C.serif};font-size:17px;font-weight:bold;color:${C.ink};margin-left:8px;">${esc(head)}</span></div>
-          ${tail ? `<div style="font-family:${C.sans};font-size:14.5px;line-height:1.6;color:${good ? C.greenTx : C.muted};margin-top:5px;${good ? 'font-weight:bold;' : ''}">${esc(tail)}</div>` : ''}
-        </div>`;
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid ${C.line};"><tr>
+          <td style="width:1%;white-space:nowrap;vertical-align:top;padding:10px 10px 10px 0;">${dlogHtmlTag(tag[1])}</td>
+          <td style="vertical-align:top;padding:10px 0;">
+            <span style="font-family:${C.serif};font-size:16.5px;font-weight:bold;color:${C.ink};line-height:1.4;">${esc(head)}</span>
+            ${tail ? `<div style="font-family:${C.sans};font-size:14.5px;line-height:1.6;color:${good ? C.greenTx : C.muted};margin-top:4px;${good ? 'font-weight:bold;' : ''}">${esc(tail)}</div>` : ''}
+          </td>
+        </tr></table>`;
     }
 
     if (/^· /.test(s)) {

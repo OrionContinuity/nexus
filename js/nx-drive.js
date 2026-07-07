@@ -1554,8 +1554,24 @@ if (document.readyState === 'loading') {
 
 // Expose on global NX namespace
 window.NX = window.NX || {};
+// Non-prompting readiness probe for a scope set — lets callers (the email
+// composer's styled send) TELL the user the auth state instead of failing
+// silently: 'ready' (cached token has the scopes), 'consent-needed' (Send
+// will pop the Google screen once), 'no-client-id' (Drive was never set up).
+function tokenStatus(scopes) {
+  try {
+    const clientId = NX.getGoogleClientId && NX.getGoogleClientId();
+    if (!clientId) return 'no-client-id';
+    const stored = getStoredToken();
+    if (stored && hasRequiredScopes(stored.scopes, scopes || DAILY_LOG_SCOPES)) return 'ready';
+    return 'consent-needed';
+  } catch (_) { return 'unknown'; }
+}
+
 NX.drive = {
   ensureDriveToken,
+  tokenStatus,
+  preloadAuth: loadGsiScript,   // warm the GIS script so the consent popup opens IN the Send gesture
   uploadDailyLog,
   uploadBiweeklyLog,
   DAILY_LOG_FOLDER_ID,
