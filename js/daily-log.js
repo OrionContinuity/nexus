@@ -3510,12 +3510,16 @@ function buildDailyLogEmailHtml(d, dateStr) {
     }
   }
 
-  const vendorActivityBlock = clean(d.vendor_activity_notes)
+  // Day-level sections (vendor activity, planning, cleaning, other
+  // properties) belong to the FULL-DAY digest only — the plain
+  // buildLocationEmailBody sends a venue manager just their venue, and
+  // the styled per-location email matches that scoping exactly.
+  const vendorActivityBlock = (!singleLoc && clean(d.vendor_activity_notes))
     ? dlogHtmlSection('Vendor activity', `<div style="font-family:${C.serif};font-size:17px;line-height:1.7;color:${C.ink};white-space:pre-wrap;">${esc(clean(d.vendor_activity_notes))}</div>`)
     : '';
 
   const plan = [];
-  if (d.planning) {
+  if (!singleLoc && d.planning) {
     if (clean(d.planning.tomorrow_plan)) plan.push(['Tomorrow', d.planning.tomorrow_plan]);
     if (clean(d.planning.this_week)) plan.push(['This week', d.planning.this_week]);
     if (clean(d.planning.side_notes)) plan.push(['Side notes', d.planning.side_notes]);
@@ -3524,13 +3528,13 @@ function buildDailyLogEmailHtml(d, dateStr) {
     plan.map(p => `<div style="font-family:${C.sans};font-size:15.5px;line-height:1.7;color:${C.ink};margin-bottom:10px;"><strong style="font-family:${C.serif};font-size:16px;">${p[0]}:</strong> ${esc(clean(p[1]))}</div>`).join('')) : '';
 
   const clLines = [];
-  if (d.cleaning) CLEANING_FIELDS.forEach(f => {
+  if (!singleLoc && d.cleaning) CLEANING_FIELDS.forEach(f => {
     const v = clean(d.cleaning[f.key]);
     if (v) clLines.push(`<div style="font-family:${C.sans};font-size:15.5px;line-height:1.7;color:${C.ink};margin-bottom:8px;"><strong style="font-family:${C.serif};font-size:16px;">${esc(f.label)}:</strong> ${esc(v)}</div>`);
   });
   const cleaningBlock = clLines.length ? dlogHtmlSection('Cleaning', clLines.join('')) : '';
 
-  const others = (d.other_properties || []).filter(o => clean(o.property_name) || clean(o.notes));
+  const others = singleLoc ? [] : (d.other_properties || []).filter(o => clean(o.property_name) || clean(o.notes));
   const othersBlock = others.length ? dlogHtmlSection('Other properties',
     others.map(o => `<div style="font-family:${C.sans};font-size:15.5px;line-height:1.7;color:${C.ink};margin-bottom:8px;"><strong style="font-family:${C.serif};font-size:16px;">${esc(clean(o.property_name) || 'Property')}${clean(o.notes) ? ':' : ''}</strong> ${esc(clean(o.notes))}</div>`).join('')) : '';
 
@@ -3550,7 +3554,7 @@ function buildDailyLogEmailHtml(d, dateStr) {
     <tr><td style="padding:30px 24px 0;">
       <div style="font-family:${C.mono};font-size:13px;letter-spacing:.3em;color:${C.gold};">&#9679; NEXUS</div>
       <div style="font-family:${C.serif};font-size:38px;font-weight:bold;color:${C.ink};letter-spacing:-.02em;margin-top:14px;">Daily Log${singleLoc && locs[0] ? ` <span style="color:${C.gold};">· ${esc(locs[0].label)}</span>` : ''}</div>
-      <div style="font-family:${C.mono};font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:${C.muted};margin-top:8px;line-height:1.6;">${esc(fmtLogDateLong(dateStr))}${clean(d.header && d.header.weather) ? '<br>' + esc(clean(d.header.weather)) : ''}</div>
+      <div style="font-family:${C.mono};font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:${C.muted};margin-top:8px;line-height:1.6;">${esc(fmtLogDateLong(dateStr))}${(() => { const wx = clean((singleLoc && state.weatherByLoc && state.weatherByLoc[locKey]) || (d.header && d.header.weather)); return wx ? '<br>' + esc(wx) : ''; })()}</div>
       <div style="border-top:3px solid ${C.goldSoft};border-radius:3px;margin-top:20px;width:64px;"></div>
     </td></tr>
     ${clippyBlock}
