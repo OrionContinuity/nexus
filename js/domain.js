@@ -390,6 +390,7 @@
         };
         if (!existing.status || existing.status === 'reported') patch.status = 'contractor_called';
         await NX.sb.from('equipment_issues').update(patch).eq('id', existing.id);
+        if (patch.status) { try { await D.syncIssueCardList(existing.id, patch.status); } catch (_) {} }
         return existing.id;
       }
       const { data: row, error } = await NX.sb.from('equipment_issues').insert({
@@ -643,6 +644,11 @@
       console.warn('[domain.transitionEquipmentIssue] update failed:', e?.message || e);
       return out;
     }
+
+    // Keep the board card in the column that matches the new status
+    // (reported → To Do, called/ETA/in-progress/parts → In Progress,
+    // repaired → Done). Best-effort — never blocks the transition.
+    try { await D.syncIssueCardList(issueId, newStatus); } catch (_) {}
 
     out.statusProposal = await computeProposedEquipmentStatus({
       equipmentId: issue.equipment_id,
@@ -1330,7 +1336,7 @@
       : NX.toast && NX.toast('Work Orders unavailable — is js/work-orders.js deployed?', 'error', 3500);
     if (NX.modules?.workOrders) { go(); return; }
     const s = document.createElement('script');
-    s.src = 'js/work-orders.js?v=1';
+    s.src = 'js/work-orders.js?v=5';
     s.onload = go; s.onerror = go;
     document.body.appendChild(s);
   };
@@ -1496,7 +1502,12 @@
             title: it.title, description: it.description,
             priority: it.priority || 'high', location: it.location,
           });
-          if (card) created++;
+          if (card) {
+            created++;
+            if (it.status && it.status !== 'reported') {
+              try { await D.syncIssueCardList(it.id, it.status); } catch (_) {}
+            }
+          }
         } catch (e) { console.warn('[domain.backfillIssueCards] one issue failed:', e?.message || e); }
       }
     } catch (e) { console.warn('[domain.backfillIssueCards] failed:', e?.message || e); }
@@ -1511,12 +1522,96 @@
     try {
       const { data: it } = await NX.sb.from('equipment_issues').select('*').eq('id', issueId).maybeSingle();
       if (!it) return null;
-      return await autoCreateIssueCard({
+      const card = await autoCreateIssueCard({
         issueId: it.id, equipmentId: it.equipment_id,
         title: it.title, description: it.description,
         priority: it.priority || 'high', location: it.location,
       });
+      // New cards land in To Do; if the work order is already past
+      // "reported" (vendor called, in progress…), file it correctly now.
+      if (card && it.status && it.status !== 'reported') {
+        try { await D.syncIssueCardList(it.id, it.status); } catch (_) {}
+      }
+      return card;
     } catch (e) { console.warn('[domain.ensureIssueCard] failed:', e?.message || e); return null; }
+  };
+
+  // ════════════════════════════════════════════════════════════════════
+  // EVENT: work-order lifecycle → board column
+  // ════════════════════════════════════════════════════════════════════
+  //
+  // FIRED BY:  every path that changes an equipment_issue's status —
+  //            transitionEquipmentIssue (board stepper + equipment view),
+  //            vendor dispatch (vendors.js), ETA prompt (equipment.js),
+  //            invoice-paid close (detail.js), stale-drop (inbox.js).
+  //
+  // The linked board card follows the work order across lists:
+  //   reported                                → To Do / Report list
+  //   contractor_called, eta_set, in_progress,
+  //   awaiting_parts                          → In Progress list
+  //   repaired, closed, resolved, cancelled   → Done list
+  //
+  // Card is found by its `issue:<id>` label; lists are matched by name
+  // on the card's OWN board, with positional fallbacks (first list =
+  // To Do, second = In Progress, last = Done). Best-effort: a sync
+  // failure never blocks the status change itself.
+  //
+  D.syncIssueCardList = async function(issueId, newStatus) {
+    if (!NX.sb || !issueId || !newStatus) return false;
+    const s = String(newStatus).toLowerCase();
+    const bucket = /^(repaired|closed|resolved|done|cancelled|canceled|invoice_paid)$/.test(s) ? 'done'
+                 : /^(contractor_called|called|dispatched|eta_set|scheduled|in_progress|on_site|awaiting_parts|awaiting_quote|quote_requested)$/.test(s) ? 'doing'
+                 : 'todo';
+    const HINTS = {
+      todo:  ['report', 'issue|broken', 'todo|to.do|backlog'],
+      doing: ['progress|working|doing|active'],
+      done:  ['done|complete|closed'],
+    };
+    try {
+      const { data: cards } = await NX.sb.from('kanban_cards').select('*')
+        .contains('labels', ['issue:' + issueId])
+        .order('created_at', { ascending: false }).limit(1);
+      const card = cards && cards[0];
+      if (!card || card.archived === true || !card.board_id) return false;
+
+      const { data: listsRaw } = await NX.sb.from('board_lists')
+        .select('*').eq('board_id', card.board_id).order('position');
+      const lists = (listsRaw || []).filter(l => l && l.archived !== true);
+      if (!lists.length) return false;
+
+      let target = null;
+      for (const pattern of HINTS[bucket]) {
+        const re = new RegExp(pattern, 'i');
+        target = lists.find(l => re.test(l.name || ''));
+        if (target) break;
+      }
+      if (!target) {
+        target = bucket === 'todo' ? lists[0]
+               : bucket === 'done' ? lists[lists.length - 1]
+               : (lists[1] || lists[0]);
+      }
+      if (!target || String(card.list_id) === String(target.id)) return false;
+
+      // Move to the top of the destination list (matches the composer).
+      let position = 0;
+      try {
+        const { data: inList } = await NX.sb.from('kanban_cards')
+          .select('position').eq('list_id', target.id).eq('archived', false);
+        if (inList && inList.length) {
+          position = Math.min(...inList.map(c => (typeof c.position === 'number' ? c.position : 0))) - 1;
+        }
+      } catch (_) {}
+
+      const { error } = await NX.sb.from('kanban_cards')
+        .update({ list_id: target.id, position }).eq('id', card.id);
+      if (error) throw error;
+      // If the board is open, show the move immediately.
+      try { if (NX.modules?.board?.reload) NX.modules.board.reload(); } catch (_) {}
+      return true;
+    } catch (e) {
+      console.warn('[domain.syncIssueCardList] failed:', e?.message || e);
+      return false;
+    }
   };
 
   // ─── Board targeting ────────────────────────────────────────────────

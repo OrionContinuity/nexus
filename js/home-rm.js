@@ -241,7 +241,7 @@
             : NXRM.view.switchTo('issues');
           if (NX.modules?.workOrders) { open(); return; }
           const s = document.createElement('script');
-          s.src = 'js/work-orders.js?v=4';
+          s.src = 'js/work-orders.js?v=5';
           s.onload = open; s.onerror = open;
           document.body.appendChild(s);
           return;
@@ -425,7 +425,7 @@
             : NXRM.view.switchTo('issues');
           if (NX.modules?.workOrders) { open(); return; }
           const s = document.createElement('script');
-          s.src = 'js/work-orders.js?v=4';
+          s.src = 'js/work-orders.js?v=5';
           s.onload = open; s.onerror = open;
           document.body.appendChild(s);
           return;

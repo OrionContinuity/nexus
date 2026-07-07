@@ -14412,6 +14412,8 @@ async function promptIssueEta(issueId) {
     close();
     if (issue) Object.assign(issue, update);
     renderIssueTracker();
+    // ETA set → the board card follows to In Progress.
+    if (update.status) { try { NX.domain?.syncIssueCardList?.(issueId, update.status); } catch (_) {} }
     NX.toast && NX.toast('ETA saved', 'success', 1200);
   });
 }

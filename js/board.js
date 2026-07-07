@@ -3672,10 +3672,13 @@ async function renderIssueTimeline(card, bg) {
     const reopenBtn = issue.status === 'repaired'
       ? `<button class="b-btn b-il-reopen" id="bIssueReopen"><i data-lucide="rotate-ccw" class="b-btn-icon"></i> Reopen / Continue</button>`
       : '';
+    // Reverse of the WO sheet's "Open on board": jump from this card to the
+    // full work-order detail (timeline, contractor, description) to follow it.
+    const woBtn = `<button class="b-btn" id="bIssueOpenWo"><i data-lucide="external-link" class="b-btn-icon"></i> Work order</button>`;
 
     host.innerHTML = `
       <div class="b-il-timeline">${stepsHtml}</div>
-      <div class="b-il-actions">${reopenBtn}</div>
+      <div class="b-il-actions">${woBtn}${reopenBtn}</div>
     `;
     if (window.lucide) try { lucide.createIcons(); } catch (_) {}
 
@@ -3707,6 +3710,20 @@ async function renderIssueTimeline(card, bg) {
     // Reopen button
     const reopen = host.querySelector('#bIssueReopen');
     if (reopen) reopen.addEventListener('click', () => openReopenPicker(issue, paint));
+
+    // Work order button — lazy-load the standalone module if needed, then
+    // open the WO detail sheet on top of the card modal (own overlay).
+    const woOpen = host.querySelector('#bIssueOpenWo');
+    if (woOpen) woOpen.addEventListener('click', () => {
+      const go = () => NX.modules?.workOrders?.openDetail
+        ? NX.modules.workOrders.openDetail(issue.id, issue.equipment_id || card.equipment_id || null)
+        : NX.toast && NX.toast('Work Orders module unavailable', 'error', 2600);
+      if (NX.modules?.workOrders?.openDetail) { go(); return; }
+      const s = document.createElement('script');
+      s.src = 'js/work-orders.js?v=5';
+      s.onload = go; s.onerror = go;
+      document.body.appendChild(s);
+    });
   }
   paint();
 }

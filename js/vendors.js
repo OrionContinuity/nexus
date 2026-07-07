@@ -994,6 +994,8 @@
           vendor_id: vendor.id,
           status: 'contractor_called',
         }).eq('id', issue.id);
+        // Vendor called → the board card follows to In Progress.
+        try { NX.domain?.syncIssueCardList?.(issue.id, 'contractor_called'); } catch (_) {}
       }
       if (window.NXIssues?.refresh) window.NXIssues.refresh();
       if (NXRM.detail?.refresh) NXRM.detail.refresh(issue.id);

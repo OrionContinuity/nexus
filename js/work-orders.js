@@ -324,5 +324,7 @@
 
   window.NX = window.NX || {};
   NX.modules = NX.modules || {};
-  NX.modules.workOrders = { open };
+  // openDetail is exposed so the BOARD can jump card → work order
+  // (the reverse of the "Open on board" deep link).
+  NX.modules.workOrders = { open, openDetail };
 })();

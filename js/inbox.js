@@ -448,6 +448,8 @@
       status: 'cancelled',
       repaired_at: new Date().toISOString(),
     }).eq('id', issue.id);
+    // Dropped → the board card follows to Done.
+    try { NX.domain?.syncIssueCardList?.(issue.id, 'cancelled'); } catch (_) {}
     await NX.sb.from('equipment_issue_comments').insert({
       issue_id: issue.id,
       user_id: NX.user?.id || NX.currentUser?.id || null,

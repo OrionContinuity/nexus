@@ -193,6 +193,8 @@
     if (!NX?.sb) return;
     const { error } = await NX.sb.from('equipment_issues').update(updates).eq('id', issueId);
     if (error) { alert('Failed to update: ' + error.message); return; }
+    // Status changed (e.g. invoice paid → closed) → board card follows.
+    if (updates.status) { try { NX.domain?.syncIssueCardList?.(issueId, updates.status); } catch (_) {} }
 
     if (systemMsg) {
       await NX.sb.from('equipment_issue_comments').insert({
