@@ -3428,54 +3428,81 @@ function dlogTextToHtml(text, meta) {
     return out.join('');
   }
 
-  const sectionHtml = sections.map(sec => {
-    const inner = renderLines(sec.lines);
-    if (!inner.trim()) return '';
-    return `
-      <tr><td class="nx-pad" style="padding:8px 28px 20px;">
-        <div class="nx-eyebrow" style="font-family:${C.mono};font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:${C.gold};padding-bottom:8px;border-bottom:1px solid ${C.line};margin-bottom:10px;">${esc(sec.label)}${sec.suffix ? ` <span class="nx-muted" style="color:${C.muted};letter-spacing:0;">· ${esc(sec.suffix)}</span>` : ''}</div>
-        ${inner}
-      </td></tr>`;
-  }).join('');
-
-  const clippyBlock = clippyQuote ? `
-    <tr><td class="nx-pad" style="padding:0 28px 22px;">
-      <div class="nx-panel" style="background:${C.mutedBg};border-radius:14px;padding:16px 18px;">
-        <div class="nx-ink" style="font-family:${C.sans};font-size:15px;line-height:1.6;color:${C.ink};font-style:italic;">${esc(clippyQuote)}</div>
-        <div class="nx-muted" style="font-family:${C.sans};font-size:13px;color:${C.muted};margin-top:6px;">— Clippy 👋</div>
-      </div>
-    </td></tr>` : '';
-
-  const preBlock = (preProse.length || preExtra.length) ? `
-    <tr><td class="nx-pad" style="padding:0 28px 14px;">${preProse.map(prose).join('')}${renderLines(preExtra)}</td></tr>` : '';
-
   // Signature: keep the sender's name; our footer supplies the brand line.
   const sigName = sig.map(l => l.trim()).filter(l => l && !/^powered by nexus$/i.test(l)).join('<br>');
-
   const dateLine = meta.dateStr ? fmtLogDateLong(meta.dateStr) : '';
   // Preheader = inbox preview text (hidden in the body). Clippy's line is
   // the best hook; weather as fallback.
   const preheader = (clippyQuote || weatherLine || 'Daily operations report').slice(0, 140);
 
+  // ── Modular assembly ──────────────────────────────────────────────────
+  // Each section is its OWN card on the cream page, separated by real
+  // whitespace (the modular-block pattern transactional emails use) —
+  // one continuous card with inline headers read as one messy run-on.
+  const GAP = '<tr><td style="height:14px;line-height:14px;font-size:0;">&nbsp;</td></tr>';
+  const cardModule = (inner, opts) => {
+    opts = opts || {};
+    const bg = opts.soft ? C.mutedBg : C.card;
+    const border = opts.soft ? 'none' : `1px solid ${C.line}`;
+    const cls = opts.soft ? 'nx-panel' : 'nx-card';
+    return `
+    <tr><td>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="${cls}" style="background:${bg};border:${border};border-radius:14px;">
+        <tr><td class="nx-pad" style="padding:${opts.pad || '18px 22px'};">${inner}</td></tr>
+      </table>
+    </td></tr>`;
+  };
+
+  const modules = [];
+
+  // Masthead — title, date, weather, gold bar, and (per-location emails)
+  // the at-a-glance chips, which belong to this header context.
+  const chipsHtml = renderLines(preExtra);
+  modules.push(cardModule(`
+      <div class="nx-ink" style="font-family:${C.serif};font-size:26px;font-weight:800;color:${C.ink};letter-spacing:-.02em;line-height:1.2;">Daily Log${meta.locLabel ? ` <span style="color:${C.goldSoft};">· ${esc(meta.locLabel)}</span>` : ''}</div>
+      <div class="nx-muted" style="font-family:${C.sans};font-size:14px;color:${C.muted};margin-top:6px;line-height:1.5;">${esc(dateLine)}</div>
+      ${weatherLine ? `<div class="nx-muted" style="font-family:${C.sans};font-size:14px;color:${C.muted};margin-top:2px;line-height:1.5;">${esc(weatherLine)}</div>` : ''}
+      <div style="border-top:3px solid ${C.goldSoft};border-radius:3px;margin-top:16px;width:52px;font-size:0;line-height:0;">&nbsp;</div>
+      ${chipsHtml ? `<div style="margin-top:16px;">${chipsHtml}</div>` : ''}`,
+    { pad: '26px 24px 22px' }));
+
+  // Clippy — a soft interlude module of its own.
+  if (clippyQuote) {
+    modules.push(GAP + cardModule(`
+      <div class="nx-ink" style="font-family:${C.sans};font-size:15px;line-height:1.6;color:${C.ink};font-style:italic;">${esc(clippyQuote)}</div>
+      <div class="nx-muted" style="font-family:${C.sans};font-size:13px;color:${C.muted};margin-top:6px;">— Clippy 👋</div>`,
+    { soft: true, pad: '16px 20px' }));
+  }
+
+  if (preProse.length) {
+    modules.push(GAP + cardModule(preProse.map(prose).join('')));
+  }
+
+  // One card per section — the separation IS the structure.
+  sections.forEach(sec => {
+    const inner = renderLines(sec.lines);
+    if (!inner.trim()) return;
+    modules.push(GAP + cardModule(`
+      <div class="nx-eyebrow" style="font-family:${C.mono};font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:${C.gold};margin-bottom:12px;">${esc(sec.label)}${sec.suffix ? ` <span class="nx-muted" style="color:${C.muted};letter-spacing:0;">· ${esc(sec.suffix)}</span>` : ''}</div>
+      ${inner}`,
+    { pad: '20px 24px 18px' }));
+  });
+
+  // Footer — plain quiet text on the page, outside any card.
+  const footer = `
+    <tr><td style="padding:20px 8px 4px;">
+      <div class="nx-muted" style="font-family:${C.sans};font-size:12.5px;line-height:1.6;color:${C.muted};text-align:center;">
+        ${sigName ? sigName + '<br>' : ''}<span style="font-family:${C.mono};font-size:10px;letter-spacing:.16em;">POWERED BY NEXUS</span>
+      </div>
+    </td></tr>`;
+
   const body = `
 <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">${esc(preheader)}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="nx-bg" style="background:${C.cream};margin:0;">
 <tr><td align="center" style="padding:24px 12px;">
-  <table role="presentation" width="600" cellpadding="0" cellspacing="0" class="nx-card" style="max-width:600px;width:100%;background:${C.card};border:1px solid ${C.line};border-radius:16px;">
-    <tr><td class="nx-pad" style="padding:32px 28px 22px;">
-      <div class="nx-ink" style="font-family:${C.serif};font-size:28px;font-weight:800;color:${C.ink};letter-spacing:-.02em;line-height:1.2;">Daily Log${meta.locLabel ? ` <span style="color:${C.goldSoft};">· ${esc(meta.locLabel)}</span>` : ''}</div>
-      <div class="nx-muted" style="font-family:${C.sans};font-size:14px;color:${C.muted};margin-top:6px;line-height:1.5;">${esc(dateLine)}</div>
-      ${weatherLine ? `<div class="nx-muted" style="font-family:${C.sans};font-size:14px;color:${C.muted};margin-top:2px;line-height:1.5;">${esc(weatherLine)}</div>` : ''}
-      <div style="border-top:3px solid ${C.goldSoft};border-radius:3px;margin-top:18px;width:56px;font-size:0;line-height:0;">&nbsp;</div>
-    </td></tr>
-    ${clippyBlock}
-    ${preBlock}
-    ${sectionHtml}
-    <tr><td class="nx-pad" style="padding:6px 28px 28px;">
-      <div class="nx-muted" style="border-top:1px solid ${C.line};padding-top:14px;font-family:${C.sans};font-size:13px;line-height:1.6;color:${C.muted};">
-        ${sigName ? sigName + '<br>' : ''}<span style="font-family:${C.mono};font-size:10px;letter-spacing:.16em;">POWERED BY NEXUS</span>
-      </div>
-    </td></tr>
+  <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+    ${modules.join('')}
+    ${footer}
   </table>
 </td></tr>
 </table>`;
@@ -3502,7 +3529,7 @@ function dlogTextToHtml(text, meta) {
     .nx-pill  { filter: none; }
   }
   @media only screen and (max-width: 480px) {
-    .nx-pad { padding-left: 20px !important; padding-right: 20px !important; }
+    .nx-pad { padding-left: 18px !important; padding-right: 18px !important; }
   }
 </style>
 </head>
