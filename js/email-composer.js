@@ -103,7 +103,7 @@
       : String(s || '');
   }
   var GMAIL_SEND_SCOPE = ['https://www.googleapis.com/auth/gmail.send'];
-  var STYLED_ENGINE_BUILD = 'v194';   // shown in the status strip — ends "which file am I running" forever
+  var STYLED_ENGINE_BUILD = 'v195';   // shown in the status strip — ends "which file am I running" forever
 
   // ── SELF-CONTAINED token machinery ─────────────────────────────────
   // Styled send must not depend on ANY other file being fresh (zombie
@@ -513,7 +513,7 @@
         '</div>' +
         '<iframe style="flex:1;border:none;background:#f4eddc" sandbox="allow-same-origin"></iframe>';
       document.body.appendChild(ov);
-      ov.querySelector('iframe').srcdoc = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:0">' + html + '</body></html>';
+      ov.querySelector('iframe').srcdoc = /^\s*<!DOCTYPE/i.test(html) ? html : '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:0">' + html + '</body></html>';
       ov.querySelector('[data-pv-close]').addEventListener('click', function () { ov.remove(); });
     });
 

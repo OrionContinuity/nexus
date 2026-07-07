@@ -3239,29 +3239,29 @@ async function openDailyLogEmail() {
 }
 
 // ── STYLED HTML EMAIL ──────────────────────────────────────────────────────
-// v3 (Alfredo: "use the original email for all the information and just make
-// it beautiful — I don't know why we are making new systems"): the styled
-// email is now a pure RENDERING of the original plain-text email. One data
-// pipeline — buildDailyLogEmailBody / buildLocationEmailBody stay the single
-// source of truth — and dlogTextToHtml() just typesets that text: section
-// rules become gold eyebrows, [OVERDUE]/[DOWN] brackets become tinted pills,
-// Clippy's opener becomes the soft panel. Any future change to the plain
-// email automatically appears here; the two can never disagree.
+// The styled email is a pure RENDERING of the original plain-text email
+// (Alfredo: "use the original email for all the information and just make it
+// beautiful"). dlogTextToHtml() typesets the exact text the plain builders
+// emit; the two can never disagree.
 //
-// Sending: the ✨ button opens the ORIGINAL composer (same To/CC/BCC store,
-// same Send button) with opts.htmlRender — the composer sends plain+HTML
-// via the Gmail API and falls back to the classic draft on any failure.
+// v195 — visual layer rebuilt on email-design standards after the first
+// delivered sends "looked pretty bad":
+//   · full HTML document with color-scheme metas + hidden preheader
+//     (we SEND via the Gmail API, so we own the whole document)
+//   · dark-mode palette via <style> @media overrides on classes (inline
+//     styles stay as the light-mode base for clients that strip <style>)
+//   · wide-tracked mono ALL-CAPS only on short eyebrow labels — the date/
+//     weather lines are normal-case sans now (the caps+tracking wrapped
+//     into a 3-line mess on phones)
+//   · 15–16px body, 1.5–1.6 line-height, whitespace rhythm instead of a
+//     hairline border under every row
 const DLOG_HTML = {
-  cream: '#f4eddc', card: '#fdf9f0', ink: '#2a2318', muted: '#96897a',
-  gold: '#c29237', goldSoft: '#d4a44e', line: '#ece1c9',
-  redBg: '#f6e3de', redTx: '#a2493c',
-  amberBg: '#f5ecd8', amberTx: '#906618',
-  greenBg: '#e4efe3', greenTx: '#44704f',
-  mutedBg: '#f0e9da',
-  // NEXUS's own faces first (Outfit display / DM Sans body / JetBrains Mono
-  // eyebrows) — recipients without them installed fall back to their clean
-  // system sans, never a serif. `serif` keeps its key name (it's referenced
-  // throughout) but is the DISPLAY stack now.
+  cream: '#f3ecdc', card: '#fffdf7', ink: '#2c2519', muted: '#8f8471',
+  gold: '#b8873a', goldSoft: '#d4a44e', line: '#eee5d1',
+  redBg: '#f7e5e0', redTx: '#a2493c',
+  amberBg: '#f6edd9', amberTx: '#8f6517',
+  greenBg: '#e5f0e4', greenTx: '#44704f',
+  mutedBg: '#f2ecdd',
   serif: "'Outfit', 'DM Sans', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
   mono: "'JetBrains Mono', 'SFMono-Regular', Consolas, 'Courier New', monospace",
   sans: "'DM Sans', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
@@ -3278,7 +3278,7 @@ function dlogHtmlTag(kind) {
     DONE: [C.greenBg, C.greenTx], REPAIRED: [C.greenBg, C.greenTx],
   };
   const [bg, tx] = map[k] || [C.mutedBg, C.muted];
-  return `<span style="display:inline-block;padding:4px 11px;background:${bg};border-radius:7px;font-family:${DLOG_HTML.sans};font-size:12px;font-weight:bold;letter-spacing:.05em;color:${tx};">${esc(k)}</span>`;
+  return `<span class="nx-pill" style="display:inline-block;padding:3px 10px;background:${bg};border-radius:6px;font-family:${DLOG_HTML.sans};font-size:11px;font-weight:bold;letter-spacing:.04em;color:${tx};">${esc(k)}</span>`;
 }
 
 // Chip for "At a glance" fragments — tone inferred from the words.
@@ -3288,27 +3288,20 @@ function dlogHtmlChip(text) {
   let bg = C.mutedBg, tx = C.muted;
   if (/down|urgent/i.test(t)) { bg = C.redBg; tx = C.redTx; }
   else if (/overdue/i.test(t)) { bg = C.amberBg; tx = C.amberTx; }
-  return `<span style="display:inline-block;padding:6px 14px;margin:0 6px 8px 0;background:${bg};border-radius:999px;font-family:${C.sans};font-size:13px;font-weight:bold;letter-spacing:.04em;color:${tx};">${esc(t)}</span>`;
+  return `<span class="nx-pill" style="display:inline-block;padding:5px 13px;margin:0 6px 8px 0;background:${bg};border-radius:999px;font-family:${C.sans};font-size:12.5px;font-weight:bold;color:${tx};">${esc(t)}</span>`;
 }
 
 // ── The typesetter ─────────────────────────────────────────────────────────
-// Parses the exact line grammar the plain-text builders emit:
-//   "─── LABEL ─────── suffix"   section header (NX.email.sectionHeader)
-//   "──────────────"             closing rule → everything after = signature
-//   "At a glance: a · b · c"     chips
-//   "· bullet — detail"          primary row (bold head, muted tail)
-//   "    [TAG] name — detail"    tinted pill + row ("confirmed schedule" → green)
-//   "    key: value"             muted sub-line (why:/call: italic)
-//   "Key: value"                 bold-key paragraph (Tomorrow:, FOH:, …)
-//   "<quote> — Clippy 👋"        the opener panel
+// Parses the exact line grammar the plain-text builders emit (BOTH header
+// styles — box-drawing "───" and the ASCII "--- LABEL ---" fallback real
+// devices produce):
+//   section headers, closing rule → signature, "At a glance" → chips,
+//   "· bullet — detail", "    [TAG] name — detail", "    key: value",
+//   "Key: value" paragraphs, "<quote> — Clippy 👋" opener.
 function dlogTextToHtml(text, meta) {
   const C = DLOG_HTML;
   meta = meta || {};
   const lines = String(text || '').replace(/\r/g, '').split('\n');
-  // BOTH header grammars: the pretty box-drawing form ("─── LABEL ─── sfx")
-  // AND the ASCII fallback ("--- LABEL ---") that ships when NX.email isn't
-  // resolvable at build time — real devices emit the ASCII form, so parsing
-  // only the pretty one rendered the whole email as one blob.
   const SEC_RE = /^─── (.+?) ─+(.*)$/;
   const SEC_ASCII_RE = /^--- (.+?) ---\s*(.*)$/;
   const RULE_RE = /^[─-]{6,}$/;
@@ -3327,10 +3320,8 @@ function dlogTextToHtml(text, meta) {
     if (cur) cur.lines.push(line); else pre.push(line);
   }
 
-  // Weather rides in the masthead, not as a body section — but ONLY its
-  // first line. Anything else in that section (the per-location emails put
-  // "At a glance: …" right after weather with no header of its own) renders
-  // as normal content so the chips still appear.
+  // Weather rides in the masthead (first line only); anything else in that
+  // section (per-location emails put "At a glance" there) renders as content.
   let weatherLine = '';
   let preExtra = [];
   const weatherIdx = sections.findIndex(s => /^weather$/i.test(s.label));
@@ -3351,29 +3342,29 @@ function dlogTextToHtml(text, meta) {
     else preProse.push(t);
   });
 
-  const sub = (s) => `<div style="font-family:${C.sans};font-size:14px;line-height:1.6;color:${C.muted};margin:3px 0 3px 2px;">${esc(s)}</div>`;
+  const sub = (s) => `<div class="nx-muted" style="font-family:${C.sans};font-size:14px;line-height:1.55;color:${C.muted};margin:2px 0 2px 2px;">${esc(s)}</div>`;
   const prose = (s) => {
     const kv = s.match(/^([A-Za-z][A-Za-z /&'()-]{1,28}):\s+(.*)$/);
-    if (kv) return `<div style="font-family:${C.sans};font-size:15.5px;line-height:1.7;color:${C.ink};margin:0 0 8px;"><strong style="font-family:${C.serif};font-size:16px;">${esc(kv[1])}:</strong> ${esc(kv[2])}</div>`;
-    return `<div style="font-family:${C.serif};font-size:16.5px;line-height:1.7;color:${C.ink};margin:0 0 8px;">${esc(s)}</div>`;
+    if (kv) return `<div class="nx-ink" style="font-family:${C.sans};font-size:15px;line-height:1.6;color:${C.ink};margin:0 0 10px;"><strong>${esc(kv[1])}:</strong> ${esc(kv[2])}</div>`;
+    return `<div class="nx-ink" style="font-family:${C.sans};font-size:15px;line-height:1.6;color:${C.ink};margin:0 0 10px;">${esc(s)}</div>`;
   };
 
   function renderLine(raw) {
-    if (!raw.trim()) return '<div style="height:6px;"></div>';
+    if (!raw.trim()) return '';   // blank marker — collapsed later
     const indented = /^ {3,}/.test(raw);
     const s = raw.trim();
 
     const atG = s.match(/^At a glance:\s*(.+)$/i);
-    if (atG) return `<div style="margin:2px 0 6px;">${atG[1].split(' · ').map(dlogHtmlChip).join('')}</div>`;
+    if (atG) return `<div style="margin:2px 0 8px;">${atG[1].split(' · ').map(dlogHtmlChip).join('')}</div>`;
 
     // Work-order lane headers: "To Do (4)" / "In Progress (2)" / "Done today (1)"
     const lane = s.match(/^(To Do|In Progress|Done today) \((\d+)\)$/);
-    if (lane) return `<div style="font-family:${C.mono};font-size:11.5px;letter-spacing:.18em;text-transform:uppercase;color:${C.gold};margin:14px 0 4px;">${esc(lane[1])} <span style="color:${C.muted};letter-spacing:.05em;">· ${esc(lane[2])}</span></div>`;
+    if (lane) return `<div class="nx-eyebrow" style="font-family:${C.mono};font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:${C.gold};margin:18px 0 6px;">${esc(lane[1])} <span class="nx-muted" style="color:${C.muted};letter-spacing:0;">· ${esc(lane[2])}</span></div>`;
 
-    // "[TAG] name — detail — detail" (both bulleted and indented forms).
-    // Names can themselves contain " — " ("Hood — Main Line"), so the
-    // head/detail split happens at the first segment that READS like a
-    // detail (was due…, a date, in Nd…), not blindly at the first dash.
+    // "[TAG] name — detail" — pill in a fixed top-aligned cell, text beside
+    // it, so long names wrap under themselves. The head/detail split happens
+    // at the first segment that READS like a detail, not the first dash
+    // (names can contain " — ": "Hood — Main Line").
     const tag = s.replace(/^· /, '').match(/^\[([A-Z][A-Z /_-]*)\]\s*(.*)$/);
     if (tag) {
       let rest2 = tag[2];
@@ -3385,19 +3376,16 @@ function dlogTextToHtml(text, meta) {
       for (let i = 1; i < segs.length; i++) {
         if (/^(was due|due |in \d|call |confirmed|\d|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/.test(segs[i])) { cut = i; break; }
       }
-      if (cut === segs.length && segs.length > 1) cut = 1;   // fallback: first dash
+      if (cut === segs.length && segs.length > 1) cut = 1;
       const head = segs.slice(0, cut).join(' — ');
       const tail = [segs.slice(cut).join(' — '), movedNote].filter(Boolean).join(' · ');
       const good = /confirmed schedule/i.test(tail);
-      // Two-column table: pill in a fixed top-aligned cell, text in its own
-      // column — long titles wrap under THEMSELVES, never under the pill
-      // (the "cards bigger than the section" wrap Alfredo flagged).
       return `
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid ${C.line};"><tr>
-          <td style="width:1%;white-space:nowrap;vertical-align:top;padding:10px 10px 10px 0;">${dlogHtmlTag(tag[1])}</td>
-          <td style="vertical-align:top;padding:10px 0;">
-            <span style="font-family:${C.serif};font-size:16.5px;font-weight:bold;color:${C.ink};line-height:1.4;">${esc(head)}</span>
-            ${tail ? `<div style="font-family:${C.sans};font-size:14.5px;line-height:1.6;color:${good ? C.greenTx : C.muted};margin-top:4px;${good ? 'font-weight:bold;' : ''}">${esc(tail)}</div>` : ''}
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+          <td style="width:1%;white-space:nowrap;vertical-align:top;padding:7px 10px 7px 0;">${dlogHtmlTag(tag[1])}</td>
+          <td style="vertical-align:top;padding:7px 0;">
+            <span class="nx-ink" style="font-family:${C.sans};font-size:15px;font-weight:bold;color:${C.ink};line-height:1.45;">${esc(head)}</span>
+            ${tail ? `<div class="${good ? 'nx-good' : 'nx-muted'}" style="font-family:${C.sans};font-size:13.5px;line-height:1.55;color:${good ? C.greenTx : C.muted};margin-top:2px;">${esc(tail)}</div>` : ''}
           </td>
         </tr></table>`;
     }
@@ -3408,72 +3396,120 @@ function dlogTextToHtml(text, meta) {
       const head = i === -1 ? rest : rest.slice(0, i);
       const tail = i === -1 ? '' : rest.slice(i + 3);
       return `
-        <div style="padding:9px 0;border-bottom:1px solid ${C.line};">
-          <span style="font-family:${C.serif};font-size:16.5px;font-weight:bold;color:${C.ink};">${esc(head)}</span>
-          ${tail ? `<div style="font-family:${C.sans};font-size:14.5px;line-height:1.6;color:${C.muted};margin-top:4px;">${esc(tail)}</div>` : ''}
+        <div style="padding:7px 0;">
+          <span class="nx-ink" style="font-family:${C.sans};font-size:15px;font-weight:bold;color:${C.ink};line-height:1.45;">${esc(head)}</span>
+          ${tail ? `<div class="nx-muted" style="font-family:${C.sans};font-size:13.5px;line-height:1.55;color:${C.muted};margin-top:2px;">${esc(tail)}</div>` : ''}
         </div>`;
     }
 
     if (indented) {
-      // why:/call: read as narration → italic. Other "Key: value" sub-lines
-      // (Issue:, Status:, …) keep a bold key.
       const wc = s.match(/^(why|call):\s*(.*)$/i);
-      if (wc) return `<div style="font-family:${C.sans};font-size:14px;line-height:1.6;color:${C.muted};font-style:italic;margin:2px 0 6px 2px;">${esc(wc[1].toLowerCase() === 'why' ? wc[2] : 'Call: ' + wc[2])}</div>`;
+      if (wc) return `<div class="nx-muted" style="font-family:${C.sans};font-size:13.5px;line-height:1.55;color:${C.muted};font-style:italic;margin:0 0 6px 2px;">${esc(wc[1].toLowerCase() === 'why' ? wc[2] : 'Call: ' + wc[2])}</div>`;
       const kv = s.match(/^([A-Za-z][A-Za-z ]{0,18}):\s+(.*)$/);
-      if (kv) return `<div style="font-family:${C.sans};font-size:14px;line-height:1.6;color:${C.muted};margin:2px 0 6px 2px;"><strong style="color:${C.ink};">${esc(kv[1])}:</strong> ${esc(kv[2])}</div>`;
+      if (kv) return `<div class="nx-muted" style="font-family:${C.sans};font-size:13.5px;line-height:1.55;color:${C.muted};margin:0 0 6px 2px;"><strong class="nx-ink" style="color:${C.ink};">${esc(kv[1])}:</strong> ${esc(kv[2])}</div>`;
       return sub(s);
     }
 
     return prose(s);
   }
 
+  // Collapse runs of blank markers into ONE small gap (the plain text uses
+  // blank lines liberally; stacking 6px divs made ragged holes).
+  function renderLines(ls) {
+    const parts = ls.map(renderLine);
+    const out = [];
+    let blank = false;
+    for (const p of parts) {
+      if (p === '') { blank = true; continue; }
+      if (blank && out.length) out.push('<div style="height:10px;"></div>');
+      blank = false;
+      out.push(p);
+    }
+    return out.join('');
+  }
+
   const sectionHtml = sections.map(sec => {
-    const inner = sec.lines.map(renderLine).join('');
-    if (!inner.replace(/<div style="height:6px;"><\/div>/g, '').trim()) return '';
+    const inner = renderLines(sec.lines);
+    if (!inner.trim()) return '';
     return `
-      <tr><td style="padding:24px 24px 0;">
-        <div style="border-top:1px solid ${C.line};padding-top:18px;">
-          <div style="font-family:${C.mono};font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:${C.gold};margin-bottom:10px;">${esc(sec.label)}${sec.suffix ? ` <span style="color:${C.muted};letter-spacing:.05em;">· ${esc(sec.suffix)}</span>` : ''}</div>
-          ${inner}
-        </div>
+      <tr><td class="nx-pad" style="padding:8px 28px 20px;">
+        <div class="nx-eyebrow" style="font-family:${C.mono};font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:${C.gold};padding-bottom:8px;border-bottom:1px solid ${C.line};margin-bottom:10px;">${esc(sec.label)}${sec.suffix ? ` <span class="nx-muted" style="color:${C.muted};letter-spacing:0;">· ${esc(sec.suffix)}</span>` : ''}</div>
+        ${inner}
       </td></tr>`;
   }).join('');
 
   const clippyBlock = clippyQuote ? `
-    <tr><td style="padding:22px 24px 0;">
-      <div style="background:${C.mutedBg};border-radius:16px;padding:18px 20px;">
-        <div style="font-family:${C.serif};font-size:16.5px;line-height:1.65;color:${C.ink};font-style:italic;">${esc(clippyQuote)}</div>
-        <div style="font-family:${C.sans};font-size:14px;color:${C.muted};margin-top:8px;">— Clippy 👋</div>
+    <tr><td class="nx-pad" style="padding:0 28px 22px;">
+      <div class="nx-panel" style="background:${C.mutedBg};border-radius:14px;padding:16px 18px;">
+        <div class="nx-ink" style="font-family:${C.sans};font-size:15px;line-height:1.6;color:${C.ink};font-style:italic;">${esc(clippyQuote)}</div>
+        <div class="nx-muted" style="font-family:${C.sans};font-size:13px;color:${C.muted};margin-top:6px;">— Clippy 👋</div>
       </div>
     </td></tr>` : '';
 
   const preBlock = (preProse.length || preExtra.length) ? `
-    <tr><td style="padding:20px 24px 0;">${preProse.map(prose).join('')}${preExtra.map(renderLine).join('')}</td></tr>` : '';
+    <tr><td class="nx-pad" style="padding:0 28px 14px;">${preProse.map(prose).join('')}${renderLines(preExtra)}</td></tr>` : '';
 
-  // Signature: keep the sender's name; our own footer supplies the brand line.
+  // Signature: keep the sender's name; our footer supplies the brand line.
   const sigName = sig.map(l => l.trim()).filter(l => l && !/^powered by nexus$/i.test(l)).join('<br>');
 
   const dateLine = meta.dateStr ? fmtLogDateLong(meta.dateStr) : '';
-  return `
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${C.cream};padding:0;margin:0;">
-<tr><td align="center" style="padding:20px 10px;">
-  <table role="presentation" width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%;background:${C.card};border:1px solid ${C.line};border-radius:22px;">
-    <tr><td style="padding:30px 24px 0;">
-      <div style="font-family:${C.serif};font-size:34px;font-weight:800;color:${C.ink};letter-spacing:-.02em;">Daily Log${meta.locLabel ? ` <span style="color:${C.gold};">· ${esc(meta.locLabel)}</span>` : ''}</div>
-      <div style="font-family:${C.mono};font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:${C.muted};margin-top:8px;line-height:1.6;">${esc(dateLine)}${weatherLine ? '<br>' + esc(weatherLine) : ''}</div>
-      <div style="border-top:3px solid ${C.goldSoft};border-radius:3px;margin-top:20px;width:64px;"></div>
+  // Preheader = inbox preview text (hidden in the body). Clippy's line is
+  // the best hook; weather as fallback.
+  const preheader = (clippyQuote || weatherLine || 'Daily operations report').slice(0, 140);
+
+  const body = `
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">${esc(preheader)}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="nx-bg" style="background:${C.cream};margin:0;">
+<tr><td align="center" style="padding:24px 12px;">
+  <table role="presentation" width="600" cellpadding="0" cellspacing="0" class="nx-card" style="max-width:600px;width:100%;background:${C.card};border:1px solid ${C.line};border-radius:16px;">
+    <tr><td class="nx-pad" style="padding:32px 28px 22px;">
+      <div class="nx-ink" style="font-family:${C.serif};font-size:28px;font-weight:800;color:${C.ink};letter-spacing:-.02em;line-height:1.2;">Daily Log${meta.locLabel ? ` <span style="color:${C.goldSoft};">· ${esc(meta.locLabel)}</span>` : ''}</div>
+      <div class="nx-muted" style="font-family:${C.sans};font-size:14px;color:${C.muted};margin-top:6px;line-height:1.5;">${esc(dateLine)}</div>
+      ${weatherLine ? `<div class="nx-muted" style="font-family:${C.sans};font-size:14px;color:${C.muted};margin-top:2px;line-height:1.5;">${esc(weatherLine)}</div>` : ''}
+      <div style="border-top:3px solid ${C.goldSoft};border-radius:3px;margin-top:18px;width:56px;font-size:0;line-height:0;">&nbsp;</div>
     </td></tr>
     ${clippyBlock}
     ${preBlock}
     ${sectionHtml}
-    <tr><td style="padding:28px 24px 28px;">
-      <div style="border-top:1px solid ${C.line};padding-top:16px;font-family:${C.sans};font-size:14px;line-height:1.7;color:${C.muted};">
-        ${sigName ? sigName + '<br>' : ''}<span style="font-family:${C.mono};font-size:11px;letter-spacing:.2em;">POWERED BY NEXUS</span>
+    <tr><td class="nx-pad" style="padding:6px 28px 28px;">
+      <div class="nx-muted" style="border-top:1px solid ${C.line};padding-top:14px;font-family:${C.sans};font-size:13px;line-height:1.6;color:${C.muted};">
+        ${sigName ? sigName + '<br>' : ''}<span style="font-family:${C.mono};font-size:10px;letter-spacing:.16em;">POWERED BY NEXUS</span>
       </div>
     </td></tr>
   </table>
 </td></tr>
 </table>`;
+
+  // Full document — we deliver via the Gmail API, so we own the <head>:
+  // color-scheme metas temper aggressive dark-mode inversion, and the
+  // @media block restyles our classes for clients that honor it (inline
+  // styles remain the light-mode base everywhere else).
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<style>
+  @media (prefers-color-scheme: dark) {
+    .nx-bg    { background: #1d1a13 !important; }
+    .nx-card  { background: #26221a !important; border-color: #3b3527 !important; }
+    .nx-panel { background: #2f2a1f !important; }
+    .nx-ink   { color: #ece4d2 !important; }
+    .nx-muted { color: #a89d88 !important; }
+    .nx-good  { color: #8fbf98 !important; }
+    .nx-pill  { filter: none; }
+  }
+  @media only screen and (max-width: 480px) {
+    .nx-pad { padding-left: 20px !important; padding-right: 20px !important; }
+  }
+</style>
+</head>
+<body style="margin:0;padding:0;background:${C.cream};">
+${body}
+</body>
+</html>`;
 }
 
 // ✨ Styled email — the ORIGINAL email flow end to end: same body builders,
