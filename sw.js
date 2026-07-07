@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v197-clippy-avatar';
+const CACHE_NAME = 'nexus-v198-email-readability';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
