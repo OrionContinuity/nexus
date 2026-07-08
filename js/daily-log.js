@@ -3526,18 +3526,13 @@ function dlogTextToHtml(text, meta) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
-<meta name="supported-color-schemes" content="light dark">
+<meta name="color-scheme" content="light only">
+<meta name="supported-color-schemes" content="light only">
 <style>
-  @media (prefers-color-scheme: dark) {
-    .nx-bg    { background: #1d1a13 !important; }
-    .nx-card  { background: #26221a !important; border-color: #3b3527 !important; }
-    .nx-panel { background: #2f2a1f !important; }
-    .nx-ink   { color: #ece4d2 !important; }
-    .nx-muted { color: #c0b49c !important; }
-    .nx-good  { color: #9ccba5 !important; }
-    .nx-pill  { filter: none; }
-  }
+  /* Light theme is THE theme (Alfredo, v202). "light only" metas tell
+     clients not to auto-invert; the cream/ink palette is mid-tone (no
+     pure white/black), which keeps the few clients that force-darken
+     anyway from mangling it badly. */
   @media only screen and (max-width: 480px) {
     .nx-pad { padding-left: 18px !important; padding-right: 18px !important; }
   }
