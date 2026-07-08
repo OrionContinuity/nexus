@@ -1512,8 +1512,12 @@
     // {data: null, error: {...}} — so we check error explicitly. The
     // previous try/catch never fired and silently broke the page.
     let eq, eqErr;
-    const FULL = 'id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, service_contractor_phone, service_contractor_name, service_contractor_node_id, repair_contractor_phone, repair_contractor_name, repair_contractor_node_id';
-    const NO_REPAIR = 'id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, service_contractor_phone, service_contractor_name, service_contractor_node_id';
+    // Vendor-era ids ride along: the PM logger preselects the unit's
+    // assigned vendor in its pool-only company picker, and the email
+    // fallback below reads repair_vendor_id/service_vendor_id — neither
+    // works if the columns aren't fetched.
+    const FULL = 'id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, service_contractor_phone, service_contractor_name, service_contractor_node_id, repair_contractor_phone, repair_contractor_name, repair_contractor_node_id, service_vendor_id, repair_vendor_id';
+    const NO_REPAIR = 'id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, service_contractor_phone, service_contractor_name, service_contractor_node_id, service_vendor_id';
     const MINIMAL = 'id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code';
     const fullRes = await sb.from('equipment').select(FULL).eq('qr_code', qr).single();
     if (fullRes.error && /column.+repair_contractor.+does not exist/i.test(fullRes.error.message || '')) {

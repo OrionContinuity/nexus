@@ -9,7 +9,9 @@
      [ PM Logger (no login) ]         — contractor service log form
    
    PM Logger features:
-     • Pre-fills contractor name on subsequent visits (localStorage)
+     • Company is a POOL-ONLY picker over the vendors table — public
+       submissions can't mint vendors/contractors (Alfredo's rule)
+     • Pre-fills contractor name + company pick on subsequent visits (localStorage)
      • Single-equipment OR mass PM mode (same contractor batch-logs N units)
      • Photo upload (multi)
      • PDF invoice upload  
@@ -120,8 +122,9 @@
   function storeContractor(info) {
     try {
       localStorage.setItem('nx_contractor_info', JSON.stringify({
-        name: info.name, company: info.company, 
-        phone: info.phone, email: info.email
+        name: info.name, company: info.company,
+        phone: info.phone, email: info.email,
+        vendorId: info.vendorId || null,   // pool pick — preselects next visit
       }));
     } catch (_) {}
   }
@@ -326,7 +329,7 @@
       // error; and we omit last_status_change_at (optional — only drives
       // the "idle Nd" subtitle, and the helper already guards for it).
       const { data, error } = await NX.sb.from('equipment')
-        .select('id, name, location, area, category, manufacturer, model, status, next_pm_date, service_contractor_node_id, service_contractor_name, service_contractor_phone')
+        .select('id, name, location, area, category, manufacturer, model, status, next_pm_date, service_contractor_node_id, service_contractor_name, service_contractor_phone, service_vendor_id')
         .eq('qr_code', qrCode)
         .maybeSingle();
       if (error) {
@@ -354,19 +357,41 @@
       } catch (_) {}
     }
 
+    // THE COMPANY POOL — a public submission may only claim a company that
+    // already exists in Vendors (the single source of truth for service
+    // providers; the same pool every staff-side picker uses — Alfredo's
+    // pool-only rule). Free-text company entry is how "SUERTE Restaurant"
+    // once got minted as a vendor carrying Alfredo's email — never again.
+    // A tech whose company isn't listed calls the restaurant to get added.
+    let vendorPool = [];
+    try {
+      const { data } = await NX.sb.from('vendors').select('*').order('company');
+      vendorPool = (data || [])
+        .filter(v => v.active !== false && (v.company || v.name))
+        .map(v => ({ id: v.id, name: v.company || v.name, phone: v.phone || '' }));
+    } catch (e) { console.warn('[pm-logger] vendor pool load failed:', e?.message || e); }
+
     // Build pre-fill values. Order of precedence:
     //   1. localStorage (this same tech used this device before)
-    //   2. equipment.service_contractor_* (denormalized fallback)
-    //   3. assignedContractor (the FK'd record — has email + tags)
+    //   2. equipment.service_* (the unit's assigned provider)
+    //   3. assignedContractor (node-era fallback, matched by name)
     //   4. blank
-    // The third source is what makes the public PM "populated by the
-    // contractor when assigned to the equipment" that Orion asked for.
     const stored = getStoredContractor() || {};
+    const normName = s => String(s || '').trim().toLowerCase();
+    let preVendorId = '';
+    if (stored.vendorId && vendorPool.some(v => String(v.id) === String(stored.vendorId))) {
+      preVendorId = stored.vendorId;
+    } else {
+      const wantNames = [stored.company, eq.service_contractor_name, assignedContractor && assignedContractor.name]
+        .map(normName).filter(Boolean);
+      const hit = (eq.service_vendor_id && vendorPool.find(v => String(v.id) === String(eq.service_vendor_id)))
+        || vendorPool.find(v => wantNames.includes(normName(v.name)));
+      if (hit) preVendorId = hit.id;
+    }
     const preFill = {
-      name:    stored.name    || '',
-      company: stored.company || eq.service_contractor_name || (assignedContractor && assignedContractor.name) || '',
-      phone:   stored.phone   || eq.service_contractor_phone || extractFirstPhoneFromNode(assignedContractor) || '',
-      email:   stored.email   || extractFirstEmailFromNode(assignedContractor) || '',
+      name:  stored.name  || '',
+      phone: stored.phone || eq.service_contractor_phone || extractFirstPhoneFromNode(assignedContractor) || '',
+      email: stored.email || extractFirstEmailFromNode(assignedContractor) || '',
     };
 
     const today = new Date().toISOString().slice(0, 10);
@@ -435,9 +460,14 @@
             <input type="text" id="pmName" class="pm-input" required 
               value="${esc(preFill.name)}" placeholder="Your full name">
             
-            <label class="pm-label">Company</label>
-            <input type="text" id="pmCompany" class="pm-input" 
-              value="${esc(preFill.company)}" placeholder="Austin Air and Ice">
+            <label class="pm-label">Company *</label>
+            <select id="pmCompany" class="pm-input" required>
+              <option value="">Select your company…</option>
+              ${vendorPool.map(v => `<option value="${esc(v.id)}" ${String(v.id) === String(preVendorId) ? 'selected' : ''}>${esc(v.name)}</option>`).join('')}
+            </select>
+            ${vendorPool.length
+              ? `<div class="pm-sig-hint" style="margin-top:-4px">Only companies on our vendor list can log service. Not listed? Call the restaurant to get added.</div>`
+              : `<div class="pm-sig-hint" style="margin-top:-4px;color:#d24b4b">Company list didn't load — check your connection, then close and reopen this form.</div>`}
             
             <div class="pm-form-row">
               <div class="pm-form-half">
@@ -755,11 +785,20 @@
     submitBtn.textContent = 'Uploading…';
 
     try {
-      // Collect form data
+      // Collect form data. Company is a POOL PICK (vendors table) — the
+      // select's value is the vendor id, its label the company name.
       const honeypot = modal.querySelector('#pmHoneypot').value;
+      const companySel = modal.querySelector('#pmCompany');
+      const pickedVendorId = companySel ? companySel.value : '';
+      const pickedVendorName = pickedVendorId
+        ? (companySel.selectedOptions[0]?.textContent || '').trim()
+        : '';
+      if (!pickedVendorId) {
+        throw new Error('Select your company from the list. Not listed? Call the restaurant to get added.');
+      }
       const data = {
         contractor_name: modal.querySelector('#pmName').value.trim(),
-        contractor_company: modal.querySelector('#pmCompany').value.trim() || null,
+        contractor_company: pickedVendorName || null,
         contractor_phone: modal.querySelector('#pmPhone').value.trim() || null,
         contractor_email: modal.querySelector('#pmEmail').value.trim() || null,
         service_date: modal.querySelector('#pmDate').value,
@@ -789,7 +828,8 @@
         name: data.contractor_name,
         company: data.contractor_company,
         phone: data.contractor_phone,
-        email: data.contractor_email
+        email: data.contractor_email,
+        vendorId: pickedVendorId,
       });
 
       // Determine which equipment IDs to log against
@@ -855,117 +895,41 @@
         }
       }
 
-      // ─── Auto-create / auto-link the contractor node ──────────────
-      // When a technician submits a PM via QR scan, their company name
-      // (and contact info) is in the form. We use this as a signal to
-      // either:
-      //   • match an existing contractor record (by case-insensitive
-      //     company name), and update its phone/email if blank, OR
-      //   • create a new contractor record (category='contractors') so
-      //     the next time you open Contractors view, they're already
-      //     there with their phone/email filled in.
-      //
-      // Then we link each equipment that didn't already have a
-      // service_contractor_node_id to this contractor — closing the
-      // loop so QR scans → contractor records → equipment all share
-      // the same identity.
+      // ─── Pool-locked vendor linkage ────────────────────────────────
+      // The company came from a PICKER over the vendors table, so the
+      // public form can no longer mint vendors or contractor nodes (the
+      // old auto-create path is how "SUERTE Restaurant" became a vendor
+      // carrying Alfredo's email). All we do here is attach the SELECTED
+      // vendor to any scanned unit that has no service assignment yet —
+      // never overwriting an existing one, never writing the tech's
+      // personal email anywhere it could hijack a dispatch.
       try {
-        const company = (data.contractor_company || '').trim();
-        // In-house submissions are NOT contractors. Staff logging their own
-        // PM used to mint a contractor node + vendor named after the
-        // restaurant (with the submitter's email/phone) and attach it to
-        // every unlinked equipment — vendor emails then went to the staffer.
-        const IN_HOUSE = /^(suerte|este|bar\s*toti|toti)(\s+(restaurant|restaurants|atx))?$/i;
-        const isInHouse = IN_HOUSE.test(company.replace(/\s+/g, ' '));
-        if (company && !isInHouse && NX.sb) {
-          // Look up by case-insensitive name match.
-          const { data: existing } = await NX.sb.from('nodes')
-            .select('id, name, links')
-            .eq('category', 'contractors')
-            .ilike('name', company)
-            .maybeSingle();
-
-          let contractorId = existing?.id;
-
-          if (existing) {
-            // Existing contractor — fold in any new phone/email if not
-            // already present in their links.
-            const links = Array.isArray(existing.links) ? [...existing.links] : [];
-            let mutated = false;
-            const hasPhone = links.some(l => l && typeof l === 'object' && l.phone);
-            const hasEmail = links.some(l => l && typeof l === 'object' && l.email);
-            if (data.contractor_phone && !hasPhone) {
-              links.push({ phone: data.contractor_phone, type: 'phone', label: 'from QR submit' });
-              mutated = true;
-            }
-            if (data.contractor_email && !hasEmail) {
-              links.push({ email: data.contractor_email, type: 'email', role: 'to', label: 'from QR submit' });
-              mutated = true;
-            }
-            if (mutated) {
-              await NX.sb.from('nodes').update({ links }).eq('id', existing.id);
-            }
-          } else {
-            // No matching contractor — create a new one. Tags empty so
-            // the user can fill in specialties later in Contractors view.
-            const links = [];
-            if (data.contractor_phone) links.push({ phone: data.contractor_phone, type: 'phone', label: 'from QR submit' });
-            if (data.contractor_email) links.push({ email: data.contractor_email, type: 'email', role: 'to', label: 'from QR submit' });
-            const { data: created, error: cErr } = await NX.sb.from('nodes').insert({
-              name: company,
-              category: 'contractors',
-              tags: [],
-              links,
-              notes: data.contractor_name ? `Tech: ${data.contractor_name}` : null,
-            }).select('id').single();
-            if (!cErr && created) contractorId = created.id;
-          }
-
-          // Link each equipment that doesn't already have a contractor to
-          // this one — VENDOR era (service_vendor_id), matching what the
-          // admin UI writes. This flow used to write the retired node-era
-          // column, which is how the two generations kept diverging. The
-          // contractor NODE above still exists for the Contractors view;
-          // equipment linkage goes through vendors. Never overwrites an
-          // existing assignment.
-          let vendorId = null;
-          try {
-            const { data: v } = await NX.sb.from('vendors')
-              .select('id').ilike('company', company).maybeSingle();
-            if (v) vendorId = v.id;
-            else {
-              const ins = await NX.sb.from('vendors')
-                .insert({ company, active: true }).select('id').single();
-              if (ins.data) vendorId = ins.data.id;
-            }
-          } catch (_) { /* vendor mapping best-effort */ }
-          if (contractorId || vendorId) {
-            for (const eqId of equipIds) {
-              try {
-                const { data: eqRow } = await NX.sb.from('equipment')
-                  .select('service_vendor_id, service_contractor_node_id, service_contractor_phone, service_contractor_name')
-                  .eq('id', eqId).maybeSingle();
-                if (!eqRow) continue;
-                const update = {};
-                if (vendorId && !eqRow.service_vendor_id && !eqRow.service_contractor_node_id) {
-                  update.service_vendor_id = vendorId;
-                }
-                if (!eqRow.service_contractor_name && company) {
-                  update.service_contractor_name = company;
-                }
-                if (!eqRow.service_contractor_phone && data.contractor_phone) {
-                  update.service_contractor_phone = data.contractor_phone;
-                }
-                if (Object.keys(update).length) {
-                  await NX.sb.from('equipment').update(update).eq('id', eqId);
-                }
-              } catch (_) { /* per-equipment errors are non-fatal */ }
-            }
+        if (pickedVendorId && NX.sb) {
+          for (const eqId of equipIds) {
+            try {
+              const { data: eqRow } = await NX.sb.from('equipment')
+                .select('service_vendor_id, service_contractor_node_id, service_contractor_phone, service_contractor_name')
+                .eq('id', eqId).maybeSingle();
+              if (!eqRow) continue;
+              const update = {};
+              if (!eqRow.service_vendor_id && !eqRow.service_contractor_node_id) {
+                update.service_vendor_id = pickedVendorId;
+              }
+              if (!eqRow.service_contractor_name && pickedVendorName) {
+                update.service_contractor_name = pickedVendorName;
+              }
+              if (!eqRow.service_contractor_phone && data.contractor_phone) {
+                update.service_contractor_phone = data.contractor_phone;
+              }
+              if (Object.keys(update).length) {
+                await NX.sb.from('equipment').update(update).eq('id', eqId);
+              }
+            } catch (_) { /* per-equipment errors are non-fatal */ }
           }
         }
       } catch (linkErr) {
         // Non-fatal — pm_logs insert already succeeded. Just log.
-        console.warn('[pm-logger] contractor auto-link failed (non-fatal):', linkErr);
+        console.warn('[pm-logger] vendor link failed (non-fatal):', linkErr);
       }
       // ──────────────────────────────────────────────────────────────
 
