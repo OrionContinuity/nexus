@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v207-pm-pool';
+const CACHE_NAME = 'nexus-v208-loc-cards';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [

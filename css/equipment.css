@@ -13982,3 +13982,23 @@ body.eq-bulk-mode .eq-row.is-selected::after {
 .eq-issue-newsheet-btn { padding: 11px 18px; border-radius: 999px; cursor: pointer; font-family: 'Outfit', system-ui, sans-serif; font-size: 14px; font-weight: 600; background: transparent; border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.3)); color: var(--nx-text, #ece4d4); }
 .eq-issue-newsheet-btn.is-primary { background: var(--nx-gold, #d4a44e); border-color: var(--nx-gold, #d4a44e); color: #101626; }
 .eq-issue-newsheet-btn:disabled { opacity: 0.6; cursor: default; }
+
+/* ─── Locations landing: calm the DUE SOON card ──────────────────────
+   The location cards reuse the Ordering vendor-row classes, and DUE
+   SOON rides the `has-draft` class — but in Ordering that class means
+   "open draft order" and paints the WHOLE card gold-mist. On Equipment
+   that made due-soon locations (Este, Bar Toti) shout louder than an
+   actually-overdue one (Suerte, thin amber bar only). Scoped here:
+   due-soon keeps its pill and gets a soft gold left bar one step
+   calmer than the overdue amber; the card body returns to the normal
+   surface. Visual priority now matches urgency: overdue > due soon. */
+#eqLocationCardsOrSearch .ord-vendor-row.has-draft {
+  background: var(--nx-surface-1);
+  border-color: var(--nx-gold-line);
+  border-left-width: 3px;
+  border-left-color: var(--nx-gold-line-2, var(--nx-gold-line));
+  padding-left: 16px;
+}
+#eqLocationCardsOrSearch .ord-vendor-row.has-draft:hover {
+  background: var(--nx-gold-soft, var(--nx-gold-faint));
+}
