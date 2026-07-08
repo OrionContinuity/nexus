@@ -12965,7 +12965,7 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
 
       <div class="eq-call-confirm-issue-wrap">
         <label class="eq-call-confirm-issue-label" for="eqCallIssue">
-          What's the issue? <span class="eq-optional-tag">(required — creates a ticket + board card)</span>
+          What's the issue? <span class="eq-optional-tag">(required — creates a work order + board ticket)</span>
         </label>
         <textarea class="eq-call-confirm-issue" id="eqCallIssue" rows="2" placeholder="e.g., Compressor not cooling, freezing intermittently..."></textarea>
       </div>
@@ -12992,7 +12992,7 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
 
       <div class="eq-call-confirm-actions" style="margin-top:14px">
         <button class="eq-btn eq-btn-secondary" id="eqCallCancel">Cancel</button>
-        <a class="eq-btn eq-call-service-btn is-disabled" id="eqCallGo" href="tel:${esc(telHref)}" aria-disabled="true"><i data-lucide="phone" class="eq-btn-icon"></i> Create Ticket & Call</a>
+        <a class="eq-btn eq-call-service-btn is-disabled" id="eqCallGo" href="tel:${esc(telHref)}" aria-disabled="true"><i data-lucide="phone" class="eq-btn-icon"></i> Create Work Order & Call</a>
       </div>
     </div>
   `;
@@ -13156,24 +13156,57 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
       } catch (err) { console.warn('[callConfirm] status bump failed:', err); }
     }
 
-    // 4) Create the work item — one call creates the board card (source of
-    //    truth) + the mirrored ticket and cross-links them. Replaces the old
-    //    insert-ticket-then-mirror-card dual write.
-    let ticketId = null;
+    // 4) The WORK ORDER — the canonical record (Alfredo: "call service
+    //    should make you fill out report issue… make a workorder.
+    //    workorder makes a board ticket"). An equipment_issues row born
+    //    at 'contractor_called' (we are literally calling them), which
+    //    shows in the Work Orders module + daily notes, and — via
+    //    ensureIssueCard — a board ticket linked by the issue: label,
+    //    filed straight into In Progress by the lane sync.
     try {
-      const res = await NX.work.create({
-        title: `[CALL] ${equipName}: ${issue.slice(0, 80)}`,
-        notes: `Internal call. Equipment: ${equipName}\nReporter: ${reporter}\nCalling: ${contactName} (${prettyPhone})\n\nIssue:\n${issue}`,
+      const now = new Date().toISOString();
+      const { data: issueRow, error: issueErr } = await NX.sb.from('equipment_issues').insert({
+        equipment_id: equipId,
+        title: issue.slice(0, 120),
+        description: `Reported via Call Service by ${reporter}. Calling ${contactName} (${prettyPhone}).\n\n${issue}`,
+        status: 'contractor_called',
         priority,
-        equipmentId: equipId,
-        photoUrl,
-        reportedBy: reporter,
-        priorEqStatus: priorStatus,
-      });
-      ticketId = res.ticket?.id || null;
-    } catch (err) { console.warn('[callConfirm] work item create failed:', err); }
+        reported_at: now,
+        contractor_called_at: now,
+        contractor_name: contactName || null,
+        reported_by: NX.currentUser?.id || null,
+        reported_by_name: reporter,
+      }).select('id').single();
+      if (issueErr) throw issueErr;
+      if (issueRow?.id && NX.domain?.ensureIssueCard) {
+        const card = await NX.domain.ensureIssueCard(issueRow.id);
+        if (card && card.id) {
+          const patch = {};
+          if (photoUrl) patch.photo_urls = [photoUrl];
+          if (priorStatus) patch.prior_eq_status = priorStatus;
+          if (Object.keys(patch).length) {
+            try { await NX.sb.from('kanban_cards').update(patch).eq('id', card.id); } catch (_) {}
+          }
+        }
+      }
+    } catch (err) {
+      // Fallback: the old card+ticket dual write, so a schema surprise
+      // never leaves the call untracked.
+      console.warn('[callConfirm] work order create failed — falling back to card+ticket:', err);
+      try {
+        await NX.work.create({
+          title: `[CALL] ${equipName}: ${issue.slice(0, 80)}`,
+          notes: `Internal call. Equipment: ${equipName}\nReporter: ${reporter}\nCalling: ${contactName} (${prettyPhone})\n\nIssue:\n${issue}`,
+          priority,
+          equipmentId: equipId,
+          photoUrl,
+          reportedBy: reporter,
+          priorEqStatus: priorStatus,
+        });
+      } catch (_) {}
+    }
 
-    NX.toast?.(`Ticket created — calling ${contactName}…`, 'success', 1800);
+    NX.toast?.(`Work order created — calling ${contactName}…`, 'success', 1800);
 
     // 6) Hand off to dialer
     setTimeout(() => {
@@ -14349,12 +14382,26 @@ async function promptNewIssue(equipment) {
       <input class="eq-issue-newsheet-input" id="eqIssueTitle" type="text" maxlength="120" autocomplete="off" placeholder="e.g. Won't cool below 45F">
       <label class="eq-issue-newsheet-label" for="eqIssueDesc">Details (optional)</label>
       <textarea class="eq-issue-newsheet-textarea" id="eqIssueDesc" rows="3" placeholder="What were you doing when it started? Error codes, sounds, smells?"></textarea>
+      <label class="eq-issue-newsheet-label">Severity</label>
+      <div class="eq-issue-newsheet-pri" id="eqIssuePri">
+        <button type="button" data-pri="low">Low</button>
+        <button type="button" data-pri="normal" class="active">Normal → needs service</button>
+        <button type="button" data-pri="urgent">Urgent → DOWN</button>
+      </div>
       <div class="eq-issue-newsheet-actions">
         <button type="button" class="eq-issue-newsheet-btn" data-action="cancel">Cancel</button>
         <button type="button" class="eq-issue-newsheet-btn is-primary" data-action="save">Report issue</button>
       </div>
     </div>`;
   document.body.appendChild(sheet);
+  // Severity → equipment status is AUTOMATIC now (Alfredo: "workorder…
+  // automatically changes equipment status"): urgent bumps to DOWN,
+  // normal to NEEDS SERVICE, low leaves status alone. Upgrade-only.
+  let issuePriority = 'normal';
+  sheet.querySelectorAll('#eqIssuePri button').forEach(b => b.addEventListener('click', () => {
+    issuePriority = b.dataset.pri;
+    sheet.querySelectorAll('#eqIssuePri button').forEach(x => x.classList.toggle('active', x === b));
+  }));
   const titleEl = sheet.querySelector('#eqIssueTitle');
   const descEl  = sheet.querySelector('#eqIssueDesc');
   const saveBtn = sheet.querySelector('[data-action="save"]');
@@ -14375,6 +14422,7 @@ async function promptNewIssue(equipment) {
       title,
       description,
       status:           'reported',
+      priority:         issuePriority,
       reported_at:      new Date().toISOString(),
       reported_by:      (NX.currentUser && NX.currentUser.id) || (NX.user && NX.user.id) || null,
       reported_by_name: (NX.currentUser && NX.currentUser.name) || (NX.user && NX.user.name) || null,
@@ -14384,20 +14432,37 @@ async function promptNewIssue(equipment) {
       if (error) throw error;
       close();
       if (issueTrackerState) { issueTrackerState.issues.unshift(data); renderIssueTracker(); }
-      NX.toast && NX.toast('Issue reported', 'success', 1500);
+      NX.toast && NX.toast('Work order created', 'success', 1500);
+      // AUTOMATIC status change from severity (upgrade-only: never
+      // downgrades a unit that's already worse than the report implies).
+      if (issuePriority === 'urgent' || issuePriority === 'normal') {
+        try {
+          const desired = issuePriority === 'urgent' ? 'down' : 'needs_service';
+          const cur = (equipment.status || 'operational');
+          const rank = { operational: 0, needs_service: 1, down: 2 };
+          if ((rank[desired] || 0) > (rank[cur] != null ? rank[cur] : 0)) {
+            await NX.sb.from('equipment').update({ status: desired }).eq('id', equipment.id);
+            logEquipmentEvent({
+              equipmentId: equipment.id,
+              eventType: 'status_change',
+              location: equipment.location || null,
+              payload: {
+                from: cur, to: desired,
+                from_label: STATUSES.find(s => s.key === cur)?.label || cur,
+                to_label:   STATUSES.find(s => s.key === desired)?.label || desired,
+                equipment_name: equipment.name,
+                source: 'issue_report',
+                ticket_priority: issuePriority,
+              },
+            });
+            NX.toast && NX.toast(`${equipment.name}: ${desired === 'down' ? 'Down' : 'Needs Service'}`, 'info', 1600);
+          }
+        } catch (e) { console.warn('[promptNewIssue] auto status failed (non-fatal):', e); }
+      }
+      // Board ticket, linked by the issue: label (moves lanes with the WO).
       if (NX.domain && NX.domain.recordEquipmentIssue) {
         try {
-          const res = await NX.domain.recordEquipmentIssue({ issueId: data.id, equipmentId: data.equipment_id, title: data.title, description: data.description, priority: 'high' });
-          if (res && res.statusProposal) {
-            const p = res.statusProposal;
-            const LBL = { operational: 'Operational', needs_service: 'Needs Service', down: 'Down' };
-            const q = p.reason + '\n\nMark ' + p.equipmentName + ' as ' + LBL[p.suggestedStatus] + '?';
-            const ok = (typeof NX.confirm === 'function') ? await NX.confirm(q) : window.confirm(q);
-            if (ok) {
-              const did = await NX.domain.applyEquipmentStatusChange({ equipmentId: p.equipmentId, newStatus: p.suggestedStatus });
-              if (did) NX.toast && NX.toast(p.equipmentName + ': ' + LBL[p.suggestedStatus], 'success', 1300);
-            }
-          }
+          await NX.domain.recordEquipmentIssue({ issueId: data.id, equipmentId: data.equipment_id, title: data.title, description: data.description, priority: issuePriority === 'urgent' ? 'urgent' : 'high' });
         } catch (e) { console.warn('[promptNewIssue] domain hook failed (non-fatal):', e); }
       }
     } catch (e) {

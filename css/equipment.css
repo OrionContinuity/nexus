@@ -6261,7 +6261,9 @@ html, body {
 .eq-itracker-overlay {
   position: fixed;
   inset: 0;
-  z-index: 220;
+  /* Above the equipment detail modal (.eq-modal, z 1000) — at 220 the
+     tracker opened BEHIND the detail and "Report Issue" looked dead. */
+  z-index: 2100;
   background: var(--nx-bg);
   display: flex;
   flex-direction: column;
@@ -14001,4 +14003,18 @@ body.eq-bulk-mode .eq-row.is-selected::after {
 }
 #eqLocationCardsOrSearch .ord-vendor-row.has-draft:hover {
   background: var(--nx-gold-soft, var(--nx-gold-faint));
+}
+
+
+/* ─── Report-issue sheet: severity pills (mirror the Call Service modal) ── */
+.eq-issue-newsheet-pri { display: flex; gap: 6px; margin: 4px 0 10px; }
+.eq-issue-newsheet-pri button {
+  flex: 1; padding: 9px 10px; border-radius: 8px; cursor: pointer;
+  font-family: 'Outfit', system-ui, sans-serif; font-size: 12px;
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1);
+  color: var(--nx-text, #ece4d4);
+}
+.eq-issue-newsheet-pri button.active {
+  background: var(--nx-gold-faint, rgba(212,164,78,0.15));
+  border-color: var(--nx-gold, #d4a44e); color: var(--nx-gold, #d4a44e);
 }
