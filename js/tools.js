@@ -132,6 +132,7 @@
       btn('push', '⬆', 'Push update', 'ship latest Clippy') +
       btn('clippy', '📎', 'Install Clippy', 'desktop buddy + node') +
       btn('ot', '📡', 'OpenTether', 'phone → PC internet') +
+      btn('backup', '🛟', 'Backup', 'all data → your Drive') +
       '</div>';
     // live pill on Nodes/Activity buttons
     busGet('clippy_nodes').then(function (arr) {
@@ -401,6 +402,42 @@
     var cb = host.querySelector('#nxtClippyCopy'); if (cb) cb.addEventListener('click', copyInstallCommand);
   }
 
+  // ─── BACKUP ──────────────────────────────────────────────────────────────
+  // Layer-2 (off-platform) backup: NX.backup dumps every anon-readable table
+  // to a gzipped JSON in the user's Drive. Layer 1 (nightly full snapshots
+  // in Supabase Storage, pg_cron 'vault-backup-nightly') runs by itself.
+  function screenBackup(host) {
+    var B = (window.NX && window.NX.backup) || (typeof NX !== 'undefined' && NX.backup);
+    var last = B && B.lastRun && B.lastRun();
+    var lastTxt = last ? new Date(last).toLocaleDateString([], { month: 'short', day: 'numeric' }) +
+      ' ' + new Date(last).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'never from this device';
+    host.innerHTML =
+      '<div class="nxt-hero"><div class="big">🛟</div><div>' +
+        '<div style="font-weight:700;font-size:15px">Your data, three layers deep</div>' +
+        '<div style="font-size:12px;color:var(--nx-muted);line-height:1.55;margin-top:3px">' +
+          '<b>Nightly</b> — full snapshot of every table, kept 30 days (automatic, runs at 4:23am).<br>' +
+          '<b>Weekly</b> — a copy lands in your Google Drive (“NEXUS Backups”) while you use the app.<br>' +
+          '<b>Always</b> — code + memory vault live on GitHub.' +
+        '</div></div></div>' +
+      '<div style="font-size:12px;color:var(--nx-muted);margin:4px 2px 12px">Last Drive backup from this device: <b style="color:var(--nx-text)">' + lastTxt + '</b></div>' +
+      '<button class="nxt-btn" id="nxtBackupNow" style="width:100%;min-height:64px"><span class="lb">🛟 Back up to Drive now</span><span class="sb">every table you can see → one file in your Drive</span></button>';
+    var b = host.querySelector('#nxtBackupNow');
+    if (b) b.addEventListener('click', function () {
+      if (!B || !B.run) { if (NX.toast) NX.toast('Backup module missing — close & reopen NEXUS', 'error', 3200); return; }
+      b.disabled = true;
+      b.querySelector('.lb').textContent = 'Backing up…';
+      B.run({}).then(function (r) {
+        b.querySelector('.lb').textContent = '✓ Saved to Drive';
+        b.querySelector('.sb').textContent = r.tables + ' tables · ' + r.rows.toLocaleString() + ' rows · ' + r.kb + ' KB';
+        setTimeout(function () { b.disabled = false; b.querySelector('.lb').textContent = '🛟 Back up to Drive now'; }, 4000);
+      }).catch(function (e) {
+        if (NX.toast) NX.toast('Backup failed: ' + (e && e.message || 'unknown'), 'error', 4200);
+        b.disabled = false;
+        b.querySelector('.lb').textContent = '🛟 Back up to Drive now';
+      });
+    });
+  }
+
   // ─── router ──────────────────────────────────────────────────────────────
   var SCREENS = {
     hub:      { t: 'Tools',          fn: screenHub,      live: false },
@@ -409,6 +446,7 @@
     push:     { t: 'Push update',    fn: screenPush,     live: false },
     clippy:   { t: 'Install Clippy', fn: screenClippy,   live: false },
     ot:       { t: 'OpenTether',     fn: screenOT,       live: false },
+    backup:   { t: 'Backup',         fn: screenBackup,   live: false },
   };
   var timer = null;
   function stopTimer() { if (timer) { clearInterval(timer); timer = null; } }

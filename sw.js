@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v200-transparent-clippy';
+const CACHE_NAME = 'nexus-v201-backups';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
@@ -288,6 +288,7 @@ const APP_SHELL = [
   './js/inventory.js',
   './js/preferences.js',
   './js/work-orders.js',
+  './js/nx-backup.js',
   // NEXUS · R&M — 7 modules, core.js must load first
   './js/core.js',
   './js/inbox.js',
