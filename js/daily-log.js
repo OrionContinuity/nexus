@@ -2522,6 +2522,49 @@ const CLIPPY_QUOTES = [
   'I see dead pilot lights. Relit two of them personally.',
   'May the fourth be with the fryer oil \u2014 changed today, right on schedule.',
   'Show me the money \u2014 or at least the invoice. Either works.',
+  // \u2500\u2500 Masa & mezcal (Suerte energy) \u2500\u2500
+  'The nixtamal waits for no one. Neither does the 8am delivery. Both were honored today.',
+  'Masa is just corn that believed in itself. The tortilla press believed harder.',
+  'The salsa is not \u201ctoo spicy.\u201d You are underprepared. The walk-in, however, is perfectly calibrated.',
+  'A tortilla wants three flips. A breaker wants zero. Today, everyone got what they wanted.',
+  'The mezcal list is longer than my maintenance log, and only one of them makes you cry for good reasons.',
+  'Someone requested fajitas. The kitchen observed a brief silence, then made something better.',
+  'The mol\u00e9 has thirty ingredients and zero warranty. The oven it lives in \u2014 fully covered.',
+  // \u2500\u2500 Fresh catch (Este energy) \u2500\u2500
+  'The fish is so fresh it still has opinions. We overruled them with lime.',
+  'Ceviche: the lime does the cooking, I take the credit. We all have our roles.',
+  'The crudo takes four minutes to plate and forty seconds to vanish. The math favors the guests.',
+  'The oysters arrived, were counted, and were briefly complimented. Professional standards were maintained.',
+  // \u2500\u2500 Bar life (Toti energy) \u2500\u2500
+  'The bar mats were replaced and nobody noticed, which is exactly how infrastructure likes it.',
+  'A martini is an inventory count with a garnish. Tonight\u2019s count: excellent.',
+  'The ice program has three formats. The ice machine has one mood. We negotiate daily.',
+  // \u2500\u2500 Equipment, emotionally \u2500\u2500
+  'The walk-in and I have an understanding: it stays cold, and I stop mentioning it in the report.',
+  'The fryer filter was changed today \u2014 voluntarily, before it got weird. Growth.',
+  'The hood fan hums in B flat, the dishwasher answers in D. The kitchen is an opera with covers.',
+  'I asked the ice machine how it was feeling. It said \u201cfull.\u201d Emotionally, we\u2019re not sure.',
+  'The oven preheats faster than the morning crew. Barely. Don\u2019t tell either of them.',
+  'Espresso machine descaled. It has forgiven us, conditionally, pending steam pressure.',
+  'The low-boy seals like a submarine hatch now. The submarine, notably, does not hold crema.',
+  'Deep-cleaned the drains today. The drains had no comment, which from a drain is a rave review.',
+  // \u2500\u2500 Line life \u2500\u2500
+  'Ticket times were beautiful tonight. I printed one to frame it. Metaphorically. No hands.',
+  '\u201cCorner!\u201d \u201cBehind!\u201d \u201cHot!\u201d \u2014 the kitchen\u2019s three-word poetry slam continues nightly.',
+  'Family meal was rated five stars by everyone who wanted to keep their shift. Unanimous.',
+  'The expo window is the most honest place on earth. Tonight it had no complaints.',
+  'Sharpie inventory: twelve purchased, zero found. Physics has no explanation. Neither do I.',
+  'Someone moved the tongs and three cooks aged visibly. Order has been restored.',
+  'Quart containers are the official currency of the kitchen. Exchange rate: your entire dish pit.',
+  'The floor was mopped so well the health inspector would weep. Preemptively. We\u2019re ready.',
+  'The prep cook labeled, dated, AND aligned everything. Promote them before another kitchen does.',
+  // \u2500\u2500 Clippy, round and coping \u2500\u2500
+  'I supervised today\u2019s PM from a respectful distance, on account of being a circle.',
+  'I\u2019d high-five the team for today\u2019s numbers, but \u2014 circle, no hands. The sentiment stands.',
+  'I read the invoices so you don\u2019t have to. Some of them I wish I could unread.',
+  'My cousin holds paper for a living. I hold three restaurants together. We don\u2019t talk at reunions.',
+  'I don\u2019t sleep, I defragment. Last night I dreamt in walk-in temperatures. All of them were fine.',
+  'Nobody scanned a QR code at me today. This is fine. I\u2019m fine. Anyway \u2014 the report.',
 ];
 // The static pool line for a date — deterministic, always available. Used as
 // the fallback when Clippy hasn't authored a fresh line for the day (offline
