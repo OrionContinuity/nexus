@@ -3256,12 +3256,18 @@ async function openDailyLogEmail() {
 //   · 15–16px body, 1.5–1.6 line-height, whitespace rhythm instead of a
 //     hairline border under every row
 const DLOG_HTML = {
-  cream: '#f3ecdc', card: '#fffdf7', ink: '#2c2519', muted: '#6e6250',
-  gold: '#96691f', goldSoft: '#d4a44e', line: '#eee5d1',
+  cream: '#efe5cf', card: '#fffdf7', ink: '#2c2519', muted: '#6e6250',
+  gold: '#96691f', goldSoft: '#d4a44e', line: '#e5d9bc',
   redBg: '#f7e5e0', redTx: '#993d30',
   amberBg: '#f6edd9', amberTx: '#7c5410',
   greenBg: '#e5f0e4', greenTx: '#3a6647',
-  mutedBg: '#f2ecdd',
+  mutedBg: '#efe7d3',
+  clipBg: '#f8f1e0', clipLine: '#e5d9bc',
+  // Masthead is the SAME deep ink-brown in both themes — the fixed brand
+  // anchor (mirrors the app's dark chrome), so gold and the status chips
+  // always sit on the canvas they were designed for.
+  mastBg: '#2a2318', mastInk: '#f6eedb', mastMuted: '#c8bb9d',
+  mastLine: '#4a4028', mastBorder: '#453a22',
   serif: "'Outfit', 'DM Sans', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
   mono: "'JetBrains Mono', 'SFMono-Regular', Consolas, 'Courier New', monospace",
   sans: "'DM Sans', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
@@ -3269,19 +3275,25 @@ const DLOG_HTML = {
 
 // Designed dark palette (not an inversion) — picked per send in the composer.
 const DLOG_HTML_DARK = {
-  cream: '#201c15', card: '#2a251c', ink: '#ede5d3', muted: '#b3a78e',
-  gold: '#d4a44e', goldSoft: '#d4a44e', line: '#3d372a',
+  cream: '#1d1913', card: '#292319', ink: '#ede5d3', muted: '#b3a78e',
+  gold: '#d4a44e', goldSoft: '#d4a44e', line: '#3a3323',
   redBg: '#4a2a23', redTx: '#f2a08e',
   amberBg: '#46381d', amberTx: '#ecc46f',
   greenBg: '#263c2a', greenTx: '#a3d4ac',
-  mutedBg: '#332d21',
+  mutedBg: '#332d1f',
+  clipBg: '#312a1b', clipLine: '#453b26',
+  mastBg: '#2a2318', mastInk: '#f6eedb', mastMuted: '#c8bb9d',
+  mastLine: '#4a4028', mastBorder: '#453a22',
   serif: DLOG_HTML.serif, mono: DLOG_HTML.mono, sans: DLOG_HTML.sans,
 };
-// Palette in effect for the current render (set by dlogTextToHtml).
+// Palette in effect for the current render (set by dlogTextToHtml), plus a
+// forced pill palette while rendering into the masthead (which is always
+// dark, whatever the page theme).
 let DLOG_ACTIVE = DLOG_HTML;
+let DLOG_CHIP_P = null;
 
-function dlogHtmlTag(kind) {
-  const C = DLOG_ACTIVE;
+function dlogHtmlTag(kind, P) {
+  const C = P || DLOG_CHIP_P || DLOG_ACTIVE;
   const k = String(kind || '').toUpperCase();
   const map = {
     OVERDUE: [C.redBg, C.redTx], DOWN: [C.redBg, C.redTx], BROKEN: [C.redBg, C.redTx],
@@ -3291,17 +3303,31 @@ function dlogHtmlTag(kind) {
     DONE: [C.greenBg, C.greenTx], REPAIRED: [C.greenBg, C.greenTx],
   };
   const [bg, tx] = map[k] || [C.mutedBg, C.muted];
-  return `<span class="nx-pill" style="display:inline-block;padding:2px 8px;background:${bg};border-radius:6px;font-family:${DLOG_HTML.sans};font-size:10.5px;font-weight:bold;letter-spacing:.04em;color:${tx};">${esc(k)}</span>`;
+  return `<span class="nx-pill" style="display:inline-block;padding:2px 8px;background:${bg};border-radius:6px;font-family:${C.sans};font-size:10.5px;font-weight:bold;letter-spacing:.04em;color:${tx};">${esc(k)}</span>`;
 }
 
 // Chip for "At a glance" fragments — tone inferred from the words.
-function dlogHtmlChip(text) {
-  const C = DLOG_ACTIVE;
+function dlogHtmlChip(text, P) {
+  const C = P || DLOG_CHIP_P || DLOG_ACTIVE;
   const t = String(text || '').trim();
   let bg = C.mutedBg, tx = C.muted;
   if (/down|urgent/i.test(t)) { bg = C.redBg; tx = C.redTx; }
   else if (/overdue/i.test(t)) { bg = C.amberBg; tx = C.amberTx; }
   return `<span class="nx-pill" style="display:inline-block;padding:4px 12px;margin:0 6px 8px 0;background:${bg};border-radius:999px;font-family:${C.sans};font-size:12px;font-weight:bold;color:${tx};">${esc(t)}</span>`;
+}
+
+// Weather condition → emoji for the masthead row. Order matters: "partly
+// cloudy" must win over "cloudy", storms over rain.
+function dlogWeatherIcon(s) {
+  const t = String(s || '').toLowerCase();
+  if (/thunder|storm/.test(t)) return '⛈️';
+  if (/snow|sleet|ice pellet|freez/.test(t)) return '❄️';
+  if (/rain|shower|drizzle/.test(t)) return '🌧️';
+  if (/fog|mist|haze/.test(t)) return '🌫️';
+  if (/partly/.test(t)) return '⛅';
+  if (/cloud|overcast/.test(t)) return '☁️';
+  if (/sunny|clear/.test(t)) return '☀️';
+  return '🌤️';
 }
 
 // ── The typesetter ─────────────────────────────────────────────────────────
@@ -3367,12 +3393,12 @@ function dlogTextToHtml(text, meta) {
   };
 
   function renderLine(raw) {
-    if (!raw.trim()) return '';   // blank marker — collapsed later
+    if (!raw.trim()) return '';   // blank marker — collapsed later
     const indented = /^ {3,}/.test(raw);
     const s = raw.trim();
 
     const atG = s.match(/^At a glance:\s*(.+)$/i);
-    if (atG) return `<div style="margin:2px 0 8px;">${atG[1].split(' · ').map(dlogHtmlChip).join('')}</div>`;
+    if (atG) return `<div style="margin:2px 0 8px;">${atG[1].split(' · ').map(t => dlogHtmlChip(t)).join('')}</div>`;
 
     // Work-order lane headers: "To Do (4)" / "In Progress (2)" / "Done today (1)"
     const lane = s.match(/^(To Do|In Progress|Done today) \((\d+)\)$/);
@@ -3437,7 +3463,7 @@ function dlogTextToHtml(text, meta) {
     const out = [];
     let blank = false;
     for (const p of parts) {
-      if (p === '') { blank = true; continue; }
+      if (p === '') { blank = true; continue; }
       if (blank && out.length) out.push('<div style="height:10px;"></div>');
       blank = false;
       out.push(p);
@@ -3456,15 +3482,15 @@ function dlogTextToHtml(text, meta) {
   // Each section is its OWN card on the cream page, separated by real
   // whitespace (the modular-block pattern transactional emails use) —
   // one continuous card with inline headers read as one messy run-on.
-  const GAP = '<tr><td style="height:14px;line-height:14px;font-size:0;">&nbsp;</td></tr>';
+  const GAP = '<tr><td style="height:16px;line-height:16px;font-size:0;">&nbsp;</td></tr>';
   const cardModule = (inner, opts) => {
     opts = opts || {};
-    const bg = opts.soft ? C.mutedBg : C.card;
-    const border = opts.soft ? 'none' : `1px solid ${C.line}`;
-    const cls = opts.soft ? 'nx-panel' : 'nx-card';
+    const bg = opts.mast ? C.mastBg : opts.clip ? C.clipBg : opts.soft ? C.mutedBg : C.card;
+    const border = opts.mast ? `1px solid ${C.mastBorder}` : opts.clip ? `1px solid ${C.clipLine}` : opts.soft ? 'none' : `1px solid ${C.line}`;
+    const cls = opts.mast ? 'nx-mast' : opts.clip ? 'nx-clip' : opts.soft ? 'nx-panel' : 'nx-card';
     return `
     <tr><td>
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="${cls}" style="background:${bg};border:${border};border-radius:14px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="${cls}" style="background:${bg};border:${border};border-radius:16px;">
         <tr><td class="nx-pad" style="padding:${opts.pad || '18px 22px'};">${inner}</td></tr>
       </table>
     </td></tr>`;
@@ -3472,16 +3498,30 @@ function dlogTextToHtml(text, meta) {
 
   const modules = [];
 
-  // Masthead — title, date, weather, gold bar, and (per-location emails)
-  // the at-a-glance chips, which belong to this header context.
+  // Masthead — the brand anchor: deep ink card (both themes) with the title,
+  // date, an iconed two-row weather line, and the at-a-glance chips, split
+  // by hairlines. Chips render in the DARK pill palette here — they sit on
+  // the ink card no matter what the page theme is.
+  let weatherHtml = '';
+  if (weatherLine) {
+    const parts = weatherLine.split(' · ');
+    const row1 = parts.slice(0, 2).join(' · ');
+    const row2 = parts.slice(2).join(' · ');
+    weatherHtml = `
+      <div style="border-top:1px solid ${C.mastLine};margin-top:16px;font-size:0;line-height:0;">&nbsp;</div>
+      <div style="font-family:${C.sans};font-size:14.5px;line-height:1.5;color:${C.mastInk};margin-top:10px;">${dlogWeatherIcon(row1)}&nbsp; ${esc(row1)}</div>
+      ${row2 ? `<div style="font-family:${C.sans};font-size:13px;line-height:1.5;color:${C.mastMuted};margin-top:3px;">${esc(row2)}</div>` : ''}`;
+  }
+  DLOG_CHIP_P = DLOG_HTML_DARK;
   const chipsHtml = renderLines(preExtra);
+  DLOG_CHIP_P = null;
   modules.push(cardModule(`
-      <div class="nx-ink" style="font-family:${C.serif};font-size:23px;font-weight:800;color:${C.ink};letter-spacing:-.02em;line-height:1.2;">Daily Log${meta.locLabel ? ` <span style="color:${C.goldSoft};">· ${esc(meta.locLabel)}</span>` : ''}</div>
-      <div class="nx-muted" style="font-family:${C.sans};font-size:13.5px;color:${C.muted};margin-top:6px;line-height:1.5;">${esc(dateLine)}</div>
-      ${weatherLine ? `<div class="nx-muted" style="font-family:${C.sans};font-size:13.5px;color:${C.muted};margin-top:2px;line-height:1.5;">${esc(weatherLine)}</div>` : ''}
-      <div style="border-top:3px solid ${C.goldSoft};border-radius:3px;margin-top:16px;width:52px;font-size:0;line-height:0;">&nbsp;</div>
+      <div style="font-family:${C.serif};font-size:23px;font-weight:800;color:${C.mastInk};letter-spacing:-.02em;line-height:1.2;">Daily Log${meta.locLabel ? ` <span style="color:${C.goldSoft};">· ${esc(meta.locLabel)}</span>` : ''}</div>
+      <div style="font-family:${C.sans};font-size:13.5px;color:${C.mastMuted};margin-top:6px;line-height:1.5;">${esc(dateLine)}</div>
+      <div style="border-top:3px solid ${C.goldSoft};border-radius:3px;margin-top:14px;width:46px;font-size:0;line-height:0;">&nbsp;</div>
+      ${weatherHtml}
       ${chipsHtml ? `<div style="margin-top:16px;">${chipsHtml}</div>` : ''}`,
-    { pad: '26px 24px 22px' }));
+    { mast: true, pad: '26px 26px 22px' }));
 
   // Clippy — a soft interlude module of his own, with the actual orb as the
   // avatar (assets/clippy-email.png: the bare orb baked from clippy.svg at
@@ -3490,35 +3530,37 @@ function dlogTextToHtml(text, meta) {
   if (clippyQuote) {
     modules.push(GAP + cardModule(`
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-        <td style="width:34px;vertical-align:top;padding-right:10px;">
-          <img src="https://orioncontinuity.github.io/nexus/assets/clippy-email.png?v=2" width="30" height="30" alt="Clippy" style="display:block;width:30px;height:30px;border:0;">
+        <td style="width:42px;vertical-align:top;padding-right:11px;">
+          <img src="https://orioncontinuity.github.io/nexus/assets/clippy-email.png?v=2" width="34" height="34" alt="Clippy" style="display:block;width:34px;height:34px;border:0;">
         </td>
         <td style="vertical-align:top;">
-          <div class="nx-ink" style="font-family:${C.sans};font-size:14px;line-height:1.6;color:${C.ink};font-style:italic;">${esc(clippyQuote)}</div>
+          <div class="nx-ink" style="font-family:${C.sans};font-size:14.5px;line-height:1.6;color:${C.ink};font-style:italic;">${esc(clippyQuote)}</div>
           <div class="nx-muted" style="font-family:${C.sans};font-size:12.5px;color:${C.muted};margin-top:6px;">— Clippy</div>
         </td>
       </tr></table>`,
-    { soft: true, pad: '16px 20px' }));
+    { clip: true, pad: '16px 20px' }));
   }
 
   if (preProse.length) {
     modules.push(GAP + cardModule(preProse.map(prose).join('')));
   }
 
-  // One card per section — the separation IS the structure.
+  // One card per section — a ruled header zone (eyebrow over a hairline),
+  // then the content. The rule is what makes each card read as designed
+  // rather than as a floating list.
   sections.forEach(sec => {
     const inner = renderLines(sec.lines);
     if (!inner.trim()) return;
     modules.push(GAP + cardModule(`
-      <div class="nx-eyebrow" style="font-family:${C.sans};font-size:12px;font-weight:bold;letter-spacing:.08em;text-transform:uppercase;color:${C.gold};margin-bottom:12px;">${esc(sec.label)}${sec.suffix ? ` <span class="nx-muted" style="color:${C.muted};letter-spacing:0;">· ${esc(sec.suffix)}</span>` : ''}</div>
+      <div class="nx-eyebrow" style="font-family:${C.sans};font-size:11.5px;font-weight:bold;letter-spacing:.1em;text-transform:uppercase;color:${C.gold};padding-bottom:10px;border-bottom:1px solid ${C.line};margin-bottom:14px;">${esc(sec.label)}${sec.suffix ? ` <span class="nx-muted" style="color:${C.muted};letter-spacing:0;">· ${esc(sec.suffix)}</span>` : ''}</div>
       ${inner}`,
     { pad: '20px 24px 18px' }));
   });
 
   // Footer — plain quiet text on the page, outside any card.
   const footer = `
-    <tr><td style="padding:20px 8px 4px;">
-      <div class="nx-muted" style="font-family:${C.sans};font-size:12px;line-height:1.6;color:${C.muted};text-align:center;">
+    <tr><td style="padding:22px 8px 4px;">
+      <div class="nx-muted" style="font-family:${C.sans};font-size:12.5px;line-height:1.6;color:${C.muted};text-align:center;">
         ${sigName ? sigName + '<br>' : ''}<span style="font-family:${C.mono};font-size:10px;letter-spacing:.16em;">POWERED BY NEXUS</span>
       </div>
     </td></tr>`;
@@ -3537,7 +3579,8 @@ function dlogTextToHtml(text, meta) {
   // Full document — we deliver via the Gmail API, so we own the <head>:
   // color-scheme metas temper aggressive dark-mode inversion, and the
   // @media block restyles our classes for clients that honor it (inline
-  // styles remain the light-mode base everywhere else).
+  // styles remain the light-mode base everywhere else). The masthead is
+  // theme-fixed, so it needs no override.
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -3550,12 +3593,14 @@ function dlogTextToHtml(text, meta) {
      override for clients that honor prefers-color-scheme; 'light'/'dark'
      pin one designed palette and tell clients not to invert. */
   ${theme === 'auto' ? `@media (prefers-color-scheme: dark) {
-    .nx-bg    { background: #201c15 !important; }
-    .nx-card  { background: #2a251c !important; border-color: #3d372a !important; }
-    .nx-panel { background: #332d21 !important; }
-    .nx-ink   { color: #ede5d3 !important; }
-    .nx-muted { color: #b3a78e !important; }
-    .nx-good  { color: #a3d4ac !important; }
+    .nx-bg      { background: #1d1913 !important; }
+    .nx-card    { background: #292319 !important; border-color: #3a3323 !important; }
+    .nx-clip    { background: #312a1b !important; border-color: #453b26 !important; }
+    .nx-panel   { background: #332d1f !important; }
+    .nx-ink     { color: #ede5d3 !important; }
+    .nx-muted   { color: #b3a78e !important; }
+    .nx-good    { color: #a3d4ac !important; }
+    .nx-eyebrow { color: #d4a44e !important; border-color: #3a3323 !important; }
   }` : ''}
   @media only screen and (max-width: 480px) {
     .nx-pad { padding-left: 18px !important; padding-right: 18px !important; }
