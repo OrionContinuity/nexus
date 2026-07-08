@@ -103,7 +103,7 @@
       : String(s || '');
   }
   var GMAIL_SEND_SCOPE = ['https://www.googleapis.com/auth/gmail.send'];
-  var STYLED_ENGINE_BUILD = 'v204';   // shown in the status strip — ends "which file am I running" forever
+  var STYLED_ENGINE_BUILD = 'v205';   // shown in the status strip — ends "which file am I running" forever
 
   // ── SELF-CONTAINED token machinery ─────────────────────────────────
   // Styled send must not depend on ANY other file being fresh (zombie

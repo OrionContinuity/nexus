@@ -3263,11 +3263,6 @@ const DLOG_HTML = {
   greenBg: '#e5f0e4', greenTx: '#3a6647',
   mutedBg: '#efe7d3',
   clipBg: '#f8f1e0', clipLine: '#e5d9bc',
-  // Masthead is the SAME deep ink-brown in both themes — the fixed brand
-  // anchor (mirrors the app's dark chrome), so gold and the status chips
-  // always sit on the canvas they were designed for.
-  mastBg: '#2a2318', mastInk: '#f6eedb', mastMuted: '#c8bb9d',
-  mastLine: '#4a4028', mastBorder: '#453a22',
   serif: "'Outfit', 'DM Sans', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
   mono: "'JetBrains Mono', 'SFMono-Regular', Consolas, 'Courier New', monospace",
   sans: "'DM Sans', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
@@ -3282,18 +3277,13 @@ const DLOG_HTML_DARK = {
   greenBg: '#263c2a', greenTx: '#a3d4ac',
   mutedBg: '#332d1f',
   clipBg: '#312a1b', clipLine: '#453b26',
-  mastBg: '#2a2318', mastInk: '#f6eedb', mastMuted: '#c8bb9d',
-  mastLine: '#4a4028', mastBorder: '#453a22',
   serif: DLOG_HTML.serif, mono: DLOG_HTML.mono, sans: DLOG_HTML.sans,
 };
-// Palette in effect for the current render (set by dlogTextToHtml), plus a
-// forced pill palette while rendering into the masthead (which is always
-// dark, whatever the page theme).
+// Palette in effect for the current render (set by dlogTextToHtml).
 let DLOG_ACTIVE = DLOG_HTML;
-let DLOG_CHIP_P = null;
 
 function dlogHtmlTag(kind, P) {
-  const C = P || DLOG_CHIP_P || DLOG_ACTIVE;
+  const C = P || DLOG_ACTIVE;
   const k = String(kind || '').toUpperCase();
   const map = {
     OVERDUE: [C.redBg, C.redTx], DOWN: [C.redBg, C.redTx], BROKEN: [C.redBg, C.redTx],
@@ -3308,7 +3298,7 @@ function dlogHtmlTag(kind, P) {
 
 // Chip for "At a glance" fragments — tone inferred from the words.
 function dlogHtmlChip(text, P) {
-  const C = P || DLOG_CHIP_P || DLOG_ACTIVE;
+  const C = P || DLOG_ACTIVE;
   const t = String(text || '').trim();
   let bg = C.mutedBg, tx = C.muted;
   if (/down|urgent/i.test(t)) { bg = C.redBg; tx = C.redTx; }
@@ -3485,9 +3475,9 @@ function dlogTextToHtml(text, meta) {
   const GAP = '<tr><td style="height:16px;line-height:16px;font-size:0;">&nbsp;</td></tr>';
   const cardModule = (inner, opts) => {
     opts = opts || {};
-    const bg = opts.mast ? C.mastBg : opts.clip ? C.clipBg : opts.soft ? C.mutedBg : C.card;
-    const border = opts.mast ? `1px solid ${C.mastBorder}` : opts.clip ? `1px solid ${C.clipLine}` : opts.soft ? 'none' : `1px solid ${C.line}`;
-    const cls = opts.mast ? 'nx-mast' : opts.clip ? 'nx-clip' : opts.soft ? 'nx-panel' : 'nx-card';
+    const bg = opts.clip ? C.clipBg : opts.soft ? C.mutedBg : C.card;
+    const border = opts.clip ? `1px solid ${C.clipLine}` : opts.soft ? 'none' : `1px solid ${C.line}`;
+    const cls = opts.clip ? 'nx-clip' : opts.soft ? 'nx-panel' : 'nx-card';
     return `
     <tr><td>
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="${cls}" style="background:${bg};border:${border};border-radius:16px;">
@@ -3498,40 +3488,37 @@ function dlogTextToHtml(text, meta) {
 
   const modules = [];
 
-  // Masthead — the brand anchor: deep ink card (both themes) with the title,
-  // date, an iconed two-row weather line, and the at-a-glance chips, split
-  // by hairlines. Chips render in the DARK pill palette here — they sit on
-  // the ink card no matter what the page theme is.
+  // Masthead — a card like the others (Alfredo: light theme stays LIGHT,
+  // no dark brown block), carrying the title, date, gold bar, an iconed
+  // two-row weather line over a hairline, and the at-a-glance chips.
   let weatherHtml = '';
   if (weatherLine) {
     const parts = weatherLine.split(' · ');
     const row1 = parts.slice(0, 2).join(' · ');
     const row2 = parts.slice(2).join(' · ');
     weatherHtml = `
-      <div style="border-top:1px solid ${C.mastLine};margin-top:16px;font-size:0;line-height:0;">&nbsp;</div>
-      <div style="font-family:${C.sans};font-size:14.5px;line-height:1.5;color:${C.mastInk};margin-top:10px;">${dlogWeatherIcon(row1)}&nbsp; ${esc(row1)}</div>
-      ${row2 ? `<div style="font-family:${C.sans};font-size:13px;line-height:1.5;color:${C.mastMuted};margin-top:3px;">${esc(row2)}</div>` : ''}`;
+      <div class="nx-eyebrow" style="border-top:1px solid ${C.line};margin-top:16px;font-size:0;line-height:0;">&nbsp;</div>
+      <div class="nx-ink" style="font-family:${C.sans};font-size:14.5px;line-height:1.5;color:${C.ink};margin-top:10px;">${dlogWeatherIcon(row1)}&nbsp; ${esc(row1)}</div>
+      ${row2 ? `<div class="nx-muted" style="font-family:${C.sans};font-size:13px;line-height:1.5;color:${C.muted};margin-top:3px;">${esc(row2)}</div>` : ''}`;
   }
-  DLOG_CHIP_P = DLOG_HTML_DARK;
   const chipsHtml = renderLines(preExtra);
-  DLOG_CHIP_P = null;
   modules.push(cardModule(`
-      <div style="font-family:${C.serif};font-size:23px;font-weight:800;color:${C.mastInk};letter-spacing:-.02em;line-height:1.2;">Daily Log${meta.locLabel ? ` <span style="color:${C.goldSoft};">· ${esc(meta.locLabel)}</span>` : ''}</div>
-      <div style="font-family:${C.sans};font-size:13.5px;color:${C.mastMuted};margin-top:6px;line-height:1.5;">${esc(dateLine)}</div>
+      <div class="nx-ink" style="font-family:${C.serif};font-size:23px;font-weight:800;color:${C.ink};letter-spacing:-.02em;line-height:1.2;">Daily Log${meta.locLabel ? ` <span class="nx-eyebrow" style="color:${C.gold};">· ${esc(meta.locLabel)}</span>` : ''}</div>
+      <div class="nx-muted" style="font-family:${C.sans};font-size:13.5px;color:${C.muted};margin-top:6px;line-height:1.5;">${esc(dateLine)}</div>
       <div style="border-top:3px solid ${C.goldSoft};border-radius:3px;margin-top:14px;width:46px;font-size:0;line-height:0;">&nbsp;</div>
       ${weatherHtml}
       ${chipsHtml ? `<div style="margin-top:16px;">${chipsHtml}</div>` : ''}`,
-    { mast: true, pad: '26px 26px 22px' }));
+    { pad: '26px 26px 22px' }));
 
-  // Clippy — a soft interlude module of his own, with the actual orb as the
-  // avatar (assets/clippy-email.png: the bare orb baked from clippy.svg at
-  // 120px/3x). Served from the site — email clients won't render SVG, and
-  // Gmail's image proxy shows hosted PNGs by default.
+  // Clippy — a soft interlude module of his own, with the real character as
+  // the avatar (assets/clippy-email.png v3: face, blush, AND the orbit nodes,
+  // baked from clippy.svg). Served from the site — email clients won't render
+  // SVG, and Gmail's image proxy shows hosted PNGs by default.
   if (clippyQuote) {
     modules.push(GAP + cardModule(`
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-        <td style="width:42px;vertical-align:top;padding-right:11px;">
-          <img src="https://orioncontinuity.github.io/nexus/assets/clippy-email.png?v=2" width="34" height="34" alt="Clippy" style="display:block;width:34px;height:34px;border:0;">
+        <td style="width:56px;vertical-align:top;padding-right:12px;">
+          <img src="https://orioncontinuity.github.io/nexus/assets/clippy-email.png?v=3" width="44" height="44" alt="Clippy" style="display:block;width:44px;height:44px;border:0;">
         </td>
         <td style="vertical-align:top;">
           <div class="nx-ink" style="font-family:${C.sans};font-size:14.5px;line-height:1.6;color:${C.ink};font-style:italic;">${esc(clippyQuote)}</div>
@@ -3579,8 +3566,8 @@ function dlogTextToHtml(text, meta) {
   // Full document — we deliver via the Gmail API, so we own the <head>:
   // color-scheme metas temper aggressive dark-mode inversion, and the
   // @media block restyles our classes for clients that honor it (inline
-  // styles remain the light-mode base everywhere else). The masthead is
-  // theme-fixed, so it needs no override.
+  // styles remain the light-mode base everywhere else). The masthead is a
+  // regular card, so the same class overrides carry it.
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
