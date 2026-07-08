@@ -3720,7 +3720,7 @@ async function renderIssueTimeline(card, bg) {
         : NX.toast && NX.toast('Work Orders module unavailable', 'error', 2600);
       if (NX.modules?.workOrders?.openDetail) { go(); return; }
       const s = document.createElement('script');
-      s.src = 'js/work-orders.js?v=5';
+      s.src = 'js/work-orders.js?v=6';
       s.onload = go; s.onerror = go;
       document.body.appendChild(s);
     });

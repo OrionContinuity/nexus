@@ -11,7 +11,9 @@
 //  Reads:   v_issue_summary (fallback: equipment_issues + equipment names)
 //  Actions: open the WO's board card (boardOpenIntent deep link, which
 //           board.js resolves across boards), or complete it via the
-//           unified NX.work.fulfillForEquipment cascade.
+//           completion sheet (invoice photo, notes, equipment status)
+//           → unified NX.work.fulfillForEquipment cascade, which now
+//           moves the board card to Done instead of archiving it.
 // ═══════════════════════════════════════════════════════════════════════
 (function () {
   'use strict';
@@ -64,55 +66,164 @@
   // deliberately: the device-side zombie cache serves a stale domain.js
   // (no NX.work), so this module must be able to complete a work order
   // entirely on its own. Uses NX.work when present; this otherwise.
-  async function fulfillLocal(equipmentId) {
+  async function fulfillLocal(equipmentId, extras) {
+    extras = extras || {};
     const now = new Date().toISOString();
     let card = null;
     try {
       const { data } = await NX.sb.from('kanban_cards')
-        .select('id, ticket_id, prior_eq_status')
-        .eq('equipment_id', equipmentId).eq('archived', false)
+        .select('id, ticket_id, prior_eq_status, board_id, list_id')
+        .eq('equipment_id', equipmentId).eq('archived', false).is('closed_at', null)
         .order('created_at', { ascending: false }).limit(1);
       card = data && data[0];
     } catch (_) {}
-    // 1. Mark the open issue(s) repaired
+    // 1. Mark the open issue(s) repaired (+ file the invoice photo)
     try {
+      const patch = { status: 'repaired', repaired_at: now };
+      if (extras.invoiceUrl) { patch.invoice_url = extras.invoiceUrl; patch.invoice_received_at = now; }
       await NX.sb.from('equipment_issues')
-        .update({ status: 'repaired', repaired_at: now })
+        .update(patch)
         .eq('equipment_id', equipmentId)
         .not('status', 'in', '(repaired,closed,resolved)');
     } catch (_) {}
-    // 2. Close the card + its ticket mirror
+    // 2. The card rides to the board's DONE list (visible, not archived);
+    //    the ticket mirror closes.
     if (card) {
       try {
-        await NX.sb.from('kanban_cards')
-          .update({ archived: true, column_name: 'done', closed_at: now }).eq('id', card.id);
-      } catch (_) {
-        try { await NX.sb.from('kanban_cards').update({ archived: true }).eq('id', card.id); } catch (_) {}
-      }
+        const patch = { closed_at: now };
+        if (extras.notes) patch.resolution_notes = extras.notes;
+        if (card.board_id) {
+          const { data: lists } = await NX.sb.from('board_lists')
+            .select('*').eq('board_id', card.board_id).order('position');
+          const live = (lists || []).filter(l => l && l.archived !== true);
+          const done = live.find(l => /done|complete|closed/i.test(l.name || '')) || live[live.length - 1];
+          if (done && String(done.id) !== String(card.list_id)) {
+            patch.list_id = done.id;
+            patch.position = 0;
+            try {
+              const { data: inList } = await NX.sb.from('kanban_cards')
+                .select('position').eq('list_id', done.id).eq('archived', false);
+              if (inList && inList.length) {
+                patch.position = Math.min(...inList.map(c => (typeof c.position === 'number' ? c.position : 0))) - 1;
+              }
+            } catch (_) {}
+          }
+        }
+        await NX.sb.from('kanban_cards').update(patch).eq('id', card.id);
+      } catch (_) {}
       if (card.ticket_id) {
         try { await NX.sb.from('tickets').update({ status: 'closed', closed_at: now }).eq('id', card.ticket_id); } catch (_) {}
       }
     }
-    // 3. Restore the unit + 4. audit trail
+    // 3. Equipment status: the completion form's choice wins
     try {
       await NX.sb.from('equipment')
-        .update({ status: (card && card.prior_eq_status) || 'operational' }).eq('id', equipmentId);
+        .update({ status: extras.restoreStatus || (card && card.prior_eq_status) || 'operational' }).eq('id', equipmentId);
     } catch (_) {}
+    // 4. Audit trail, invoice attached
     try {
-      await NX.sb.from('equipment_maintenance').insert({
+      const row = {
         equipment_id: equipmentId, event_type: 'service',
-        description: 'Work order completed',
+        description: 'Work order completed' + (extras.notes ? ' — ' + extras.notes : ''),
         performed_by: (NX.currentUser && NX.currentUser.name) || 'Staff',
         event_date: now,
-      });
+      };
+      if (extras.invoiceUrl) { row.receipt_url = extras.invoiceUrl; row.photos = [extras.invoiceUrl]; }
+      await NX.sb.from('equipment_maintenance').insert(row);
     } catch (_) {}
+    try { if (NX.modules?.board?.reload) NX.modules.board.reload(); } catch (_) {}
     return { ok: true };
   }
-  function doFulfill(equipmentId) {
+  function doFulfill(equipmentId, extras) {
     const api = NX.work && NX.work.fulfillForEquipment;
-    return api
-      ? NX.work.fulfillForEquipment({ equipmentId, performedBy: NX.currentUser?.name || 'Staff' })
-      : fulfillLocal(equipmentId);
+    const args = Object.assign({ equipmentId, performedBy: NX.currentUser?.name || 'Staff' }, extras || {});
+    return api ? NX.work.fulfillForEquipment(args) : fulfillLocal(equipmentId, extras);
+  }
+
+  // Invoice/receipt photo → nexus-files bucket (same pattern as board.js).
+  async function uploadInvoicePhoto(file, equipmentId) {
+    try {
+      const ext = (((file.name || '').split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '')) || 'jpg';
+      const path = `invoices/${equipmentId}/${Date.now()}.${ext}`;
+      const { error } = await NX.sb.storage.from('nexus-files')
+        .upload(path, file, { contentType: file.type || 'image/jpeg', upsert: false });
+      if (error) throw error;
+      const { data } = NX.sb.storage.from('nexus-files').getPublicUrl(path);
+      return (data && data.publicUrl) || null;
+    } catch (e) {
+      console.warn('[workOrders] invoice upload failed:', e?.message || e);
+      return null;
+    }
+  }
+
+  // ─── Completion sheet ────────────────────────────────────────────────
+  // Completing a work order asks for the story: an invoice/receipt photo
+  // (opens the camera on mobile), what was done, and where the unit's
+  // status should land. Photo and notes are optional — a quick tap-through
+  // still completes; the status defaults to Operational.
+  function openCompleteSheet({ eqId, title, onDone }) {
+    const wrap = document.createElement('div');
+    wrap.className = 'wo-overlay';
+    wrap.innerHTML = `
+      <div class="wo-head"><div class="wo-title">Complete work order</div>
+      <button class="wo-close">Cancel</button></div>
+      <div class="wo-list">
+        ${title ? `<div class="wo-d-title" style="padding-top:0">${esc(title)}</div>` : ''}
+        <div class="wo-d-block"><div class="wo-d-h">Invoice / receipt photo</div>
+          <label class="wo-photo-btn">📷 <span id="woPhLbl">Take photo or upload</span>
+            <input type="file" id="woPhoto" accept="image/*" capture="environment" hidden>
+          </label>
+          <img id="woPhPrev" alt="" style="display:none;max-width:100%;max-height:220px;border-radius:12px;margin-top:10px">
+        </div>
+        <div class="wo-d-block"><div class="wo-d-h">Completion notes</div>
+          <textarea id="woNotes" class="wo-input" rows="3" placeholder="What was done, parts used, cost…"></textarea>
+        </div>
+        <div class="wo-d-block"><div class="wo-d-h">Equipment status after this</div>
+          <select id="woEqStatus" class="wo-input">
+            <option value="operational" selected>✅ Operational — back in service</option>
+            <option value="needs_service">🟡 Still needs service</option>
+            <option value="down">🔴 Still down</option>
+          </select>
+        </div>
+        <div style="padding:16px 0 26px">
+          <button class="wo-btn wo-btn-go" id="woDoComplete" style="width:100%;padding:14px;font-size:14px">✓ Complete work order</button>
+        </div>
+      </div>`;
+    document.body.appendChild(wrap);
+    wrap.querySelector('.wo-close').addEventListener('click', () => wrap.remove());
+    let file = null;
+    wrap.querySelector('#woPhoto').addEventListener('change', (e) => {
+      file = e.target.files && e.target.files[0];
+      if (!file) return;
+      wrap.querySelector('#woPhLbl').textContent = file.name || 'Photo attached';
+      const img = wrap.querySelector('#woPhPrev');
+      try { img.src = URL.createObjectURL(file); img.style.display = 'block'; } catch (_) {}
+    });
+    wrap.querySelector('#woDoComplete').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      let invoiceUrl = null;
+      if (file) {
+        btn.textContent = 'Uploading photo…';
+        invoiceUrl = await uploadInvoicePhoto(file, eqId);
+        if (!invoiceUrl) NX.toast?.('Photo upload failed — completing without it', 'warn', 3200);
+      }
+      btn.textContent = 'Completing…';
+      const res = await doFulfill(eqId, {
+        notes: (wrap.querySelector('#woNotes').value || '').trim(),
+        restoreStatus: wrap.querySelector('#woEqStatus').value,
+        invoiceUrl,
+      }).catch(() => null);
+      if (res && res.ok) {
+        wrap.remove();
+        NX.toast?.('Work order completed — card moved to Done', 'success');
+        onDone && onDone();
+      } else {
+        btn.disabled = false;
+        btn.textContent = '✓ Complete work order';
+        NX.toast?.('Could not complete', 'error');
+      }
+    });
   }
 
   function rowHtml(i) {
@@ -163,7 +274,10 @@
       .wo-step-dot{width:8px;height:8px;border-radius:50%;background:var(--nx-border,rgba(212,182,138,.25));flex:none}
       .wo-step.is-done .wo-step-dot{background:var(--nx-gold,#d4a44e)}
       .wo-step-lbl{flex:1}
-      .wo-step-ts{font-size:12px}`;
+      .wo-step-ts{font-size:12px}
+      .wo-photo-btn{display:flex;align-items:center;gap:8px;padding:12px 14px;border:1px dashed var(--nx-border,rgba(212,182,138,.35));border-radius:12px;color:var(--nx-text-strong,#e8e0d2);font-size:13.5px;cursor:pointer}
+      .wo-input{width:100%;box-sizing:border-box;background:var(--nx-elevated,rgba(255,255,255,.04));border:1px solid var(--nx-border,rgba(212,182,138,.22));border-radius:12px;color:var(--nx-text-strong,#f0e9dd);font-size:14px;padding:11px 12px;font-family:inherit}
+      textarea.wo-input{resize:vertical}`;
     document.head.appendChild(s);
   }
 
@@ -212,21 +326,13 @@
         document.querySelector('.nav-tab[data-view="board"]')?.click();
         document.querySelector('.bnav-btn[data-view="board"]')?.click();
       } else if (btn.dataset.act === 'complete' && eqId) {
-        if (!confirm('Mark this work order complete? Closes the card and logs the service.')) return;
-        btn.textContent = '…';
-        btn.disabled = true;
-        const res = await doFulfill(eqId).catch(() => null);
-        if (res && res.ok) {
-          NX.toast?.('Work order completed', 'success');
+        const title = row.querySelector('.wo-row-title')?.textContent?.trim() || '';
+        openCompleteSheet({ eqId, title, onDone: () => {
           row.remove();
           const left = list.querySelectorAll('.wo-row').length;
           wrap.querySelector('#woCount').textContent = left ? '· ' + left + ' open' : '';
           if (!left) list.innerHTML = '<div class="wo-empty">No open work orders. 🎉</div>';
-        } else {
-          btn.textContent = 'Complete';
-          btn.disabled = false;
-          NX.toast?.('Could not complete', 'error');
-        }
+        } });
       }
     });
   }
@@ -313,12 +419,10 @@
       document.querySelector('.nav-tab[data-view="board"]')?.click();
       document.querySelector('.bnav-btn[data-view="board"]')?.click();
     });
-    body.querySelector('#woDComplete')?.addEventListener('click', async (e) => {
-      if (!confirm('Mark this work order complete?')) return;
-      e.currentTarget.textContent = '…'; e.currentTarget.disabled = true;
-      const res = await doFulfill(eqId).catch(() => null);
-      if (res && res.ok) { NX.toast?.('Work order completed', 'success'); sheet.remove(); parentWrap && parentWrap.remove(); open(); }
-      else { NX.toast?.('Could not complete', 'error'); e.currentTarget.textContent = 'Complete'; e.currentTarget.disabled = false; }
+    body.querySelector('#woDComplete')?.addEventListener('click', () => {
+      openCompleteSheet({ eqId, title: issue.title || 'Work order', onDone: () => {
+        sheet.remove(); parentWrap && parentWrap.remove(); open();
+      } });
     });
   }
 

@@ -1240,6 +1240,7 @@
         .select('id, ticket_id, labels, equipment_id, prior_eq_status, archived, created_at')
         .eq('equipment_id', equipmentId)
         .eq('archived', false)
+        .is('closed_at', null)   // completed cards now sit visible in Done — not open work
         .order('created_at', { ascending: false })
         .limit(1);
       if (data && data.length) {
@@ -1266,59 +1267,75 @@
 
   // Complete a unit's open work order end to end, from either surface
   // (staff or public QR). Consolidates what used to be scattered dual-writes:
-  //   1. marks the linked equipment_issue repaired   → Home "Open WO" drops
-  //   2. closes card + mirrored ticket via W.close    → board + Duties in step
-  //   3. restores equipment status (operational)
-  //   4. writes an equipment_maintenance audit row
+  //   1. marks the linked equipment_issue repaired (+ files the invoice)
+  //   2. moves the board card to DONE (visible) + closes the mirrored ticket
+  //   3. sets equipment status (form choice > prior status > operational)
+  //   4. writes an equipment_maintenance audit row (photo + notes attached)
   // Call with just { equipmentId }. Returns a summary of what closed.
-  W.fulfillForEquipment = async function({ equipmentId, performedBy, notes, restoreStatus } = {}) {
+  W.fulfillForEquipment = async function({ equipmentId, performedBy, notes, restoreStatus, invoiceUrl } = {}) {
     if (!NX.sb || !equipmentId) return { ok: false, reason: 'missing-equipment' };
     const now = new Date().toISOString();
     const open = await W.findOpenForEquipment({ equipmentId });
     const issueId = open && open.issueId;
     const card = open && open.card;
 
-    // 1) Canonical completion — mark the work order (issue) repaired.
+    // 1) Canonical completion — mark the work order (issue) repaired, and
+    //    file the invoice photo on it when one was taken.
     if (issueId) {
+      const patch = { status: 'repaired', repaired_at: now };
+      if (invoiceUrl) { patch.invoice_url = invoiceUrl; patch.invoice_received_at = now; }
       try {
-        await NX.sb.from('equipment_issues')
-          .update({ status: 'repaired', repaired_at: now })
-          .eq('id', issueId);
+        await NX.sb.from('equipment_issues').update(patch).eq('id', issueId);
       } catch (e) { console.warn('[NX.work.fulfillForEquipment] mark repaired failed:', e?.message || e); }
     }
 
-    // 2) Close the board card + mirrored ticket, restoring the unit to the
-    //    status it held before this work order bumped it.
+    // 2) The board card rides to DONE — completed work should be visible in
+    //    the Done lane, not vanish into the archive. closed_at marks it
+    //    finished (findOpenForEquipment skips it), the mirrored ticket
+    //    closes, and syncIssueCardList files the card in the Done list.
     if (card) {
       try {
-        await W.close({
-          cardId: card.id,
-          ticketId: open.ticketId,
-          equipmentId,
-          priorEqStatus: card.prior_eq_status || restoreStatus || 'operational',
-        });
-      } catch (e) { console.warn('[NX.work.fulfillForEquipment] close failed:', e?.message || e); }
-    } else {
-      // No card on the board — still make sure the unit reads operational.
-      try {
-        await NX.sb.from('equipment')
-          .update({ status: restoreStatus || 'operational' })
-          .eq('id', equipmentId);
-      } catch (_) {}
+        const patch = { closed_at: now };
+        if (notes) patch.resolution_notes = String(notes).trim();
+        await NX.sb.from('kanban_cards').update(patch).eq('id', card.id);
+      } catch (e) { console.warn('[NX.work.fulfillForEquipment] card stamp failed:', e?.message || e); }
+      if (open.ticketId) {
+        try { await NX.sb.from('tickets').update({ status: 'closed', closed_at: now }).eq('id', open.ticketId); } catch (_) {}
+      }
+      if (issueId) {
+        try { await D.syncIssueCardList(issueId, 'repaired'); } catch (_) {}
+      } else {
+        // Card with no linked issue — nothing drives the lane move, so
+        // close it the old way (archive) rather than strand it.
+        try {
+          await W.close({ cardId: card.id, ticketId: open.ticketId, equipmentId,
+            priorEqStatus: restoreStatus || card.prior_eq_status || 'operational' });
+        } catch (e) { console.warn('[NX.work.fulfillForEquipment] close failed:', e?.message || e); }
+      }
     }
 
-    // 3) Auditable trail of the completion.
+    // 3) Equipment status — an explicit choice from the completion form
+    //    wins; otherwise back to what it was before this work order.
     try {
-      await NX.sb.from('equipment_maintenance').insert({
+      await NX.sb.from('equipment')
+        .update({ status: restoreStatus || (card && card.prior_eq_status) || 'operational' })
+        .eq('id', equipmentId);
+    } catch (_) {}
+
+    // 4) Auditable trail of the completion, invoice attached.
+    try {
+      const row = {
         equipment_id: equipmentId,
         event_type: 'service',
         description: 'Work order completed' + (notes ? ' — ' + String(notes).trim() : ''),
         performed_by: performedBy || 'QR scan',
         event_date: now,
-      });
+      };
+      if (invoiceUrl) { row.receipt_url = invoiceUrl; row.photos = [invoiceUrl]; }
+      await NX.sb.from('equipment_maintenance').insert(row);
     } catch (e) { console.warn('[NX.work.fulfillForEquipment] maint log failed:', e?.message || e); }
 
-    // 4) Refresh the equipment brain + board so the change shows immediately.
+    // 5) Refresh the equipment brain + board so the change shows immediately.
     try { if (NX.eqBrainSync?.syncOne) await NX.eqBrainSync.syncOne(equipmentId); } catch (_) {}
     try { if (NX.modules?.board?.reload) NX.modules.board.reload(); } catch (_) {}
 
@@ -1336,7 +1353,7 @@
       : NX.toast && NX.toast('Work Orders unavailable — is js/work-orders.js deployed?', 'error', 3500);
     if (NX.modules?.workOrders) { go(); return; }
     const s = document.createElement('script');
-    s.src = 'js/work-orders.js?v=5';
+    s.src = 'js/work-orders.js?v=6';
     s.onload = go; s.onerror = go;
     document.body.appendChild(s);
   };
