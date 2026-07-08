@@ -2501,6 +2501,20 @@ const CLIPPY_QUOTES = [
   'The bench flour never runs out; neither does the manager\u2019s patience, allegedly.',
   'The croissant has twenty-seven layers. Your repair log has fewer, thankfully.',
   'Caramel is just sugar that kept its nerve. Be the caramel.',
+  // ── Dad jokes (premium shelf) ──
+  'The espresso machine broke down \u2014 it just couldn\u2019t espresso its feelings. Fixed now.',
+  'Why did the coffee file a police report? It got mugged. The machine\u2019s fine.',
+  'I burned 2,000 calories today \u2014 left the pizza in the oven. We recalibrated the timer.',
+  'Why don\u2019t eggs tell jokes on the line? They\u2019d crack each other up.',
+  'What did the grape do when it got stepped on? Let out a little wine. Fitting.',
+  'I tried to catch fog on the line this morning. I mist.',
+  'I\u2019m reading a book about anti-gravity \u2014 can\u2019t put it down. Unlike the mop. That, I put down.',
+  'The rotisserie said it couldn\u2019t eat another bite \u2014 it was already stuffed.',
+  'What do you call a sad espresso? A depresso. Restocked the machine anyway.',
+  'I made a belt out of watches once \u2014 total waist of time. Speaking of time, here\u2019s your day.',
+  'My soup cracked a joke mid-service. A little too saucy for the pass.',
+  'I\u2019m on a seafood diet. I see food, I log it, I move on with my life.',
+  'What do you call an alligator in a vest? An investigator. He found nothing wrong with tonight\u2019s prep.',
   // ── Film ──
   'I\u2019m going to make it an offer it can\u2019t refuse: preventive maintenance.',
   'Say hello to my little torque wrench. The gasket never stood a chance.',
@@ -2508,80 +2522,6 @@ const CLIPPY_QUOTES = [
   'I see dead pilot lights. Relit two of them personally.',
   'May the fourth be with the fryer oil \u2014 changed today, right on schedule.',
   'Show me the money \u2014 or at least the invoice. Either works.',
-  // ── Back of house (jokes you earn on the line) ──
-  'The walk-in: part refrigeration, part therapy office. Today it was used exclusively for vegetables. A good sign.',
-  'The special is whatever we ordered too much of, announced with total confidence. It sold out. The system works.',
-  'Clean side towels are the real kitchen currency. I witnessed a trade today. Both parties left satisfied.',
-  '“Consulting,” in chef, means “between restaurants.” Our vendors, thankfully, are not consulting.',
-  'A stage mentioned he trailed at Noma, then asked where we keep the salt. The line has thoughts.',
-  'Someone said “heard” to their spouse at home again. The kitchen follows you out. It always does.',
-  'Family meal was built from trim and spite tonight, which is the traditional recipe.',
-  'The dish pit runs the restaurant. Everyone knows it. Tonight the dish pit was gracious about it.',
-  'The burner that only lights off the lighter-on-a-string lit first try. The string stays. Superstition is a maintenance protocol.',
-  'Mise en place is French for “I refuse to be surprised today.” Nobody was.',
-  'The tasting spoons are gone again. Forty were purchased in March. The universe keeps what it needs.',
-  'Painter’s tape and a Sharpie: the entire inventory system of professional cooking. Ours is color-coded, because we’re fancy.',
-  'Tweezers appeared on the pass. The old-school sauté guy looked at them like they insulted his mother. The plate was gorgeous, though.',
-  'The Robot Coupe ate a deli cup today and felt nothing. That machine has never felt anything.',
-  'Every burn on the line is officially from “reaching over the salamander.” No cook has ever been burned another way. Ever.',
-  '“All day” is arithmetic, “behind” is survival, “86” is heartbreak. Tonight had no heartbreak.',
-  'The health inspector always arrives mid-rush. It’s not a rule, but it is a law.',
-  'The menu says “seasonal” because the chef changed his mind. Same thing, better story.',
-  'Crocs on the line: zero style, immortal ankles. The floor mats respect nothing else.',
-  'Nine quarts of prep, all labeled, all dated, all faced forward. Whoever did this is either a saint or leaving for culinary school.',
-  // ── Cellar talk (somm-certified) ──
-  'The somm said “crushed rocks and forest floor,” the table nodded, and the bottle sold. Nobody present has eaten either.',
-  '“It’s not flawed, it’s natural” — five words that sell the funky bottle or start a fight, depending on the somm.',
-  'Somms sell Burgundy all night and go home to Riesling and a cold lager. The pin doesn’t lie; the fridge does.',
-  'Nobody orders the cheapest bottle; everyone orders the second-cheapest. The list is built accordingly, and we say nothing.',
-  'A guest sent back a perfect bottle as “corked” and happily drank a flawed one. The ledger balances itself.',
-  'Sherry: the wine somms adore and guests fear. We sold one glass today. The somm is framing the ticket.',
-  'Blind tasting: “Chablis, 2019, old vines.” It was Chilean. The confidence never flinched. That’s the actual skill.',
-  'Decanting is ten percent chemistry, ninety percent theater. The candle is load-bearing.',
-  // ── Agave & the stick (bar-certified) ──
-  'Mezcal is not smoky tequila, and saying so is the fastest known way to age a bartender.',
-  'The tobalá took twenty-five years and a hillside to grow. The guest asked for it with Sprite. We survived, barely.',
-  'Sal de gusano on the rim, patience in the pour. The table that shot it has been forgiven. Mostly.',
-  'He ordered an Old Fashioned and audited the build like a site inspector. We passed. Bartenders know “the audit” well.',
-  'An egg-white cocktail ordered mid-Friday-rush is a declaration of war the guest doesn’t know they made.',
-  'Industry night is Monday. Everyone drinking well on a Monday has burn scars and a good knife roll. Take care of them.',
-  'The dry shake was loud enough to count as percussion. The foam was perfect. Worth it.',
-  // ── Facilities (jokes only the person who calls the vendor gets) ──
-  'The vendor’s window was “between 8 and 5.” He arrived at 4:58, as is tradition, and fixed it in nine minutes.',
-  'The OEM part is $400. The identical part is $40. The difference is a logo and my dignity. We ordered smart.',
-  '“Discontinued part” on a four-year-old machine — refrigeration’s boldest art form. We found one anyway.',
-  'The reach-in stays organized until exactly one minute into service. Tonight it lasted four. A record.',
-  'Compressor techs and oyster shuckers share a superpower: they hear the problem before they see it. Ours heard it in time.',
-  'The espresso was dialed at 7, perfect at 8, and “a little bitter” to one guest at 9. The grinder and I remain at peace.',
-  // ── Cellar talk II (pin-certified) ──
-  'A guest asked for “something like Caymus.” The somm smiled, died a little, and poured something better. Everyone won.',
-  '“Dry” means tannic to guests and bone-dry to somms, which is why the conversation takes four minutes and ends in Sancerre.',
-  'The $8 waiter’s friend opens bottles better than the $200 Laguiole. The Laguiole stays in the somm’s pocket anyway. It’s about the pocket.',
-  'Stemware was polished for two hours tonight. A Zalto broke anyway. There was a small funeral. Attendance was mandatory.',
-  'The Coravin needle went in and the whole floor held its breath. It’s a $300 bottle and a $12 argon prayer.',
-  'Grower Champagne is “farmer fizz” to the somm and “is this Prosecco?” to table twelve. Both left happy. That’s the job.',
-  'Orange wine is not made from oranges, a sentence said four times this week with decreasing serenity.',
-  'The guest brought corkage — a bottle we sell, from our own list. The somm opened it beautifully. The staff meal discussion was rich.',
-  'The vintage was declared “a challenging year,” which is somm for “buy it anyway, I already did.”',
-  'The somm’s home fridge contains beer, leftover staff-meal rice, and one open pét-nat. The cellar downstairs holds his actual feelings.',
-  'Allocation day: two bottles arrived, six regulars were promised one each. The somm has entered witness protection.',
-  // ── The well (bar-manager certified) ──
-  'A daiquiri is how bartenders shake hands. Ours came back at three ounces, ice-cold, no straw needed. Handshake accepted.',
-  'Fernet is the industry handshake; whoever ordered it tonight has definitely closed a bar before. They tipped accordingly.',
-  'A Ramos Gin Fizz ordered on a Friday is a twelve-minute hostage situation. The bartender smiled through all of it. Raise that person.',
-  'Espresso martini at 1:45am: the official cocktail of “I have decisions left to make tonight.” The machine sighed. We complied.',
-  '“Dealer’s choice” sounds like freedom but arrives with five follow-up questions and a citrus allergy. The bartender nailed it anyway.',
-  '“Make it strong” costs the same as “make it correct,” and only one of them tastes good. He got correct. He thanked us.',
-  'The Luxardo cherries are $30 a jar and table eight asked for “a few extra.” The bartender counted out three like a pharmacist.',
-  'The clarified milk punch took three days and a coffee filter’s worth of patience. The guest said it “tastes like juice.” Highest possible praise, technically.',
-  'Fruit-fly season opened this week. The garnish station is now a demilitarized zone with a vinegar trap treaty.',
-  'Pour cost came in under 20% and the bar manager walked differently all day. Spreadsheet swagger is real.',
-  'We batched the Negronis and gained four seconds a ticket. The bar manager speaks of it the way generals speak of victories.',
-  'Out of Angostura is a 911 call, not an 86. The rep was texted at 7:04am. He understood. They always understand.',
-  'A good barback is worth three bartenders, and ours proved it twice before 8pm. Nobody saw him do it. That’s the point.',
-  'Counting bottles by flashlight at 1am is the bar manager’s true cardio. Inventory matched. Miracles happen on Tuesdays.',
-  'The whiskey guy asked for it neat, then asked for one ice cube. The bartender brought the cube on a saucer, like a jewel. Detente.',
-  'The keg lines got cleaned today, which guests will never know and draft beer will never forget.',
 ];
 // The static pool line for a date — deterministic, always available. Used as
 // the fallback when Clippy hasn't authored a fresh line for the day (offline
@@ -2722,14 +2662,7 @@ async function dlogAskLLM(system, user, maxTokens) {
 async function generateClippyDailyQuote(d, dateStr) {
   const summary = dlogDaySummary(d);
   if (!summary) return null;   // nothing happened → let the static pool carry it
-  // Fixed exemplars (not index refs — the pool gets reshuffled) that hit the
-  // INSIDER register: jokes a professional would nod at, never a pun.
-  const examples = [
-    dlogStaticQuote(dateStr),
-    'The somm said “crushed rocks and forest floor,” the table nodded, and the bottle sold. Nobody present has eaten either.',
-    'The vendor’s window was “between 8 and 5.” He arrived at 4:58, as is tradition, and fixed it in nine minutes.',
-    'Every burn on the line is officially from “reaching over the salamander.” No cook has ever been burned another way. Ever.',
-  ].filter(Boolean);
+  const examples = [dlogStaticQuote(dateStr), CLIPPY_QUOTES[3], CLIPPY_QUOTES[70]].filter(Boolean);
   const tidy = s => String(s || '')
     .replace(/^\s*\d+[.)\]:\-]\s*/, '')                 // strip "1." / "2)" numbering
     .replace(/^["'“”\-\s]+|["'“”\s]+$/g, '')            // strip wrapping quotes/dashes
@@ -2737,13 +2670,13 @@ async function generateClippyDailyQuote(d, dateStr) {
 
   // ── Step 1: draft three distinct candidates ────────────────────────────
   const draftSys = [
-    'You are Clippy, the wry maintenance daemon for a group of serious restaurants (a masa-driven Mexican spot, a seafood house, a cocktail bar).',
+    'You are Clippy, the wry maintenance daemon for a group of restaurants.',
     'Draft THREE distinct one-line openers for the daily facility report, each riffing on the ACTUAL day you are given.',
-    'Voice: INSIDER first. You have worked every station in the building. The joke must be one only a professional cook, sommelier, bartender, barista, or the person who calls the refrigeration vendor fully gets — walk-in-as-therapy-room, second-cheapest-bottle economics, "between 8 and 5" vendor windows, the stage who trailed at Noma. Deadpan and dry, like a veteran chef de cuisine reading the log aloud.',
-    'Comedy rules: land ONE joke per line and get out. Trade knowledge beats wordplay. Specific beats generic. NO puns, NO dad jokes, nothing a civilian would write. Never inspirational, never a metaphor about maintenance being like cooking.',
+    'Voice: FUNNY first — deadpan, dry, a little absurd. Aim for an actual laugh, not a nod. Kitchen chaos, somm confessions, Roman history with a punchline, and your own handless-paperclip predicament are all fair game.',
+    'Comedy rules: land ONE joke per line and get out. Specific beats generic. Self-deprecation beats smugness. A pun is allowed only if it is excellent. Never inspirational, never a metaphor about maintenance being like cooking.',
     'Rules: each is one sentence (or two very short ones), max ~28 words. No emojis. No surrounding quotation marks. React like a clever colleague; do NOT list the data back. Do not sign it.',
     'Return ONLY the three lines, numbered 1., 2., 3. — nothing else.',
-    'The register to hit (examples):',
+    'The sound to hit (examples):',
     ...examples.map(e => '- ' + e),
   ].join('\n');
   const draftUser = "Today's report facts:\n" + summary + "\n\nDraft Clippy's three candidate openers.";
@@ -2760,7 +2693,7 @@ async function generateClippyDailyQuote(d, dateStr) {
   try {
     const judgeSys = [
       'You are Clippy. Below are candidate openers for today\'s report.',
-      'Pick the ONE a twenty-year industry veteran would actually laugh at: insider knowledge, deadpan, specific. Disqualify puns, dad jokes, anything inspirational, and anything that merely restates the data.',
+      'Pick the ONE that is genuinely the FUNNIEST while still sounding like you: deadpan, dry, specific. Disqualify anything inspirational or that merely restates the data.',
       'Reply with ONLY the number of the best line (1, 2, or 3). Nothing else.',
     ].join('\n');
     const judgeUser = candidates.map((c, i) => (i + 1) + '. ' + c).join('\n');
