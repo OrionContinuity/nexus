@@ -1671,5 +1671,100 @@
   }
 
 
+  // ════════════════════════════════════════════════════════════════════
+  // DEEP LINKS — NX.go
+  // ════════════════════════════════════════════════════════════════════
+  //
+  // One router for every "take me to the thing" jump. In-app arrows call
+  // NX.go('eq:<id>') directly; styled-email rows carry ?go=eq:<id> URLs
+  // that resolve here once the PIN screen has done its job.
+  //
+  //   eq:<uuid>    → Equipment view, unit detail
+  //   wo:<uuid>    → Work-order detail sheet (lazy-loads the module)
+  //   card:<id>    → Board view, card open (boardOpenIntent)
+  //   dlog         → Daily log view
+  //
+  // The lexical-NX trap applies: modules register on app.js's `const NX`,
+  // not window.NX — resolve the live object at CALL time, never at load.
+  function liveNX() {
+    try { if (typeof NX !== 'undefined' && NX) return NX; } catch (_) {}
+    return window.NX;
+  }
+  function nxGo(target) {
+    const m = String(target || '').match(/^(eq|wo|card|dlog):?(.*)$/);
+    if (!m) return false;
+    const L = liveNX();
+    const kind = m[1], id = (m[2] || '').trim();
+    const nav = (view) => {
+      try {
+        document.querySelector('.nav-tab[data-view="' + view + '"]')?.click();
+        document.querySelector('.bnav-btn[data-view="' + view + '"]')?.click();
+      } catch (_) {}
+    };
+    if (kind === 'eq' && id) {
+      nav('equipment');
+      // The equipment module lazy-loads with the view; poll for its API,
+      // then give its data load a beat before opening the detail sheet.
+      let tries = 0;
+      const attempt = () => {
+        const api = L.modules && L.modules.equipment && L.modules.equipment.openDetail;
+        if (api) { setTimeout(() => { try { api(id); } catch (_) {} }, 400); }
+        else if (++tries < 40) setTimeout(attempt, 250);
+      };
+      setTimeout(attempt, 300);
+      return true;
+    }
+    if (kind === 'wo' && id) {
+      const openWo = () => { try { L.modules.workOrders.openDetail(id); } catch (_) {} };
+      if (L.modules && L.modules.workOrders) openWo();
+      else {
+        const s = document.createElement('script');
+        s.src = 'js/work-orders.js?v=6';
+        s.onload = openWo;
+        document.body.appendChild(s);
+      }
+      return true;
+    }
+    if (kind === 'card' && id) {
+      L.boardOpenIntent = { cardId: /^\d+$/.test(id) ? parseInt(id, 10) : id };
+      nav('board');
+      return true;
+    }
+    if (kind === 'dlog') { nav('log'); return true; }
+    return false;
+  }
+  // Register on BOTH objects: window.NX now (this file's own handle), and
+  // the lexical NX once app.js has created it.
+  window.NX.go = nxGo;
+  const goStamp = setInterval(() => {
+    const L = liveNX();
+    if (L && !L.go) L.go = nxGo;
+    if (L && L.go) clearInterval(goStamp);
+  }, 300);
+  setTimeout(() => clearInterval(goStamp), 30000);
+
+  // Boot half: a ?go=… param arrives from an email link. Strip it from
+  // the URL immediately (so a refresh or the login redirect can't re-fire
+  // it) and run it once someone is logged in and the nav exists.
+  (function bootGo() {
+    let pending = null;
+    try {
+      const u = new URL(window.location.href);
+      pending = u.searchParams.get('go');
+      if (pending) {
+        u.searchParams.delete('go');
+        window.history.replaceState({}, '', u.pathname + (u.searchParams.toString() ? '?' + u.searchParams.toString() : '') + u.hash);
+      }
+    } catch (_) {}
+    if (!pending) return;
+    const started = Date.now();
+    const timer = setInterval(() => {
+      const L = liveNX();
+      const ready = L && L.currentUser && document.querySelector('.nav-tab, .bnav-btn');
+      if (ready) { clearInterval(timer); try { nxGo(pending); } catch (_) {} }
+      else if (Date.now() - started > 15 * 60 * 1000) clearInterval(timer);
+    }, 500);
+  })();
+
   console.log('[domain] v2 loaded — ' + Object.keys(D).length + ' business events registered');
 })();

@@ -103,7 +103,7 @@
       : String(s || '');
   }
   var GMAIL_SEND_SCOPE = ['https://www.googleapis.com/auth/gmail.send'];
-  var STYLED_ENGINE_BUILD = 'v205';   // shown in the status strip — ends "which file am I running" forever
+  var STYLED_ENGINE_BUILD = 'v209';   // shown in the status strip — ends "which file am I running" forever
 
   // ── SELF-CONTAINED token machinery ─────────────────────────────────
   // Styled send must not depend on ANY other file being fresh (zombie
@@ -283,6 +283,20 @@
       '@media (prefers-reduced-motion:reduce){.nx-cmp-bg,.nx-cmp{transition:none}}';
     document.head.appendChild(st);
   }
+
+  // ── Exports for the styled BATCH sender (daily-log "Email each location").
+  // Same machinery the composer's own Send uses, surfaced so the batch
+  // sheet can fire N multipart sends without opening N composer sheets.
+  T.styledGmailSend = sendGmailHtml;   // (to, cc, bcc, subject, text, html) → {ok}|{ok:false,err}
+  T.styledSendState = function () {
+    if (gmailStoredToken()) return 'ready';
+    return gmailClientId() ? 'consent-needed' : 'no-client-id';
+  };
+  T.recallRecipients = function (key) {   // remote-first, local fallback
+    return loadRemote(key)
+      .then(function (remote) { return remote || recall(key) || null; })
+      .catch(function () { return recall(key) || null; });
+  };
 
   T.composeEmail = function (opts) {
     opts = opts || {};

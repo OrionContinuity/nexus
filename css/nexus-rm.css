@@ -2758,3 +2758,70 @@
 }
 #cleanView .cleanlite-mini.is-accent { border-color: var(--nx-gold, #d4a44e); color: var(--nx-gold, #d4a44e); }
 #cleanView .cleanlite-mini + .cleanlite-mini { margin-left: 8px; }
+
+/* ═══ Daily notes revamp (v209) — NEXUS urgency ladder + glance + arrows ═══
+   Alfredo's rule: no reds, no greens anywhere. Severity is FILL WEIGHT in
+   the brand palette, matching the styled email's ladder exactly:
+     down/urgent → solid ink pill (renders cream-on-dark in dark theme,
+                    ink-on-light in light theme via --nx-text-strong/bg)
+     overdue     → solid gold
+     due/attn    → hollow gold
+     info        → sand */
+#dailylogView .dlog-eqstatus-pill-down {
+  background: var(--nx-text-strong, #f6f0e2); color: var(--nx-bg, #0e1320);
+}
+#dailylogView .dlog-eqstatus-pill-service {
+  background: transparent; border: 1.5px solid var(--nx-gold, #d4a44e);
+  color: var(--nx-gold, #d4a44e); padding: 2px 7px;
+}
+#dailylogView .bw-pri-urgent {
+  background: var(--nx-text-strong, #f6f0e2); color: var(--nx-bg, #0e1320);
+  border: 1px solid var(--nx-text-strong, #f6f0e2);
+}
+#dailylogView .dlog-act-pill-status.to-down,
+#dailylogView .dlog-act-pill-status.to-broken,
+#dailylogView .dlog-act-pill-issue { background: var(--nx-text-strong, #f6f0e2); }
+#dailylogView .dlog-act-pill-status.to-operational,
+#dailylogView .dlog-act-pill-create,
+#dailylogView .dlog-act-pill-paid { background: var(--nx-gold, #d4a44e); }
+#dailylogView .dlog-tk-lane-working { color: var(--nx-gold, #d4a44e); }
+
+/* Section headers speak the email's language: gold eyebrow over a rule. */
+#dailylogView .dlog-section-title {
+  text-transform: uppercase; letter-spacing: .09em;
+  font-size: 12.5px; color: var(--nx-gold, #d4a44e);
+}
+#dailylogView details[open] > .dlog-section-header {
+  border-bottom: 1px solid var(--nx-gold-line, rgba(212,164,78,.18));
+}
+/* Severity edge — gold tiers only. Hot = something is down/urgent inside;
+   warm = open work inside. */
+#dailylogView .dlog-section.sev-hot  { border-left: 3px solid var(--nx-gold, #d4a44e); }
+#dailylogView .dlog-section.sev-warm { border-left: 3px solid var(--nx-gold-line-2, rgba(212,164,78,.45)); }
+
+/* At-a-glance strip — the day's headline, chips scroll to their section. */
+#dailylogView .dlog-glance { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 14px; }
+#dailylogView .dlog-glance-chip {
+  border-radius: 999px; padding: 7px 14px;
+  font-family: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer;
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,.22));
+  background: var(--nx-gold-faint, rgba(212,164,78,.10)); color: var(--nx-muted, #9aa3b2);
+}
+#dailylogView .dlog-glance-chip.g-down {
+  background: var(--nx-text-strong, #f6f0e2); color: var(--nx-bg, #0e1320);
+  border-color: var(--nx-text-strong, #f6f0e2);
+}
+#dailylogView .dlog-glance-chip.g-od {
+  background: var(--nx-gold, #d4a44e); color: var(--nx-gold-on, #101626);
+  border-color: var(--nx-gold, #d4a44e);
+}
+
+/* Row arrows — the minimalist › door into the real thing. */
+#dailylogView .dlog-row-go {
+  flex-shrink: 0; margin-left: auto; width: 30px; height: 30px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 999px; border: 1px solid var(--nx-gold-line, rgba(212,164,78,.25));
+  background: transparent; color: var(--nx-gold, #d4a44e);
+  font-size: 17px; font-weight: 700; line-height: 1; cursor: pointer; padding: 0;
+}
+#dailylogView .dlog-row-go:hover { background: var(--nx-gold-faint, rgba(212,164,78,.12)); }

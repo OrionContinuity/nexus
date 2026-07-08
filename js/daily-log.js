@@ -1273,6 +1273,7 @@ function render() {
 
       <form class="dlog-form" id="dlogForm" autocomplete="off">
         ${renderVendorDatalist()}
+        ${renderGlanceStrip()}
         ${renderLocationPills(d)}
         ${(state.activeLoc && state.activeLoc !== 'all')
           ? renderActiveLocation(d)
@@ -1307,6 +1308,41 @@ function render() {
     </div>
   `;
   wireForm();
+}
+
+// At-a-glance strip — the same headline math the email builders use
+// (equipment down, urgent cards, PM overdue w/ scheduled note, open work),
+// rendered as ladder chips that scroll to their section on tap.
+function renderGlanceStrip() {
+  const live = eq => eq && eq.archived !== true && String(eq.status || '').toLowerCase() !== 'retired';
+  const down = (state.equipmentDown || []).filter(live).length;
+  const sl = state.ticketSlices || {};
+  const openCards = (sl.open || []).concat(sl.working || []);
+  const urgent = openCards.filter(c => (c.priority || '').toLowerCase() === 'urgent').length;
+  const open = openCards.length;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const nextD = (lastIso, days) => {
+    const n = parseInt(days, 10);
+    if (!lastIso || !n) return null;
+    const dd = new Date(String(lastIso).slice(0, 10) + 'T00:00:00');
+    if (isNaN(dd)) return null;
+    dd.setDate(dd.getDate() + n);
+    return dd;
+  };
+  let pmOver = 0, pmSched = 0;
+  (state.equipmentHealth || []).filter(live).forEach(eq => {
+    const nx = eq.next_pm_date
+      ? new Date(String(eq.next_pm_date).slice(0, 10) + 'T00:00:00')
+      : nextD(eq.last_pm_date, eq.pm_interval_days);
+    if (nx && !isNaN(nx) && nx < today) { pmOver++; if (pmConfirmNote(eq.id)) pmSched++; }
+  });
+  const chips = [];
+  if (down)   chips.push(`<button type="button" class="dlog-glance-chip g-down" data-glance="dlogSecEq">${down} down</button>`);
+  if (urgent) chips.push(`<button type="button" class="dlog-glance-chip g-down" data-glance="dlogSecTickets">${urgent} urgent</button>`);
+  if (pmOver) chips.push(`<button type="button" class="dlog-glance-chip g-od" data-glance="dlogSecEq">${pmOver} PM overdue${pmSched ? ` (${pmSched} scheduled)` : ''}</button>`);
+  if (open)   chips.push(`<button type="button" class="dlog-glance-chip" data-glance="dlogSecTickets">${open} open</button>`);
+  if (!chips.length) return '';
+  return `<div class="dlog-glance">${chips.join('')}</div>`;
 }
 
 function renderAddLocationControl(d) {
@@ -1523,7 +1559,7 @@ function renderEquipmentStatusSection(d) {
 
   if (!items.length) {
     return `
-      <details class="dlog-section">
+      <details class="dlog-section" id="dlogSecEq">
         <summary class="dlog-section-header">
           <span class="dlog-section-title">Equipment Status</span>
           <span class="dlog-section-count">0</span>
@@ -1554,6 +1590,7 @@ function renderEquipmentStatusSection(d) {
             <span class="dlog-eqstatus-name">${esc(eq.name || 'Untitled equipment')}</span>
             <span class="dlog-eqstatus-meta">${metaBits ? esc(metaBits) : ''}</span>
           </div>
+          <button type="button" class="dlog-row-go" data-go="eq:${esc(eq.id)}" title="Open in Equipment" aria-label="Open ${esc(eq.name || 'equipment')}">›</button>
         </div>
         <textarea
           class="dlog-eqstatus-note"
@@ -1588,8 +1625,9 @@ function renderEquipmentStatusSection(d) {
       </div>`;
   }).join('');
 
+  const hasDown = items.some(eq => /down|broken/.test(String(eq.status || '').toLowerCase()));
   return `
-    <details class="dlog-section" open>
+    <details class="dlog-section ${hasDown ? 'sev-hot' : 'sev-warm'}" id="dlogSecEq" open>
       <summary class="dlog-section-header">
         <span class="dlog-section-title">Equipment Status</span>
         <span class="dlog-section-count">${items.length}</span>
@@ -1726,6 +1764,7 @@ function renderPmsSection() {
             <div class="dlog-act-line"><b>${esc(eqName)}</b></div>
             <div class="dlog-act-detail">by ${who}${cost}</div>
           </div>
+          ${p.equipment_id ? `<button type="button" class="dlog-row-go" data-go="eq:${esc(p.equipment_id)}" title="Open in Equipment" aria-label="Open ${esc(eqName)}">›</button>` : ''}
         </div>`;
     }).join('');
     return `<div style="margin-bottom:8px">
@@ -1734,7 +1773,7 @@ function renderPmsSection() {
       </div>`;
   }).join('');
   return `
-    <details class="dlog-section" open>
+    <details class="dlog-section" id="dlogSecPms" open>
       <summary class="dlog-section-header">
         <span class="dlog-section-title">PMs Logged Today</span>
         <span class="dlog-section-count">${pms.length}</span>
@@ -1946,6 +1985,7 @@ function renderTicketsSection(d) {
           <div class="dlog-tk-loc">${metaBits.join(' · ')}</div>
           ${detail ? `<div class="dlog-tk-detail">${esc(detail)}</div>` : ''}
         </div>
+        ${c.id != null ? `<button type="button" class="dlog-row-go" data-go="card:${esc(String(c.id))}" title="Open on Board" aria-label="Open card on board">›</button>` : ''}
       </div>`;
   };
 
@@ -1989,8 +2029,9 @@ function renderTicketsSection(d) {
       <textarea data-path="ticket_notes.${key}" rows="2" placeholder="${esc(placeholder)}">${esc(notes[key] || '')}</textarea>
     </label>`;
 
+  const urgentCount = tagged.filter(t => (t.c.priority || '').toLowerCase() === 'urgent').length;
   return `
-    <details class="dlog-section" ${totalCount > 0 ? 'open' : ''}>
+    <details class="dlog-section ${urgentCount ? 'sev-hot' : (openCount + workingCount) ? 'sev-warm' : ''}" id="dlogSecTickets" ${totalCount > 0 ? 'open' : ''}>
       <summary class="dlog-section-header">
         <span class="dlog-section-title">Board Tickets</span>
         <span class="dlog-section-count">${totalCount}</span>
@@ -2053,6 +2094,35 @@ function renderCleaningSection(d) {
 function wireForm() {
   const view = document.getElementById('dailylogView');
   if (!view) return;
+
+  // ── One-time navigation delegation: › row arrows route through NX.go
+  // (deep-link router in domain.js), at-a-glance chips scroll to their
+  // section. Document-level + flag so re-renders never stack handlers.
+  if (!state._dlogNavWired) {
+    state._dlogNavWired = true;
+    document.addEventListener('click', (e) => {
+      const go = e.target.closest && e.target.closest('#dailylogView [data-go]');
+      if (go) {
+        e.preventDefault();
+        e.stopPropagation();
+        const target = go.getAttribute('data-go');
+        const router = (window.NX && (NX.go || window.NX.go)) || null;
+        if (router) { router(target); return; }
+        // Stale domain.js fallback: at least equipment rows still open.
+        const m = String(target).match(/^eq:(.+)$/);
+        if (m && NX.modules?.equipment?.openDetail) NX.modules.equipment.openDetail(m[1]);
+        return;
+      }
+      const gl = e.target.closest && e.target.closest('#dailylogView [data-glance]');
+      if (gl) {
+        const sec = document.getElementById(gl.getAttribute('data-glance'));
+        if (sec) {
+          try { sec.open = true; } catch (_) {}
+          try { sec.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_) { sec.scrollIntoView(); }
+        }
+      }
+    }, true);
+  }
 
   // ── Date input
   const dateInput = view.querySelector('#dlogDateInput');
@@ -3109,16 +3179,153 @@ function buildLocationEmailBody(loc, dateStr, d) {
 // pre-filled with that location's recap + its saved recipients). The user just
 // hits Send on each tab. Browsers may block multiple pop-ups the first time —
 // allow pop-ups for the site once and they'll all open thereafter.
+// ── ✉️ Email each location ──────────────────────────────────────────────
+// Full styled batch (v209): one sheet listing every location with its
+// saved recipients; per-row Send or one "Send all" — each goes out as the
+// SAME styled multipart the ✨ button sends (typesetter + theme + deep
+// links). Falls back to the classic open-N-Gmail-drafts flow when the
+// styled machinery isn't available on this device.
 async function emailEachLocation() {
   const log = state.currentLog;
   const d = hydrateData(log && log.data);
   const dateStr = (log && log.log_date) || (d.header && d.header.date) || todayISO();
-  // Fire-and-forget: don't block, and critically don't await before the
-  // window.open loop below — a delay here would drop us out of the click
-  // gesture and trip pop-up blockers. The opener uses the cached line or the
-  // static pool.
   try { Promise.resolve(ensureClippyDailyQuote(d, dateStr)).catch(() => {}); } catch (_) {}
   if (!Array.isArray(d.locations) || !d.locations.length) { if (NX.toast) NX.toast('No locations to email', 'info'); return; }
+
+  // Lexical-NX trap: the composer registers on app.js's `const NX`, not
+  // window.NX — check the lexical object FIRST.
+  const T = (typeof NX !== 'undefined' && NX && NX.styledGmailSend) ? NX
+    : (window.NX && window.NX.styledGmailSend) ? window.NX : null;
+  const canStyle = !!(T && T.styledSendState && T.styledSendState() !== 'no-client-id');
+  if (!canStyle) { emailEachLocationClassic(d, dateStr); return; }
+
+  let theme = 'light';
+  try { theme = localStorage.getItem('nx_styled_email_theme') || 'light'; } catch (_) {}
+  const links = dlogBuildEmailLinks();
+
+  // Build the batch: one entry per location with content.
+  const rows = [];
+  for (const loc of d.locations) {
+    const body = buildLocationEmailBody(loc, dateStr, d);
+    if (!body || body.split('\n').filter(l => l.trim()).length < 2) continue;
+    const locKey = normLocKey(loc.label);
+    const recip = await T.recallRecipients('dlog:' + locKey).catch(() => null) || {};
+    rows.push({
+      key: locKey,
+      label: loc.label || 'Location',
+      subject: 'Daily Log — ' + (loc.label || 'Location') + ' — ' + fmtLogDateLong(dateStr),
+      body,
+      to: recip.to || '',
+      cc: Array.isArray(recip.cc) ? recip.cc : [],
+      bcc: Array.isArray(recip.bcc) ? recip.bcc : [],
+      status: 'idle',
+    });
+  }
+  if (!rows.length) { if (NX.toast) NX.toast('No location has notes yet', 'info'); return; }
+
+  const overlay = document.createElement('div');
+  overlay.className = 'dlog-batch-bg';
+  overlay.innerHTML = `
+    <div class="dlog-batch">
+      <div class="dlog-batch-head">
+        <div class="dlog-batch-title">✉️ Email each location</div>
+        <button type="button" class="dlog-batch-close">Close</button>
+      </div>
+      <div class="dlog-batch-sub">Each sends the same ✨ styled email as the single button — theme: ${esc(theme)}. Recipients are the ones saved per location.</div>
+      <div class="dlog-batch-list">
+        ${rows.map((r, i) => `
+          <div class="dlog-batch-row" data-i="${i}">
+            <div class="dlog-batch-main">
+              <div class="dlog-batch-loc">${esc(r.label)}</div>
+              <div class="dlog-batch-to">${r.to ? esc(r.to) + (r.cc.length ? ' · +' + r.cc.length + ' cc' : '') : '<span class="dlog-batch-none">no saved recipients — tap to set up</span>'}</div>
+            </div>
+            <span class="dlog-batch-state" data-state="${i}"></span>
+            <button type="button" class="dlog-batch-send" data-send="${i}" ${r.to ? '' : 'disabled'}>Send</button>
+          </div>`).join('')}
+      </div>
+      <div class="dlog-batch-foot">
+        <button type="button" class="dlog-batch-all">✨ Send all (${rows.filter(r => r.to).length})</button>
+      </div>
+    </div>`;
+  if (!document.getElementById('dlogBatchStyles')) {
+    const st = document.createElement('style');
+    st.id = 'dlogBatchStyles';
+    st.textContent = `
+      .dlog-batch-bg{position:fixed;inset:0;z-index:10001;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.55)}
+      .dlog-batch{width:100%;max-width:560px;max-height:88vh;overflow-y:auto;background:var(--nx-surface-solid,#161d2e);border:1px solid var(--nx-gold-line,rgba(212,164,78,.24));border-bottom:none;border-radius:22px 22px 0 0;padding:16px 18px calc(16px + env(safe-area-inset-bottom))}
+      .dlog-batch-head{display:flex;align-items:center;justify-content:space-between}
+      .dlog-batch-title{font-family:var(--nx-font-display,'Outfit',sans-serif);font-size:17px;font-weight:700;color:var(--nx-text-strong,#f6f0e2)}
+      .dlog-batch-close{background:none;border:1px solid var(--nx-border,rgba(212,164,78,.2));border-radius:999px;color:var(--nx-muted,#9aa3b2);font-size:13px;padding:6px 14px;cursor:pointer}
+      .dlog-batch-sub{font-size:12.5px;color:var(--nx-muted,#9aa3b2);margin:6px 0 12px;line-height:1.5}
+      .dlog-batch-row{display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--nx-border,rgba(212,164,78,.16));border-radius:14px;margin-bottom:8px}
+      .dlog-batch-main{flex:1;min-width:0}
+      .dlog-batch-loc{font-size:14.5px;font-weight:700;color:var(--nx-text-strong,#f6f0e2)}
+      .dlog-batch-to{font-size:12px;color:var(--nx-muted,#9aa3b2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .dlog-batch-none{color:var(--nx-gold,#d4a44e)}
+      .dlog-batch-state{font-size:12px;color:var(--nx-gold,#d4a44e);flex-shrink:0}
+      .dlog-batch-send{flex-shrink:0;border:1px solid var(--nx-gold,#d4a44e);background:transparent;color:var(--nx-gold,#d4a44e);border-radius:999px;font-size:12.5px;font-weight:700;padding:8px 16px;cursor:pointer}
+      .dlog-batch-send:disabled{opacity:.4;cursor:default}
+      .dlog-batch-foot{padding-top:8px}
+      .dlog-batch-all{width:100%;padding:14px;border-radius:14px;border:1px solid var(--nx-gold,#d4a44e);background:var(--nx-gold-faint,rgba(212,164,78,.1));color:var(--nx-gold,#d4a44e);font-size:15px;font-weight:700;cursor:pointer}
+      .dlog-batch-all:disabled{opacity:.5;cursor:default}`;
+    document.head.appendChild(st);
+  }
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  overlay.querySelector('.dlog-batch-close').addEventListener('click', () => overlay.remove());
+
+  const setState = (i, txt) => {
+    const el = overlay.querySelector(`[data-state="${i}"]`);
+    if (el) el.textContent = txt;
+  };
+  const sendOne = async (i) => {
+    const r = rows[i];
+    if (!r || !r.to || r.status === 'sent' || r.status === 'sending') return false;
+    r.status = 'sending';
+    setState(i, 'sending…');
+    const btn = overlay.querySelector(`[data-send="${i}"]`);
+    if (btn) btn.disabled = true;
+    const html = dlogTextToHtml(r.body, { dateStr, locLabel: r.label, theme, links });
+    const res = await T.styledGmailSend(r.to, r.cc, r.bcc, r.subject, r.body, html).catch(e => ({ ok: false, err: e && e.message }));
+    if (res && res.ok) { r.status = 'sent'; setState(i, '✓ sent'); return true; }
+    r.status = 'error';
+    setState(i, '✗ ' + String((res && res.err) || 'failed').slice(0, 40));
+    if (btn) btn.disabled = false;
+    return false;
+  };
+
+  overlay.querySelectorAll('[data-send]').forEach(btn => {
+    btn.addEventListener('click', () => sendOne(parseInt(btn.dataset.send, 10)));
+  });
+  // Rows without recipients open the normal styled composer for that
+  // location so the addresses get saved once — next batch has them.
+  overlay.querySelectorAll('.dlog-batch-row').forEach(rowEl => {
+    rowEl.addEventListener('click', (e) => {
+      if (e.target.closest('button')) return;
+      const r = rows[parseInt(rowEl.dataset.i, 10)];
+      if (!r || r.to) return;
+      overlay.remove();
+      state.activeLoc = r.key;
+      openDailyLogStyledEmail();
+    });
+  });
+  overlay.querySelector('.dlog-batch-all').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    let sent = 0, failed = 0;
+    for (let i = 0; i < rows.length; i++) {
+      if (!rows[i].to || rows[i].status === 'sent') continue;
+      (await sendOne(i)) ? sent++ : failed++;
+    }
+    btn.disabled = false;
+    btn.textContent = failed ? `✨ Send all — ${sent} sent, ${failed} failed (retry)` : `✓ All sent (${sent})`;
+    if (NX.toast) NX.toast(failed ? `${sent} sent · ${failed} failed` : `${sent} location email${sent === 1 ? '' : 's'} sent`, failed ? 'error' : 'success', 5000);
+  });
+}
+
+// Classic fallback — the original open-N-Gmail-drafts flow, kept for
+// devices where the styled machinery isn't available.
+function emailEachLocationClassic(d, dateStr) {
   if (!(window.NX && NX.email && NX.email.gmailComposeUrl)) { if (NX.toast) NX.toast('Email engine not ready — try again', 'error'); return; }
   let opened = 0, empty = 0;
   d.locations.forEach(loc => {
@@ -3255,12 +3462,19 @@ async function openDailyLogEmail() {
 //     into a 3-line mess on phones)
 //   · 15–16px body, 1.5–1.6 line-height, whitespace rhythm instead of a
 //     hairline border under every row
+// THE URGENCY LADDER (Alfredo's rule: no reds, no greens — not NEXUS).
+// Severity is FILL WEIGHT within the brand palette, one hue family:
+//   down/urgent  → solid ink pill (heaviest thing on the page)
+//   overdue      → solid gold pill
+//   due/attention→ hollow gold pill (outline only)
+//   done         → sand pill with a ✓ (the check carries the meaning)
+//   info         → sand pill
 const DLOG_HTML = {
   cream: '#efe5cf', card: '#fffdf7', ink: '#2c2519', muted: '#6e6250',
   gold: '#96691f', goldSoft: '#d4a44e', line: '#e5d9bc',
-  redBg: '#f7e5e0', redTx: '#993d30',
-  amberBg: '#f6edd9', amberTx: '#7c5410',
-  greenBg: '#e5f0e4', greenTx: '#3a6647',
+  downBg: '#2c2519', downTx: '#f6eedb',
+  odBg: '#d4a44e', odTx: '#2c2519',
+  dueBd: '#b98a3a', dueTx: '#96691f',
   mutedBg: '#efe7d3',
   clipBg: '#f8f1e0', clipLine: '#e5d9bc',
   serif: "'Outfit', 'DM Sans', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
@@ -3269,12 +3483,14 @@ const DLOG_HTML = {
 };
 
 // Designed dark palette (not an inversion) — picked per send in the composer.
+// The ladder flips its heaviest step: on dark, "down" is a solid CREAM pill
+// (lightest = loudest on a dark page).
 const DLOG_HTML_DARK = {
   cream: '#1d1913', card: '#292319', ink: '#ede5d3', muted: '#b3a78e',
   gold: '#d4a44e', goldSoft: '#d4a44e', line: '#3a3323',
-  redBg: '#4a2a23', redTx: '#f2a08e',
-  amberBg: '#46381d', amberTx: '#ecc46f',
-  greenBg: '#263c2a', greenTx: '#a3d4ac',
+  downBg: '#f0e6d0', downTx: '#201c15',
+  odBg: '#d4a44e', odTx: '#201c15',
+  dueBd: '#a17c34', dueTx: '#d4a44e',
   mutedBg: '#332d1f',
   clipBg: '#312a1b', clipLine: '#453b26',
   serif: DLOG_HTML.serif, mono: DLOG_HTML.mono, sans: DLOG_HTML.sans,
@@ -3282,28 +3498,36 @@ const DLOG_HTML_DARK = {
 // Palette in effect for the current render (set by dlogTextToHtml).
 let DLOG_ACTIVE = DLOG_HTML;
 
+// Severity for a [TAG] label — drives the ladder step.
+function dlogTagSeverity(k) {
+  if (/^(DOWN|BROKEN|URGENT|CRITICAL|NOT OPERATIONAL|MISSED)$/.test(k)) return 'down';
+  if (k === 'OVERDUE') return 'od';
+  if (/^(DUE|NEEDS SERVICE|HIGH|PRIORITY)$/.test(k)) return 'due';
+  if (/^(DONE|REPAIRED|CLOSED|RESOLVED)$/.test(k)) return 'done';
+  return 'info';
+}
+
 function dlogHtmlTag(kind, P) {
   const C = P || DLOG_ACTIVE;
   const k = String(kind || '').toUpperCase();
-  const map = {
-    OVERDUE: [C.redBg, C.redTx], DOWN: [C.redBg, C.redTx], BROKEN: [C.redBg, C.redTx],
-    URGENT: [C.redBg, C.redTx], 'NOT OPERATIONAL': [C.redBg, C.redTx],
-    DUE: [C.amberBg, C.amberTx], 'NEEDS SERVICE': [C.amberBg, C.amberTx],
-    HIGH: [C.amberBg, C.amberTx], PRIORITY: [C.amberBg, C.amberTx],
-    DONE: [C.greenBg, C.greenTx], REPAIRED: [C.greenBg, C.greenTx],
-  };
-  const [bg, tx] = map[k] || [C.mutedBg, C.muted];
-  return `<span class="nx-pill" style="display:inline-block;padding:2px 8px;background:${bg};border-radius:6px;font-family:${C.sans};font-size:10.5px;font-weight:bold;letter-spacing:.04em;color:${tx};">${esc(k)}</span>`;
+  const sev = dlogTagSeverity(k);
+  const base = `display:inline-block;border-radius:6px;font-family:${C.sans};font-size:10.5px;font-weight:bold;letter-spacing:.04em;`;
+  if (sev === 'down') return `<span class="nx-pill nx-p-down" style="${base}padding:2px 8px;background:${C.downBg};color:${C.downTx};">${esc(k)}</span>`;
+  if (sev === 'od')   return `<span class="nx-pill nx-p-od" style="${base}padding:2px 8px;background:${C.odBg};color:${C.odTx};">${esc(k)}</span>`;
+  if (sev === 'due')  return `<span class="nx-pill nx-p-due" style="${base}padding:1px 7px;background:transparent;border:1.5px solid ${C.dueBd};color:${C.dueTx};">${esc(k)}</span>`;
+  if (sev === 'done') return `<span class="nx-pill nx-p-info" style="${base}padding:2px 8px;background:${C.mutedBg};color:${C.muted};">✓ ${esc(k)}</span>`;
+  return `<span class="nx-pill nx-p-info" style="${base}padding:2px 8px;background:${C.mutedBg};color:${C.muted};">${esc(k)}</span>`;
 }
 
-// Chip for "At a glance" fragments — tone inferred from the words.
+// Chip for "At a glance" fragments — tone inferred from the words, same
+// ladder as the tags.
 function dlogHtmlChip(text, P) {
   const C = P || DLOG_ACTIVE;
   const t = String(text || '').trim();
-  let bg = C.mutedBg, tx = C.muted;
-  if (/down|urgent/i.test(t)) { bg = C.redBg; tx = C.redTx; }
-  else if (/overdue/i.test(t)) { bg = C.amberBg; tx = C.amberTx; }
-  return `<span class="nx-pill" style="display:inline-block;padding:4px 12px;margin:0 6px 8px 0;background:${bg};border-radius:999px;font-family:${C.sans};font-size:12px;font-weight:bold;color:${tx};">${esc(t)}</span>`;
+  const base = `display:inline-block;padding:4px 12px;margin:0 6px 8px 0;border-radius:999px;font-family:${C.sans};font-size:12px;font-weight:bold;`;
+  if (/down|urgent|missed/i.test(t)) return `<span class="nx-pill nx-p-down" style="${base}background:${C.downBg};color:${C.downTx};">${esc(t)}</span>`;
+  if (/overdue/i.test(t)) return `<span class="nx-pill nx-p-od" style="${base}background:${C.odBg};color:${C.odTx};">${esc(t)}</span>`;
+  return `<span class="nx-pill nx-p-info" style="${base}background:${C.mutedBg};color:${C.muted};">${esc(t)}</span>`;
 }
 
 // Weather condition → emoji for the masthead row. Order matters: "partly
@@ -3334,6 +3558,14 @@ function dlogTextToHtml(text, meta) {
   const theme = meta.theme === 'dark' ? 'dark' : meta.theme === 'auto' ? 'auto' : 'light';
   DLOG_ACTIVE = theme === 'dark' ? DLOG_HTML_DARK : DLOG_HTML;
   const C = DLOG_ACTIVE;
+  // Deep links (meta.links: [{name, url}]) — row heads that match a name
+  // become doors into NEXUS, decorated with a quiet › arrow. HTML-only:
+  // the plain text stays byte-identical (the one-pipeline law).
+  const LINKS = {};
+  (meta.links || []).forEach(l => {
+    if (l && l.name && l.url) LINKS[String(l.name).trim().toLowerCase()] = l.url;
+  });
+  const linkFor = (head) => LINKS[String(head || '').trim().toLowerCase()] || null;
   const lines = String(text || '').replace(/\r/g, '').split('\n');
   const SEC_RE = /^─── (.+?) ─+(.*)$/;
   const SEC_ASCII_RE = /^--- (.+?) ---\s*(.*)$/;
@@ -3412,14 +3644,21 @@ function dlogTextToHtml(text, meta) {
       if (cut === segs.length && segs.length > 1) cut = 1;
       const head = segs.slice(0, cut).join(' — ');
       const tail = [segs.slice(cut).join(' — '), movedNote].filter(Boolean).join(' · ');
+      // "confirmed schedule" is good news — it reads in GOLD, not green
+      // (the ladder has no green; gold + ✓-style copy carry the meaning).
       const good = /confirmed schedule/i.test(tail);
+      const href = linkFor(head);
+      const headHtml = href
+        ? `<a href="${esc(href)}" style="color:inherit;text-decoration:none;"><span class="nx-ink" style="font-family:${C.sans};font-size:15px;font-weight:bold;color:${C.ink};line-height:1.45;">${esc(head)}</span></a>`
+        : `<span class="nx-ink" style="font-family:${C.sans};font-size:15px;font-weight:bold;color:${C.ink};line-height:1.45;">${esc(head)}</span>`;
       return `
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
           <td style="width:1%;white-space:nowrap;vertical-align:top;padding:6px 9px 6px 0;">${dlogHtmlTag(tag[1])}</td>
           <td style="vertical-align:top;padding:6px 0;">
-            <span class="nx-ink" style="font-family:${C.sans};font-size:15px;font-weight:bold;color:${C.ink};line-height:1.45;">${esc(head)}</span>
-            ${tail ? `<div class="${good ? 'nx-good' : 'nx-muted'}" style="font-family:${C.sans};font-size:13.5px;line-height:1.55;color:${good ? C.greenTx : C.muted};margin-top:2px;">${esc(tail)}</div>` : ''}
+            ${headHtml}
+            ${tail ? `<div class="${good ? 'nx-eyebrow' : 'nx-muted'}" style="font-family:${C.sans};font-size:13.5px;line-height:1.55;color:${good ? C.gold : C.muted};margin-top:2px;">${esc(tail)}</div>` : ''}
           </td>
+          ${href ? `<td style="width:14px;vertical-align:middle;padding-left:6px;"><a href="${esc(href)}" style="font-family:${C.sans};font-size:17px;font-weight:bold;color:${C.goldSoft};text-decoration:none;">›</a></td>` : ''}
         </tr></table>`;
     }
 
@@ -3428,10 +3667,20 @@ function dlogTextToHtml(text, meta) {
       const i = rest.indexOf(' — ');
       const head = i === -1 ? rest : rest.slice(0, i);
       const tail = i === -1 ? '' : rest.slice(i + 3);
+      const href = linkFor(head);
+      const headHtml = href
+        ? `<a href="${esc(href)}" style="color:inherit;text-decoration:none;"><span class="nx-ink" style="font-family:${C.sans};font-size:15px;font-weight:bold;color:${C.ink};line-height:1.45;">${esc(head)}</span></a>`
+        : `<span class="nx-ink" style="font-family:${C.sans};font-size:15px;font-weight:bold;color:${C.ink};line-height:1.45;">${esc(head)}</span>`;
+      const inner = `
+          ${headHtml}
+          ${tail ? `<div class="nx-muted" style="font-family:${C.sans};font-size:13.5px;line-height:1.55;color:${C.muted};margin-top:2px;">${esc(tail)}</div>` : ''}`;
+      if (href) return `
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+          <td style="vertical-align:top;padding:6px 0;">${inner}</td>
+          <td style="width:14px;vertical-align:middle;padding-left:6px;"><a href="${esc(href)}" style="font-family:${C.sans};font-size:17px;font-weight:bold;color:${C.goldSoft};text-decoration:none;">›</a></td>
+        </tr></table>`;
       return `
-        <div style="padding:6px 0;">
-          <span class="nx-ink" style="font-family:${C.sans};font-size:15px;font-weight:bold;color:${C.ink};line-height:1.45;">${esc(head)}</span>
-          ${tail ? `<div class="nx-muted" style="font-family:${C.sans};font-size:13.5px;line-height:1.55;color:${C.muted};margin-top:2px;">${esc(tail)}</div>` : ''}
+        <div style="padding:6px 0;">${inner}
         </div>`;
     }
 
@@ -3538,17 +3787,23 @@ function dlogTextToHtml(text, meta) {
   sections.forEach(sec => {
     const inner = renderLines(sec.lines);
     if (!inner.trim()) return;
+    // Item count in the eyebrow — bullets and [TAG] rows, not prose.
+    const itemCount = sec.lines.filter(l => /^\s*(·\s|\[[A-Z])/.test(l)).length;
+    const eyebrowMeta = [sec.suffix, itemCount ? String(itemCount) : '']
+      .filter(Boolean).join(' · ');
     modules.push(GAP + cardModule(`
-      <div class="nx-eyebrow" style="font-family:${C.sans};font-size:11.5px;font-weight:bold;letter-spacing:.1em;text-transform:uppercase;color:${C.gold};padding-bottom:10px;border-bottom:1px solid ${C.line};margin-bottom:14px;">${esc(sec.label)}${sec.suffix ? ` <span class="nx-muted" style="color:${C.muted};letter-spacing:0;">· ${esc(sec.suffix)}</span>` : ''}</div>
+      <div class="nx-eyebrow" style="font-family:${C.sans};font-size:11.5px;font-weight:bold;letter-spacing:.1em;text-transform:uppercase;color:${C.gold};padding-bottom:10px;border-bottom:1px solid ${C.line};margin-bottom:14px;">${esc(sec.label)}${eyebrowMeta ? ` <span class="nx-muted" style="color:${C.muted};letter-spacing:0;">· ${esc(eyebrowMeta)}</span>` : ''}</div>
       ${inner}`,
     { pad: '20px 24px 18px' }));
   });
 
-  // Footer — plain quiet text on the page, outside any card.
+  // Footer — plain quiet text on the page, outside any card, with one
+  // quiet door into the app itself.
   const footer = `
     <tr><td style="padding:22px 8px 4px;">
       <div class="nx-muted" style="font-family:${C.sans};font-size:12.5px;line-height:1.6;color:${C.muted};text-align:center;">
-        ${sigName ? sigName + '<br>' : ''}<span style="font-family:${C.mono};font-size:10px;letter-spacing:.16em;">POWERED BY NEXUS</span>
+        ${sigName ? sigName + '<br>' : ''}<a href="https://orioncontinuity.github.io/nexus/" style="color:${C.gold};text-decoration:none;font-weight:bold;">Open NEXUS →</a><br>
+        <span style="font-family:${C.mono};font-size:10px;letter-spacing:.16em;">POWERED BY NEXUS</span>
       </div>
     </td></tr>`;
 
@@ -3586,8 +3841,11 @@ function dlogTextToHtml(text, meta) {
     .nx-panel   { background: #332d1f !important; }
     .nx-ink     { color: #ede5d3 !important; }
     .nx-muted   { color: #b3a78e !important; }
-    .nx-good    { color: #a3d4ac !important; }
     .nx-eyebrow { color: #d4a44e !important; border-color: #3a3323 !important; }
+    .nx-p-down  { background: #f0e6d0 !important; color: #201c15 !important; }
+    .nx-p-od    { background: #d4a44e !important; color: #201c15 !important; }
+    .nx-p-due   { border-color: #a17c34 !important; color: #d4a44e !important; }
+    .nx-p-info  { background: #332d1f !important; color: #b3a78e !important; }
   }` : ''}
   @media only screen and (max-width: 480px) {
     .nx-pad { padding-left: 18px !important; padding-right: 18px !important; }
@@ -3598,6 +3856,34 @@ function dlogTextToHtml(text, meta) {
 ${body}
 </body>
 </html>`;
+}
+
+// Deep-link map for the styled email — every row head that names a real
+// thing (equipment, board card) gets a ?go= URL into NEXUS. Built from the
+// live state the plain builders already used, matched by NAME in the
+// typesetter, so the plain text needs no markers. Equipment first: it's
+// the canonical name owner if a card title happens to collide.
+const DLOG_SITE_URL = 'https://orioncontinuity.github.io/nexus/';
+function dlogBuildEmailLinks() {
+  const links = [];
+  const seen = new Set();
+  const add = (name, url) => {
+    const k = String(name || '').trim().toLowerCase();
+    if (!k || seen.has(k)) return;
+    seen.add(k);
+    links.push({ name: String(name).trim(), url });
+  };
+  (state.equipmentHealth || []).forEach(eq => { if (eq && eq.id && eq.name) add(eq.name, DLOG_SITE_URL + '?go=eq:' + eq.id); });
+  (state.equipmentDown || []).forEach(eq => { if (eq && eq.id && eq.name) add(eq.name, DLOG_SITE_URL + '?go=eq:' + eq.id); });
+  (state.pmsToday || []).forEach(p => {
+    const n = p && p.equipment && p.equipment.name;
+    if (n && p.equipment_id) add(n, DLOG_SITE_URL + '?go=eq:' + p.equipment_id);
+  });
+  const sl = state.ticketSlices || {};
+  ['open', 'working', 'closed'].forEach(b => (sl[b] || []).forEach(c => {
+    if (c && c.id != null && c.title) add(c.title, DLOG_SITE_URL + '?go=card:' + c.id);
+  }));
+  return links;
 }
 
 // ✨ Styled email — the ORIGINAL email flow end to end: same body builders,
@@ -3638,6 +3924,7 @@ async function openDailyLogStyledEmail() {
   if (window.NX && typeof NX.composeEmail === 'function') {
     let theme = 'light';
     try { theme = localStorage.getItem('nx_styled_email_theme') || 'light'; } catch (_) {}
+    const links = dlogBuildEmailLinks();
     NX.composeEmail({
       recipientsKey, subject, body, title,
       htmlVariants: [
@@ -3647,7 +3934,7 @@ async function openDailyLogStyledEmail() {
       ],
       htmlVariant: theme,
       onVariant: (k) => { try { localStorage.setItem('nx_styled_email_theme', k); } catch (_) {} },
-      htmlRender: (bodyText, variant) => dlogTextToHtml(bodyText, { dateStr, locLabel, theme: variant || theme }),
+      htmlRender: (bodyText, variant) => dlogTextToHtml(bodyText, { dateStr, locLabel, theme: variant || theme, links }),
     });
     return;
   }
