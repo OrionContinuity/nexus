@@ -3267,8 +3267,21 @@ const DLOG_HTML = {
   sans: "'DM Sans', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
 };
 
+// Designed dark palette (not an inversion) — picked per send in the composer.
+const DLOG_HTML_DARK = {
+  cream: '#201c15', card: '#2a251c', ink: '#ede5d3', muted: '#b3a78e',
+  gold: '#d4a44e', goldSoft: '#d4a44e', line: '#3d372a',
+  redBg: '#4a2a23', redTx: '#f2a08e',
+  amberBg: '#46381d', amberTx: '#ecc46f',
+  greenBg: '#263c2a', greenTx: '#a3d4ac',
+  mutedBg: '#332d21',
+  serif: DLOG_HTML.serif, mono: DLOG_HTML.mono, sans: DLOG_HTML.sans,
+};
+// Palette in effect for the current render (set by dlogTextToHtml).
+let DLOG_ACTIVE = DLOG_HTML;
+
 function dlogHtmlTag(kind) {
-  const C = DLOG_HTML;
+  const C = DLOG_ACTIVE;
   const k = String(kind || '').toUpperCase();
   const map = {
     OVERDUE: [C.redBg, C.redTx], DOWN: [C.redBg, C.redTx], BROKEN: [C.redBg, C.redTx],
@@ -3283,7 +3296,7 @@ function dlogHtmlTag(kind) {
 
 // Chip for "At a glance" fragments — tone inferred from the words.
 function dlogHtmlChip(text) {
-  const C = DLOG_HTML;
+  const C = DLOG_ACTIVE;
   const t = String(text || '').trim();
   let bg = C.mutedBg, tx = C.muted;
   if (/down|urgent/i.test(t)) { bg = C.redBg; tx = C.redTx; }
@@ -3299,8 +3312,12 @@ function dlogHtmlChip(text) {
 //   "· bullet — detail", "    [TAG] name — detail", "    key: value",
 //   "Key: value" paragraphs, "<quote> — Clippy 👋" opener.
 function dlogTextToHtml(text, meta) {
-  const C = DLOG_HTML;
   meta = meta || {};
+  // Theme: 'light' (default), 'dark' (designed dark palette), or 'auto'
+  // (light base + a dark @media override for clients that honor it).
+  const theme = meta.theme === 'dark' ? 'dark' : meta.theme === 'auto' ? 'auto' : 'light';
+  DLOG_ACTIVE = theme === 'dark' ? DLOG_HTML_DARK : DLOG_HTML;
+  const C = DLOG_ACTIVE;
   const lines = String(text || '').replace(/\r/g, '').split('\n');
   const SEC_RE = /^─── (.+?) ─+(.*)$/;
   const SEC_ASCII_RE = /^--- (.+?) ---\s*(.*)$/;
@@ -3526,13 +3543,20 @@ function dlogTextToHtml(text, meta) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light only">
-<meta name="supported-color-schemes" content="light only">
+<meta name="color-scheme" content="${theme === 'auto' ? 'light dark' : theme === 'dark' ? 'dark' : 'light only'}">
+<meta name="supported-color-schemes" content="${theme === 'auto' ? 'light dark' : theme === 'dark' ? 'dark' : 'light only'}">
 <style>
-  /* Light theme is THE theme (Alfredo, v202). "light only" metas tell
-     clients not to auto-invert; the cream/ink palette is mid-tone (no
-     pure white/black), which keeps the few clients that force-darken
-     anyway from mangling it badly. */
+  /* Theme picked in the composer (light default). 'auto' adds a dark
+     override for clients that honor prefers-color-scheme; 'light'/'dark'
+     pin one designed palette and tell clients not to invert. */
+  ${theme === 'auto' ? `@media (prefers-color-scheme: dark) {
+    .nx-bg    { background: #201c15 !important; }
+    .nx-card  { background: #2a251c !important; border-color: #3d372a !important; }
+    .nx-panel { background: #332d21 !important; }
+    .nx-ink   { color: #ede5d3 !important; }
+    .nx-muted { color: #b3a78e !important; }
+    .nx-good  { color: #a3d4ac !important; }
+  }` : ''}
   @media only screen and (max-width: 480px) {
     .nx-pad { padding-left: 18px !important; padding-right: 18px !important; }
   }
@@ -3580,9 +3604,18 @@ async function openDailyLogStyledEmail() {
   }
 
   if (window.NX && typeof NX.composeEmail === 'function') {
+    let theme = 'light';
+    try { theme = localStorage.getItem('nx_styled_email_theme') || 'light'; } catch (_) {}
     NX.composeEmail({
       recipientsKey, subject, body, title,
-      htmlRender: (bodyText) => dlogTextToHtml(bodyText, { dateStr, locLabel }),
+      htmlVariants: [
+        { key: 'light', label: '☀ Light' },
+        { key: 'dark', label: '🌙 Dark' },
+        { key: 'auto', label: 'Auto (reader)' },
+      ],
+      htmlVariant: theme,
+      onVariant: (k) => { try { localStorage.setItem('nx_styled_email_theme', k); } catch (_) {} },
+      htmlRender: (bodyText, variant) => dlogTextToHtml(bodyText, { dateStr, locLabel, theme: variant || theme }),
     });
     return;
   }

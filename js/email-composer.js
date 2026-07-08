@@ -103,7 +103,7 @@
       : String(s || '');
   }
   var GMAIL_SEND_SCOPE = ['https://www.googleapis.com/auth/gmail.send'];
-  var STYLED_ENGINE_BUILD = 'v202';   // shown in the status strip — ends "which file am I running" forever
+  var STYLED_ENGINE_BUILD = 'v203';   // shown in the status strip — ends "which file am I running" forever
 
   // ── SELF-CONTAINED token machinery ─────────────────────────────────
   // Styled send must not depend on ANY other file being fresh (zombie
@@ -302,6 +302,11 @@
     // are re-rendered at send time — the styled email always matches the
     // text the user actually sent.
     var htmlRender = (typeof opts.htmlRender === 'function') ? opts.htmlRender : null;
+    // Optional render variants (e.g. Light/Dark/Auto themes). The chosen key
+    // is passed as htmlRender's second arg and reported via opts.onVariant
+    // so the caller can persist the preference.
+    var htmlVariants = Array.isArray(opts.htmlVariants) ? opts.htmlVariants : null;
+    var htmlVariant = opts.htmlVariant || (htmlVariants && htmlVariants[0] && htmlVariants[0].key) || null;
 
     document.querySelectorAll('.nx-cmp-bg').forEach(function (n) { n.remove(); });
     var bg = document.createElement('div');
@@ -331,7 +336,12 @@
       '<div class="nx-cmp">' +
         '<div class="nx-cmp-grip"></div>' +
         '<div class="nx-cmp-head"><h3>' + escHtml(opts.title || 'Compose email') + '</h3>' +
+          '<div style="display:flex;gap:8px;align-items:center">' +
+          (htmlRender && htmlVariants ? '<select data-variant class="nx-cmp-input" style="width:auto;padding:6px 8px;font-size:12px">' +
+            htmlVariants.map(function (v) { return '<option value="' + escHtml(v.key) + '"' + (v.key === htmlVariant ? ' selected' : '') + '>' + escHtml(v.label) + '</option>'; }).join('') +
+            '</select>' : '') +
           (htmlRender ? '<button type="button" class="nx-cmp-btn" data-preview style="padding:6px 14px;font-size:12px">✨ Preview</button>' : '') +
+          '</div>' +
         '</div>' +
         '<div class="nx-cmp-body">' +
           '<div class="nx-cmp-field">' +
@@ -476,7 +486,7 @@
         var sendBtn = bg.querySelector('[data-send]');
         sendBtn.disabled = true; sendBtn.textContent = 'Sending…';
         var html = '';
-        try { html = htmlRender(bod) || ''; } catch (e) { if (T.debug) T.debug('composer.htmlRender', e); }
+        try { html = htmlRender(bod, htmlVariant) || ''; } catch (e) { if (T.debug) T.debug('composer.htmlRender', e); }
         (html ? sendGmailHtml(to, state.cc, state.bcc, subj, bod, html) : Promise.resolve({ ok: false, err: 'styled render came back empty' }))
           .then(function (r) {
             if (r && r.ok) {
@@ -502,7 +512,7 @@
     if (pvBtn && htmlRender) pvBtn.addEventListener('click', function () {
       var bod = bg.querySelector('[data-body]').value || '';
       var html = '';
-      try { html = htmlRender(bod) || ''; } catch (_) {}
+      try { html = htmlRender(bod, htmlVariant) || ''; } catch (_) {}
       if (!html) { if (T.toast) T.toast('Nothing to preview', 'info'); return; }
       var ov = document.createElement('div');
       ov.style.cssText = 'position:fixed;inset:0;z-index:10005;display:flex;flex-direction:column;background:rgba(10,8,5,.75)';
@@ -515,6 +525,12 @@
       document.body.appendChild(ov);
       ov.querySelector('iframe').srcdoc = /^\s*<!DOCTYPE/i.test(html) ? html : '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:0">' + html + '</body></html>';
       ov.querySelector('[data-pv-close]').addEventListener('click', function () { ov.remove(); });
+    });
+
+    var variantSel = bg.querySelector('[data-variant]');
+    if (variantSel) variantSel.addEventListener('change', function () {
+      htmlVariant = variantSel.value;
+      if (typeof opts.onVariant === 'function') { try { opts.onVariant(htmlVariant); } catch (_) {} }
     });
 
     // Styled-send readiness — shown in the status strip the moment the sheet

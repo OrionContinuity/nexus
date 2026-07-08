@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v202-light-email';
+const CACHE_NAME = 'nexus-v203-email-theme-picker';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
