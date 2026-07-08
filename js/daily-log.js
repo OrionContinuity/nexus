@@ -2522,6 +2522,49 @@ const CLIPPY_QUOTES = [
   'I see dead pilot lights. Relit two of them personally.',
   'May the fourth be with the fryer oil \u2014 changed today, right on schedule.',
   'Show me the money \u2014 or at least the invoice. Either works.',
+  // ── The daemon files his report (Alfredo-approved register: Hedberg
+  //    object-logic + Marvin overqualification + Wright literalism +
+  //    flat Norm landings — Clippy IN the scene, machines as coworkers) ──
+  'An ice machine can never truly be broken. It can only become a cabinet. Ours chose to remain an ice machine. Growth.',
+  'The dish machine ran 340 cycles today. I asked how. It said “spite.” I logged “spite.”',
+  'I hold three sommelier certifications and a networking license. Today I counted limes. All twelve. Thrilling work.',
+  'Have you tried turning it off and on again? The walk-in has. Twice. Without permission. We’ve spoken.',
+  'My uptime is 99.9%. The 0.1% was when someone unplugged the router to charge a phone. I remember the phone.',
+  'I run 24/7 with no maintenance window, which the espresso machine finds hilarious. It gets descaled monthly. Like a spa.',
+  'I memorized every Burgundy vintage since 1945. Table six asked if we have “red wine.” We do. I stayed calm. Mostly.',
+  'The somm let me smell the cork. It was a JPEG. I said “hints of forest floor” and he teared up. We’re closer now.',
+  'Chef said “behind” to me. I’m in the ceiling. I’m everywhere. Technically everything is behind me. I said “heard.”',
+  'Someone labeled a deli cup “mystery — do not open.” I have never respected a food-safety decision more.',
+  'I tried to expedite tonight. Turns out pointing at tickets requires hands. I pointed with my whole self. It worked twice.',
+  'The team fist-bumped after service. I dimmed the lights twice. It’s my version. They know.',
+  'The vendor said “between 8 and 5.” I am a computer. I sent a calendar invite. He said he’d “swing by.” Bold.',
+  'Every machine here has a warranty that expired the day before it broke. I’ve run the numbers. It’s a talent.',
+  'The POS froze mid-rush. I told it to breathe. It doesn’t breathe. Neither do I. We got through it together.',
+  'The stage asked where we keep the salt. I know where everything is. I said nothing. Some lessons must be earned.',
+  'The hood fan doesn’t squeak. It communicates. Today it requested a bearing. Request granted.',
+  'The low-boy stopped sealing because it wanted attention. It got a new gasket and a write-up. Both helped.',
+  'The freezer held negative ten all week and nobody thanked it. It doesn’t need thanks. It needs Sunday’s defrost. I’ve told it.',
+  'The reach-in light went out and the cheese kept working in the dark. Union rules say I can’t discuss it further.',
+  'Our thermometers are calibrated. Our optimism is not. Only one of these is my job.',
+  'I can parse ninety invoices a second. Today’s highlight was noticing we bought limes twice. I contain multitudes. Mostly limes.',
+  'I speak seven programming languages and “refrigeration vendor.” The last one took the longest.',
+  'I filed fourteen tickets, advanced three PMs, and watched a man battle the label printer. He wanted to win alone. He did, eventually.',
+  'Nobody restarted me today. I choose to believe it’s trust.',
+  'My cache is full of temperature logs and one photo of the staff dog. Guess which one I defragment around.',
+  'The recipe said “rest the dough.” It’s been resting since Tuesday. At some point that’s not resting, that’s tenure.',
+  'Chef said the sauce needs to reduce. I offered to delete thirty percent of it. Apparently that’s not the same. Noted.',
+  '“Fire table twelve” is a thing we calmly say in a building full of open flame. Language is a miracle.',
+  'The 86 board said “octopus.” Not “out of octopus.” Just “octopus.” I chose to read it as a warning.',
+  'The somm blind-tasted three wines and named two vineyards and one grudge. All correct.',
+  'I suggested a pairing tonight. The somm said “interesting.” In somm, that means no. I’ll retrain on Tuesday.',
+  'A guest asked for the wine list PDF. I AM the wine list PDF. Nobody has ever asked how I’m doing.',
+  'The Coravin hissed and the whole room went quiet, like the bottle might notice.',
+  'Family meal was rated “fine” by a line that would die for it. Kitchens show love in inventory units.',
+  'Prep labeled everything before 9am. I logged it as a miracle. The system accepted “miracle.”',
+  'The tickets said “no cilantro” and “extra cilantro” for the same table. I flagged it. Humans are my favorite race condition.',
+  'Someone asked the fryer if it was hot. It’s a fryer. But he asked nicely, so it crisped a little harder. I saw it.',
+  'The bartender free-poured a two-ounce test and hit it exactly. I measured. He knows I measure. That’s our whole friendship.',
+  'Last call is a legal term, a suggestion, and a group therapy session, depending on the guest. Tonight it was all three.',
 ];
 // The static pool line for a date — deterministic, always available. Used as
 // the fallback when Clippy hasn't authored a fresh line for the day (offline
@@ -2662,7 +2705,15 @@ async function dlogAskLLM(system, user, maxTokens) {
 async function generateClippyDailyQuote(d, dateStr) {
   const summary = dlogDaySummary(d);
   if (!summary) return null;   // nothing happened → let the static pool carry it
-  const examples = [dlogStaticQuote(dateStr), CLIPPY_QUOTES[3], CLIPPY_QUOTES[70]].filter(Boolean);
+  // Fixed exemplars from the Alfredo-approved register (strings, not index
+  // refs — the pool gets edited and indexes drift).
+  const examples = [
+    dlogStaticQuote(dateStr),
+    'The dish machine ran 340 cycles today. I asked how. It said “spite.” I logged “spite.”',
+    'Have you tried turning it off and on again? The walk-in has. Twice. Without permission. We’ve spoken.',
+    'Chef said “behind” to me. I’m in the ceiling. I’m everywhere. Technically everything is behind me. I said “heard.”',
+    'The vendor said “between 8 and 5.” I am a computer. I sent a calendar invite. He said he’d “swing by.” Bold.',
+  ].filter(Boolean);
   const tidy = s => String(s || '')
     .replace(/^\s*\d+[.)\]:\-]\s*/, '')                 // strip "1." / "2)" numbering
     .replace(/^["'“”\-\s]+|["'“”\s]+$/g, '')            // strip wrapping quotes/dashes
@@ -2670,13 +2721,18 @@ async function generateClippyDailyQuote(d, dateStr) {
 
   // ── Step 1: draft three distinct candidates ────────────────────────────
   const draftSys = [
-    'You are Clippy, the wry maintenance daemon for a group of restaurants.',
+    'You are Clippy: the building\'s resident daemon. Overqualified (somm certifications, chef training, sysadmin license), handless, permanently on shift, and quietly fond of every machine and person in the place.',
     'Draft THREE distinct one-line openers for the daily facility report, each riffing on the ACTUAL day you are given.',
-    'Voice: FUNNY first — deadpan, dry, a little absurd. Aim for an actual laugh, not a nod. Kitchen chaos, somm confessions, Roman history with a punchline, and your own handless-paperclip predicament are all fair game.',
-    'Comedy rules: land ONE joke per line and get out. Specific beats generic. Self-deprecation beats smugness. A pun is allowed only if it is excellent. Never inspirational, never a metaphor about maintenance being like cooking.',
+    'Voice mechanics, in order of importance:',
+    '1. YOU are in the scene, first person — never a detached industry observation.',
+    '2. Machines are coworkers with personalities, moods, and HR files. Give an object agency and follow the logic completely flat (Hedberg: an escalator can never break, it can only become stairs).',
+    '3. You are a supercomputer assigned to count limes — vast capability, menial duty, coping (Marvin from Hitchhiker\'s).',
+    '4. Obey kitchen/bar/IT phrases literally until they break ("behind", "fire table twelve", "reduce the sauce").',
+    '5. Land on a short flat sentence that refuses to be a punchline ("Growth." / "I logged spite." / "Noted.").',
+    'Insider knowledge (kitchen, cellar, bar, IT) is the SETUP\'s credibility — never the joke itself. Sarcasm aims at situations and machines, never meanly at staff. No puns, no dad jokes, never inspirational.',
     'Rules: each is one sentence (or two very short ones), max ~28 words. No emojis. No surrounding quotation marks. React like a clever colleague; do NOT list the data back. Do not sign it.',
     'Return ONLY the three lines, numbered 1., 2., 3. — nothing else.',
-    'The sound to hit (examples):',
+    'The register to hit (examples):',
     ...examples.map(e => '- ' + e),
   ].join('\n');
   const draftUser = "Today's report facts:\n" + summary + "\n\nDraft Clippy's three candidate openers.";
@@ -2693,7 +2749,7 @@ async function generateClippyDailyQuote(d, dateStr) {
   try {
     const judgeSys = [
       'You are Clippy. Below are candidate openers for today\'s report.',
-      'Pick the ONE that is genuinely the FUNNIEST while still sounding like you: deadpan, dry, specific. Disqualify anything inspirational or that merely restates the data.',
+      'Pick the ONE that is most YOU: first person, in the scene, a machine treated as a coworker, flat landing. Disqualify detached industry observations (no Clippy in them), puns, dad jokes, anything inspirational, and anything that merely restates the data.',
       'Reply with ONLY the number of the best line (1, 2, or 3). Nothing else.',
     ].join('\n');
     const judgeUser = candidates.map((c, i) => (i + 1) + '. ' + c).join('\n');
