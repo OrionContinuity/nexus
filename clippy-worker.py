@@ -112,6 +112,12 @@ PREFER_GRACE_MS = 4000
 # 'job:' lane this worker takes only cmd jobs and leaves TEXT to the legacy
 # brain. Set CLIPPY_CLAIM_TEXT=1 to also answer text (e.g. no legacy poller).
 CLAIM_TEXT = os.environ.get("CLIPPY_CLAIM_TEXT", "0") == "1"
+# worker-1.7 — STRANDED-TEXT RESCUE: on a machine with no legacy text
+# brain (a laptop node), text jobs on the shared 'job:' lane would sit
+# forever with CLAIM_TEXT off. Now any text job still pending after this
+# grace gets claimed by us: the legacy brain wins when it exists, and
+# nothing starves when it doesn't. Zero-config laptop operation.
+TEXT_RESCUE_MS = int(os.environ.get("CLIPPY_TEXT_RESCUE_MS", "6000"))
 _pulled = set()                   # models we've already ensured locally this run
 
 
@@ -160,7 +166,10 @@ def sb_get_pending():
         # atelier renders.
         is_text = not (d.get("image_b64") or d.get("vision") or d.get("cmd") or d.get("render"))
         if is_text and not CLAIM_TEXT:
-            continue
+            # worker-1.7 — stranded-text rescue: if the legacy brain hasn't
+            # taken it within the grace, it isn't coming. We answer.
+            if now - (d.get("ts") or 0) < TEXT_RESCUE_MS:
+                continue
         out.append(row)
     return out
 
@@ -298,7 +307,7 @@ def sb_heartbeat():
     if not HAS_BLENDER: needs.append("art")      # no 3D
     if not CMD_TOKEN:   needs.append("cmd")      # cannot act on the world
     entry = {"name": NODE, "ts": now, "vision": True, "cmd": bool(CMD_TOKEN),
-             "os": OSDESC, "version": "worker-1.6", "code_ver": SELF_VER,
+             "os": OSDESC, "version": "worker-1.7", "code_ver": SELF_VER,
              "managed": MANAGED, "busy": _state["busy"], "current": _state["current"],
              "caps": ((["ask"] if CLAIM_TEXT else []) + ["vision"] + (["cmd"] if CMD_TOKEN else []) + (["gen"] if GENERATE else []) + (["art"] if HAS_BLENDER else [])),
              "needs": needs,

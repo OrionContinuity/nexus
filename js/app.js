@@ -3772,6 +3772,14 @@ td.check{background:#F0EDE6 !important}
       const POOL_DOWN_KEY = 'nx_pool_down_until';
       let poolDownUntil = 0;
       try { poolDownUntil = parseInt(localStorage.getItem(POOL_DOWN_KEY) || '0', 10) || 0; } catch (_) {}
+      // v18.44 — the node registry beats the blind backoff both ways: a
+      // fresh node online CLEARS the down-memory (laptop just opened —
+      // use it now), and zero nodes online skips the pool instantly.
+      try {
+        const _live = await this.clippyPoolNodes();
+        if (_live.length) { poolDownUntil = 0; try { localStorage.removeItem(POOL_DOWN_KEY); } catch (_) {} }
+        else poolDownUntil = Date.now() + 1;
+      } catch (_) {}
       if (Date.now() > poolDownUntil) {
         try {
           const out = await this.askPool(prompt, { image_b64: base64Data, timeoutMs: 45000 });
@@ -3958,6 +3966,18 @@ td.check{background:#F0EDE6 !important}
   async askPool(prompt, opts = {}) {
     this._answerSource = '';
     if (!this.sb) throw new Error('Clippy pool needs the Supabase connection.');
+    // v18.44 — liveness gate. The node registry (clippy_nodes, 120s window)
+    // knows instantly whether ANY worker is breathing. Without this, an
+    // empty pool meant waiting the full job timeout (5 MINUTES for chat)
+    // before the cloud fallback — the daemon looked dead when it was
+    // merely off. Now: no live node → throw now, caller falls back now.
+    try {
+      const _live = await this.clippyPoolNodes();
+      if (!_live.length) throw new Error('Clippy pool: no nodes online');
+    } catch (e) {
+      if (/no nodes online/.test(e && e.message || '')) throw e;
+      // registry unreadable — proceed; the job timeout still protects us
+    }
     const rid = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
               : (Date.now() + '-' + Math.random().toString(36).slice(2));
     // Vision jobs go on a SEPARATE id prefix the legacy v2.4.4 poller never

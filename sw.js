@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v239-inheritance';
+const CACHE_NAME = 'nexus-v240-daemon-17';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
