@@ -701,76 +701,10 @@
        ════════════════════════════════════════════════════════════════ -->
 
   <!-- ─── LAUREL CROWN ─────────────────────────────────────────── -->
-  <g class="cl-costume-laurel">
-    <g class="cl-laurel-leaves">
-      <!-- Six elongated leaves arranged in a graceful arc -->
-      <path d="M 54 64 Q 42 56 38 42 Q 50 46 56 56 Q 60 62 54 64 Z"
-            fill="url(#grad-leaf)" stroke="#1e3a10" stroke-width="0.7"/>
-      <path d="M 64 50 Q 56 38 56 22 Q 70 30 72 46 Q 70 52 64 50 Z"
-            fill="url(#grad-leaf)" stroke="#1e3a10" stroke-width="0.7"/>
-      <path d="M 82 40 Q 78 26 84 12 Q 94 22 92 38 Q 88 44 82 40 Z"
-            fill="url(#grad-leaf)" stroke="#1e3a10" stroke-width="0.7"/>
-      <path d="M 118 40 Q 122 26 116 12 Q 106 22 108 38 Q 112 44 118 40 Z"
-            fill="url(#grad-leaf)" stroke="#1e3a10" stroke-width="0.7"/>
-      <path d="M 136 50 Q 144 38 144 22 Q 130 30 128 46 Q 130 52 136 50 Z"
-            fill="url(#grad-leaf)" stroke="#1e3a10" stroke-width="0.7"/>
-      <path d="M 146 64 Q 158 56 162 42 Q 150 46 144 56 Q 140 62 146 64 Z"
-            fill="url(#grad-leaf)" stroke="#1e3a10" stroke-width="0.7"/>
-      <!-- Leaf veins (subtle) -->
-      <path d="M 46 50 Q 50 52 56 60" stroke="#2a5018" stroke-width="0.5" fill="none" opacity="0.6"/>
-      <path d="M 64 30 Q 66 38 68 48" stroke="#2a5018" stroke-width="0.5" fill="none" opacity="0.6"/>
-      <path d="M 88 18 Q 88 28 86 38" stroke="#2a5018" stroke-width="0.5" fill="none" opacity="0.6"/>
-      <path d="M 112 18 Q 112 28 114 38" stroke="#2a5018" stroke-width="0.5" fill="none" opacity="0.6"/>
-      <path d="M 136 30 Q 134 38 132 48" stroke="#2a5018" stroke-width="0.5" fill="none" opacity="0.6"/>
-      <path d="M 154 50 Q 150 52 144 60" stroke="#2a5018" stroke-width="0.5" fill="none" opacity="0.6"/>
-    </g>
-    <!-- Three golden berries (Olympic-style) -->
-    <circle cx="76" cy="38" r="2.4" fill="url(#grad-gold)" stroke="#8c6418" stroke-width="0.4"/>
-    <circle cx="75" cy="37" r="0.8" fill="#fff4c8" opacity="0.8"/>
-    <circle cx="100" cy="28" r="2.8" fill="url(#grad-gold)" stroke="#8c6418" stroke-width="0.4"/>
-    <circle cx="99" cy="27" r="1" fill="#fff4c8" opacity="0.8"/>
-    <circle cx="124" cy="38" r="2.4" fill="url(#grad-gold)" stroke="#8c6418" stroke-width="0.4"/>
-    <circle cx="123" cy="37" r="0.8" fill="#fff4c8" opacity="0.8"/>
-    <!-- Crown ribbon ties hanging in back (suggesting it tied behind) -->
-    <path d="M 38 42 Q 32 56 36 72" stroke="#c01828" stroke-width="1.6" fill="none" opacity="0.7"/>
-    <path d="M 162 42 Q 168 56 164 72" stroke="#c01828" stroke-width="1.6" fill="none" opacity="0.7"/>
-  </g>
+  <g class="cl-costume-laurel"><g class="cl-laurel-leaves"><path d="M 54 68 Q 100 30 146 68" stroke="#4e8434" stroke-width="3" fill="none" stroke-linecap="round"/><ellipse cx="56.9" cy="60.1" rx="7.5" ry="3.4" fill="#6fae4e" stroke="#3f7a2e" stroke-width="1.4" transform="rotate(-18 56.9 60.1)"/><ellipse cx="62.2" cy="67.4" rx="7.5" ry="3.4" fill="#6fae4e" stroke="#3f7a2e" stroke-width="1.4" transform="rotate(-54 62.2 67.4)"/><ellipse cx="65.5" cy="54.4" rx="7.5" ry="3.4" fill="#6fae4e" stroke="#3f7a2e" stroke-width="1.4" transform="rotate(-12 65.5 54.4)"/><ellipse cx="70.1" cy="62.2" rx="7.5" ry="3.4" fill="#6fae4e" stroke="#3f7a2e" stroke-width="1.4" transform="rotate(-48 70.1 62.2)"/><ellipse cx="75.3" cy="49.6" rx="7.5" ry="3.4" fill="#6fae4e" stroke="#3f7a2e" stroke-width="1.4" transform="rotate(-4 75.3 49.6)"/><ellipse cx="78.7" cy="57.9" rx="7.5" ry="3.4" fill="#6fae4e" stroke="#3f7a2e" stroke-width="1.4" transform="rotate(-40 78.7 57.9)"/><ellipse cx="85.1" cy="46.3" rx="7.5" ry="3.4" fill="#6fae4e" stroke="#3f7a2e" stroke-width="1.4" transform="rotate(4 85.1 46.3)"/><ellipse cx="87.3" cy="55.1" rx="7.5" ry="3.4" fill="#6fae4e" stroke="#3f7a2e" stroke-width="1.4" transform="rotate(-32 87.3 55.1)"/><ellipse cx="94.0" cy="44.8" rx="7.5" ry="3.4" fill="#6fae4e" stroke="#3f7a2e" stroke-width="1.4" transform="rotate(12 94.0 44.8)"/><ellipse cx="94.9" cy="53.8" rx="7.5" ry="3.4" fill="#6fae4e" stroke="#3f7a2e" stroke-width="1.4" transform="rotate(-24 94.9 53.8)"/><ellipse cx="106.0" cy="44.8" rx="7.5" ry="3.4" fill="#6fae4e" stroke="#3f7a2e" stroke-width="1.4" transform="rotate(-12 106.0 44.8)"/><ellipse cx="105.1" cy="53.8" rx="7.5" ry="3.4" fill="#6fae4e" stroke="#3f7a2e" stroke-width="1.4" transform="rotate(24 105.1 53.8)"/><ellipse cx="114.9" cy="46.3" rx="7.5" ry="3.4" fill="#6fae4e" stroke="#3f7a2e" stroke-width="1.4" transform="rotate(-4 114.9 46.3)"/><ellipse cx="112.7" cy="55.1" rx="7.5" ry="3.4" fill="#6fae4e" stroke="#3f7a2e" stroke-width="1.4" transform="rotate(32 112.7 55.1)"/><ellipse cx="124.7" cy="49.6" rx="7.5" ry="3.4" fill="#6fae4e" stroke="#3f7a2e" stroke-width="1.4" transform="rotate(4 124.7 49.6)"/><ellipse cx="121.3" cy="57.9" rx="7.5" ry="3.4" fill="#6fae4e" stroke="#3f7a2e" stroke-width="1.4" transform="rotate(40 121.3 57.9)"/><ellipse cx="134.5" cy="54.4" rx="7.5" ry="3.4" fill="#6fae4e" stroke="#3f7a2e" stroke-width="1.4" transform="rotate(12 134.5 54.4)"/><ellipse cx="129.9" cy="62.2" rx="7.5" ry="3.4" fill="#6fae4e" stroke="#3f7a2e" stroke-width="1.4" transform="rotate(48 129.9 62.2)"/><ellipse cx="143.1" cy="60.1" rx="7.5" ry="3.4" fill="#6fae4e" stroke="#3f7a2e" stroke-width="1.4" transform="rotate(18 143.1 60.1)"/><ellipse cx="137.8" cy="67.4" rx="7.5" ry="3.4" fill="#6fae4e" stroke="#3f7a2e" stroke-width="1.4" transform="rotate(54 137.8 67.4)"/><circle cx="96.5" cy="32" r="2.8" fill="#e8b83a" stroke="#8a5a20" stroke-width="1"/><circle cx="103.5" cy="32" r="2.8" fill="#e8b83a" stroke="#8a5a20" stroke-width="1"/></g></g>
 
   <!-- ─── ROMAN GALEA (gladiator helmet) — much bigger crest ──── -->
-  <g class="cl-costume-helmet">
-    <!-- Helmet bowl with gradient -->
-    <path d="M 48 72 Q 48 32 100 28 Q 152 32 152 72 L 146 78 Q 100 60 54 78 Z"
-          fill="url(#grad-bronze)" stroke="#3a2410" stroke-width="1.4"/>
-    <!-- Brim/cheek line shadow -->
-    <path d="M 54 70 Q 100 58 146 70 L 142 76 Q 100 64 58 76 Z"
-          fill="#5a3818" opacity="0.4"/>
-    <!-- Bronze rim band -->
-    <path d="M 48 72 Q 48 66 54 64 L 146 64 Q 152 66 152 72"
-          fill="none" stroke="url(#grad-gold)" stroke-width="1.6"/>
-    <!-- ICONIC CENTURION CREST — tall red horsehair fin running front to back -->
-    <g class="cl-helmet-crest">
-      <!-- Crest base mount -->
-      <rect x="94" y="28" width="12" height="6" fill="url(#grad-bronze)" stroke="#3a2410" stroke-width="0.6"/>
-      <!-- Crest hair (multiple curved strands) -->
-      <path d="M 96 30 Q 90 16 94 6 L 96 6 Q 92 18 98 30 Z"
-            fill="url(#grad-crest)" stroke="#580a18" stroke-width="0.6"/>
-      <path d="M 98 30 Q 96 16 100 4 L 102 4 Q 98 18 102 30 Z"
-            fill="url(#grad-crest)" stroke="#580a18" stroke-width="0.6"/>
-      <path d="M 102 30 Q 102 16 106 6 L 108 6 Q 104 18 104 30 Z"
-            fill="url(#grad-crest)" stroke="#580a18" stroke-width="0.6"/>
-      <!-- Crest highlight strand -->
-      <path d="M 100 28 Q 99 18 101 8" stroke="#ff7080" stroke-width="0.8" fill="none" opacity="0.6"/>
-    </g>
-    <!-- Cheek guards (side flaps, longer than before) -->
-    <path d="M 52 72 Q 46 92 56 96 Q 60 88 60 78 Z" fill="url(#grad-bronze)" stroke="#3a2410" stroke-width="1"/>
-    <path d="M 148 72 Q 154 92 144 96 Q 140 88 140 78 Z" fill="url(#grad-bronze)" stroke="#3a2410" stroke-width="1"/>
-    <!-- Decorative bronze rivets -->
-    <circle cx="66" cy="74" r="1.4" fill="#3a2410" stroke="#ffe488" stroke-width="0.4"/>
-    <circle cx="100" cy="68" r="1.6" fill="#3a2410" stroke="#ffe488" stroke-width="0.4"/>
-    <circle cx="134" cy="74" r="1.4" fill="#3a2410" stroke="#ffe488" stroke-width="0.4"/>
-    <!-- Eyebrow shadow under brim -->
-    <path d="M 56 76 Q 100 66 144 76" stroke="#1a0a04" stroke-width="0.8" fill="none" opacity="0.5"/>
-  </g>
+  <g class="cl-costume-helmet"><path d="M 50 70 Q 50 26 100 24 Q 150 26 150 70 Q 148 76 142 74 Q 100 58 58 74 Q 52 76 50 70 Z" fill="#c98a3a" stroke="#04124a" stroke-width="2.2"/><path d="M 54 68 Q 100 52 146 68 L 144 73 Q 100 58 56 73 Z" fill="#8a5a20"/><circle cx="100" cy="44" r="3" fill="#e8b83a" stroke="#8a5a20" stroke-width="1"/><g class="cl-helmet-crest"><path d="M 72 30 Q 74 12 84 4 L 88 12 L 92 3 L 97 11 L 100 2 L 103 11 L 108 3 L 112 12 L 116 4 Q 126 12 128 30 Q 114 20 100 20 Q 86 20 72 30 Z" fill="#d84438" stroke="#04124a" stroke-width="2"/><path d="M 84 22 Q 100 14 116 22 L 114 26 Q 100 19 86 26 Z" fill="#a52e24"/><rect x="92" y="24" width="16" height="7" rx="2.5" fill="#e8b83a" stroke="#8a5a20" stroke-width="1.2"/></g></g>
 
   <!-- ─── PARTY HAT (more festive) ─────────────────────────────── -->
   <g class="cl-costume-party-hat">
@@ -828,156 +762,19 @@
   </g>
 
   <!-- ─── BICORNE (Napoleon) — better silhouette ───────────────── -->
-  <g class="cl-costume-bicorne">
-    <!-- Lower body/brim band (the part that rings the head) -->
-    <path d="M 36 68 Q 100 56 164 68 L 158 76 Q 100 64 42 76 Z"
-          fill="url(#grad-velvet)" stroke="#020618" stroke-width="1.2"/>
-    <!-- Upper iconic crescent — wider, sharper points -->
-    <path d="M 30 62 Q 60 12 100 28 Q 140 12 170 62 Q 154 36 100 34 Q 46 36 30 62 Z"
-          fill="url(#grad-velvet)" stroke="#020618" stroke-width="1.4"/>
-    <!-- Inner sheen highlight -->
-    <path d="M 38 56 Q 64 24 100 36 Q 136 24 162 56 Q 148 38 100 40 Q 52 38 38 56 Z"
-          fill="#3a4878" opacity="0.5"/>
-    <!-- Gold trim along bottom edge -->
-    <path d="M 36 68 Q 100 56 164 68" stroke="url(#grad-gold)" stroke-width="1.8" fill="none"/>
-    <!-- French tricolor cockade on left peak -->
-    <g class="cl-bicorne-cockade">
-      <circle cx="48" cy="46" r="6" fill="#1a4ea0" stroke="#02184a" stroke-width="0.6"/>
-      <circle cx="48" cy="46" r="4" fill="#fffef6"/>
-      <circle cx="48" cy="46" r="2.2" fill="#c01828"/>
-      <!-- Cockade ribbon flutter -->
-      <path d="M 42 46 Q 38 50 36 56" stroke="#c01828" stroke-width="1" fill="none"/>
-    </g>
-    <!-- Gold tassel on right peak -->
-    <circle cx="152" cy="48" r="3" fill="url(#grad-gold)" stroke="#8c6418" stroke-width="0.4"/>
-    <line x1="152" y1="50" x2="156" y2="60" stroke="url(#grad-gold)" stroke-width="1"/>
-  </g>
+  <g class="cl-costume-bicorne"><path d="M 38 56 Q 52 20 100 20 Q 148 20 162 56 Q 132 38 100 40 Q 68 38 38 56 Z" fill="#1d2333" stroke="#04124a" stroke-width="2.2"/><path d="M 44 50 Q 72 30 100 30 Q 128 30 156 50" stroke="#e8b83a" stroke-width="2" fill="none" opacity="0.9"/><g class="cl-bicorne-cockade"><circle cx="62" cy="40" r="7" fill="#d84438"/><circle cx="62" cy="40" r="4.6" fill="#fff6e8"/><circle cx="62" cy="40" r="2.2" fill="#2a4a9e"/></g></g>
 
   <!-- ─── MONGOL HAT (Genghis Khan) — more detailed fur ────────── -->
-  <g class="cl-costume-mongol">
-    <!-- Cap body — tapered crown -->
-    <path d="M 58 66 L 64 26 Q 100 14 136 26 L 142 66 Z"
-          fill="url(#grad-leather)" stroke="#1a0c04" stroke-width="1.4"/>
-    <!-- Vertical seam down center -->
-    <line x1="100" y1="14" x2="100" y2="66" stroke="#1a0c04" stroke-width="0.6" opacity="0.5"/>
-    <!-- Gold finial on top -->
-    <path d="M 100 14 L 96 6 L 100 2 L 104 6 Z" fill="url(#grad-gold)" stroke="#3a2410" stroke-width="0.8"/>
-    <circle cx="100" cy="9" r="1.4" fill="#3a2410"/>
-    <!-- Fur trim around base (wavy edge, multiple tufts) -->
-    <g class="cl-mongol-fur">
-      <path d="M 54 62 Q 60 70 64 64 Q 68 72 72 64 Q 78 72 82 64 Q 88 72 92 64 Q 96 72 100 64 Q 104 72 108 64 Q 112 72 118 64 Q 122 72 128 64 Q 132 72 136 64 Q 140 70 146 62 L 144 78 Q 100 84 56 78 Z"
-            fill="url(#grad-silver)" stroke="#606068" stroke-width="0.6"/>
-      <!-- Fur texture strokes -->
-      <line x1="62" y1="68" x2="63" y2="76" stroke="#888" stroke-width="0.6"/>
-      <line x1="72" y1="68" x2="73" y2="76" stroke="#888" stroke-width="0.6"/>
-      <line x1="82" y1="68" x2="83" y2="76" stroke="#888" stroke-width="0.6"/>
-      <line x1="100" y1="70" x2="100" y2="78" stroke="#888" stroke-width="0.6"/>
-      <line x1="118" y1="68" x2="117" y2="76" stroke="#888" stroke-width="0.6"/>
-      <line x1="128" y1="68" x2="127" y2="76" stroke="#888" stroke-width="0.6"/>
-      <line x1="138" y1="68" x2="137" y2="76" stroke="#888" stroke-width="0.6"/>
-    </g>
-    <!-- Front medallion (Mongol emblem) -->
-    <circle cx="100" cy="44" r="7" fill="url(#grad-gold)" stroke="#3a2410" stroke-width="0.8"/>
-    <circle cx="100" cy="44" r="4" fill="#3a2410"/>
-    <path d="M 100 41 L 102 44 L 100 47 L 98 44 Z" fill="url(#grad-gold)"/>
-  </g>
+  <g class="cl-costume-mongol"><path d="M 54 64 Q 54 24 100 22 Q 146 24 146 64 L 146 68 L 54 68 Z" fill="#a5482e" stroke="#04124a" stroke-width="2.2"/><path d="M 100 22 Q 120 26 132 38 Q 116 30 100 30 Z" fill="#7e3320"/><g class="cl-mongol-fur"><path d="M 50 56 L 150 56 L 150 66 M 50 66 a 7 7 0 0 0 14 0 M 64 66 a 7 7 0 0 0 14 0 M 78 66 a 7 7 0 0 0 14 0 M 92 66 a 7 7 0 0 0 14 0 M 106 66 a 7 7 0 0 0 14 0 M 120 66 a 7 7 0 0 0 14 0 M 134 66 a 7 7 0 0 0 14 0 L 50 66 Z" fill="#d9b98a" stroke="#04124a" stroke-width="1.8" stroke-linejoin="round"/></g><circle cx="100" cy="18" r="4.5" fill="#e8b83a" stroke="#8a5a20" stroke-width="1.4"/><path d="M 100 13 L 100 5" stroke="#e8b83a" stroke-width="3" stroke-linecap="round"/></g></g>
 
   <!-- ─── MACEDONIAN HELMET (Alexander) — Corinthian-style ─────── -->
-  <g class="cl-costume-macedonian">
-    <!-- Helmet bowl (Corinthian shape: tall, with nose guard cutout suggestion) -->
-    <path d="M 52 70 Q 48 26 100 22 Q 152 26 148 70 L 142 78 Q 100 60 58 78 Z"
-          fill="url(#grad-bronze)" stroke="#3a2410" stroke-width="1.4"/>
-    <!-- Forehead band (decorative) -->
-    <path d="M 56 64 Q 100 52 144 64" fill="none" stroke="url(#grad-gold)" stroke-width="2"/>
-    <!-- Central ridge running front to back -->
-    <path d="M 100 22 Q 100 40 100 64" stroke="#3a2410" stroke-width="2.4" fill="none"/>
-    <path d="M 99 24 Q 99 40 99 60" stroke="#ffe488" stroke-width="0.6" fill="none" opacity="0.7"/>
-    <!-- TALL ICONIC CREST mounted on top (Greek style, runs front-back, made of horsehair) -->
-    <g class="cl-mac-crest">
-      <path d="M 94 22 Q 88 8 92 0 L 96 0 Q 94 10 100 22 Z"
-            fill="url(#grad-crest)" stroke="#580a18" stroke-width="0.5"/>
-      <path d="M 100 22 Q 100 8 104 0 L 108 0 Q 106 10 106 22 Z"
-            fill="url(#grad-crest)" stroke="#580a18" stroke-width="0.5"/>
-      <path d="M 106 22 Q 112 8 108 0 L 110 0 Q 110 10 116 22 Z"
-            fill="url(#grad-crest)" stroke="#580a18" stroke-width="0.5"/>
-      <!-- Highlight strand -->
-      <path d="M 100 20 Q 100 12 102 4" stroke="#ff8090" stroke-width="0.6" fill="none" opacity="0.7"/>
-    </g>
-    <!-- Nose-guard (Greek Corinthian style — short, between eyes) -->
-    <path d="M 96 64 L 95 82 L 100 86 L 105 82 L 104 64 Z"
-          fill="url(#grad-bronze)" stroke="#3a2410" stroke-width="0.8"/>
-    <path d="M 100 66 Q 100 76 100 84" stroke="#3a2410" stroke-width="0.6" opacity="0.5"/>
-    <!-- Cheek guards -->
-    <path d="M 56 70 Q 52 86 60 92 Q 64 84 64 76 Z" fill="url(#grad-bronze)" stroke="#3a2410" stroke-width="0.8"/>
-    <path d="M 144 70 Q 148 86 140 92 Q 136 84 136 76 Z" fill="url(#grad-bronze)" stroke="#3a2410" stroke-width="0.8"/>
-    <!-- Decorative bronze nubs -->
-    <circle cx="72" cy="60" r="1.2" fill="#3a2410" stroke="#ffe488" stroke-width="0.3"/>
-    <circle cx="128" cy="60" r="1.2" fill="#3a2410" stroke="#ffe488" stroke-width="0.3"/>
-  </g>
+  <g class="cl-costume-macedonian"><path d="M 52 68 Q 52 30 96 26 Q 116 4 138 12 Q 128 20 130 30 Q 148 40 148 68 Q 146 74 140 72 Q 100 56 60 72 Q 54 74 52 68 Z" fill="#b9c6d4" stroke="#04124a" stroke-width="2.2"/><path d="M 56 66 Q 100 50 144 66 L 142 71 Q 100 56 58 71 Z" fill="#6a7c92"/><path d="M 100 27 Q 114 10 132 13" stroke="#8fa2b6" stroke-width="2.4" fill="none" stroke-linecap="round"/><g class="cl-mac-crest"><path d="M 134 13 Q 146 6 152 16 Q 144 16 140 22 Q 136 18 134 13 Z" fill="#fff6e8" stroke="#04124a" stroke-width="1.8"/></g></g>
 
   <!-- ─── CARTHAGINIAN HELMET (Hannibal) — Phrygian style ────── -->
-  <g class="cl-costume-carthaginian">
-    <!-- Main body — forward-curving phrygian point characteristic -->
-    <path d="M 56 72 Q 52 36 100 30 Q 124 30 128 24 Q 138 26 142 38 Q 146 50 146 60 Q 146 68 144 72 L 138 78 Q 100 60 60 78 Z"
-          fill="url(#grad-bronze)" stroke="#2a1808" stroke-width="1.4"/>
-    <!-- The signature forward-curving ridge -->
-    <path d="M 124 26 Q 142 28 144 50 Q 144 60 142 64"
-          stroke="url(#grad-gold)" stroke-width="3" fill="none"/>
-    <!-- Brow band -->
-    <path d="M 60 70 Q 100 60 142 70" stroke="#3a2010" stroke-width="2" fill="none"/>
-    <!-- Tanit symbol (Carthaginian goddess) — stylized circle + triangle + line -->
-    <g class="cl-tanit">
-      <circle cx="100" cy="46" r="5" fill="url(#grad-gold)" stroke="#3a2010" stroke-width="0.8"/>
-      <line x1="92" y1="54" x2="108" y2="54" stroke="url(#grad-gold)" stroke-width="1.6"/>
-      <path d="M 95 56 L 100 60 L 105 56 Z" fill="url(#grad-gold)" stroke="#3a2010" stroke-width="0.4"/>
-    </g>
-    <!-- Long cheek guards (Hannibal style) -->
-    <path d="M 58 72 Q 50 96 64 100 Q 70 86 70 76 Z" fill="url(#grad-bronze)" stroke="#2a1808" stroke-width="0.8"/>
-    <path d="M 142 72 Q 150 96 136 100 Q 130 86 130 76 Z" fill="url(#grad-bronze)" stroke="#2a1808" stroke-width="0.8"/>
-    <!-- Purple feather plume (Carthaginian royal color) -->
-    <g class="cl-cart-feather">
-      <path d="M 84 30 Q 72 14 76 4 Q 84 12 88 26 Q 88 30 84 30 Z"
-            fill="#5a2880" stroke="#2a0a40" stroke-width="0.6"/>
-      <path d="M 80 26 Q 76 18 78 10" stroke="#9c54c0" stroke-width="0.6" fill="none" opacity="0.7"/>
-      <path d="M 84 28 Q 82 22 82 14" stroke="#9c54c0" stroke-width="0.6" fill="none" opacity="0.7"/>
-    </g>
-  </g>
+  <g class="cl-costume-carthaginian"><path d="M 52 70 Q 52 30 100 28 Q 148 30 148 70 Q 146 76 140 74 Q 100 58 60 74 Q 54 76 52 70 Z" fill="#c98a3a" stroke="#04124a" stroke-width="2.2"/><path d="M 56 68 Q 100 52 144 68 L 142 73 Q 100 58 58 73 Z" fill="#8a5a20"/><g class="cl-tanit"><circle cx="100" cy="48" r="5" fill="#e8b83a" stroke="#8a5a20" stroke-width="1.4"/></g><g class="cl-cart-feather"><path d="M 96 30 Q 88 8 98 -2 Q 106 8 104 30 Q 100 33 96 30 Z" fill="#8f6ad4" stroke="#04124a" stroke-width="1.8"/><path d="M 82 32 Q 70 16 76 4 Q 88 12 90 30 Q 86 34 82 32 Z" fill="#a988e2" stroke="#04124a" stroke-width="1.8"/><path d="M 118 32 Q 130 16 124 4 Q 112 12 110 30 Q 114 34 118 32 Z" fill="#a988e2" stroke="#04124a" stroke-width="1.8"/><rect x="92" y="28" width="16" height="8" rx="3" fill="#e8b83a" stroke="#8a5a20" stroke-width="1.2"/></g></g>
 
   <!-- ─── NEMES (Cleopatra) — Egyptian striped headdress ──────── -->
-  <g class="cl-costume-nemes">
-    <!-- Headdress main shape — drapes down sides like classic nemes -->
-    <path d="M 42 60 Q 50 22 100 18 Q 150 22 158 60 L 154 100 Q 148 106 138 102 L 132 84 L 124 100 Q 100 96 76 100 L 68 84 L 62 102 Q 52 106 46 100 Z"
-          fill="url(#grad-gold)" stroke="#5a4018" stroke-width="1.4"/>
-    <!-- Blue stripes on side flaps (iconic) -->
-    <path d="M 50 70 L 56 102" stroke="#0a3878" stroke-width="3.5" fill="none"/>
-    <path d="M 56 64 L 62 102" stroke="#0a3878" stroke-width="3.5" fill="none"/>
-    <path d="M 62 60 L 68 100" stroke="#0a3878" stroke-width="3.5" fill="none"/>
-    <path d="M 138 60 L 132 100" stroke="#0a3878" stroke-width="3.5" fill="none"/>
-    <path d="M 144 64 L 138 102" stroke="#0a3878" stroke-width="3.5" fill="none"/>
-    <path d="M 150 70 L 144 102" stroke="#0a3878" stroke-width="3.5" fill="none"/>
-    <!-- Brow band — the horizontal blue band across the front -->
-    <path d="M 56 56 Q 100 46 144 56" stroke="#0a3878" stroke-width="4" fill="none"/>
-    <path d="M 56 56 Q 100 46 144 56" stroke="url(#grad-gold)" stroke-width="1.6" fill="none"/>
-    <!-- URAEUS (cobra) — the royal cobra rearing from the brow -->
-    <g class="cl-uraeus">
-      <!-- Cobra hood (flat triangle shape) -->
-      <path d="M 94 40 Q 100 26 106 40 Q 106 36 100 32 Q 94 36 94 40 Z"
-            fill="#0a8050" stroke="#063820" stroke-width="0.8"/>
-      <!-- Hood highlight -->
-      <path d="M 96 38 Q 100 30 104 38" stroke="#5cd090" stroke-width="0.6" fill="none" opacity="0.7"/>
-      <!-- Cobra body curving down to brow -->
-      <path d="M 100 40 Q 96 48 100 56" stroke="#0a8050" stroke-width="3.4" fill="none" stroke-linecap="round"/>
-      <!-- Cobra eyes (red gems) -->
-      <circle cx="97" cy="36" r="0.9" fill="url(#grad-jewel-red)"/>
-      <circle cx="103" cy="36" r="0.9" fill="url(#grad-jewel-red)"/>
-      <!-- Forked tongue -->
-      <path d="M 99 32 L 100 28 L 101 32" stroke="#c01828" stroke-width="0.5" fill="none"/>
-      <!-- Gold uraeus base -->
-      <ellipse cx="100" cy="56" rx="3.5" ry="1.6" fill="url(#grad-gold)" stroke="#5a4018" stroke-width="0.6"/>
-    </g>
-    <!-- Bottom hem detail -->
-    <path d="M 50 100 Q 100 102 150 100" stroke="#0a3878" stroke-width="1" fill="none"/>
-  </g>
+  <g class="cl-costume-nemes"><path d="M 54 66 Q 58 26 100 22 Q 142 26 146 66 L 146 98 Q 138 104 132 98 L 132 66 Q 116 54 100 54 Q 84 54 68 66 L 68 98 Q 60 104 54 98 Z" fill="#e8b83a" stroke="#04124a" stroke-width="2.2"/><path d="M 60 46 Q 100 32 140 46 L 140 54 Q 100 40 60 54 Z" fill="#2a4a9e"/><path d="M 57 32 Q 100 20 143 32 L 141 39 Q 100 28 59 39 Z" fill="#2a4a9e" opacity="0.9"/><rect x="54" y="70" width="14" height="7" fill="#2a4a9e"/><rect x="54" y="84" width="14" height="7" fill="#2a4a9e"/><rect x="132" y="70" width="14" height="7" fill="#2a4a9e"/><rect x="132" y="84" width="14" height="7" fill="#2a4a9e"/><g class="cl-uraeus"><path d="M 100 40 Q 94 36 96 30 Q 104 26 104 33 Q 104 37 100 40 Z" fill="#e8b83a" stroke="#8a5a20" stroke-width="1.6"/><circle cx="100" cy="31" r="2" fill="#8a5a20"/></g></g>
 
   <!-- ═══════════════════════════════════════════════════════════════
        NEW v17.31 HATS — 5 additional costumes
@@ -1181,61 +978,7 @@
   </g>
 
   <!-- ─── FLOWER CROWN (5 cute flowers + leaves on a stem arc) ─── -->
-  <g class="cl-costume-flower-crown">
-    <g class="cl-flower-wreath">
-      <!-- Green stem band -->
-      <path d="M 40 58 Q 100 22 160 58" stroke="#3a8038" stroke-width="3.2" fill="none" opacity="0.8"/>
-      <path d="M 40 58 Q 100 22 160 58" stroke="#5fb04c" stroke-width="1.4" fill="none" opacity="0.85"/>
-      <!-- Small leaves -->
-      <path d="M 60 52 Q 64 42 72 44 Q 70 50 64 52" fill="#3a8038" opacity="0.85"/>
-      <path d="M 140 52 Q 136 42 128 44 Q 130 50 136 52" fill="#3a8038" opacity="0.85"/>
-      <!-- Flower 1 (pink, left) -->
-      <g class="cl-flower cl-flower-1" transform="translate(50, 52)">
-        <circle cx="0" cy="-5" r="3.6" fill="#ff7faa"/>
-        <circle cx="-4" cy="0"  r="3.6" fill="#ff7faa"/>
-        <circle cx="4"  cy="0"  r="3.6" fill="#ff7faa"/>
-        <circle cx="-2" cy="4"  r="3.6" fill="#ff7faa"/>
-        <circle cx="2"  cy="4"  r="3.6" fill="#ff7faa"/>
-        <circle cx="0"  cy="0"  r="2.4" fill="#ffd870" stroke="#c89010" stroke-width="0.4"/>
-      </g>
-      <!-- Flower 2 (cream) -->
-      <g class="cl-flower cl-flower-2" transform="translate(72, 38)">
-        <circle cx="0" cy="-5" r="3.6" fill="#fff4c8"/>
-        <circle cx="-4" cy="0"  r="3.6" fill="#fff4c8"/>
-        <circle cx="4"  cy="0"  r="3.6" fill="#fff4c8"/>
-        <circle cx="-2" cy="4"  r="3.6" fill="#fff4c8"/>
-        <circle cx="2"  cy="4"  r="3.6" fill="#fff4c8"/>
-        <circle cx="0"  cy="0"  r="2.4" fill="#ffd870" stroke="#c89010" stroke-width="0.4"/>
-      </g>
-      <!-- Flower 3 (lavender, center, bigger) -->
-      <g class="cl-flower cl-flower-3" transform="translate(100, 26)">
-        <circle cx="0" cy="-6" r="4.2" fill="#c896f5"/>
-        <circle cx="-5" cy="0"  r="4.2" fill="#c896f5"/>
-        <circle cx="5"  cy="0"  r="4.2" fill="#c896f5"/>
-        <circle cx="-3" cy="5"  r="4.2" fill="#c896f5"/>
-        <circle cx="3"  cy="5"  r="4.2" fill="#c896f5"/>
-        <circle cx="0"  cy="0"  r="2.8" fill="#ffd870" stroke="#c89010" stroke-width="0.4"/>
-      </g>
-      <!-- Flower 4 (cream) -->
-      <g class="cl-flower cl-flower-4" transform="translate(128, 38)">
-        <circle cx="0" cy="-5" r="3.6" fill="#fff4c8"/>
-        <circle cx="-4" cy="0"  r="3.6" fill="#fff4c8"/>
-        <circle cx="4"  cy="0"  r="3.6" fill="#fff4c8"/>
-        <circle cx="-2" cy="4"  r="3.6" fill="#fff4c8"/>
-        <circle cx="2"  cy="4"  r="3.6" fill="#fff4c8"/>
-        <circle cx="0"  cy="0"  r="2.4" fill="#ffd870" stroke="#c89010" stroke-width="0.4"/>
-      </g>
-      <!-- Flower 5 (pink, right) -->
-      <g class="cl-flower cl-flower-5" transform="translate(150, 52)">
-        <circle cx="0" cy="-5" r="3.6" fill="#ff7faa"/>
-        <circle cx="-4" cy="0"  r="3.6" fill="#ff7faa"/>
-        <circle cx="4"  cy="0"  r="3.6" fill="#ff7faa"/>
-        <circle cx="-2" cy="4"  r="3.6" fill="#ff7faa"/>
-        <circle cx="2"  cy="4"  r="3.6" fill="#ff7faa"/>
-        <circle cx="0"  cy="0"  r="2.4" fill="#ffd870" stroke="#c89010" stroke-width="0.4"/>
-      </g>
-    </g>
-  </g>
+  <g class="cl-costume-flower-crown"><g class="cl-flower-wreath"><path d="M 46 58 Q 100 22 154 58" stroke="#4a8c3c" stroke-width="3.4" fill="none" stroke-linecap="round"/><path d="M 60 50 Q 66 40 76 42 Q 72 50 62 52 Z" fill="#5fa84c" stroke="#3f7a2e" stroke-width="1.2"/><path d="M 140 50 Q 134 40 124 42 Q 128 50 138 52 Z" fill="#5fa84c" stroke="#3f7a2e" stroke-width="1.2"/><path d="M 84 36 Q 88 28 96 28 Q 92 36 86 38 Z" fill="#5fa84c" stroke="#3f7a2e" stroke-width="1.2"/><path d="M 116 36 Q 112 28 104 28 Q 108 36 114 38 Z" fill="#5fa84c" stroke="#3f7a2e" stroke-width="1.2"/><g class="cl-flower cl-flower-1"><circle cx="50" cy="47.4" r="4" fill="#ff8fb0" stroke="#8a4a68" stroke-width="1"/><circle cx="54.4" cy="50.6" r="4" fill="#ff8fb0" stroke="#8a4a68" stroke-width="1"/><circle cx="52.7" cy="56.1" r="4" fill="#ff8fb0" stroke="#8a4a68" stroke-width="1"/><circle cx="47.3" cy="56.1" r="4" fill="#ff8fb0" stroke="#8a4a68" stroke-width="1"/><circle cx="45.6" cy="50.6" r="4" fill="#ff8fb0" stroke="#8a4a68" stroke-width="1"/><circle cx="50" cy="52" r="3" fill="#ffd870" stroke="#8a5a20" stroke-width="0.8"/></g><g class="cl-flower cl-flower-2"><circle cx="72" cy="33.4" r="4" fill="#fff2c8" stroke="#8a4a68" stroke-width="1"/><circle cx="76.4" cy="36.6" r="4" fill="#fff2c8" stroke="#8a4a68" stroke-width="1"/><circle cx="74.7" cy="42.1" r="4" fill="#fff2c8" stroke="#8a4a68" stroke-width="1"/><circle cx="69.3" cy="42.1" r="4" fill="#fff2c8" stroke="#8a4a68" stroke-width="1"/><circle cx="67.6" cy="36.6" r="4" fill="#fff2c8" stroke="#8a4a68" stroke-width="1"/><circle cx="72" cy="38" r="3" fill="#ff8fb0" stroke="#8a5a20" stroke-width="0.8"/></g><g class="cl-flower cl-flower-3"><circle cx="100" cy="21.4" r="4" fill="#c9a6f0" stroke="#8a4a68" stroke-width="1"/><circle cx="104.4" cy="24.6" r="4" fill="#c9a6f0" stroke="#8a4a68" stroke-width="1"/><circle cx="102.7" cy="30.1" r="4" fill="#c9a6f0" stroke="#8a4a68" stroke-width="1"/><circle cx="97.3" cy="30.1" r="4" fill="#c9a6f0" stroke="#8a4a68" stroke-width="1"/><circle cx="95.6" cy="24.6" r="4" fill="#c9a6f0" stroke="#8a4a68" stroke-width="1"/><circle cx="100" cy="26" r="3" fill="#ffd870" stroke="#8a5a20" stroke-width="0.8"/></g><g class="cl-flower cl-flower-4"><circle cx="128" cy="33.4" r="4" fill="#fff2c8" stroke="#8a4a68" stroke-width="1"/><circle cx="132.4" cy="36.6" r="4" fill="#fff2c8" stroke="#8a4a68" stroke-width="1"/><circle cx="130.7" cy="42.1" r="4" fill="#fff2c8" stroke="#8a4a68" stroke-width="1"/><circle cx="125.3" cy="42.1" r="4" fill="#fff2c8" stroke="#8a4a68" stroke-width="1"/><circle cx="123.6" cy="36.6" r="4" fill="#fff2c8" stroke="#8a4a68" stroke-width="1"/><circle cx="128" cy="38" r="3" fill="#ff8fb0" stroke="#8a5a20" stroke-width="0.8"/></g><g class="cl-flower cl-flower-5"><circle cx="150" cy="47.4" r="4" fill="#ff8fb0" stroke="#8a4a68" stroke-width="1"/><circle cx="154.4" cy="50.6" r="4" fill="#ff8fb0" stroke="#8a4a68" stroke-width="1"/><circle cx="152.7" cy="56.1" r="4" fill="#ff8fb0" stroke="#8a4a68" stroke-width="1"/><circle cx="147.3" cy="56.1" r="4" fill="#ff8fb0" stroke="#8a4a68" stroke-width="1"/><circle cx="145.6" cy="50.6" r="4" fill="#ff8fb0" stroke="#8a4a68" stroke-width="1"/><circle cx="150" cy="52" r="3" fill="#ffd870" stroke="#8a5a20" stroke-width="0.8"/></g></g></g>
 
   <!-- ─── HEART CROWN (pink-gold band with 5 hearts + sparkles) ── -->
   <g class="cl-costume-heart-crown">

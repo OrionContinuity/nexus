@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v233-kao-faithful';
+const CACHE_NAME = 'nexus-v234-costume-redraw';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
