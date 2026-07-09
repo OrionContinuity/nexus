@@ -685,8 +685,14 @@
   // ════════════════════════════════════════════════════════════════════
 
   function getSupabaseClient() {
-    // Reuse the existing NEXUS-wide Supabase client if available
-    return (typeof window !== 'undefined') && (window.NX && window.NX.supabase) || null;
+    // The real NEXUS client is NX.sb (created in app.js). This used to
+    // read NX.supabase — which is never assigned — so cloud sync silently
+    // no-oped forever: nothing was ever pushed or pulled. v18.46 points it
+    // at the actual client, so per-user memory now truly crosses devices.
+    try {
+      if (typeof window === 'undefined' || !window.NX) return null;
+      return window.NX.sb || window.NX.supabase || null;
+    } catch (_) { return null; }
   }
 
   function showSyncIndicator(state_, message) {
@@ -9035,6 +9041,7 @@
             const nm = (u && u.name) ? String(u.name).split(' ')[0] : null;
             if (nm) { mood('happy', 3000); bubble('Oh — ' + nm + '. Hello. I kept your place.', { autoHide: 4200, eyebrow: '👋' }); }
           }
+          cloudPushQueued();   // seed this user's cloud row if new
         }).catch(() => {});
       }
     } catch (_) {}
@@ -9301,6 +9308,27 @@
     await loadDialog();
     await loadPreferences();
     wireGlobalListeners();
+
+    // v18.46 — initial cross-device pull. If a user is already signed in at
+    // boot (a page reload with an active session), no nexus:user-change fires,
+    // so pull their cloud memory once here; retry once for a login that lands
+    // just after Clippy boots. Then a debounced push seeds the row for anyone
+    // who was previously local-only.
+    try {
+      const initialCloudSync = () => {
+        try {
+          const u = getCurrentUser();
+          if (u && u.id) {
+            Promise.resolve(cloudPull()).then((ok) => {
+              if (ok) { try { loadPreferences(); loadMemories(); loadFeelings(); } catch (_) {} }
+              cloudPushQueued();   // seed the cloud row if it didn't exist
+            }).catch(() => {});
+          }
+        } catch (_) {}
+      };
+      setTimeout(initialCloudSync, 1500);
+      setTimeout(initialCloudSync, 5000);
+    } catch (_) {}
 
     if (state.preferences.enabled === true) {
       // Already accepted
