@@ -115,10 +115,13 @@
         try { await NX.sb.from('tickets').update({ status: 'closed', closed_at: now }).eq('id', card.ticket_id); } catch (_) {}
       }
     }
-    // 3. Equipment status: the completion form's choice wins
+    // 3. Equipment status: the completion form's choice wins. Clear the
+    //    sticky status_note with it (it narrated the finished saga).
     try {
-      await NX.sb.from('equipment')
-        .update({ status: extras.restoreStatus || (card && card.prior_eq_status) || 'operational' }).eq('id', equipmentId);
+      const st = extras.restoreStatus || (card && card.prior_eq_status) || 'operational';
+      const { error } = await NX.sb.from('equipment')
+        .update({ status: st, status_note: null }).eq('id', equipmentId);
+      if (error) await NX.sb.from('equipment').update({ status: st }).eq('id', equipmentId);
     } catch (_) {}
     // 4. Audit trail, invoice attached
     try {

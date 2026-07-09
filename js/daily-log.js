@@ -857,7 +857,7 @@ async function loadEquipmentDown() {
       const downIds = rows.map(e => e.id);
       if (downIds.length && NX.sb) {
         const { data: iss } = await NX.sb.from('equipment_issues')
-          .select('equipment_id, status, contractor_name, contractor_called_at, eta_at, reported_at, created_at, priority')
+          .select('id, equipment_id, title, description, status, contractor_name, contractor_called_at, eta_at, reported_at, created_at, priority')
           .in('equipment_id', downIds)
           .not('status', 'in', '(repaired,closed,cancelled,invoice_paid)')
           .order('created_at', { ascending: false });
@@ -892,6 +892,38 @@ async function loadEquipmentDown() {
     console.warn('[daily-log] loadEquipmentDown exception:', e);
     return [];
   }
+}
+
+// One-line lifecycle summary for a unit's open work order — shared by the
+// email builder and the on-screen Equipment Status rows, so what you read
+// in the inbox and what you read in the app can never disagree.
+function dlogIssueCallLine(iss) {
+  const clean = s => String(s == null ? '' : s).trim();
+  const shortD = iso => { if (!iso) return ''; const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString([], { month: 'short', day: 'numeric' }); };
+  const etaTxt = iso => {
+    if (!iso) return '';
+    const d = new Date(iso); if (isNaN(d)) return '';
+    const t = new Date(); const sameDay = d.toDateString() === t.toDateString();
+    return sameDay
+      ? ('today ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))
+      : d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  };
+  if (!iss) return 'call: not logged — no open work order yet';
+  const s = (iss.status || '').toLowerCase();
+  const who = iss.contractor_name ? ' to ' + clean(iss.contractor_name) : '';
+  if (s === 'reported' || s === 'open' || s === 'new')
+    return 'call: NOT placed yet — reported ' + shortD(iss.reported_at || iss.created_at);
+  if (s === 'contractor_called' || s === 'called' || s === 'dispatched')
+    return 'call: placed' + who + (iss.contractor_called_at ? ' on ' + shortD(iss.contractor_called_at) : '') + (iss.eta_at ? ' — ETA ' + etaTxt(iss.eta_at) : '');
+  if (s === 'eta_set' || s === 'scheduled')
+    return 'call: placed' + who + ' — ETA ' + etaTxt(iss.eta_at);
+  if (s === 'in_progress' || s === 'on_site')
+    return 'call: placed — contractor on site, repair in progress';
+  if (s === 'awaiting_parts')
+    return 'call: placed — awaiting parts';
+  if (s === 'quote_requested' || s === 'awaiting_quote')
+    return 'call: placed' + who + ' — awaiting quote';
+  return 'call: ' + s.replace(/_/g, ' ');
 }
 
 // Writes status_note back to the equipment row. Best-effort: failures
@@ -1579,9 +1611,17 @@ function renderEquipmentStatusSection(d) {
       : daysDown === 0 ? 'updated today'
       : daysDown === 1 ? '1 day'
       : `${daysDown} days`;
-    const noteValue = eq.status_note || '';
     const sched = pmConfirmNote(eq.id);
     const metaBits = [dayLabel, sched].filter(Boolean).join(' · ');
+    // BOARD DATA ONLY (Alfredo: "just use the board data for notes and
+    // equipment status") — the row narrates the CURRENT open work order,
+    // not the sticky per-equipment status_note, which lingered from
+    // last week's completed saga and shadowed today's report. Arrow
+    // opens the work order itself when one exists.
+    const iss = (state.openIssuesByEq || {})[eq.id];
+    const woLine = dlogIssueCallLine(iss);
+    const goTarget = (iss && iss.id) ? `wo:${iss.id}` : `eq:${eq.id}`;
+    const woDesc = iss ? String(iss.description || '').replace(/\s+/g, ' ').trim() : '';
     return `
       <div class="dlog-eqstatus-row" data-eq-id="${esc(eq.id)}">
         <div class="dlog-eqstatus-head">
@@ -1590,14 +1630,15 @@ function renderEquipmentStatusSection(d) {
             <span class="dlog-eqstatus-name">${esc(eq.name || 'Untitled equipment')}</span>
             <span class="dlog-eqstatus-meta">${metaBits ? esc(metaBits) : ''}</span>
           </div>
-          <button type="button" class="dlog-row-go" data-go="eq:${esc(eq.id)}" title="Open in Equipment" aria-label="Open ${esc(eq.name || 'equipment')}">›</button>
+          <button type="button" class="dlog-row-go" data-go="${esc(goTarget)}" title="${iss ? 'Open work order' : 'Open in Equipment'}" aria-label="Open ${esc(eq.name || 'equipment')}">›</button>
         </div>
-        <textarea
-          class="dlog-eqstatus-note"
-          data-eq-note="${esc(eq.id)}"
-          rows="2"
-          placeholder="Current status &mdash; parts ordered, vendor coming, etc."
-        >${esc(noteValue)}</textarea>
+        ${iss ? `
+        <div class="dlog-eqstatus-issue">
+          <div class="dlog-eqstatus-issue-title">${esc(String(iss.title || 'Work order').slice(0, 90))}</div>
+          ${woDesc ? `<div class="dlog-eqstatus-issue-desc">${esc(woDesc.slice(0, 220))}${woDesc.length > 220 ? '…' : ''}</div>` : ''}
+          <span class="dlog-eqstatus-wo">${esc(woLine)}</span>
+        </div>` : `
+        <span class="dlog-eqstatus-wo is-none">${esc(woLine)}</span>`}
       </div>`;
   };
 
@@ -1633,7 +1674,7 @@ function renderEquipmentStatusSection(d) {
         <span class="dlog-section-count">${items.length}</span>
       </summary>
       <div class="dlog-section-body">
-        <p class="dlog-empty-hint">Not operational, split by location — notes update the equipment record directly. Change status in the Equip view when back up.</p>
+        <p class="dlog-empty-hint">Not operational, split by location — live from each unit's open work order. Tap › to open it.</p>
         ${groupBlocks}
       </div>
     </details>`;
@@ -3022,44 +3063,19 @@ function dlogLocationReportLines(loc) {
   if (down.length) {
     out.push(SH('Equipment status'));
     const issByEq = state.openIssuesByEq || {};
-    const shortD = iso => { if (!iso) return ''; const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString([], { month: 'short', day: 'numeric' }); };
-    const etaTxt = iso => {
-      if (!iso) return '';
-      const d = new Date(iso); if (isNaN(d)) return '';
-      const t = new Date(); const sameDay = d.toDateString() === t.toDateString();
-      return sameDay
-        ? ('today ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))
-        : d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
-    };
     down.forEach(eq => {
       // Front-load a status tag ([DOWN], [NEEDS SERVICE], \u2026) to match the
       // work-order [URGENT]/[HIGH] tags so the whole email scans the same way.
       const st = (eq.status || '').replace(/_/g, ' ').trim();
       const stTag = st ? '[' + st.toUpperCase() + '] ' : '';
       out.push('\u00b7 ' + stTag + (eq.name || 'Equipment'));
-      if (clean(eq.status_note)) out.push('    why: ' + clean(eq.status_note));
-      // Has a contractor been called? Surface the open work-order lifecycle.
+      // BOARD DATA \u2014 the open work order's report is the "why", not the
+      // sticky per-equipment status_note (which lingers from completed
+      // sagas). Legacy note only when there is no open work order at all.
       const iss = issByEq[eq.id];
-      if (!iss) {
-        out.push('    call: not logged \u2014 no open work order yet');
-      } else {
-        const s = (iss.status || '').toLowerCase();
-        const who = iss.contractor_name ? ' to ' + clean(iss.contractor_name) : '';
-        if (s === 'reported' || s === 'open' || s === 'new')
-          out.push('    call: NOT placed yet \u2014 reported ' + shortD(iss.reported_at || iss.created_at));
-        else if (s === 'contractor_called' || s === 'called' || s === 'dispatched')
-          out.push('    call: placed' + who + (iss.contractor_called_at ? ' on ' + shortD(iss.contractor_called_at) : '') + (iss.eta_at ? ' \u2014 ETA ' + etaTxt(iss.eta_at) : ''));
-        else if (s === 'eta_set' || s === 'scheduled')
-          out.push('    call: placed' + who + ' \u2014 ETA ' + etaTxt(iss.eta_at));
-        else if (s === 'in_progress' || s === 'on_site')
-          out.push('    call: placed \u2014 contractor on site, repair in progress');
-        else if (s === 'awaiting_parts')
-          out.push('    call: placed \u2014 awaiting parts');
-        else if (s === 'quote_requested' || s === 'awaiting_quote')
-          out.push('    call: placed' + who + ' \u2014 awaiting quote');
-        else
-          out.push('    call: ' + s.replace(/_/g, ' '));
-      }
+      const why = clean(iss && (iss.description || iss.title)) || (!iss && clean(eq.status_note)) || '';
+      if (why) out.push('    why: ' + why.replace(/\s+/g, ' ').slice(0, 220));
+      out.push('    ' + dlogIssueCallLine(iss));
     });
     out.push('');
   }

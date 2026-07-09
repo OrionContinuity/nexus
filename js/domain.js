@@ -1315,11 +1315,20 @@
     }
 
     // 3) Equipment status — an explicit choice from the completion form
-    //    wins; otherwise back to what it was before this work order.
+    //    wins; otherwise back to what it was before this work order. The
+    //    sticky status_note clears with it: it narrated THIS saga, and a
+    //    stale note shadowing the next work order is how "why am I seeing
+    //    an already closed work order" happens. Falls back to status-only
+    //    if the column is missing.
     try {
-      await NX.sb.from('equipment')
-        .update({ status: restoreStatus || (card && card.prior_eq_status) || 'operational' })
+      const { error } = await NX.sb.from('equipment')
+        .update({ status: restoreStatus || (card && card.prior_eq_status) || 'operational', status_note: null })
         .eq('id', equipmentId);
+      if (error) {
+        await NX.sb.from('equipment')
+          .update({ status: restoreStatus || (card && card.prior_eq_status) || 'operational' })
+          .eq('id', equipmentId);
+      }
     } catch (_) {}
 
     // 4) Auditable trail of the completion, invoice attached.

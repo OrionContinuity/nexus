@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v220-public-report';
+const CACHE_NAME = 'nexus-v221-board-truth';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
