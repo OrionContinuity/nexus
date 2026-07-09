@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v235-kao2-aicreate';
+const CACHE_NAME = 'nexus-v236-inner-room-home';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [

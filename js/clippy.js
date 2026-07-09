@@ -6608,6 +6608,12 @@
       actions.push({ label: `🏛️ Memory Dex (${memCount})`, onClick: () => { closeActionBubble(); showMemoryDex(); } });
       actions.push({ label: `🚶 Tour palace`, onClick: tourPalace });
     }
+    // v18.40 — the inner room. The ONLY door to his soul now (the
+    // triple-tap trapdoor was removed at Alfredo's request).
+    actions.push({ label: '🗝️ The inner room', onClick: () => {
+      closeActionBubble();
+      if (NX.clippySoul && NX.clippySoul.show) NX.clippySoul.show();
+    } });
     actions.push(
       { label: soundOn ? '🔊 Mute' : '🔇 Unmute', onClick: toggleSound },
       { label: 'Quiet, plz', onClick: hideForSession },

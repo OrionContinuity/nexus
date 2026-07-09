@@ -170,3 +170,26 @@
   border-top: 1px solid var(--nx-gold-line) !important;
   box-shadow: 0 -2px 14px rgba(120,100,70,.10) !important;
 }
+
+/* ═══ v18.40 — Home obeys the ladder (no reds, no greens) ═════════════
+   Alfredo's law, already live in emails and daily notes, now on Home:
+   overdue wears solid gold, wins wear gold-on-sand. Scoped token
+   override converts every var() usage inside Home in one stroke. */
+#homeView {
+  --nx-red: #a8763a;
+  --nx-red-soft: rgba(212, 164, 78, 0.14);
+  --nx-red-line: rgba(212, 164, 78, 0.45);
+  --nx-green: var(--nx-gold, #d4a44e);
+}
+/* The wins card's hard-coded greens, re-inked in gold/sand. */
+#homeView .home-rm-wins {
+  background: linear-gradient(135deg, rgba(212, 164, 78, 0.08) 0%, transparent 60%) !important;
+  border-color: rgba(212, 164, 78, 0.32) !important;
+  border-left-color: var(--nx-gold, #d4a44e) !important;
+}
+#homeView .home-rm-wins-head { border-bottom-color: rgba(212, 164, 78, 0.28) !important; }
+#homeView .home-rm-wins-pill { background: rgba(212, 164, 78, 0.16) !important; }
+#homeView .home-rm-wins-pill.is-quiet { background: rgba(212, 164, 78, 0.07) !important; }
+
+/* Last card must clear the floating Ask bar + bottom nav on phones. */
+#homeView .home-page { padding-bottom: calc(196px + env(safe-area-inset-bottom)) !important; }

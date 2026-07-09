@@ -44,10 +44,13 @@ body::-webkit-scrollbar{display:none}
 *{-webkit-tap-highlight-color:transparent}
 @keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 14px var(--glow)}50%{opacity:.6;box-shadow:0 0 6px var(--glow)}}
 @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
-@keyframes toastOut{from{transform:translateY(0);opacity:1}to{transform:translateY(100%);opacity:0}}
+@keyframes toastOut{from{transform:translateY(0);opacity:1}to{transform:translateY(-60%);opacity:0}}
 
 /* Toast container is positioning-only; the .toast styling now lives in nx-system.css */
-.toast-container{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:9999;display:flex;flex-direction:column;gap:6px;align-items:center;pointer-events:none}
+/* v18.40 — toasts live under the header now. At bottom:80px they landed
+   exactly where the Ask bar + content headers sit on phones ("Not
+   clocked in" floating over Needs-attention). Top never collides. */
+.toast-container{position:fixed;top:calc(env(safe-area-inset-top, 0px) + 92px);bottom:auto;left:50%;transform:translateX(-50%);z-index:9999;display:flex;flex-direction:column;gap:6px;align-items:center;pointer-events:none}
 .toast.out{animation:toastOut .3s ease forwards}
 
 /* Brain category filters */
