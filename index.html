@@ -3708,7 +3708,7 @@
       };
       if (window.NX && NX.modules && NX.modules.workOrders) { go(); return; }
       var s = document.createElement('script');
-      s.src = 'js/work-orders.js?v=7';
+      s.src = 'js/work-orders.js?v=8';
       s.onload = go; s.onerror = go;
       document.body.appendChild(s);
       return;
@@ -4864,6 +4864,7 @@
 <!-- v18.32 — Mini-games sub-module extracted from clippy.js. Late-binding init polls
      for NX.clippy._internal, then attaches NX.clippy.games. Load AFTER clippy.js. -->
 <script src="js/clippy-games.js" defer></script>
+<script src="js/clippy-tour.js" defer></script>
 <!-- record-editor.js MUST come AFTER app.js — the engine attaches to the
      lexical `const NX` declared in app.js, which is not a property on
      window. Loading order is the only way to make that binding visible

@@ -1350,6 +1350,8 @@
     // 5) Refresh the equipment brain + board so the change shows immediately.
     try { if (NX.eqBrainSync?.syncOne) await NX.eqBrainSync.syncOne(equipmentId); } catch (_) {}
     try { if (NX.modules?.board?.reload) NX.modules.board.reload(); } catch (_) {}
+    // Clippy celebrates a fixed machine (self-guarded: enabled/DND).
+    try { NX.clippy?.notifyEquipmentFixed?.(); } catch (_) {}
 
     return { ok: true, closedCard: !!card, closedIssue: !!issueId, equipmentId };
   };
@@ -1365,7 +1367,7 @@
       : NX.toast && NX.toast('Work Orders unavailable — is js/work-orders.js deployed?', 'error', 3500);
     if (NX.modules?.workOrders) { go(); return; }
     const s = document.createElement('script');
-    s.src = 'js/work-orders.js?v=7';
+    s.src = 'js/work-orders.js?v=8';
     s.onload = go; s.onerror = go;
     document.body.appendChild(s);
   };
@@ -1744,7 +1746,7 @@
       if (L.modules && L.modules.workOrders) openWo();
       else {
         const s = document.createElement('script');
-        s.src = 'js/work-orders.js?v=7';
+        s.src = 'js/work-orders.js?v=8';
         s.onload = openWo;
         document.body.appendChild(s);
       }

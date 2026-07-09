@@ -4008,3 +4008,19 @@ body.clippy-game-open .clippy-bubble {
 @media (prefers-reduced-motion: reduce) {
   .clippy-anxious .clippy-svg { animation: none; }
 }
+
+/* ─── v18.33 Guided tour ──────────────────────────────────────────────
+   Gold pulse on the nav button a tour step points at. Brand palette
+   (never red/green). Removed with the .clippy-tour-spot class. */
+.clippy-tour-spot {
+  animation: clippyTourPulse 1.15s ease-in-out infinite;
+  border-radius: 12px;
+}
+@keyframes clippyTourPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(212, 164, 78, 0.70); }
+  70%  { box-shadow: 0 0 0 11px rgba(212, 164, 78, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(212, 164, 78, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .clippy-tour-spot { animation: none; box-shadow: 0 0 0 3px rgba(212, 164, 78, 0.7); }
+}

@@ -81,6 +81,15 @@
     const userKey           = ix.userKey;
     const openOverlay       = ix.openOverlay;
     const closeOverlay      = ix.closeOverlay;
+    // v18.33 — these four were referenced throughout the games body but
+    // never captured (the extraction missed them). getAudioCtx was the
+    // game-freeze bug: playPitch() threw a ReferenceError inside update
+    // loops, killing the rAF tick on the first scored point. Fallbacks
+    // keep the games alive even against a stale clippy.js.
+    const feel              = ix.feel              || function () {};
+    const getAudioCtx       = ix.getAudioCtx       || function () { return null; };
+    const grantBondXP_game_played     = ix.grantBondXP_game_played     || function () {};
+    const grantBondXP_game_high_score = ix.grantBondXP_game_high_score || function () {};
 
     /* ── Games body (extracted unchanged from clippy.js) ─────────── */
 
@@ -639,7 +648,12 @@
       if (!running) return;
       const dt = Math.min(2, (now - lastT) / 16.67);   // cap dt to 2 frames
       lastT = now;
-      update(dt);
+      // A thrown frame must never kill the loop — that reads as a frozen
+      // game with no error surfaced. Log the first few, keep ticking.
+      try { update(dt); } catch (e) {
+        tick._errs = (tick._errs || 0) + 1;
+        if (tick._errs <= 3) console.warn('[clippy-games] frame error:', e);
+      }
       if (running) rafId = requestAnimationFrame(tick);
     }
     const handle = {
@@ -829,26 +843,36 @@
   // ────────────────────────────────────────────────────────────────
   // Medals for Flappy/Cannon-style scoring games. Returns the tier
   // object or null if score below bronze threshold.
+  // v18.33 — thresholds now MATCH the shared MEDALS.flappy table
+  // (50/25/10/3). The in-canvas game-over panel and the result screen
+  // used to disagree (this said platinum≥100, the table said ≥50).
   // ────────────────────────────────────────────────────────────────
   function flappyMedalFor(score) {
-    if (score >= 100) return { tier: 'platinum', label: 'Platinum', glyph: '◆', color: '#e0f0ff', edge: '#90b8e0' };
-    if (score >= 50)  return { tier: 'gold',     label: 'Gold',     glyph: '●', color: '#ffe488', edge: '#c89010' };
-    if (score >= 25)  return { tier: 'silver',   label: 'Silver',   glyph: '●', color: '#e8e8ec', edge: '#909098' };
-    if (score >= 10)  return { tier: 'bronze',   label: 'Bronze',   glyph: '●', color: '#e0a060', edge: '#8c5418' };
+    if (score >= 50) return { tier: 'platinum', label: 'Platinum', glyph: '◆', color: '#e0f0ff', edge: '#90b8e0' };
+    if (score >= 25) return { tier: 'gold',     label: 'Gold',     glyph: '●', color: '#ffe488', edge: '#c89010' };
+    if (score >= 10) return { tier: 'silver',   label: 'Silver',   glyph: '●', color: '#e8e8ec', edge: '#909098' };
+    if (score >= 3)  return { tier: 'bronze',   label: 'Bronze',   glyph: '●', color: '#e0a060', edge: '#8c5418' };
     return null;
   }
 
   // ────────────────────────────────────────────────────────────────
   // Persistent best-score store for any game. Keyed per-game, per-user.
+  // v18.33 — now a VIEW over the same clippy_highscores map that the
+  // menu and result screen use. There were two divergent stores
+  // (clippy_best_<id> vs the map), so the in-game "BEST" HUD and the
+  // result screen could show different numbers forever. One-time
+  // migration folds the higher of the two in.
   // ────────────────────────────────────────────────────────────────
   function getBest(gameId) {
     try {
-      const raw = localStorage.getItem(userKey('clippy_best_' + gameId));
-      return raw ? parseInt(raw, 10) || 0 : 0;
+      const legacy = parseInt(localStorage.getItem(userKey('clippy_best_' + gameId)), 10) || 0;
+      const map = getHighScores()[gameId] || 0;
+      if (legacy > map) { saveHighScore(gameId, legacy); return legacy; }
+      return map;
     } catch (_) { return 0; }
   }
   function setBest(gameId, value) {
-    try { localStorage.setItem(userKey('clippy_best_' + gameId), String(value)); } catch (_) {}
+    try { saveHighScore(gameId, value); } catch (_) {}
   }
 
   // ════════════════════════════════════════════════════════════════
@@ -950,7 +974,7 @@
       runCountdown(board, () => {
         running = true;
         const tick = setInterval(() => {
-          if (!running) return;
+          if (!running || document.hidden) return;
           timeLeft--;
           timeEl.textContent = timeLeft;
           if (timeLeft <= 0) {
@@ -1471,7 +1495,10 @@
 
       // ─── Constants — canonical Flappy feel ──────────────────────
       const GROUND_Y = H - 28;
-      const BIRD_R   = 16;
+      // v18.33 — hitbox was Ø32 vs a Ø44 drawing: "clearly hit it but
+      // lived / clearly missed but died". Now near-visual with a small
+      // grace margin; gap floors raised below to stay fair.
+      const BIRD_R   = 19;
       const BIRD_VR  = 22;
       const BIRD_X   = Math.floor(W * 0.28);
       const GRAVITY  = 0.62;
@@ -1498,8 +1525,8 @@
       // then a slower continued ramp toward harder floors. Difficulty
       // never plateaus.
       function gapAt(s) {
-        if (s <= 50) return Math.max(100, 170 - s * 1.4);
-        return Math.max(75, 100 - (s - 50) * 0.5);
+        if (s <= 50) return Math.max(110, 170 - s * 1.2);
+        return Math.max(92, 110 - (s - 50) * 0.5);
       }
       function speedAt(s) {
         if (s <= 50) return Math.min(3.6, 2.2 + s * 0.028);
@@ -1546,7 +1573,9 @@
 
       // ─── Spawning ───────────────────────────────────────────────
       function spawnColumn() {
-        const lastScore = columns.length ? Math.max(score, columns.length - 1) : score;
+        // v18.33 — difficulty rides the REAL score (was partly driven
+        // by how many columns happened to be alive on screen).
+        const lastScore = score;
         const GAP = gapAt(lastScore);
         const baseGapY = 40 + Math.random() * (GROUND_Y - GAP - 80);
         // v18.11 — moving pipes. Probability scales with score. Each
@@ -1597,8 +1626,11 @@
         btnRow.querySelector('[data-act="quit"]').addEventListener('click', () => { loop.stop(); closeGameOverlay(); });
         runCountdown(board.wrap, () => {});
       }
-      board.wrap.addEventListener('click', flap);
-      board.wrap.addEventListener('touchstart', (e) => { e.preventDefault(); flap(); }, { passive: false });
+      // v18.33 — ONE input path. click+touchstart both fired on mobile
+      // (touchstart, then the synthesized click ~300ms later) → double
+      // flap per tap → the floaty, uncontrollable feel. pointerdown
+      // covers mouse + touch + pen exactly once.
+      board.wrap.addEventListener('pointerdown', (e) => { e.preventDefault(); flap(); });
 
       // ─── Update ─────────────────────────────────────────────────
       function update(dt) {
@@ -1789,7 +1821,9 @@
         btnRow.querySelector('[data-act="retry"]').addEventListener('click', restart);
         btnRow.querySelector('[data-act="finish"]').addEventListener('click', () => {
           loop.stop();
-          showGameResult('flappy', best);
+          // v18.33 — pass THIS run's score (was `best`, so the result
+          // screen always showed your best and never your actual run).
+          showGameResult('flappy', score);
         });
       }
 
@@ -2051,7 +2085,15 @@
       }
 
       render();
-      const loop = gameLoop((dt) => { update(dt); render(); });
+      // v18.33 — sub-step physics when a frame hitches (dt can reach 2):
+      // at top speed a 2-frame step moved bird+columns ~19px against a
+      // per-step collision test, letting the bird tunnel through pillars
+      // or die unfairly. Two half-steps keep every test under ~10px.
+      const loop = gameLoop((dt) => {
+        if (dt > 1.15) { update(dt / 2); update(dt / 2); }
+        else update(dt);
+        render();
+      });
       runCountdown(board.wrap, () => loop.start());
     });
   }
@@ -2396,7 +2438,7 @@
       runCountdown(board.wrap, () => {
         loop.start();
         timerInt = setInterval(() => {
-          if (!loop.running) return;
+          if (!loop.running || document.hidden) return;
           timeLeft--;
           if (timeLeft <= 0) gameOver(true);
         }, 1000);
@@ -2451,9 +2493,11 @@
       const juice = makeJuice(W, H);
 
       function spawnFood(gold) {
-        let f;
+        // Capped retries — an (unreachably good) snake filling the board
+        // would otherwise spin this loop forever and hang the tab.
+        let f, tries = 0;
         do { f = { x: Math.floor(Math.random() * COLS), y: Math.floor(Math.random() * ROWS), gold: !!gold }; }
-        while (snake.some(s => s.x === f.x && s.y === f.y));
+        while (snake.some(s => s.x === f.x && s.y === f.y) && ++tries < 400);
         return f;
       }
       function handleTap(clientX, clientY) {
@@ -2904,7 +2948,7 @@
       const coins = [];
       let score = 0, missed = 0, wrongCaught = 0, timeLeft = 60;
       let combo = 0;
-      let best = getBest('coincatch');
+      let best = getBest('coins');
       let spawnTimer = 0;
       let dragActive = false;
       const juice = makeJuice(W, H);
@@ -3035,12 +3079,12 @@
       runCountdown(board.wrap, () => {
         loop.start();
         timerInt = setInterval(() => {
-          if (!loop.running) return;
+          if (!loop.running || document.hidden) return;
           timeLeft--;
           if (timeLeft <= 0) {
             loop.stop();
             clearInterval(timerInt);
-            if (score > best) { best = score; setBest('coincatch', best); }
+            if (score > best) { best = score; setBest('coins', best); }
             setTimeout(() => showGameResult('coins', score, {
               stats: [
                 { label: 'Missed', value: missed },

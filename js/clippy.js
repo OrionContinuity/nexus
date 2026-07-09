@@ -6576,6 +6576,7 @@
       { label: 'Open menu', cls: 'is-primary', onClick: openPalette },
       { label: '💬 Chat with me', onClick: () => openChat() },
       { label: '🎮 Play a game', onClick: () => { closeActionBubble(); if (NX.clippy.games && NX.clippy.games.showMenu) NX.clippy.games.showMenu(); } },
+      { label: '🧭 Show me around', onClick: () => { closeActionBubble(); if (NX.clippy.tour && NX.clippy.tour.start) NX.clippy.tour.start(); } },
       { label: '🎴 Daily Gacha', onClick: () => { closeActionBubble(); if (NX.clippy && NX.clippy.gacha) NX.clippy.gacha.showInvite(); } },
       { label: '👗 Wardrobe', onClick: () => { closeActionBubble(); showCostumeMenu(); } },
       { label: '❤️ My feelings', onClick: () => { closeActionBubble(); showAffinityMenu(); } },
@@ -9625,6 +9626,13 @@
       // also available on the public API above for unified dispatch)
       adjustFeeling, adjustAffinity, addBondXP,
       depositMemory,
+      // v18.33 — the games extraction referenced these four without
+      // capturing them; getAudioCtx threw inside game update loops and
+      // froze every game on its first scored point.
+      feel, getAudioCtx,
+      grantBondXP_game_played, grantBondXP_game_high_score,
+      // v18.33 — for clippy-tour.js (persists tour_completed).
+      savePreferences,
       // Utilities
       esc, userKey,
       // Overlay manager

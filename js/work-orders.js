@@ -142,6 +142,8 @@
       await NX.sb.from('equipment_maintenance').insert(row);
     } catch (_) {}
     try { if (NX.modules?.board?.reload) NX.modules.board.reload(); } catch (_) {}
+    // Clippy celebrates a fixed machine (self-guarded: enabled/DND).
+    try { NX.clippy?.notifyEquipmentFixed?.(); } catch (_) {}
     return { ok: true };
   }
   function doFulfill(equipmentId, extras) {

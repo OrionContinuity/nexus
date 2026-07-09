@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v227-spend-capture';
+const CACHE_NAME = 'nexus-v228-clippy-revamp';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
@@ -276,6 +276,7 @@ const APP_SHELL = [
   './js/habits.js',
   './js/interests.js',
   './js/clippy-games.js',
+  './js/clippy-tour.js',
   './js/record-editor.js',
   './js/daily-card.js',
   './js/daily-log.js',

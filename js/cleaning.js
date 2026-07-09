@@ -924,6 +924,9 @@
           throw error;
         }
       }
+      // Clippy notices finished cleaning tasks (self-guarded, probabilistic
+      // inside — most completions pass silently, some get a hop or a line).
+      if (done) { try { NX.clippy?.notifyTaskCompleted?.(); } catch (_) {} }
       return true;
     } catch (e) {
       console.error('[cleaning] persistDone:', e);

@@ -4777,6 +4777,9 @@ Thanks for your help sorting this out.`;
       if (NX.toast) NX.toast('Could not save order — sending email anyway', 'warn', 3000);
     }
 
+    // Clippy registers the sent order (mood/reward only — no speech).
+    try { NX.clippy?.processInteraction?.('form_submitted'); } catch (_) {}
+
     // Open mailto: with CC + BCC pulled from the vendor's recipient list
     // FOR THIS LOCATION. Each location has its own profile (Este might
     // CC alfredo@este, Suerte might CC ops@suerte) so the same vendor
