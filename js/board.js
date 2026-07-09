@@ -2686,6 +2686,21 @@ async function saveCard(card, modal, closeAfter){
     optimisticSet.add(card.id);
     const { error } = await NX.sb.from('kanban_cards').update(patch).eq('id', card.id);
     if(error){ optimisticSet.delete(card.id); throw error; }
+
+    // BOARD NOTES = WORK ORDER NOTES (Alfredo's rule). A card linked to a
+    // work order via its issue:<id> label writes the description through to
+    // equipment_issues, so the work-order sheet, daily notes, and emails
+    // all read exactly what was typed on the board. Best-effort.
+    try {
+      const issueLabel = (Array.isArray(card.labels) ? card.labels : [])
+        .find(l => typeof l === 'string' && l.startsWith('issue:'));
+      if (issueLabel) {
+        await NX.sb.from('equipment_issues')
+          .update({ description: description || null })
+          .eq('id', issueLabel.slice(6));
+      }
+    } catch (syncErr) { console.warn('[board] issue-notes sync failed (non-fatal):', syncErr); }
+
     // Keep in-memory state in step so a re-render doesn't flash stale values.
     Object.assign(card, patch);
     const idx = cards.findIndex(c => c.id === card.id);

@@ -1472,9 +1472,11 @@
     const eqName = (eq && eq.name) || '';
     const loc = (eq && eq.location) || location || null;
     const titleText = title || 'Work order';
-    const desc = (description ? description + '\n\n' : '') +
-                 (eqName ? `Equipment issue reported on ${eqName}.\n` : `Work order.\n`) +
-                 `When resolved, move this card to Done — the linked issue will be marked repaired automatically.`;
+    // Card description IS the work-order description — same text, both
+    // surfaces (Alfredo: "work order notes and board notes should be the
+    // same"). Editing it on the board writes back to the issue (board.js
+    // saveCard sync); no boilerplate, or it leaks into daily notes/emails.
+    const desc = description || '';
 
     const row = {
       title: eqName ? `⚠️ ${titleText} — ${eqName}` : `⚠️ ${titleText}`,

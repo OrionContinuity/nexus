@@ -1543,7 +1543,17 @@ function seedVendorCallsFromActivity(d) {
     const loc = d.locations.find(l => normLocKey(l.label) === c.locKey);
     if (!loc) return;
     loc.vendor_calls = loc.vendor_calls || [];
-    if (loc.vendor_calls.some(r => r && r._src === c.key)) return;   // already seeded
+    const seeded = loc.vendor_calls.find(r => r && r._src === c.key);
+    if (seeded) {
+      // Heal a row seeded with the recreated-record placeholder (the DB
+      // side has since been cleaned) — never touch user-typed text.
+      if (/^Recreated record:/i.test(String(seeded.issue || ''))) {
+        seeded.issue = c.issue;
+        seeded.status = c.status;
+        changed = true;
+      }
+      return;
+    }
     // Complete a half-typed row naming the same vendor first.
     const half = loc.vendor_calls.find(r => r && !r._src &&
       String(r.vendor || '').trim().toLowerCase() === c.vendor.toLowerCase() &&
