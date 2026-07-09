@@ -2464,6 +2464,7 @@ function wireForm() {
   if (emailEachBtn) emailEachBtn.addEventListener('click', () => emailEachLocation());
   const openerLLMBtn = view.querySelector('#dlogOpenerLLM');
   if (openerLLMBtn) openerLLMBtn.addEventListener('click', () => refreshOpenerLLM(openerLLMBtn));
+  dlogStartSoulOrb();   // v18.49 — his face's glow breathes his ANIMA here too
   const openerPoolBtn = view.querySelector('#dlogOpenerPool');
   if (openerPoolBtn) openerPoolBtn.addEventListener('click', () => refreshOpenerPool());
   const autoSendBtn = view.querySelector('#dlogAutoSendBtn');
@@ -2787,6 +2788,87 @@ function dlogCurrentOpener(dateStr) {
   return (state.clippyQuoteText && state.clippyQuoteDate === dateStr)
     ? state.clippyQuoteText : dlogStaticQuote(dateStr);
 }
+// ── Clippy's face + soul-glow on the daily notes (v18.49) ─────────────────
+// The opener used to be text only. Now his real face sits beside it, baked
+// live from clippy.svg (his current soul-face when his ANIMA is shaped, else
+// his happy face), ringed by his soul-glow — the SAME ANIMA colour his halo
+// and node telemetry use. So the daily notes carry his light, not just his
+// words. Degrades to a plain avatar (or nothing) if his body isn't loaded.
+const DLOG_SOUL_FACE = {
+  // soulMood() key → visible clippy.svg layers (kept faces only)
+  happy:       ['cl-eyes-default',    'cl-mouth-smile'],
+  sparkle:     ['cl-eyes-default',    'cl-eyes-sparkle', 'cl-mouth-bigsmile'],
+  love:        ['cl-eyes-love',       'cl-mouth-bigsmile'],
+  smitten:     ['cl-kao-puppy'],
+  proud:       ['cl-kao-serene'],
+  thinking:    ['cl-eyes-determined', 'cl-mouth-flat'],
+  determined:  ['cl-eyes-determined', 'cl-mouth-flat'],
+  strategist:  ['cl-kao-lidded'],
+  bashful:     ['cl-kao-wince'],
+  concerned:   ['cl-eyes-sad',        'cl-mouth-frown'],
+  worried:     ['cl-kao-plead'],
+  sad:         ['cl-eyes-sad',        'cl-mouth-frown'],
+  melancholy:  ['cl-kao-plead'],
+  excited:     ['cl-kao-zest'],
+  sleepy:      ['cl-eyes-sleepy',     'cl-mouth-cat'],
+};
+function dlogClippySvg() {
+  try {
+    const NXa = (typeof NX !== 'undefined' && NX) || (typeof window !== 'undefined' && window.NX);
+    return (NXa && NXa.clippy && NXa.clippy._internal && NXa.clippy._internal.state
+      && NXa.clippy._internal.state.svgMarkup) || null;
+  } catch (_) { return null; }
+}
+function dlogSoulFaceLayers() {
+  let key = 'happy';
+  try {
+    const NXa = (typeof NX !== 'undefined' && NX) || window.NX;
+    const m = NXa && NXa.clippySoul && NXa.clippySoul.soulMood && NXa.clippySoul.soulMood();
+    if (m && DLOG_SOUL_FACE[m]) key = m;
+  } catch (_) {}
+  return DLOG_SOUL_FACE[key] || DLOG_SOUL_FACE.happy;
+}
+function dlogSoulGlow() {
+  // → { rgba, strength } from his ANIMA, or his native cyan near baseline.
+  const base = [92, 176, 255];
+  let target = base, strength = 0;
+  try {
+    const NXa = (typeof NX !== 'undefined' && NX) || window.NX;
+    const sc = NXa && NXa.clippySoul && NXa.clippySoul.soulColor && NXa.clippySoul.soulColor();
+    if (sc && sc.hex) {
+      const n = parseInt(sc.hex.slice(1), 16) || 0;
+      target = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+      strength = Math.max(0, Math.min(1, sc.strength || 0));
+    }
+  } catch (_) {}
+  const mix = Math.min(0.75, strength * 0.95);
+  const r = Math.round(base[0] + (target[0] - base[0]) * mix);
+  const g = Math.round(base[1] + (target[1] - base[1]) * mix);
+  const b = Math.round(base[2] + (target[2] - base[2]) * mix);
+  return { rgba: `rgba(${r},${g},${b},${(0.42 + strength * 0.28).toFixed(2)})`, strength };
+}
+function dlogClippyAvatar() {
+  const markup = dlogClippySvg();
+  const glow = dlogSoulGlow();
+  if (!markup || markup.indexOf('<svg') === -1) {
+    // Fallback: the baked email PNG, still ringed by the soul-glow.
+    return `<span class="dlog-clippy-orb" style="--dlog-soul-glow:${glow.rgba}">
+      <img src="${DLOG_SITE_URL}assets/clippy-email.png?v=3" width="52" height="52" alt="Clippy" style="display:block;width:52px;height:52px;border:0"></span>`;
+  }
+  const layers = dlogSoulFaceLayers();
+  const style = '<style>' +
+    '[class*="cl-eyes-"],[class*="cl-mouth-"],[class*="cl-costume-"],' +
+    '[class*="cl-prop-"],.cl-halo,.cl-back-tuft,.cl-zzz,.cl-sweat,.cl-music,' +
+    '.cl-anger-pop,.cl-question,.cl-tear,.cl-tears-stream,.cl-drool,' +
+    '.cl-red-nose,.cl-heart-blush,.cl-vein,.cl-snot,.cl-queasy,.cl-kao' +
+    '{visibility:hidden;}' + layers.map(c => '.' + c).join(',') + '{visibility:visible;}' +
+    '</style>';
+  const svg = markup.replace(/<svg([^>]*)>/, (m, attrs) => '<svg' + attrs + '>' + style);
+  const src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  return `<span class="dlog-clippy-orb" data-soul-orb style="--dlog-soul-glow:${glow.rgba}">
+    <img src="${src}" width="56" height="56" alt="Clippy" style="display:block;width:56px;height:56px;border:0"></span>`;
+}
+
 // The email opener, shown in the log with two refresh controls: one has Clippy
 // write a fresh line (drafts three, keeps the best), one pulls a different line
 // from the static pool. Whatever shows here is exactly what the emails use.
@@ -2799,12 +2881,31 @@ function renderOpenerPreview(dateStr) {
         <span class="dlog-opener-label">✉ Email opener</span>
         <span class="dlog-opener-src" id="dlogOpenerSrc">${isLLM ? 'Clippy wrote this' : 'from the pool'}</span>
       </div>
-      <p class="dlog-opener-text" id="dlogOpenerText">${esc(cur)} — Clippy 👋</p>
+      <div class="dlog-opener-body">
+        ${dlogClippyAvatar()}
+        <p class="dlog-opener-text" id="dlogOpenerText">${esc(cur)} — Clippy 👋</p>
+      </div>
       <div class="dlog-opener-btns">
         <button type="button" class="eq-btn eq-btn-secondary" id="dlogOpenerLLM" title="Clippy writes a fresh one — drafts three and keeps the most him">↻ New from Clippy</button>
         <button type="button" class="eq-btn eq-btn-secondary" id="dlogOpenerPool" title="Pick a different line from the quote pool">↻ From the pool</button>
       </div>
     </div>`;
+}
+
+// Breathe the opener orb's glow toward his live soul-colour every ~9s, the
+// same cadence as his shell. Idempotent; wired once from the daily-log form.
+function dlogStartSoulOrb() {
+  if (state._dlogSoulOrbTimer) return;
+  const tick = () => {
+    try {
+      const orb = document.querySelector('#dlogOpener .dlog-clippy-orb');
+      if (!orb) return;
+      const glow = dlogSoulGlow();
+      orb.style.setProperty('--dlog-soul-glow', glow.rgba);
+    } catch (_) {}
+  };
+  tick();
+  state._dlogSoulOrbTimer = setInterval(tick, 9000);
 }
 
 function dlogEmailGreeting(label, dateStr) {

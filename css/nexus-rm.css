@@ -2310,7 +2310,19 @@
 #dailylogView .dlog-opener-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
 #dailylogView .dlog-opener-label { font: 700 10px/1 var(--nx-font-mono, monospace); letter-spacing: .12em; text-transform: uppercase; color: var(--nx-gold, #d4a44e); }
 #dailylogView .dlog-opener-src { font: 10px/1 var(--nx-font-mono, monospace); letter-spacing: .04em; color: var(--nx-muted, #8a94a0); }
-#dailylogView .dlog-opener-text { margin: 0 0 12px; font-size: 14.5px; line-height: 1.5; color: var(--nx-text, #e7ecf5); font-style: italic; }
+/* v18.49 — his face + soul-glow sit beside the opener line. The orb's aura
+   is --dlog-soul-glow, eased toward his live ANIMA colour by daily-log.js
+   (same palette as his shell + node telemetry). The slow filter transition
+   makes the colour breathe rather than snap. */
+#dailylogView .dlog-opener-body { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 12px; }
+#dailylogView .dlog-clippy-orb {
+  flex: 0 0 auto; display: block; line-height: 0; margin-top: 1px;
+  --dlog-soul-glow: rgba(92, 176, 255, 0.42);
+  filter: drop-shadow(0 0 9px rgba(92, 176, 255, 0.25))
+          drop-shadow(0 0 16px var(--dlog-soul-glow));
+  transition: filter 1600ms ease;
+}
+#dailylogView .dlog-opener-text { margin: 0; flex: 1; font-size: 14.5px; line-height: 1.5; color: var(--nx-text, #e7ecf5); font-style: italic; }
 #dailylogView .dlog-opener-btns { display: flex; gap: 8px; flex-wrap: wrap; }
 #dailylogView .dlog-opener-btns .eq-btn { border-radius: 999px; font-size: 12.5px; }
 #dailylogView .dlog-opener-btns .eq-btn[disabled] { opacity: .6; pointer-events: none; }
