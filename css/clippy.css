@@ -1682,13 +1682,6 @@ body.clippy-game-open .clippy-bubble {
 #clippy-shell.is-sobbing .cl-mouth-frown { opacity: 1; }
 #clippy-shell.is-sobbing .cl-tears-stream { opacity: 1; }
 
-/* HAPPY-CRY — v18.36: glossy tearful eyes + huge smile + streaming tears.
-   The kawaii "crying from joy" face; used for new high scores. */
-#clippy-shell.is-happy-cry .cl-eyes-default { opacity: 0; }
-#clippy-shell.is-happy-cry .cl-eyes-tearful { opacity: 1; }
-#clippy-shell.is-happy-cry .cl-mouth-smile { opacity: 0; }
-#clippy-shell.is-happy-cry .cl-mouth-bigsmile { opacity: 1; }
-#clippy-shell.is-happy-cry .cl-tears-stream { opacity: 1; }
 
 /* WAILING — shut eyes + open laugh mouth + streaming tears (anime sob) */
 #clippy-shell.is-wailing .cl-eyes-default { opacity: 0; }
@@ -4032,3 +4025,70 @@ body.clippy-game-open .clippy-bubble {
 @media (prefers-reduced-motion: reduce) {
   .clippy-tour-spot { animation: none; box-shadow: 0 0 0 3px rgba(212, 164, 78, 0.7); }
 }
+
+
+/* ═══ v18.37 KAO FACES — 20 expressions traced from the reference sheet.
+   Appended AFTER the original mood blocks so the cascade overrides them
+   without touching shared rules. Each mood now wears its traced face;
+   effect layers (tears, sweat, music) still compose on top. */
+.clippy-svg .cl-kao { opacity: 0; }
+#clippy-shell.is-worried [class*="cl-eyes-"],
+#clippy-shell.is-worried [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-worried .cl-kao-plead { opacity: 1; }
+#clippy-shell.is-surprised [class*="cl-eyes-"],
+#clippy-shell.is-surprised [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-surprised .cl-kao-startle { opacity: 1; }
+#clippy-shell.is-super-excited [class*="cl-eyes-"],
+#clippy-shell.is-super-excited [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-super-excited .cl-kao-overjoy { opacity: 1; }
+#clippy-shell.is-singing [class*="cl-eyes-"],
+#clippy-shell.is-singing [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-singing .cl-kao-cheer { opacity: 1; }
+#clippy-shell.is-gasp [class*="cl-eyes-"],
+#clippy-shell.is-gasp [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-gasp .cl-kao-gasp2 { opacity: 1; }
+#clippy-shell.is-proud [class*="cl-eyes-"],
+#clippy-shell.is-proud [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-proud .cl-kao-serene { opacity: 1; }
+#clippy-shell.is-laughing [class*="cl-eyes-"],
+#clippy-shell.is-laughing [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-laughing .cl-kao-xd { opacity: 1; }
+#clippy-shell.is-winking [class*="cl-eyes-"],
+#clippy-shell.is-winking [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-winking .cl-kao-wink2 { opacity: 1; }
+#clippy-shell.is-smug [class*="cl-eyes-"],
+#clippy-shell.is-smug [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-smug .cl-kao-lidded { opacity: 1; }
+#clippy-shell.is-mortified [class*="cl-eyes-"],
+#clippy-shell.is-mortified [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-mortified .cl-kao-horror { opacity: 1; }
+#clippy-shell.is-excited [class*="cl-eyes-"],
+#clippy-shell.is-excited [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-excited .cl-kao-zest { opacity: 1; }
+#clippy-shell.is-kissy [class*="cl-eyes-"],
+#clippy-shell.is-kissy [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-kissy .cl-kao-kiss2 { opacity: 1; }
+#clippy-shell.is-smitten [class*="cl-eyes-"],
+#clippy-shell.is-smitten [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-smitten .cl-kao-puppy { opacity: 1; }
+#clippy-shell.is-eye-roll [class*="cl-eyes-"],
+#clippy-shell.is-eye-roll [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-eye-roll .cl-kao-deadpan { opacity: 1; }
+#clippy-shell.is-peeved [class*="cl-eyes-"],
+#clippy-shell.is-peeved [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-peeved .cl-kao-doneup { opacity: 1; }
+#clippy-shell.is-furious [class*="cl-eyes-"],
+#clippy-shell.is-furious [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-furious .cl-kao-ragefire { opacity: 1; }
+#clippy-shell.is-crying [class*="cl-eyes-"],
+#clippy-shell.is-crying [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-crying .cl-kao-waterworks { opacity: 1; }
+#clippy-shell.is-frustrated [class*="cl-eyes-"],
+#clippy-shell.is-frustrated [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-frustrated .cl-kao-grit { opacity: 1; }
+#clippy-shell.is-disappointed [class*="cl-eyes-"],
+#clippy-shell.is-disappointed [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-disappointed .cl-kao-grump { opacity: 1; }
+#clippy-shell.is-condescending [class*="cl-eyes-"],
+#clippy-shell.is-condescending [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-condescending .cl-kao-glare { opacity: 1; }

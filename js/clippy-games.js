@@ -311,7 +311,7 @@
       grantBondXP_game_played();
       if (newRecord) {
         grantBondXP_game_high_score();
-        mood('happy_cry', 6000);
+        mood('super_excited', 6000);
         spawnParticles({ count: 24, type: 'confetti' });
         playTone('milestone');
         adjustFeeling('happiness', +12);
@@ -397,13 +397,12 @@
     happy:      ['cl-eyes-default',    'cl-mouth-smile'],
     flap:       ['cl-eyes-happy',      'cl-mouth-bigsmile'],
     fall:       ['cl-eyes-wide-shock', 'cl-mouth-o'],
-    dead:       ['cl-eyes-sad',        'cl-mouth-frown'],
+    dead:       ['cl-kao-waterworks'],   // traced: teary plead (his sheet)
     starstruck: ['cl-eyes-stars',      'cl-mouth-star'],                        // bonus star caught
     sparkle:    ['cl-eyes-default',    'cl-eyes-sparkle', 'cl-mouth-bigsmile'], // big play — ✦ overlay
     love:       ['cl-eyes-love',       'cl-mouth-bigsmile'],                    // combo milestone
     phew:       ['cl-eyes-squint',     'cl-mouth-wavy'],                        // near miss survived
     determined: ['cl-eyes-determined', 'cl-mouth-flat'],                        // countdown / focus
-    joytears:   ['cl-eyes-tearful',    'cl-mouth-bigsmile', 'cl-tears-stream'], // NEW BEST — happy cry
   };
   const trajanSprites = {};
   function trajanSprite(face) {
@@ -421,7 +420,7 @@
       '[class*="cl-prop-"],.cl-halo,.cl-back-tuft,.cl-zzz,.cl-sweat,' +
       '.cl-music,.cl-anger-pop,.cl-question,.cl-tear,.cl-tears-stream,' +
       '.cl-drool,.cl-red-nose,.cl-heart-blush,.cl-vein,.cl-snot,' +
-      '.cl-queasy{visibility:hidden;}' +
+      '.cl-queasy,.cl-kao{visibility:hidden;}' +
       spec.map(c => '.' + c).join(',') + '{visibility:visible;}' +
       '</style>';
     const svg = markup.replace(/<svg([^>]*)>/, (m, attrs) => '<svg' + attrs + '>' + style);
@@ -1587,7 +1586,7 @@
       let score = 0, combo = 0, bestCombo = 0;
       let best  = getBest('flappy');
       let started = false, alive = true, isRetryShown = false;
-      let deadFace = 'dead';   // v18.36 — joytears when the run set a new best
+      let deadFace = 'dead';
       const columns = [];
       const trail = [];
       const bonusStars = [];
@@ -1888,7 +1887,6 @@
       function showDeathOptions() {
         const isNewBest = score > best;
         if (isNewBest) {
-          deadFace = 'joytears';   // he cries happy — a record beats a crash
           best = score;
           setBest('flappy', best);
           // Confetti for new best

@@ -215,7 +215,7 @@
     crying:        'is-crying',        // tearful eyes + frown + single tear
     sobbing:       'is-sobbing',       // shut + frown + tears streaming
     wailing:       'is-wailing',       // shut + open mouth + tears streaming
-    happy_cry:     'is-happy-cry',     // tearful glossy eyes + big smile + tears (joy)
+    furious:       'is-furious',       // v18.37 — fire eyes + gritted teeth (kao)
     pouty:         'is-pouty',         // default + small pucker mouth
     gasp:          'is-gasp',          // dots + O + sweat
     shocked:       'is-shocked',       // wide-shock eyes + O mouth
@@ -1550,6 +1550,11 @@
     adjustFeeling('attention_need', -30);
     // v18.26 — unified dispatch for the standard reward bump
     processInteraction('tickle', { moodDuration: 4500 });
+    // v18.37 — three tickle-attacks inside ~8s: the fire eyes come out.
+    const _now = Date.now();
+    state._tickleRuns = (_now - (state._lastTickleAt || 0) < 8000) ? (state._tickleRuns || 0) + 1 : 1;
+    state._lastTickleAt = _now;
+    if (state._tickleRuns >= 3) { state._tickleRuns = 0; setTimeout(() => mood('furious', 3200), 600); }
     try { if (navigator.vibrate) navigator.vibrate([15, 25, 15, 25, 15]); } catch (_) {}
     setTimeout(() => {
       if (state.shell) state.shell.classList.remove('is-jiggling');
