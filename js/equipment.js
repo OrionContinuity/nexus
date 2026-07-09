@@ -5188,6 +5188,11 @@ function renderOverview(eq, attachments, customFields, maintenance) {
     }
     // Plain-text fallback: contractor not linked but a phone/name was typed.
     if (plainName || plainPhone) {
+      // A linked vendor's phone beats an empty denormalized column — the
+      // "name saved, phone on the vendor record" case used to read
+      // "No phone on file" while the number sat one join away.
+      const vFall = role === 'repair' ? eq._repairVendor : eq._serviceVendor;
+      const showPhone = plainPhone || (vFall && vFall.phone) || '';
       return `
         <div class="eq-serviced-by ${roleClass}">
           <div class="eq-serviced-by-head">
@@ -5195,10 +5200,10 @@ function renderOverview(eq, attachments, customFields, maintenance) {
             <div class="eq-serviced-by-name">${esc(plainName || 'Unlinked contact')}</div>
           </div>
           <div class="eq-serviced-by-actions">
-            ${plainPhone ? `
+            ${showPhone ? `
               <button type="button" class="eq-serviced-by-call"
                 onclick="NX.modules.equipment.callVendor('${escAttr(String(vendorId || ''))}','${escAttr(String(eq.id))}','${escAttr(role)}')">
-                ${uiSvg('phone', '14px')}<span>${esc(plainPhone)}</span>
+                ${uiSvg('phone', '14px')}<span>${esc(showPhone)}</span>
               </button>
             ` : `<span class="eq-serviced-by-nophone">No phone on file</span>`}
             ${vendorId ? `
@@ -11242,6 +11247,33 @@ async function openFullEditor(equipId) {
       });
       updates.specs = newSpecs;
 
+      // MAINSTREAM VENDOR LINKAGE — when a vendor is linked but the
+      // denormalized name/phone are blank, copy them from the vendor row
+      // at save time. Every legacy reader (Call Service, public QR scan,
+      // PM prefill, dispatch) reads those columns, so a linked-but-blank
+      // row used to look like "no service contact" while the number sat
+      // one join away on the vendors table.
+      try {
+        const needSvc = updates.service_vendor_id && (!updates.service_contractor_phone || !updates.service_contractor_name);
+        const needRep = updates.repair_vendor_id && (!updates.repair_contractor_phone || !updates.repair_contractor_name);
+        if (needSvc || needRep) {
+          const vids = [needSvc && updates.service_vendor_id, needRep && updates.repair_vendor_id].filter(Boolean);
+          const { data: vrows } = await NX.sb.from('vendors').select('*').in('id', vids);
+          const byId = {};
+          (vrows || []).forEach(v => { byId[String(v.id)] = v; });
+          const sv = byId[String(updates.service_vendor_id)];
+          const rv = byId[String(updates.repair_vendor_id)];
+          if (needSvc && sv) {
+            if (!updates.service_contractor_name)  updates.service_contractor_name  = sv.company || sv.name || null;
+            if (!updates.service_contractor_phone) updates.service_contractor_phone = sv.phone || null;
+          }
+          if (needRep && rv) {
+            if (!updates.repair_contractor_name)  updates.repair_contractor_name  = rv.company || rv.name || null;
+            if (!updates.repair_contractor_phone) updates.repair_contractor_phone = rv.phone || null;
+          }
+        }
+      } catch (e) { console.warn('[eqFullSave] vendor denormalization skipped:', e); }
+
       // Save with graceful column-missing fallback. If a column the form
       // writes doesn't exist yet (migration not run — e.g. repair_vendor_id,
       // service_vendor_id, repair_contractor_*), Postgres hard-fails the whole
@@ -12887,16 +12919,37 @@ function dispatchFromTicket(equipId, ticketId) {
 //   3. If neither exists, prompt to set one up
 async function callService(equipId) {
   try {
+    // select('*') so the vendor-era ids ride along — the old explicit column
+    // list omitted service_vendor_id/repair_vendor_id, which meant a unit
+    // linked to a vendor (the MAINSTREAM path) still showed "No service
+    // contact" because the vendor's phone was never resolved.
     const { data: eq } = await NX.sb.from('equipment')
-      .select('id, name, service_contractor_phone, service_contractor_name, service_contractor_node_id')
-      .eq('id', equipId).single();
+      .select('*').eq('id', equipId).single();
     if (!eq) { NX.toast && NX.toast('Equipment not found', 'error'); return; }
-    
+
     let phone = eq.service_contractor_phone;
     let name = eq.service_contractor_name;
     let source = phone ? 'direct' : null;
-    
-    // Fallback to contractor node
+
+    // VENDOR ERA FIRST — the linked vendor record is the source of truth
+    // for who services this unit. Repair vendor wins for a "something's
+    // wrong" call; service vendor covers the rest.
+    if (!phone && (eq.repair_vendor_id || eq.service_vendor_id)) {
+      try {
+        const vids = [eq.repair_vendor_id, eq.service_vendor_id].filter(Boolean);
+        const { data: vrows } = await NX.sb.from('vendors').select('*').in('id', vids);
+        const byId = {};
+        (vrows || []).forEach(v => { byId[String(v.id)] = v; });
+        const v = byId[String(eq.repair_vendor_id)] || byId[String(eq.service_vendor_id)];
+        if (v && v.phone) {
+          phone = v.phone;
+          name = v.company || v.name || name;
+          source = 'direct';
+        }
+      } catch (_) {}
+    }
+
+    // Legacy fallback: contractor node
     if (!phone && eq.service_contractor_node_id) {
       const { data: node } = await NX.sb.from('nodes')
         .select('name, notes, tags, links')
@@ -12910,7 +12963,7 @@ async function callService(equipId) {
         source = 'contractor';
       }
     }
-    
+
     if (!phone) {
       showNoServiceContactModal(equipId, eq.name);
       return;
