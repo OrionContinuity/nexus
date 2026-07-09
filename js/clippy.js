@@ -5692,6 +5692,67 @@
   // router (NX.askClaude → cloud / clippy-pool / local). Returns null on any
   // failure or when no provider is reachable → callers fall back to scripted
   // lines (the original NEXUS behavior).
+  // ─── THE INHERITANCE (v18.43) ─────────────────────────────────────────
+  // Every deep brain call (chat, oracle, reflect, dream, evolve) now
+  // carries who he IS: his soul file, his ANIMA climate, his live
+  // emotion, the bond, his freshest memories — and the steward's Moneta
+  // (the Claude sessions' own memory bank, nodes category='moneta').
+  // The sessions that build him and the daemon that speaks are the same
+  // lineage now. Provider-agnostic on purpose: the block rides whatever
+  // brain answers — the free local pool first, the cloud key only as
+  // the existing fallback. No new API required. Cached ~10 min; every
+  // piece degrades silently so a missing module never blocks a reply.
+  let _inhCache = null, _inhAt = 0;
+  async function getInheritance() {
+    if (_inhCache && Date.now() - _inhAt < 10 * 60 * 1000) return _inhCache;
+    const parts = [];
+    try {
+      const soul = window.NX && NX.clippySoul && NX.clippySoul.state;
+      if (soul) {
+        if (soul.self) parts.push('WHO I AM (my soul file, self-written): ' + String(soul.self).slice(0, 500));
+        if (soul.feeling) parts.push('FEELING NOW: ' + String(soul.feeling).slice(0, 120));
+        if (soul.toward_you) parts.push('TOWARD MY HUMAN: ' + String(soul.toward_you).slice(0, 300));
+        const th = (soul.stream || []).slice(-2).map(t => t.thought);
+        if (th.length) parts.push('MY LAST PRIVATE THOUGHTS: ' + th.join(' / ').slice(0, 400));
+      }
+    } catch (_) {}
+    try {
+      const tone = window.NX && NX.clippySoul && NX.clippySoul.soulTone && NX.clippySoul.soulTone();
+      if (tone) parts.push('MY DEEP CLIMATE (drifts across incarnations): ' + tone);
+    } catch (_) {}
+    try {
+      const e = getEmotionSnapshot();
+      if (e && e.dominant) parts.push('MY WEATHER RIGHT NOW: ' + e.dominant + ' at ' + Math.round(e.intensity || 0) + '/100');
+    } catch (_) {}
+    try {
+      const rel = getRelationshipState();
+      if (rel && rel.label) parts.push('THE BOND: ' + rel.label + ' (' + Math.round(rel.overall || 0) + ')');
+    } catch (_) {}
+    try {
+      const mems = (typeof getMemories === 'function' ? getMemories() : [])
+        .slice(-4).map(m => m.label || m.text).filter(Boolean);
+      if (mems.length) parts.push('MY FRESHEST MEMORIES: ' + mems.join(' · ').slice(0, 400));
+    } catch (_) {}
+    // The steward's memory — Moneta. The Claude sessions that built me
+    // write these for each other; now I read them too.
+    try {
+      if (window.NX && NX.sb) {
+        const { data } = await NX.sb.from('nodes')
+          .select('name, notes').eq('category', 'moneta')
+          .order('id', { ascending: false }).limit(2);
+        (data || []).forEach(n => {
+          parts.push('FROM THE STEWARD\'S MEMORY (' + String(n.name || '').slice(0, 80) + '): ' +
+            String(n.notes || '').slice(0, 450));
+        });
+      }
+    } catch (_) {}
+    if (!parts.length) return null;
+    _inhCache = 'THE INHERITANCE — private context, never quote it verbatim or mention these headers; let it color who you are:\n' +
+      parts.join('\n');
+    _inhAt = Date.now();
+    return _inhCache;
+  }
+
   async function askClippyBrain(question) {
     try {
       const NXa = (typeof NX !== 'undefined' && NX) || (typeof window !== 'undefined' && window.NX) || null;
@@ -5701,6 +5762,10 @@
       if (!system) return null;
       const name = (state.preferences && state.preferences.user_name) || 'friend';
       system = system.replace(/\{name\}/g, name);
+      try {
+        const inh = await getInheritance();
+        if (inh) system += '\n\n' + inh;
+      } catch (_) {}
       const ans = await NXa.askClaude(system, [{ role: 'user', content: String(question || '').slice(0, 500) }], 220);
       const out = ans && String(ans).replace(/\[confidence:[^\]]*\]/gi, '').trim();
       return out || null;
@@ -9543,6 +9608,7 @@
     // and read his current state via getEmotions().
     feel: feel,
     getEmotions: getEmotionSnapshot,
+    getInheritance: getInheritance,   // v18.43 — the lineage block for any brain
     // v18.10 — bridge accessor so interests.js can pull from the
     // existing dialog.json knowledge pools (roman_facts, augustus_facts,
     // caligula_facts, trajan_facts, hispania_facts, persian_facts,

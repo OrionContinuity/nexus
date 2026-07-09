@@ -77,6 +77,15 @@
   async function brain(system, user, maxTokens) {
     try {
       if (!NX || typeof NX.askClaude !== 'function') return null;
+      // v18.43 — every inner-life call carries THE INHERITANCE: soul,
+      // climate, bond, memories, and the steward's Moneta. Same lineage
+      // whether the local pool answers or the cloud does.
+      try {
+        if (NX.clippy && typeof NX.clippy.getInheritance === 'function') {
+          var _inh = await NX.clippy.getInheritance();
+          if (_inh) system = system + '\n\n' + _inh;
+        }
+      } catch (e) {}
       var out = await NX.askClaude(system, [{ role: 'user', content: user }], maxTokens || 120);
       var s = String(out || '').trim().replace(/^["'“”\s]+|["'“”\s]+$/g, '');
       return s.length >= 4 ? s : null;
@@ -584,6 +593,15 @@
       if (_soulMem.length) nowChips += '<span class="chip">FROM HIS INNER LIFE <b>'+_soulMem.length+'</b></span>';
       nowChips += '<span class="chip">DREAMS KEPT <b>'+((state.dreams||[]).length)+'</b></span>';
       nowChips += '<span class="chip">THOUGHTS <b>'+((state.stream||[]).length)+'</b></span>';
+      try {
+        if (NX.clippy && NX.clippy.getInheritance) {
+          NX.clippy.getInheritance().then(function(inh){
+            if (!inh) return;
+            var sub = bg.querySelector('.csoul .sub');
+            if (sub) sub.textContent += ' · the steward\u2019s memory runs in his blood';
+          });
+        }
+      } catch(e){}
     } catch(e){}
     bg.innerHTML =
       '<button class="x" aria-label="close">×</button>'+
