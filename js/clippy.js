@@ -190,16 +190,16 @@
     neutral:     '',
     happy:       'is-happy',
     sad:         'is-sad',
-    surprised:   'is-surprised',
-    concerned:   'is-concerned',
-    angry:       'is-angry',
+    surprised:   'is-confused'   /* v18.41 retired — wears a kept face */,
+    concerned:   'is-sad'   /* v18.41 retired — wears a kept face */,
+    angry:       'is-determined'   /* v18.41 retired — wears a kept face */,
     thinking:    'is-thinking',
     // ─── v17 expression system additions ───────────────────────────
-    love:        'is-love',         // heart eyes + big smile
+    love:        'is-smitten'   /* v18.41 retired — wears a kept face */,         // heart eyes + big smile
     excited:     'is-excited',      // star eyes + tongue out
     sleepy:      'is-sleepy',       // heavy half-lids + cat mouth
     dizzy:       'is-dizzy',        // spiral eyes + wavy mouth (spinning)
-    smug:        'is-smug',         // tiny dot eyes + cat smirk
+    smug:        'is-strategist'   /* v18.41 retired — wears a kept face */,         // tiny dot eyes + cat smirk
     ko:          'is-ko',           // X eyes (knocked out)
     winking:     'is-winking',      // right-eye wink + tongue
     winking_l:   'is-winking-l',    // left-eye wink + tongue
@@ -210,48 +210,48 @@
     // v17.14 emotion overlays
     singing:     'is-singing',      // happy crescent eyes + big smile + ♪♫
     confused:    'is-confused',     // dot eyes + flat mouth + ?
-    worried:     'is-worried',      // sad eyes + flat mouth + sweat drop
+    worried:     'is-sad'   /* v18.41 retired — wears a kept face */,      // sad eyes + flat mouth + sweat drop
     // v17.16 KAWAII FACE LIBRARY — 22 new compound expressions
-    crying:        'is-crying',        // tearful eyes + frown + single tear
-    sobbing:       'is-sobbing',       // shut + frown + tears streaming
-    wailing:       'is-wailing',       // shut + open mouth + tears streaming
-    furious:       'is-furious',       // v18.37 — fire eyes + gritted teeth (kao)
+    crying:        'is-sad'   /* v18.41 retired — wears a kept face */,        // tearful eyes + frown + single tear
+    sobbing:       'is-sad'   /* v18.41 retired — wears a kept face */,       // shut + frown + tears streaming
+    wailing:       'is-sad'   /* v18.41 retired — wears a kept face */,       // shut + open mouth + tears streaming
+    furious:       'is-determined'   /* v18.41 retired — wears a kept face */,       // v18.37 — fire eyes + gritted teeth (kao)
     // v18.39 — kao set II (traced from the second reference sheet)
-    guffaw:        'is-guffaw',        // wide arc eyes + huge notched laugh
+    guffaw:        'is-laughing'   /* v18.41 retired — wears a kept face */,        // wide arc eyes + huge notched laugh
     flirt:         'is-flirt',         // deep-U eyes + epsilon kiss
-    blep:          'is-blep',          // arc eyes + cat-lips + tongue out
-    peckish:       'is-peckish',       // glossy eyes + lip-licking curl
-    delighted:     'is-delighted',     // high arcs + huge open D mouth
+    blep:          'is-excited'   /* v18.41 retired — wears a kept face */,          // arc eyes + cat-lips + tongue out
+    peckish:       'is-excited'   /* v18.41 retired — wears a kept face */,       // glossy eyes + lip-licking curl
+    delighted:     'is-super-excited'   /* v18.41 retired — wears a kept face */,     // high arcs + huge open D mouth
     squee:         'is-squee',         // >< + tall open squeal mouth
     pouty:         'is-pouty',         // default + small pucker mouth
-    gasp:          'is-gasp',          // dots + O + sweat
-    shocked:       'is-shocked',       // wide-shock eyes + O mouth
-    eye_roll:      'is-eye-roll',      // looking up + flat (unimpressed)
-    peeved:        'is-peeved',        // looking down + frown
-    drooling:      'is-drooling',      // happy + saliva drip
+    gasp:          'is-mortified'   /* v18.41 retired — wears a kept face */,          // dots + O + sweat
+    shocked:       'is-mortified'   /* v18.41 retired — wears a kept face */,       // wide-shock eyes + O mouth
+    eye_roll:      'is-disgusted'   /* v18.41 retired — wears a kept face */,      // looking up + flat (unimpressed)
+    peeved:        'is-disgusted'   /* v18.41 retired — wears a kept face */,        // looking down + frown
+    drooling:      'is-excited'   /* v18.41 retired — wears a kept face */,      // happy + saliva drip
     laughing:      'is-laughing',      // squint XX + open laugh
     super_excited: 'is-super-excited', // sparkle eyes + open laugh
     mortified:     'is-mortified',     // wide-shock + tape mouth + heavy blush
-    frustrated:    'is-frustrated',    // angry brows + flat + sweat
+    frustrated:    'is-determined'   /* v18.41 retired — wears a kept face */,    // angry brows + flat + sweat
     tipsy:         'is-tipsy',         // happy + red clown nose
     singing_star:  'is-singing-star',  // shut + star mouth + music
-    melancholy:    'is-melancholy',    // looking down (bittersweet)
-    bashful:       'is-bashful',       // glance away + heart blush
+    melancholy:    'is-sad'   /* v18.41 retired — wears a kept face */,    // looking down (bittersweet)
+    bashful:       'is-embarrassed'   /* v18.41 retired — wears a kept face */,       // glance away + heart blush
     smitten:       'is-smitten',       // heart eyes + heart blush (deeper than love)
-    bunny:         'is-bunny',         // default + cute toothy smile
-    stunned:       'is-stunned',       // wide-shock + tape (speechless)
-    proud:         'is-proud',         // shut crescents + big smile
-    disappointed:  'is-disappointed',  // sleepy half-lids + frown
+    bunny:         'is-happy'   /* v18.41 retired — wears a kept face */,         // default + cute toothy smile
+    stunned:       'is-mortified'   /* v18.41 retired — wears a kept face */,       // wide-shock + tape (speechless)
+    proud:         'is-happy'   /* v18.41 retired — wears a kept face */,         // shut crescents + big smile
+    disappointed:  'is-sad'   /* v18.41 retired — wears a kept face */,  // sleepy half-lids + frown
     // v17.17 CONTEXT PERSONALITIES — tied to NEXUS views
     genius:        'is-genius',        // equipment — glowing focused eyes + flat
     disgusted:     'is-disgusted',     // cleaning — half-lidded yuck + wavy mouth + sweat
     studious:      'is-studious',      // education — reading glasses + bunny teeth
     strategist:    'is-strategist',    // board — determined + cat smirk
-    organized:     'is-organized',     // inventory — dot eyes + cat smile
+    organized:     'is-studious'   /* v18.41 retired — wears a kept face */,     // inventory — dot eyes + cat smile
     // v17.20 CONDESCENDING — for the smug lesson mode
-    condescending: 'is-condescending', // half-lidded haughty + cat smirk + raised inner brows
+    condescending: 'is-strategist'   /* v18.41 retired — wears a kept face */, // half-lidded haughty + cat smirk + raised inner brows
     // v17.23 SULKING — Duolingo-style turn-the-back
-    sulking:       'is-sulking',       // face hidden, back-tuft visible, dim glow
+    sulking:       'is-sulking'   /* v18.41 — flow stacks is-deep-sulking on top; shallow look never shows alone */,       // face hidden, back-tuft visible, dim glow
     deep_sulking:  'is-deep-sulking',  // sulk + extra dim (after extended absence)
   };
 
@@ -6813,13 +6813,10 @@
   // an active bubble, sulking, or do-not-disturb. Each pick reverts to
   // default after 8-14 seconds.
   const AMBIENT_MOOD_POOL = [
-    'happy', 'sparkle', 'love', 'bashful', 'smitten', 'bunny', 'proud',
-    'pouty', 'eye_roll', 'wink', 'sleepy', 'thinking', 'embarrassed',
-    'kissy', 'laughing', 'super_excited', 'melancholy', 'singing',
-    'tipsy', 'drooling', 'peeved', 'confused', 'disappointed',
-    'singing_star',
-    // v18.39 — kao set II gets ambient airtime
-    'guffaw', 'flirt', 'blep', 'peckish', 'delighted', 'squee',
+    // v18.41 — Alfredo's cut: only faces he kept cycle here.
+    'happy', 'sparkle', 'smitten', 'pouty', 'sleepy', 'thinking',
+    'embarrassed', 'kissy', 'laughing', 'super_excited', 'singing',
+    'tipsy', 'confused', 'singing_star', 'flirt', 'squee',
   ];
   function startAmbientMoodRotation() {
     if (state.ambientMoodTimer) clearTimeout(state.ambientMoodTimer);
@@ -6829,7 +6826,7 @@
       const quiet = state.bubble ||
                     state.sulkActive ||
                     (state.preferences && state.preferences.do_not_disturb) ||
-                    state.shell.classList.contains('is-sulking') ||
+                    (state.shell.classList.contains('is-sulking') || state.shell.classList.contains('is-deep-sulking')) ||
                     state.shell.classList.contains('is-sleeping');
       if (!quiet) {
         // His face reflects two timescales. The deep SOUL (ANIMA climate —
@@ -7938,9 +7935,9 @@
     state.sulkForgiveTaps = 0;
     state.sulkStartedAt = Date.now();
     state.sulkReason = reason || 'unknown';
-    state.shell.classList.add('is-sulking');
+    state.shell.classList.add('is-sulking', 'is-deep-sulking');   // v18.41 — the shallow sulk (58) is retired: every sulk wears the deep look (59)
     if (deep) state.shell.classList.add('is-deep-sulking');
-    mood('sulking', 60000);   // long mood, sticky
+    mood('sulking', 60000);   // remapped to deep-sulk face   // long mood, sticky
     // Initial silent bubble
     setTimeout(() => {
       if (!state.bubble && state.enabled) {
@@ -7979,8 +7976,8 @@
     state.sulkActive = false;
     exitSulk_v29_helper();   // clear auto-forgive timer if pending
     if (state.shell) {
-      state.shell.classList.remove('is-sulking');
-      state.shell.classList.remove('is-deep-sulking');
+      state.shell.classList.remove('is-sulking', 'is-deep-sulking');
+      state.shell.classList.remove('is-sulking', 'is-deep-sulking');
     }
     if (forgiven) {
       mood('happy', 6000);
