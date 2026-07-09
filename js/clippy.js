@@ -216,6 +216,13 @@
     sobbing:       'is-sobbing',       // shut + frown + tears streaming
     wailing:       'is-wailing',       // shut + open mouth + tears streaming
     furious:       'is-furious',       // v18.37 — fire eyes + gritted teeth (kao)
+    // v18.39 — kao set II (traced from the second reference sheet)
+    guffaw:        'is-guffaw',        // wide arc eyes + huge notched laugh
+    flirt:         'is-flirt',         // deep-U eyes + epsilon kiss
+    blep:          'is-blep',          // arc eyes + cat-lips + tongue out
+    peckish:       'is-peckish',       // glossy eyes + lip-licking curl
+    delighted:     'is-delighted',     // high arcs + huge open D mouth
+    squee:         'is-squee',         // >< + tall open squeal mouth
     pouty:         'is-pouty',         // default + small pucker mouth
     gasp:          'is-gasp',          // dots + O + sweat
     shocked:       'is-shocked',       // wide-shock eyes + O mouth
@@ -6805,6 +6812,8 @@
     'kissy', 'laughing', 'super_excited', 'melancholy', 'singing',
     'tipsy', 'drooling', 'peeved', 'confused', 'disappointed',
     'singing_star',
+    // v18.39 — kao set II gets ambient airtime
+    'guffaw', 'flirt', 'blep', 'peckish', 'delighted', 'squee',
   ];
   function startAmbientMoodRotation() {
     if (state.ambientMoodTimer) clearTimeout(state.ambientMoodTimer);

@@ -3764,15 +3764,24 @@ td.check{background:#F0EDE6 !important}
       // Local-first vision on the PC pool. Vision jobs ride the 'vis:' id prefix
       // (see askPool), which the chat brain (qwen2.5, polls 'job:%') can't see —
       // so only our vision worker (clippy-worker.py, qwen2.5-VL) claims them.
-      // qwen2.5-VL reads equipment nameplates character-perfect; a 'vis:' error
-      // is our own worker hiccupping, so retry (each askPool mints a fresh row).
-      // Attempt 0 is generous because a cold qwen2.5-VL load can take ~60-90s on
-      // an 8GB card that also hosts the chat model.
-      for (let attempt = 0; attempt < 3; attempt++) {
+      // qwen2.5-VL reads equipment nameplates character-perfect. But the old
+      // 3-attempt ladder (120s + 60s + 60s) meant FOUR MINUTES of dead air
+      // before the cloud fallback when the PCs were off — AI Create looked
+      // broken. Now: one bounded attempt, and a 10-minute "pool is down"
+      // memory so the next scans go straight to cloud instead of waiting.
+      const POOL_DOWN_KEY = 'nx_pool_down_until';
+      let poolDownUntil = 0;
+      try { poolDownUntil = parseInt(localStorage.getItem(POOL_DOWN_KEY) || '0', 10) || 0; } catch (_) {}
+      if (Date.now() > poolDownUntil) {
         try {
-          const out = await this.askPool(prompt, { image_b64: base64Data, timeoutMs: attempt === 0 ? 120000 : 60000 });
-          if (out) { this._lastVisionError = null; this._answerSource = 'PC pool · qwen2.5-VL'; return out; }
+          const out = await this.askPool(prompt, { image_b64: base64Data, timeoutMs: 45000 });
+          if (out) {
+            this._lastVisionError = null; this._answerSource = 'PC pool · qwen2.5-VL';
+            try { localStorage.removeItem(POOL_DOWN_KEY); } catch (_) {}
+            return out;
+          }
         } catch (e) { this._lastVisionError = e.message || String(e); }
+        try { localStorage.setItem(POOL_DOWN_KEY, String(Date.now() + 10 * 60 * 1000)); } catch (_) {}
       }
       // Pool unreachable (PC off / worker down / all retries failed). Fall back
       // to Claude vision when a key exists so AI Create still works — the

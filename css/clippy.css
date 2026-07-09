@@ -4091,4 +4091,48 @@ body.clippy-game-open .clippy-bubble {
 #clippy-shell.is-disappointed .cl-kao-grump { opacity: 1; }
 #clippy-shell.is-condescending [class*="cl-eyes-"],
 #clippy-shell.is-condescending [class*="cl-mouth-"] { opacity: 0; }
-#clippy-shell.is-condescending .cl-kao-glare { opacity: 1; }
+#clippy-shell.is-condescending .cl-kao-lidded { opacity: 1; }
+
+/* ═══ v18.39 KAO SET II — traced from the second reference sheet. */
+#clippy-shell.is-bunny [class*="cl-eyes-"],
+#clippy-shell.is-bunny [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-bunny .cl-kao-soft { opacity: 1; }
+#clippy-shell.is-guffaw [class*="cl-eyes-"],
+#clippy-shell.is-guffaw [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-guffaw .cl-kao-guffaw { opacity: 1; }
+#clippy-shell.is-love [class*="cl-eyes-"],
+#clippy-shell.is-love [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-love .cl-kao-heartmouth { opacity: 1; }
+#clippy-shell.is-drooling [class*="cl-eyes-"],
+#clippy-shell.is-drooling [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-drooling .cl-kao-laughtongue { opacity: 1; }
+#clippy-shell.is-flirt [class*="cl-eyes-"],
+#clippy-shell.is-flirt [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-flirt .cl-kao-kissv { opacity: 1; }
+#clippy-shell.is-organized [class*="cl-eyes-"],
+#clippy-shell.is-organized [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-organized .cl-kao-sweetface { opacity: 1; }
+#clippy-shell.is-embarrassed [class*="cl-eyes-"],
+#clippy-shell.is-embarrassed [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-embarrassed .cl-kao-wince { opacity: 1; }
+#clippy-shell.is-ko [class*="cl-eyes-"],
+#clippy-shell.is-ko [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-ko .cl-kao-ko2 { opacity: 1; }
+#clippy-shell.is-melancholy [class*="cl-eyes-"],
+#clippy-shell.is-melancholy [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-melancholy .cl-kao-pipi { opacity: 1; }
+#clippy-shell.is-blep [class*="cl-eyes-"],
+#clippy-shell.is-blep [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-blep .cl-kao-blep { opacity: 1; }
+#clippy-shell.is-peckish [class*="cl-eyes-"],
+#clippy-shell.is-peckish [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-peckish .cl-kao-lipslick { opacity: 1; }
+#clippy-shell.is-delighted [class*="cl-eyes-"],
+#clippy-shell.is-delighted [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-delighted .cl-kao-gape { opacity: 1; }
+#clippy-shell.is-dizzy [class*="cl-eyes-"],
+#clippy-shell.is-dizzy [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-dizzy .cl-kao-dizzy2 { opacity: 1; }
+#clippy-shell.is-squee [class*="cl-eyes-"],
+#clippy-shell.is-squee [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-squee .cl-kao-squee { opacity: 1; }
