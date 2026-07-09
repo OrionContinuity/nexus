@@ -161,9 +161,9 @@
     </g>
     <g class="cl-eyes-dizzy">
       <path d="M 77 103 Q 77 96 84 96 Q 91 96 91 103 Q 91 109 85 109 Q 80 109 80 105 Q 80 102 83 102"
-            fill="none" stroke="#04124a" stroke-width="1.6" stroke-linecap="round"/>
+            fill="none" stroke="#04124a" stroke-width="2.6" stroke-linecap="round"/>
       <path d="M 111 103 Q 111 96 118 96 Q 125 96 125 103 Q 125 109 119 109 Q 114 109 114 105 Q 114 102 117 102"
-            fill="none" stroke="#04124a" stroke-width="1.6" stroke-linecap="round"/>
+            fill="none" stroke="#04124a" stroke-width="2.6" stroke-linecap="round"/>
     </g>
     <g class="cl-eyes-angry">
       <!-- v17.14 CUTE angry: still V-brows, but rounded happy-ish eyes

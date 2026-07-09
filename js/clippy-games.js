@@ -311,7 +311,7 @@
       grantBondXP_game_played();
       if (newRecord) {
         grantBondXP_game_high_score();
-        mood('super_excited', 6000);
+        mood('happy_cry', 6000);
         spawnParticles({ count: 24, type: 'confetti' });
         playTone('milestone');
         adjustFeeling('happiness', +12);
@@ -389,16 +389,21 @@
   // they're part of the face. Baking is async; until an image decodes,
   // drawTrajanOrb falls back to the canvas painting for that frame.
   // All combos are EXISTING clippy.svg chibi layers — never new art.
+  // v18.36 — faces are LAYER LISTS, composed exactly like the on-screen
+  // CSS moods (e.g. sparkle is default eyes + the ✦ overlay + bigsmile;
+  // it was never a standalone eye set). Effect layers (tears-stream)
+  // compose the same way.
   const SPRITE_FACES = {
-    happy:      { eyes: 'cl-eyes-default',    mouth: 'cl-mouth-smile' },
-    flap:       { eyes: 'cl-eyes-happy',      mouth: 'cl-mouth-bigsmile' },
-    fall:       { eyes: 'cl-eyes-wide-shock', mouth: 'cl-mouth-o' },
-    dead:       { eyes: 'cl-eyes-sad',        mouth: 'cl-mouth-frown' },
-    // v18.35 — game-moment faces from his existing wardrobe:
-    starstruck: { eyes: 'cl-eyes-stars',      mouth: 'cl-mouth-star' },     // bonus star caught
-    sparkle:    { eyes: 'cl-eyes-love',       mouth: 'cl-mouth-bigsmile' }, // combo milestone
-    phew:       { eyes: 'cl-eyes-squint',     mouth: 'cl-mouth-wavy' },     // near miss survived
-    determined: { eyes: 'cl-eyes-determined', mouth: 'cl-mouth-flat' },     // countdown / focus
+    happy:      ['cl-eyes-default',    'cl-mouth-smile'],
+    flap:       ['cl-eyes-happy',      'cl-mouth-bigsmile'],
+    fall:       ['cl-eyes-wide-shock', 'cl-mouth-o'],
+    dead:       ['cl-eyes-sad',        'cl-mouth-frown'],
+    starstruck: ['cl-eyes-stars',      'cl-mouth-star'],                        // bonus star caught
+    sparkle:    ['cl-eyes-default',    'cl-eyes-sparkle', 'cl-mouth-bigsmile'], // big play — ✦ overlay
+    love:       ['cl-eyes-love',       'cl-mouth-bigsmile'],                    // combo milestone
+    phew:       ['cl-eyes-squint',     'cl-mouth-wavy'],                        // near miss survived
+    determined: ['cl-eyes-determined', 'cl-mouth-flat'],                        // countdown / focus
+    joytears:   ['cl-eyes-tearful',    'cl-mouth-bigsmile', 'cl-tears-stream'], // NEW BEST — happy cry
   };
   const trajanSprites = {};
   function trajanSprite(face) {
@@ -417,7 +422,7 @@
       '.cl-music,.cl-anger-pop,.cl-question,.cl-tear,.cl-tears-stream,' +
       '.cl-drool,.cl-red-nose,.cl-heart-blush,.cl-vein,.cl-snot,' +
       '.cl-queasy{visibility:hidden;}' +
-      '.' + spec.eyes + ',.' + spec.mouth + '{visibility:visible;}' +
+      spec.map(c => '.' + c).join(',') + '{visibility:visible;}' +
       '</style>';
     const svg = markup.replace(/<svg([^>]*)>/, (m, attrs) => '<svg' + attrs + '>' + style);
     const img = new Image();
@@ -1582,6 +1587,7 @@
       let score = 0, combo = 0, bestCombo = 0;
       let best  = getBest('flappy');
       let started = false, alive = true, isRetryShown = false;
+      let deadFace = 'dead';   // v18.36 — joytears when the run set a new best
       const columns = [];
       const trail = [];
       const bonusStars = [];
@@ -1688,7 +1694,7 @@
       function restart() {
         birdY = H * 0.42; birdV = 0; birdRot = 0;
         score = 0; combo = 0;
-        started = false; alive = true;
+        started = false; alive = true; deadFace = 'dead';
         columns.length = 0; trail.length = 0; bonusStars.length = 0;
         nextColumnX = W + 60;
         groundOff = 0; t = 0;
@@ -1792,7 +1798,7 @@
             // Combo milestone (5/10/15...)
             if (combo > 0 && combo % 5 === 0) {
               comboFlash = 1;
-              faceFlash = { face: 'sparkle', t: 50 };
+              faceFlash = { face: 'love', t: 50 };
               comboFlashLabel = combo + ' FLOW!';
               juice.flash('#ffd870', 0.25, 10);
               juice.burst(W / 2, H * 0.32, 18, { colors: ['#ffd870', '#fff4c8'], speed: 4 });
@@ -1882,6 +1888,7 @@
       function showDeathOptions() {
         const isNewBest = score > best;
         if (isNewBest) {
+          deadFace = 'joytears';   // he cries happy — a record beats a crash
           best = score;
           setBest('flappy', best);
           // Confetti for new best
@@ -1988,7 +1995,7 @@
         }
 
         // Trajan
-        const faceState = !alive ? 'dead'
+        const faceState = !alive ? deadFace
           : faceFlash ? faceFlash.face
           : !started ? 'determined'
           : flapPulse > 0.3 ? 'flap'
@@ -2179,6 +2186,7 @@
   // ════════════════════════════════════════════════════════════════
   function startCannonGame() {
     const ov = createGameOverlay();
+    let pFace = null, pFaceUntil = 0;   // v18.36 — momentary chibi face
     const intro = pickFromPool('game_intro_cannon');
     ov.innerHTML = `
       <div class="clippy-game-title">🚀 Cannon Battle</div>
@@ -2286,6 +2294,8 @@
                 const pts = e.isBoss ? 50 : 10;
                 score += pts;
                 kills++;
+                pFace = e.isBoss ? 'sparkle' : 'flap';
+                pFaceUntil = performance.now() + (e.isBoss ? 900 : 450);
                 enemies.splice(j, 1);
                 // JUICE: shake proportional to kill size, score flyer, particle burst
                 juice.shake(e.isBoss ? 14 : 5);
@@ -2443,7 +2453,8 @@
           ctx.fillText(p.kind === 'triple' ? '3' : p.kind === 'rapid' ? '⚡' : '+', p.x, p.y + 5);
         }
         // Player
-        drawTrajanOrb(ctx, playerX + PLAYER_W / 2, H - 50, PLAYER_R);
+        drawTrajanOrb(ctx, playerX + PLAYER_W / 2, H - 50, PLAYER_R,
+          { face: performance.now() < pFaceUntil ? pFace : 'happy' });
         // Old-style explosions (kept for variety)
         for (const x of explosions) {
           const k = 1 - x.life / x.max;
@@ -3179,6 +3190,7 @@
   // ════════════════════════════════════════════════════════════════
   function startAsteroidsGame() {
     const ov = createGameOverlay();
+    let pFace = null, pFaceUntil = 0;   // v18.36 — momentary chibi face
     const intro = pickFromPool('game_intro_asteroids');
     ov.innerHTML = `
       <div class="clippy-game-title">🌌 Asteroid Field</div>
@@ -3288,6 +3300,7 @@
           const dx = s.x - px, dy = s.y - py;
           if (dx * dx + dy * dy < (s.r + PLAYER_R) * (s.r + PLAYER_R)) {
             score += 5; starsCaught++;
+            pFace = 'starstruck'; pFaceUntil = performance.now() + 900;
             // JUICE
             juice.flyScore('+5', s.x, s.y, '#ffd870');
             juice.burst(s.x, s.y, 16, { colors: ['#ffd870', '#fff4c8', '#ffffff'], speed: 4 });
@@ -3374,7 +3387,8 @@
           ctx.restore();
         }
         // Player Trajan
-        drawTrajanOrb(ctx, px, py, PLAYER_R);
+        drawTrajanOrb(ctx, px, py, PLAYER_R,
+          { face: performance.now() < pFaceUntil ? pFace : 'happy' });
         // Engine trail — fatter when moving fast
         if (alive && (Math.abs(vx) > 0.3 || Math.abs(vy) > 0.3)) {
           const speed = Math.hypot(vx, vy);

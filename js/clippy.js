@@ -215,6 +215,7 @@
     crying:        'is-crying',        // tearful eyes + frown + single tear
     sobbing:       'is-sobbing',       // shut + frown + tears streaming
     wailing:       'is-wailing',       // shut + open mouth + tears streaming
+    happy_cry:     'is-happy-cry',     // tearful glossy eyes + big smile + tears (joy)
     pouty:         'is-pouty',         // default + small pucker mouth
     gasp:          'is-gasp',          // dots + O + sweat
     shocked:       'is-shocked',       // wide-shock eyes + O mouth

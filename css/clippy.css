@@ -1682,6 +1682,14 @@ body.clippy-game-open .clippy-bubble {
 #clippy-shell.is-sobbing .cl-mouth-frown { opacity: 1; }
 #clippy-shell.is-sobbing .cl-tears-stream { opacity: 1; }
 
+/* HAPPY-CRY — v18.36: glossy tearful eyes + huge smile + streaming tears.
+   The kawaii "crying from joy" face; used for new high scores. */
+#clippy-shell.is-happy-cry .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-happy-cry .cl-eyes-tearful { opacity: 1; }
+#clippy-shell.is-happy-cry .cl-mouth-smile { opacity: 0; }
+#clippy-shell.is-happy-cry .cl-mouth-bigsmile { opacity: 1; }
+#clippy-shell.is-happy-cry .cl-tears-stream { opacity: 1; }
+
 /* WAILING — shut eyes + open laugh mouth + streaming tears (anime sob) */
 #clippy-shell.is-wailing .cl-eyes-default { opacity: 0; }
 #clippy-shell.is-wailing .cl-eyes-shut { opacity: 1; }
