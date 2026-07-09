@@ -13218,6 +13218,11 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
     //    filed straight into In Progress by the lane sync.
     try {
       const now = new Date().toISOString();
+      // reported_by is a UUID column; nexus_users ids are INTEGERS — sending
+      // one kills the whole insert (this is how the first live call produced
+      // a status flip but no work order). Only pass a real uuid.
+      const uidRaw = NX.currentUser && NX.currentUser.id;
+      const reporterUuid = (typeof uidRaw === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uidRaw)) ? uidRaw : null;
       const { data: issueRow, error: issueErr } = await NX.sb.from('equipment_issues').insert({
         equipment_id: equipId,
         title: issue.slice(0, 120),
@@ -13227,7 +13232,7 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
         reported_at: now,
         contractor_called_at: now,
         contractor_name: contactName || null,
-        reported_by: NX.currentUser?.id || null,
+        reported_by: reporterUuid,
         reported_by_name: reporter,
       }).select('id').single();
       if (issueErr) throw issueErr;
@@ -14470,6 +14475,11 @@ async function promptNewIssue(equipment) {
     if (!title) { titleEl.classList.add('is-error'); titleEl.focus(); return; }
     const description = (descEl.value || '').trim() || null;
     saveBtn.disabled = true; saveBtn.textContent = 'Reporting…';
+    // reported_by is a UUID column; nexus_users ids are INTEGERS — sending
+    // one fails the whole insert (the tracker's "Report new" was silently
+    // broken by this). Only pass a real uuid.
+    const _uid = (NX.currentUser && NX.currentUser.id) || (NX.user && NX.user.id) || null;
+    const _uidOk = (typeof _uid === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(_uid)) ? _uid : null;
     const payload = {
       equipment_id:     equipment.id,
       title,
@@ -14477,7 +14487,7 @@ async function promptNewIssue(equipment) {
       status:           'reported',
       priority:         issuePriority,
       reported_at:      new Date().toISOString(),
-      reported_by:      (NX.currentUser && NX.currentUser.id) || (NX.user && NX.user.id) || null,
+      reported_by:      _uidOk,
       reported_by_name: (NX.currentUser && NX.currentUser.name) || (NX.user && NX.user.name) || null,
     };
     try {
