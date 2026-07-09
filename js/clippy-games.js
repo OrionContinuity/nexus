@@ -376,6 +376,53 @@
     return { wrap, canvas, ctx, w, h };
   }
 
+  // ─── Real-SVG Trajan sprites (v18.34) ──────────────────────────
+  // The games now draw the ACTUAL clippy.svg (state.svgMarkup, fetched
+  // by clippy core) instead of a hand-painted approximation. An <img>
+  // renders the raw SVG with EVERY face variant + costume visible at
+  // once (visibility normally comes from clippy.css on the shell), so
+  // we bake per-face sprites by injecting a <style> that shows exactly
+  // one eye set + one mouth and hides costumes/effects. The halo layer
+  // stays hidden — documented landmine: it paints a square background
+  // in <img> contexts (same reason the email avatar bake hid it); the
+  // canvas glow below stands in for it. His orbit nodes stay visible —
+  // they're part of the face. Baking is async; until an image decodes,
+  // drawTrajanOrb falls back to the canvas painting for that frame.
+  const SPRITE_FACES = {
+    happy: { eyes: 'cl-eyes-default',    mouth: 'cl-mouth-smile' },
+    flap:  { eyes: 'cl-eyes-happy',      mouth: 'cl-mouth-bigsmile' },
+    fall:  { eyes: 'cl-eyes-wide-shock', mouth: 'cl-mouth-o' },
+    dead:  { eyes: 'cl-eyes-sad',        mouth: 'cl-mouth-frown' },
+  };
+  const trajanSprites = {};
+  function trajanSprite(face) {
+    face = SPRITE_FACES[face] ? face : 'happy';
+    const cached = trajanSprites[face];
+    if (cached) return (cached.ready && cached.ok) ? cached.img : null;
+    const markup = state.svgMarkup;
+    if (!markup || markup.indexOf('<svg') === -1) return null;
+    const spec = SPRITE_FACES[face];
+    const style = '<style>' +
+      // Hide every face VARIANT, all costumes/props, and effect layers.
+      // .cl-floats (the root group holding body+face+nodes) stays
+      // visible — hiding it blanks the whole orb.
+      '[class*="cl-eyes-"],[class*="cl-mouth-"],[class*="cl-costume-"],' +
+      '[class*="cl-prop-"],.cl-halo,.cl-back-tuft,.cl-zzz,.cl-sweat,' +
+      '.cl-music,.cl-anger-pop,.cl-question,.cl-tear,.cl-tears-stream,' +
+      '.cl-drool,.cl-red-nose,.cl-heart-blush,.cl-vein,.cl-snot,' +
+      '.cl-queasy{visibility:hidden;}' +
+      '.' + spec.eyes + ',.' + spec.mouth + '{visibility:visible;}' +
+      '</style>';
+    const svg = markup.replace(/<svg([^>]*)>/, (m, attrs) => '<svg' + attrs + '>' + style);
+    const img = new Image();
+    const entry = { img, ready: false, ok: false };
+    trajanSprites[face] = entry;
+    img.onload = () => { entry.ready = true; entry.ok = true; };
+    img.onerror = () => { entry.ready = true; entry.ok = false; };
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    return null;
+  }
+
   // ─── Trajan orb sprite (canvas) ────────────────────────────────
   // v18.3: matches the actual Clippy SVG. Body is blue (#4cb6ff) by
   // default — same as clippy.svg's orb-body gradient. For game props
@@ -390,6 +437,24 @@
   function drawTrajanOrb(ctx, x, y, r, opts) {
     opts = opts || {};
     const hue = opts.hue || 'blue';
+    // v18.34 — blue Trajan at face-visible sizes draws the REAL SVG.
+    // Scale maps his body circle (r=58 in the 200 viewBox) onto the
+    // game's radius; orbit nodes ride outside it like they always do.
+    if (hue === 'blue' && (opts.face || 'happy') !== 'none' && r >= 14) {
+      const img = trajanSprite(opts.face || 'happy');
+      if (img) {
+        if (opts.halo !== false) {
+          const glow = ctx.createRadialGradient(x, y, r * 0.85, x, y, r * 1.65);
+          glow.addColorStop(0, 'rgba(92, 176, 255, 0.42)');
+          glow.addColorStop(1, 'rgba(92, 176, 255, 0)');
+          ctx.fillStyle = glow;
+          ctx.beginPath(); ctx.arc(x, y, r * 1.65, 0, Math.PI * 2); ctx.fill();
+        }
+        const s = r * (200 / 58);
+        ctx.drawImage(img, x - s / 2, y - s / 2, s, s);
+        return;
+      }
+    }
     // ─── Palettes ─────────────────────────────────────────────────
     let bodyTop, bodyEdge, haloRGB, faceColor, glintColor;
     if (hue === 'silver') {
@@ -463,11 +528,12 @@
       mouthShape = 'frown';
       eyeShape = 'dots';
     } else if (face === 'dead') {
-      // X eyes, flat mouth
-      eyeDY = r * 0.05;
-      mouthY = r * 0.45;
-      mouthShape = 'flat';
-      eyeShape = 'x';
+      // v18.34 — no more X eyes on defeat (his word: "just a frowny
+      // face"). Sad dots + frown; the KO stays cute.
+      eyeDY = r * 0.08;
+      mouthY = r * 0.48;
+      mouthShape = 'frown';
+      eyeShape = 'dots';
     } else {
       // Default kawaii: small dots, gentle smile
       eyeDY = r * 0.05;
@@ -1528,13 +1594,16 @@
         if (s <= 50) return Math.max(110, 170 - s * 1.2);
         return Math.max(92, 110 - (s - 50) * 0.5);
       }
+      // v18.34 — pillars were too far apart ("way too far apart"): the
+      // run was mostly empty sky. Spacing tightened ~20% across the
+      // curve and base scroll bumped so the action starts immediately.
       function speedAt(s) {
-        if (s <= 50) return Math.min(3.6, 2.2 + s * 0.028);
-        return Math.min(5.0, 3.6 + (s - 50) * 0.014);
+        if (s <= 50) return Math.min(3.8, 2.5 + s * 0.026);
+        return Math.min(5.0, 3.8 + (s - 50) * 0.012);
       }
       function spacingAt(s) {
-        if (s <= 40) return Math.max(155, 220 - s * 1.6);
-        return Math.max(130, 155 - (s - 40) * 0.4);
+        if (s <= 40) return Math.max(125, 175 - s * 1.25);
+        return Math.max(105, 125 - (s - 40) * 0.4);
       }
       // v18.11 — moving pipes get more common as score climbs.
       // 0% before score 15. 30% by 15-30. 55% by 30-50. 75% past 50.
@@ -1593,7 +1662,9 @@
         };
         columns.push(col);
         nextColumnX += spacingAt(lastScore);
-        if (score >= 6 && Math.random() < 0.40) {
+        // v18.34 — stars arrive sooner and more often. The +5 chase is
+        // the fun part; making players wait 6 columns for it was stingy.
+        if (score >= 2 && Math.random() < 0.45) {
           bonusStars.push({ colIdx: col.idx, taken: false, phase: Math.random() * Math.PI * 2 });
         }
       }
@@ -1910,19 +1981,9 @@
         ctx.save();
         ctx.translate(BIRD_X, birdY);
         ctx.rotate(birdRot);
+        // v18.34 — wings removed (his call): the orb flies on vibes and
+        // orbit nodes alone. The flap puff + rotation carry the motion.
         drawTrajanOrb(ctx, 0, 0, BIRD_VR, { face: faceState });
-        if (flapPulse > 0.15) {
-          const wingY = -BIRD_VR * 0.15;
-          ctx.strokeStyle = 'rgba(255, 244, 208, 0.85)';
-          ctx.lineWidth = 2;
-          ctx.lineCap = 'round';
-          ctx.beginPath();
-          ctx.moveTo(-BIRD_VR * 0.4, wingY);
-          ctx.quadraticCurveTo(-BIRD_VR * 1.1, wingY - BIRD_VR * 0.6 * flapPulse, -BIRD_VR * 1.4, wingY - BIRD_VR * 0.2);
-          ctx.moveTo(BIRD_VR * 0.4, wingY);
-          ctx.quadraticCurveTo(BIRD_VR * 1.1, wingY - BIRD_VR * 0.6 * flapPulse, BIRD_VR * 1.4, wingY - BIRD_VR * 0.2);
-          ctx.stroke();
-        }
         ctx.restore();
 
         // Near-miss ring
