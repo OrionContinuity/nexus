@@ -2847,3 +2847,11 @@
 #dailylogView .dlog-eqstatus-issue-desc {
   margin-top: 3px; font-size: 12px; line-height: 1.5; color: var(--nx-muted, #9aa3b2);
 }
+
+/* "NEW TODAY" chip on Board Tickets rows — hollow gold, ladder-consistent. */
+#dailylogView .dlog-tk-new {
+  display: inline-block; padding: 0 6px;
+  border: 1px solid var(--nx-gold, #d4a44e); border-radius: 999px;
+  color: var(--nx-gold, #d4a44e);
+  font-size: 9.5px; font-weight: 700; letter-spacing: .06em;
+}

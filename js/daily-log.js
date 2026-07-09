@@ -854,14 +854,14 @@ async function loadEquipmentDown() {
     // Maps equipment_id → most-recent open issue. Best-effort; never blocks.
     state.openIssuesByEq = {};
     try {
-      const downIds = rows.map(e => e.id);
-      if (downIds.length && NX.sb) {
+      if (all.length && NX.sb) {
+        // WHOLE fleet, not just down units — a low-severity call doesn't
+        // flip status but still belongs in Vendor & Service Calls.
         const { data: iss } = await NX.sb.from('equipment_issues')
           .select('id, equipment_id, title, description, status, contractor_name, contractor_called_at, eta_at, reported_at, created_at, priority')
-          .in('equipment_id', downIds)
           .not('status', 'in', '(repaired,closed,cancelled,invoice_paid)')
           .order('created_at', { ascending: false });
-        (iss || []).forEach(r => { if (!state.openIssuesByEq[r.equipment_id]) state.openIssuesByEq[r.equipment_id] = r; });
+        (iss || []).forEach(r => { if (r.equipment_id && !state.openIssuesByEq[r.equipment_id]) state.openIssuesByEq[r.equipment_id] = r; });
       }
     } catch (e) { console.warn('[daily-log] open issues:', e); }
     // Upcoming confirmed PM visits — maps equipment_id → the EARLIEST
@@ -1246,6 +1246,7 @@ function render() {
   const log = state.currentLog;
   const d = hydrateData(log && log.data);
   syncLocationsFromEquipment(d);     // populate location list from equipment
+  try { seedVendorCallsFromActivity(d); } catch (_) {}   // today's calls auto-fill
   if (log) log.data = d;             // keep the merged shape on the live log
   const driveStatus = log && log.drive_upload_status;
   const hasDriveFile = !!(log && log.drive_file_id);
@@ -1503,6 +1504,63 @@ function renderOrderingRollup(locKey) {
     <div class="dlog-order-list">${body}</div>
     <button type="button" class="eq-btn eq-btn-secondary dlog-open-ordering" data-loc="${esc(locKey)}">Open Ordering board →</button>
   `;
+}
+
+// Auto-fill Vendor & Service Calls from the day's ACTUAL activity — the
+// open work orders whose contractor was engaged today ("this info should
+// have already been filled"). Each work order seeds one row (tagged _src
+// for idempotence across re-renders); a half-typed manual row naming the
+// same vendor gets its blanks completed instead of duplicating. Today's
+// log only — history is never rewritten.
+function seedVendorCallsFromActivity(d) {
+  if (!d || !Array.isArray(d.locations)) return false;
+  const today = todayISO();
+  const logDate = (state.currentLog && state.currentLog.log_date) || today;
+  if (logDate !== today) return false;
+  const isToday = iso => String(iso || '').slice(0, 10) === today;
+  const eqById = {};
+  (state.equipmentHealth || []).forEach(e => { eqById[e.id] = e; });
+  const cands = [];
+  Object.values(state.openIssuesByEq || {}).forEach(iss => {
+    if (!iss || !iss.contractor_name) return;
+    if (!(isToday(iss.contractor_called_at) || isToday(iss.reported_at) || isToday(iss.created_at))) return;
+    const eq = eqById[iss.equipment_id] || {};
+    const issueText = String(iss.description || iss.title || '')
+      .replace(/^Reported via Call Service by [^\n]*\n+/i, '')
+      .replace(/\s+/g, ' ').trim().slice(0, 300);
+    cands.push({
+      key: 'wo:' + iss.id,
+      locKey: normLocKey(eq.location),
+      vendor: String(iss.contractor_name).trim(),
+      equipment: eq.name || '',
+      issue: issueText,
+      status: dlogIssueCallLine(iss),
+    });
+  });
+  if (!cands.length) return false;
+  let changed = false;
+  cands.forEach(c => {
+    const loc = d.locations.find(l => normLocKey(l.label) === c.locKey);
+    if (!loc) return;
+    loc.vendor_calls = loc.vendor_calls || [];
+    if (loc.vendor_calls.some(r => r && r._src === c.key)) return;   // already seeded
+    // Complete a half-typed row naming the same vendor first.
+    const half = loc.vendor_calls.find(r => r && !r._src &&
+      String(r.vendor || '').trim().toLowerCase() === c.vendor.toLowerCase() &&
+      !String(r.equipment || '').trim() && !String(r.issue || '').trim());
+    if (half) {
+      half._src = c.key;
+      if (!half.date) half.date = today;
+      half.equipment = c.equipment;
+      half.issue = c.issue;
+      if (!String(half.status || '').trim()) half.status = c.status;
+      changed = true;
+      return;
+    }
+    loc.vendor_calls.push({ date: today, vendor: c.vendor, equipment: c.equipment, issue: c.issue, status: c.status, _src: c.key });
+    changed = true;
+  });
+  return changed;
 }
 
 function renderLocationSection(loc, idx) {
@@ -2017,6 +2075,9 @@ function renderTicketsSection(d) {
     const detail = cardDetail(c);                 // description / first comment, if any
     // Compact: priority pill + title + lane. No assignee / created / emoji.
     const metaBits = [];
+    if (String(c.created_at || '').slice(0, 10) === todayISO() && bucket !== 'closed') {
+      metaBits.push('<span class="dlog-tk-new">NEW TODAY</span>');
+    }
     if (lane) metaBits.push(`<span class="dlog-tk-lane dlog-tk-lane-${bucket}">${esc(lane)}</span>`);
     return `
       <div class="dlog-tk-row">
@@ -3244,8 +3305,12 @@ function dlogLocationReportLines(loc) {
         // "Done today" header already implies it moved today).
         const pri = (c.priority || 'normal').toLowerCase();
         const tag = '[' + pri.toUpperCase() + '] ';
-        const moved = (g.showMoved && c._movedToday) ? '  (moved today)' : '';
-        out.push('    \u00b7 ' + tag + (c.title || 'Untitled card') + moved);
+        // "new today" beats "moved today" (a card created today obviously
+        // also arrived in its lane today). Done lane shows neither.
+        const isNew = String(c.created_at || '').slice(0, 10) === todayISO();
+        const flag = (g.showMoved && isNew) ? '  (new today)'
+                   : (g.showMoved && c._movedToday) ? '  (moved today)' : '';
+        out.push('    \u00b7 ' + tag + (c.title || 'Untitled card') + flag);
       });
     });
     out.push('');
@@ -3771,8 +3836,12 @@ function dlogTextToHtml(text, meta) {
     if (tag) {
       let rest2 = tag[2];
       let movedNote = '';
-      const mv = rest2.match(/\s*\((moved today)\)\s*$/);
-      if (mv) { movedNote = mv[1]; rest2 = rest2.slice(0, mv.index); }
+      let isNewToday = false;
+      const mv = rest2.match(/\s*\((moved today|new today)\)\s*$/);
+      if (mv) {
+        if (mv[1] === 'new today') isNewToday = true; else movedNote = mv[1];
+        rest2 = rest2.slice(0, mv.index);
+      }
       const segs = rest2.split(' — ');
       let cut = segs.length;
       for (let i = 1; i < segs.length; i++) {
@@ -3788,6 +3857,11 @@ function dlogTextToHtml(text, meta) {
       const headHtml = href
         ? `<a href="${esc(href)}" style="color:inherit;text-decoration:none;"><span class="nx-ink" style="font-family:${C.sans};font-size:15px;font-weight:bold;color:${C.ink};line-height:1.45;">${esc(head)}</span></a>`
         : `<span class="nx-ink" style="font-family:${C.sans};font-size:15px;font-weight:bold;color:${C.ink};line-height:1.45;">${esc(head)}</span>`;
+      // "NEW" rides as a quiet hollow-gold label on the RIGHT of the row
+      // (Alfredo: "a new label to the right of the ticket").
+      const newPill = isNewToday
+        ? `<td style="width:1%;white-space:nowrap;vertical-align:middle;padding-left:8px;"><span class="nx-pill nx-p-due" style="display:inline-block;padding:1px 6px;border:1.5px solid ${C.dueBd};border-radius:6px;font-family:${C.sans};font-size:9.5px;font-weight:bold;letter-spacing:.06em;color:${C.dueTx};">NEW</span></td>`
+        : '';
       return `
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
           <td style="width:1%;white-space:nowrap;vertical-align:top;padding:6px 9px 6px 0;">${dlogHtmlTag(tag[1])}</td>
@@ -3795,6 +3869,7 @@ function dlogTextToHtml(text, meta) {
             ${headHtml}
             ${tail ? `<div class="${good ? 'nx-eyebrow' : 'nx-muted'}" style="font-family:${C.sans};font-size:13.5px;line-height:1.55;color:${good ? C.gold : C.muted};margin-top:2px;">${esc(tail)}</div>` : ''}
           </td>
+          ${newPill}
           ${href ? `<td style="width:14px;vertical-align:middle;padding-left:6px;"><a href="${esc(href)}" style="font-family:${C.sans};font-size:17px;font-weight:bold;color:${C.goldSoft};text-decoration:none;">›</a></td>` : ''}
         </tr></table>`;
     }
