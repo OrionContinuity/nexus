@@ -4141,3 +4141,56 @@ body.clippy-game-open .clippy-bubble {
 #clippy-shell.is-angry [class*="cl-eyes-"],
 #clippy-shell.is-angry [class*="cl-mouth-"] { opacity: 0; }
 #clippy-shell.is-angry .cl-kao-angry2 { opacity: 1; }
+
+/* ═══ v18.45 — Chat font. The speech bubble defaulted to Comic Sans, which
+   the chat input, buttons, and eyebrow inherited. Alfredo: replace it.
+   The whole chat panel now uses the NEXUS face (DM Sans / Outfit), and
+   the conversation text a hair larger for readability. Scoped to the
+   chat panel so ambient bubbles elsewhere are untouched. */
+.clippy-bubble.clippy-chat-bubble,
+.clippy-bubble.clippy-chat-bubble .clippy-bubble-eyebrow,
+.clippy-chat-input,
+.clippy-chat-send,
+.clippy-chat-close {
+  font-family: 'DM Sans', 'Outfit', system-ui, -apple-system, sans-serif !important;
+}
+.clippy-bubble.clippy-chat-bubble .clippy-bubble-text {
+  font-family: 'DM Sans', 'Outfit', system-ui, -apple-system, sans-serif !important;
+  font-size: 15px;
+  line-height: 1.5;
+  letter-spacing: 0.005em;
+}
+.clippy-chat-input { font-size: 15px; }
+/* His spoken answers (rendered as plain .clippy-bubble, not .clippy-chat-bubble)
+   also drop Comic Sans for the clean face — the voice should read the same
+   whether it's a chat reply or an ambient line. */
+.clippy-bubble { font-family: 'DM Sans', 'Outfit', system-ui, -apple-system, sans-serif; }
+
+/* ═══ v18.45 — Game leaderboard (who made the scores). NEXUS palette. */
+.clippy-game-leaderboard {
+  width: 100%; max-width: 340px; margin: 6px auto 4px;
+  background: rgba(20,16,10,0.5); border: 1px solid rgba(212,164,78,0.28);
+  border-radius: 12px; padding: 10px 12px;
+}
+.clippy-game-lb-title {
+  font: 700 10.5px/1 'JetBrains Mono', ui-monospace, monospace;
+  letter-spacing: 0.18em; color: #d4a44e; text-align: center;
+  margin-bottom: 8px; text-transform: uppercase;
+}
+.clippy-game-lb-row {
+  display: flex; align-items: center; gap: 8px;
+  font: 13px/1.4 'DM Sans','Outfit',system-ui,sans-serif; color: #e8dcc2;
+  padding: 4px 0; border-top: 1px dashed rgba(212,164,78,0.14);
+}
+.clippy-game-lb-row:first-child { border-top: none; }
+.clippy-game-lb-row.is-me { color: #ffe9c0; font-weight: 700; }
+.clippy-game-lb-rank {
+  flex: 0 0 20px; text-align: center; font: 700 12px 'JetBrains Mono', monospace;
+  color: #b09468;
+}
+.clippy-game-lb-row:first-child .clippy-game-lb-rank { color: #d4a44e; }
+.clippy-game-lb-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clippy-game-lb-score { flex: 0 0 auto; color: #d4a44e; font-weight: 600; }
+.clippy-game-lb-loading {
+  font: 12px 'DM Sans', system-ui, sans-serif; color: #8a7a58; text-align: center; padding: 6px 0;
+}

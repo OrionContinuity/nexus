@@ -2312,13 +2312,15 @@
       // No scripted match -> let his LLM brain answer IN CHARACTER (if a
       // provider is reachable). Falls back to the scripted "no match" line when
       // there's no model -> original NEXUS behavior. Nothing blocks the UI.
-      bubble(pickFromPool('chat_thinking') || 'Hmm, let me think...', { autoHide: 12000, eyebrow: 'THINKING' });
+      state.chatActivityAt = Date.now();   // keep the chat gate alive across the LLM round-trip
+      bubble(pickFromPool('chat_thinking') || 'Hmm, let me think...', { autoHide: 12000, eyebrow: 'THINKING', fromChat: true });
       mood('thinking', 4000);
       askClippyBrain(text).then(ans => {
+        state.chatActivityAt = Date.now();
         if (ans) {
-          bubble(ans, { autoHide: 8000, eyebrow: '' });
+          bubble(ans, { autoHide: 8000, eyebrow: '', fromChat: true });
         } else {
-          bubble(pickFromPool('chat_no_match'), { autoHide: 5000, eyebrow: 'HMM' });
+          bubble(pickFromPool('chat_no_match'), { autoHide: 5000, eyebrow: 'HMM', fromChat: true });
           mood('confused', 4500);
           // After confusion, raise the chance of a drift follow-up — he tries
           // to recover with an off-topic thought.
@@ -2402,6 +2404,7 @@
     state.bubble = el;
     openOverlay('bubble');  // v18.26 — chat uses the bubble surface
     state.chatIsOpen = true;
+    state.chatActivityAt = Date.now();   // v18.45 — arms the "don't talk over me" gate
     state.chatIsSuper = !!opts.super;
     const input = el.querySelector('.clippy-chat-input');
     const sendBtn = el.querySelector('.clippy-chat-send');
@@ -2479,6 +2482,7 @@
       { question: question, asked_at: new Date().toISOString() },
       4
     );
+    state.chatActivityAt = Date.now();   // keep the chat gate alive across the oracle round-trip
     // Mark the chat bubble as "thinking"
     if (state.bubble) {
       const textEl = state.bubble.querySelector('.clippy-bubble-text');
@@ -6086,6 +6090,9 @@
   // ─── Click handler ──────────────────────────────────────────────────
   function handleClick() {
     state.preferences.total_clicks = (state.preferences.total_clicks || 0) + 1;
+    // A direct tap means the user is driving — a conversation, if one was
+    // open, is over. Clears the chat gate so his quick reactions work.
+    state.chatIsOpen = false;
 
     // Wake from sleep
     if (state.shell.classList.contains('is-sleeping')) {
@@ -6446,8 +6453,22 @@
     // v17.15: speak aloud if voice mode enabled (no-op when disabled)
     if (text) speakAloud(text);
   }
+  // v18.45 — is he in a live conversation right now? True from openChat
+  // through the LLM round-trip and until the panel closes / the user taps
+  // him / 3 min of silence. THE flag: chatIsOpen was written but never
+  // read, and chatOpen was read but never written — so nothing ever
+  // stopped ambient lines from stomping a chat. This is the working one.
+  function chattingNow() {
+    return !!state.chatIsOpen && (Date.now() - (state.chatActivityAt || 0) < 180000);
+  }
+
   function actionBubble(text, opts) {
     opts = opts || {};
+    // Don't talk over an active chat. Ambient / proactive lines are dropped
+    // while the user is in a conversation; chat-originated bubbles pass
+    // fromChat and always show. This is the single chokepoint that fixes
+    // "Clippy chats over himself" — no need to gate 18 separate speakers.
+    if (!opts.fromChat && chattingNow()) return null;
     closeActionBubble();
     if (!text && !opts.eyebrow) return;
 
@@ -8968,6 +8989,55 @@
         else { play('wave'); bubble('hi!'); }
       }
     });
+
+    // v18.45 — REMEMBER WHO HE'S WITH. NEXUS logs in by PIN, which fires
+    // AFTER Clippy has already booted — so at init the user is usually
+    // unknown and every per-user store (memories, feelings, prefs,
+    // scores, gacha) bound to the GLOBAL fallback key. When the real
+    // user then arrived, Clippy never reloaded: he showed one person's
+    // memories and awards to the next, and repeated the same daily award
+    // because the dedup state never switched. Now he re-homes on every
+    // login/switch.
+    let _lastUserId = (getCurrentUser() || {}).id != null ? String(getCurrentUser().id) : null;
+    document.addEventListener('nexus:user-change', (e) => {
+      const u = (e && e.detail && e.detail.user) || getCurrentUser();
+      const id = (u && u.id != null) ? String(u.id) : null;
+      if (id === _lastUserId) return;   // same person — nothing to switch
+      _lastUserId = id;
+      try { switchUser(u); } catch (err) { console.warn('[clippy] switchUser:', err); }
+    });
+  }
+
+  // Re-home every per-user store onto the now-current user. Idempotent;
+  // safe to call whenever the signed-in user changes.
+  function switchUser(u) {
+    // Reload each namespaced store (userKey() now resolves to the new id).
+    try { loadPreferences(); } catch (_) {}
+    try { loadMemories(); } catch (_) {}
+    try { loadFeelings(); } catch (_) {}
+    try { loadPoolHistory(); } catch (_) {}
+    try { if (NX.clippy && NX.clippy.gacha && NX.clippy.gacha.reload) NX.clippy.gacha.reload(); } catch (_) {}
+    // Per-session award/greeting dedup is per-PERSON, not per-tab: clear
+    // it so the new user gets their own daily gacha, streak, and greeting
+    // instead of inheriting the previous user's "already done today".
+    try {
+      sessionStorage.removeItem('nx_clippy_greeted');
+      sessionStorage.removeItem('nx_clippy_tour_offered');
+      sessionStorage.removeItem('nx_clock_nudged');
+    } catch (_) {}
+    _inhCache = null; _inhAt = 0;   // the inheritance block is per-user too
+    // Pull this user's cross-device state, then greet them by name.
+    try {
+      if (typeof cloudPull === 'function') {
+        Promise.resolve(cloudPull()).then(() => {
+          try { loadPreferences(); loadMemories(); loadFeelings(); } catch (_) {}
+          if (state.enabled && !state.bubble && !state.suppressed) {
+            const nm = (u && u.name) ? String(u.name).split(' ')[0] : null;
+            if (nm) { mood('happy', 3000); bubble('Oh — ' + nm + '. Hello. I kept your place.', { autoHide: 4200, eyebrow: '👋' }); }
+          }
+        }).catch(() => {});
+      }
+    } catch (_) {}
   }
 
 

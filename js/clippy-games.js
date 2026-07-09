@@ -146,9 +146,48 @@
     if (better) {
       scores[gameId] = score;
       try { localStorage.setItem(userKey('clippy_highscores'), JSON.stringify(scores)); } catch (e) {}
+      // v18.45 — a personal best also goes to the shared leaderboard,
+      // attributed to whoever is signed in. Fire-and-forget; the game
+      // never waits on the network and never breaks if it's offline.
+      try { postScore(gameId, score); } catch (_) {}
       return true;
     }
     return false;
+  }
+
+  // ─── Shared leaderboard (v18.45) ───────────────────────────────────
+  // Every personal best is written to public.clippy_scores with the
+  // player's id + name + location, so "who made the scores" is answerable
+  // and survives across devices. getLeaderboard reads the best-per-user
+  // view. Both degrade silently when Supabase is unreachable.
+  function _who() {
+    try {
+      const u = (window.NX && NX.currentUser) || null;
+      return { id: (u && u.id != null) ? u.id : null,
+               name: (u && u.name) ? String(u.name) : 'Someone',
+               location: (u && u.location) ? String(u.location) : null };
+    } catch (_) { return { id: null, name: 'Someone', location: null }; }
+  }
+  async function postScore(gameId, score) {
+    try {
+      if (!window.NX || !NX.sb) return;
+      const g = GAMES[gameId]; if (!g) return;
+      const w = _who();
+      await NX.sb.from('clippy_scores').insert({
+        game: gameId, user_id: w.id, user_name: w.name, location: w.location,
+        score: score, higher_is_better: g.higherIsBetter !== false,
+      });
+    } catch (_) {}
+  }
+  async function getLeaderboard(gameId, limit) {
+    try {
+      if (!window.NX || !NX.sb) return [];
+      const g = GAMES[gameId] || { higherIsBetter: true };
+      let q = NX.sb.from('clippy_scores_best').select('user_name, score, location').eq('game', gameId);
+      q = q.order('score', { ascending: g.higherIsBetter === false });
+      const { data } = await q.limit(limit || 5);
+      return data || [];
+    } catch (_) { return []; }
   }
 
   // ╔══════════════════════════════════════════════════════════════════════╗
@@ -291,12 +330,33 @@
       <div class="clippy-game-highscore ${newRecord ? 'clippy-game-highscore-new' : ''}">
         ${newRecord ? '🏆 NEW HIGH SCORE!' : `Best: ${esc(String(allScores[gameId] != null ? allScores[gameId] : score))} ${esc(game.unit)}`}
       </div>
+      <div class="clippy-game-leaderboard" data-leaderboard>
+        <div class="clippy-game-lb-title">🏆 TOP PLAYERS</div>
+        <div class="clippy-game-lb-rows"><div class="clippy-game-lb-loading">loading…</div></div>
+      </div>
       <div class="clippy-game-buttons">
         <button class="clippy-game-btn" data-act="again">Play Again</button>
         <button class="clippy-game-btn is-ghost" data-act="menu">Menu</button>
         <button class="clippy-game-btn is-ghost" data-act="done">Done</button>
       </div>
     `;
+    // Fill the leaderboard async — never blocks the result screen.
+    (async () => {
+      const rows = await getLeaderboard(gameId, 5);
+      const box = ov.querySelector('[data-leaderboard] .clippy-game-lb-rows');
+      if (!box) return;
+      if (!rows.length) { box.innerHTML = '<div class="clippy-game-lb-loading">be the first to post a score</div>'; return; }
+      const me = _who();
+      box.innerHTML = rows.map((r, i) => {
+        const mine = me.name && r.user_name === me.name;
+        const loc = r.location ? ` · ${esc(r.location)}` : '';
+        return `<div class="clippy-game-lb-row${mine ? ' is-me' : ''}">
+          <span class="clippy-game-lb-rank">${i + 1}</span>
+          <span class="clippy-game-lb-name">${esc(r.user_name || 'Someone')}${loc}</span>
+          <span class="clippy-game-lb-score">${esc(String(r.score))} ${esc(game.unit)}</span>
+        </div>`;
+      }).join('');
+    })();
     ov.querySelector('[data-act="again"]').addEventListener('click', () => {
       closeGameOverlay();
       if (typeof game.start === 'function') game.start();

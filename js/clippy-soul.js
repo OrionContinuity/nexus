@@ -422,9 +422,17 @@
     } catch (e) { return false; }
   }
 
-  // Let a private thought slip into a real Clippy bubble, if the body is present.
+  // Let a private thought slip into a real Clippy bubble, if the body is
+  // present AND he isn't mid-sentence or mid-chat. v18.45 — this was the
+  // worst stomper: it had no bubble/chat guard and would talk over an
+  // open conversation. The core actionBubble gate now blocks it during a
+  // chat too (no fromChat flag), but we also respect a visible bubble.
   function surface(text) {
     if (!bodyLive()) return;
+    try {
+      var st = NX.clippy && NX.clippy._internal && NX.clippy._internal.state;
+      if (st && (st.bubble || st.suppressed || st.chatIsOpen)) return;
+    } catch (e) {}
     try {
       if (NX.clippy && typeof NX.clippy.bubble === 'function') {
         NX.clippy.bubble(text, { autoHide: 7000, eyebrow: '…' });
