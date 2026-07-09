@@ -887,6 +887,24 @@ async function loadEquipmentDown() {
           }
         });
     } catch (e) { console.warn('[daily-log] pm schedules:', e); }
+    // Repair spend this month — invoice amounts captured on the completion
+    // sheet, summed per unit for issues repaired since the 1st. Feeds the
+    // "Repair spend this month" line in Maintenance health; the line only
+    // renders when money was actually logged, so an empty ledger costs
+    // nothing. Best-effort like the loads above.
+    state.spendMtdByEq = {};
+    try {
+      const m0 = new Date(); m0.setDate(1); m0.setHours(0, 0, 0, 0);
+      const { data: paid } = await NX.sb.from('equipment_issues')
+        .select('equipment_id, total_cost, invoice_amount, repaired_at')
+        .gte('repaired_at', m0.toISOString());
+      (paid || []).forEach(r => {
+        const amt = Number(r.total_cost) || Number(r.invoice_amount) || 0;
+        if (r.equipment_id && amt > 0) {
+          state.spendMtdByEq[r.equipment_id] = (state.spendMtdByEq[r.equipment_id] || 0) + amt;
+        }
+      });
+    } catch (e) { console.warn('[daily-log] spend mtd:', e); }
     return rows;
   } catch (e) {
     console.warn('[daily-log] loadEquipmentDown exception:', e);
@@ -3268,6 +3286,21 @@ function dlogLocationReportLines(loc) {
       return t ? ('· ' + label + ' due: ' + t + (over ? ' (' + over + ' overdue)' : '')) : null;
     };
     [dueLine('Deep cleans', dcO, dcS)].filter(Boolean).forEach(l => out.push(l));
+    // Repair spend this month — only speaks when invoice amounts were
+    // actually captured on completion sheets; a $0 month says nothing.
+    const spendRows = eqAll
+      .map(eq => ({ name: eq.name || 'Equipment', amt: (state.spendMtdByEq || {})[eq.id] || 0 }))
+      .filter(s => s.amt > 0)
+      .sort((a, b) => b.amt - a.amt);
+    if (spendRows.length) {
+      const fmt$ = v => '$' + (Math.round(v * 100) % 100
+        ? v.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+        : Math.round(v).toLocaleString('en-US'));
+      const total = spendRows.reduce((a, s) => a + s.amt, 0);
+      out.push('· Repair spend this month: ' + fmt$(total));
+      spendRows.slice(0, 5).forEach(s => out.push('    ' + s.name + ' — ' + fmt$(s.amt)));
+      if (spendRows.length > 5) out.push('    +' + (spendRows.length - 5) + ' more');
+    }
     out.push('');
 
     // Warranty — prompt ONLY when a unit's warranty is within 90 days of

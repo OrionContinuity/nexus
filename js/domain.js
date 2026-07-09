@@ -1272,7 +1272,7 @@
   //   3. sets equipment status (form choice > prior status > operational)
   //   4. writes an equipment_maintenance audit row (photo + notes attached)
   // Call with just { equipmentId }. Returns a summary of what closed.
-  W.fulfillForEquipment = async function({ equipmentId, performedBy, notes, restoreStatus, invoiceUrl } = {}) {
+  W.fulfillForEquipment = async function({ equipmentId, performedBy, notes, restoreStatus, invoiceUrl, cost } = {}) {
     if (!NX.sb || !equipmentId) return { ok: false, reason: 'missing-equipment' };
     const now = new Date().toISOString();
     const open = await W.findOpenForEquipment({ equipmentId });
@@ -1284,6 +1284,7 @@
     if (issueId) {
       const patch = { status: 'repaired', repaired_at: now };
       if (invoiceUrl) { patch.invoice_url = invoiceUrl; patch.invoice_received_at = now; }
+      if (cost) { patch.invoice_amount = cost; patch.total_cost = cost; }
       try {
         await NX.sb.from('equipment_issues').update(patch).eq('id', issueId);
       } catch (e) { console.warn('[NX.work.fulfillForEquipment] mark repaired failed:', e?.message || e); }
@@ -1297,6 +1298,7 @@
       try {
         const patch = { closed_at: now };
         if (notes) patch.resolution_notes = String(notes).trim();
+        if (cost) patch.cost_actual = cost;
         await NX.sb.from('kanban_cards').update(patch).eq('id', card.id);
       } catch (e) { console.warn('[NX.work.fulfillForEquipment] card stamp failed:', e?.message || e); }
       if (open.ticketId) {
@@ -1341,6 +1343,7 @@
         event_date: now,
       };
       if (invoiceUrl) { row.receipt_url = invoiceUrl; row.photos = [invoiceUrl]; }
+      if (cost) row.cost = cost;
       await NX.sb.from('equipment_maintenance').insert(row);
     } catch (e) { console.warn('[NX.work.fulfillForEquipment] maint log failed:', e?.message || e); }
 
@@ -1362,7 +1365,7 @@
       : NX.toast && NX.toast('Work Orders unavailable — is js/work-orders.js deployed?', 'error', 3500);
     if (NX.modules?.workOrders) { go(); return; }
     const s = document.createElement('script');
-    s.src = 'js/work-orders.js?v=6';
+    s.src = 'js/work-orders.js?v=7';
     s.onload = go; s.onerror = go;
     document.body.appendChild(s);
   };
@@ -1741,7 +1744,7 @@
       if (L.modules && L.modules.workOrders) openWo();
       else {
         const s = document.createElement('script');
-        s.src = 'js/work-orders.js?v=6';
+        s.src = 'js/work-orders.js?v=7';
         s.onload = openWo;
         document.body.appendChild(s);
       }

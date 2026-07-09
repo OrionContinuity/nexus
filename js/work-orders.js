@@ -81,6 +81,7 @@
     try {
       const patch = { status: 'repaired', repaired_at: now };
       if (extras.invoiceUrl) { patch.invoice_url = extras.invoiceUrl; patch.invoice_received_at = now; }
+      if (extras.cost) { patch.invoice_amount = extras.cost; patch.total_cost = extras.cost; }
       await NX.sb.from('equipment_issues')
         .update(patch)
         .eq('equipment_id', equipmentId)
@@ -92,6 +93,7 @@
       try {
         const patch = { closed_at: now };
         if (extras.notes) patch.resolution_notes = extras.notes;
+        if (extras.cost) patch.cost_actual = extras.cost;
         if (card.board_id) {
           const { data: lists } = await NX.sb.from('board_lists')
             .select('*').eq('board_id', card.board_id).order('position');
@@ -136,6 +138,7 @@
         event_date: now,
       };
       if (extras.invoiceUrl) { row.receipt_url = extras.invoiceUrl; row.photos = [extras.invoiceUrl]; }
+      if (extras.cost) row.cost = extras.cost;
       await NX.sb.from('equipment_maintenance').insert(row);
     } catch (_) {}
     try { if (NX.modules?.board?.reload) NX.modules.board.reload(); } catch (_) {}
@@ -182,8 +185,11 @@
           </label>
           <img id="woPhPrev" alt="" style="display:none;max-width:100%;max-height:220px;border-radius:12px;margin-top:10px">
         </div>
+        <div class="wo-d-block"><div class="wo-d-h">Invoice total</div>
+          <input type="text" id="woCost" class="wo-input" inputmode="decimal" placeholder="$ 0.00 — feeds the spend tracker">
+        </div>
         <div class="wo-d-block"><div class="wo-d-h">Completion notes</div>
-          <textarea id="woNotes" class="wo-input" rows="3" placeholder="What was done, parts used, cost…"></textarea>
+          <textarea id="woNotes" class="wo-input" rows="3" placeholder="What was done, parts used…"></textarea>
         </div>
         <div class="wo-d-block"><div class="wo-d-h">Equipment status after this</div>
           <select id="woEqStatus" class="wo-input">
@@ -216,10 +222,12 @@
         if (!invoiceUrl) NX.toast?.('Photo upload failed — completing without it', 'warn', 3200);
       }
       btn.textContent = 'Completing…';
+      const costRaw = parseFloat((wrap.querySelector('#woCost').value || '').replace(/[^0-9.]/g, ''));
       const res = await doFulfill(eqId, {
         notes: (wrap.querySelector('#woNotes').value || '').trim(),
         restoreStatus: wrap.querySelector('#woEqStatus').value,
         invoiceUrl,
+        cost: (isFinite(costRaw) && costRaw > 0) ? Math.round(costRaw * 100) / 100 : null,
       }).catch(() => null);
       if (res && res.ok) {
         wrap.remove();
