@@ -3734,8 +3734,17 @@ td.check{background:#F0EDE6 !important}
         const out = await this.askPool(this._flattenMessages(messages), { system, timeoutMs: 300000 });
         if (out) { this._answerSource = 'PC pool · qwen'; return out; }
       } catch (e) { /* pool unreachable — fall through to the cloud fallback */ }
-      if (!this.getApiKey()) throw new Error('Clippy pool did not answer and no Anthropic key is set — turn on the PC, or add a key in Admin.');
-      // else fall through to the Anthropic path below
+      // v18.47 — CLOUD BRAIN FALLBACK. When the PC pool is asleep, the
+      // clippy-brain edge function answers using the Anthropic key held
+      // SERVER-SIDE (in edge secrets) — so the browser never needs a key
+      // and the LLM is effectively always available. This is why "turn on
+      // the PC / add a key" errors stopped: there's now a third path that
+      // needs neither. Falls through to a direct key only if the edge
+      // brain is unreachable AND a local key happens to exist.
+      const cloud = await this.askCloudBrain(system, this._flattenMessages(messages), maxTokens);
+      if (cloud) { this._answerSource = 'Claude cloud · clippy-brain'; return cloud; }
+      if (!this.getApiKey()) throw new Error('The cloud brain and the PC pool are both unreachable right now — try again in a moment.');
+      // else fall through to the direct Anthropic path below
     }
     const key = this.getApiKey();
     if (!key) throw new Error('No API key. Admin → save your Anthropic key.');
@@ -3791,11 +3800,18 @@ td.check{background:#F0EDE6 !important}
         } catch (e) { this._lastVisionError = e.message || String(e); }
         try { localStorage.setItem(POOL_DOWN_KEY, String(Date.now() + 10 * 60 * 1000)); } catch (_) {}
       }
+      // v18.47 — CLOUD BRAIN FALLBACK for vision too. When the pool is
+      // asleep, the clippy-brain edge function reads the data plate with
+      // the server-side Anthropic key — so Scan Plate works with no local
+      // key and no PC on. Only if the edge brain is unreachable do we fall
+      // to a direct client key (rare) or surface the error.
+      const cloudV = await this.askCloudBrain(prompt, '', 1024, base64Data, mimeType);
+      if (cloudV) { this._lastVisionError = null; this._answerSource = 'Claude cloud · clippy-brain'; return cloudV; }
       // Pool unreachable (PC off / worker down / all retries failed). Fall back
       // to Claude vision when a key exists so AI Create still works — the
       // provenance stamp records which brain actually answered. With no key we
       // surface the pool error rather than silently doing nothing.
-      if (!this.getApiKey()) return '';
+      if (!this.getApiKey()) { this._lastVisionError = 'The cloud vision brain and the PC pool are both unreachable right now — try again in a moment.'; return ''; }
       this._lastVisionError = null;   // give the cloud a clean shot
       // (fall through to the Anthropic path below)
     }
@@ -3953,6 +3969,29 @@ td.check{background:#F0EDE6 !important}
     return (messages || []).map(m => (m.role === 'assistant' ? 'Assistant: ' : 'User: ') + toText(m.content)).join('\n\n');
   },
   // Live pool from the hive registry (clippy_sync id='clippy_nodes'), stale-dropped.
+  // v18.47 — the server-side cloud brain. POSTs to the clippy-brain edge
+  // function, which calls Anthropic with the key kept in edge secrets — the
+  // browser never holds the key. Text OR vision (pass imageB64+mime).
+  // Returns the answer string, or null on any failure (caller degrades).
+  // One retry on the brain's global throttle so a human's first tap doesn't
+  // bounce off the cloud heartbeat that may have fired a second earlier.
+  async askCloudBrain(system, userText, maxTokens, imageB64, mime) {
+    if (!this.sb || !this.sb.functions) return null;
+    const body = { system: system || '', user: userText || '', max_tokens: maxTokens || 512 };
+    if (imageB64) { body.image_b64 = imageB64; body.mime = mime || 'image/jpeg'; }
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const { data, error } = await this.sb.functions.invoke('clippy-brain', { body });
+        if (error) { this._lastCloudBrainError = error.message || String(error); return null; }
+        if (data && data.text) { this._lastCloudBrainError = null; return String(data.text); }
+        if (data && data.mind === 'throttled' && attempt === 0) { await new Promise(r => setTimeout(r, 1400)); continue; }
+        this._lastCloudBrainError = (data && (data.error || data.why)) || 'no answer';
+        return null;
+      } catch (e) { this._lastCloudBrainError = e.message || String(e); return null; }
+    }
+    return null;
+  },
+
   async clippyPoolNodes() {
     if (!this.sb) return [];
     try {

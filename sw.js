@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v242-cloud-memory';
+const CACHE_NAME = 'nexus-v243-cloud-brain';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
