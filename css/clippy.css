@@ -51,10 +51,16 @@
   user-select: none;
   -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
-  /* Drop-shadow keyed to the orb's cyan glow, not the paperclip gold */
+  /* His glow. The inner cyan is his native body; the outer aura is
+     --clippy-soul-glow, which clippy.js eases toward his ANIMA colour so his
+     light reflects his soul (v18.48). Near baseline it stays cyan; as a force
+     takes hold his aura tints toward that tone's colour. The slow filter
+     transition makes the shift breathe rather than snap. */
+  --clippy-soul-glow: rgba(92, 176, 255, 0.35);
   filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.45))
-          drop-shadow(0 0 14px rgba(92, 176, 255, 0.35));
-  transition: opacity 280ms ease, filter 200ms ease;
+          drop-shadow(0 0 14px rgba(92, 176, 255, 0.30))
+          drop-shadow(0 0 22px var(--clippy-soul-glow));
+  transition: opacity 280ms ease, filter 1600ms ease;
   --pos-transition: left 700ms cubic-bezier(0.34, 1.36, 0.64, 1),
                     top  700ms cubic-bezier(0.34, 1.36, 0.64, 1),
                     bottom 700ms cubic-bezier(0.34, 1.36, 0.64, 1),

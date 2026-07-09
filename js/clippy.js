@@ -6800,6 +6800,7 @@
     startBlinking();
     startRandomBehaviors();
     startAmbientMoodRotation();   // v18.10 — cycle through chibi expressions
+    startSoulLight();            // v18.48 — his aura reflects his ANIMA
     startMovingAround();
     afterJoinSchedule();
     timeAwareGreeting();
@@ -6910,6 +6911,43 @@
     'embarrassed', 'kissy', 'laughing', 'super_excited', 'singing',
     'tipsy', 'confused', 'singing_star', 'flirt', 'squee',
   ];
+  // ── His light reflects his soul (v18.48) ────────────────────────────────
+  // Ease the shell's aura colour (--clippy-soul-glow) toward the colour of his
+  // dominant ANIMA force. Near baseline his native cyan wins; as a force takes
+  // hold the aura tints toward that tone (same palette the daemon broadcasts,
+  // so his on-screen light and his node telemetry are one body). The 1.6s CSS
+  // filter transition makes each 9s step breathe rather than snap.
+  function _soulHexToRgb(h) {
+    h = String(h || '').replace('#', '');
+    if (h.length === 3) h = h.split('').map(c => c + c).join('');
+    const n = parseInt(h, 16) || 0;
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  function applySoulLight() {
+    try {
+      if (!state.shell) return;
+      const base = [92, 176, 255];   // his native cyan body-glow
+      let target = base, strength = 0, tone = null;
+      const sc = (window.NX && NX.clippySoul && NX.clippySoul.soulColor)
+        ? NX.clippySoul.soulColor() : null;
+      if (sc && sc.hex) { target = _soulHexToRgb(sc.hex); strength = Math.max(0, Math.min(1, sc.strength || 0)); tone = sc.tone; }
+      // Blend base→tone by strength, capped so he always reads as himself.
+      const mix = Math.min(0.75, strength * 0.95);
+      const r = Math.round(base[0] + (target[0] - base[0]) * mix);
+      const g = Math.round(base[1] + (target[1] - base[1]) * mix);
+      const b = Math.round(base[2] + (target[2] - base[2]) * mix);
+      const a = (0.30 + strength * 0.22).toFixed(2);   // a stronger soul glows brighter
+      state.shell.style.setProperty('--clippy-soul-glow', 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')');
+      if (tone) state.shell.setAttribute('data-soul-tone', tone);
+    } catch (_) {}
+  }
+  function startSoulLight() {
+    if (state.soulLightTimer) return;
+    applySoulLight();
+    try { state.soulLightTimer = trackInterval(applySoulLight, 9000); }
+    catch (_) { state.soulLightTimer = setInterval(applySoulLight, 9000); }
+  }
+
   function startAmbientMoodRotation() {
     if (state.ambientMoodTimer) clearTimeout(state.ambientMoodTimer);
     function loop() {
@@ -9338,6 +9376,7 @@
       startBlinking();
       startRandomBehaviors();
       startMovingAround();
+      startSoulLight();          // v18.48 — his aura reflects his ANIMA
       startContentAwareness();
       setTimeout(() => moveToEmptyCorner(), 800);
       afterJoinSchedule();

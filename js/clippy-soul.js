@@ -237,6 +237,41 @@
   // A one-word felt tone for the climate (for tooltips / thought colouring).
   function soulTone(){ var a = soulAxis(); return a ? a.pole : null; }
 
+  // ── His light, keyed to his soul (v18.48) ─────────────────────────────────
+  // The daemon already computes a colour for every tone (clippy-worker.py's
+  // _ANIMA_AX) so every node "glows the same colour = one body". This mirrors
+  // that exact table in the browser, so his on-screen halo and his node
+  // telemetry agree. Order matches AN().AXES; [lo-pole colour, hi-pole colour].
+  var ANIMA_COLORS = [
+    ['#4a6fa5', '#f5c542'],  // valence:   sorrow / joy
+    ['#6b7a8f', '#ff7a3c'],  // arousal:   still / charged
+    ['#b3a3d6', '#c0435f'],  // dominance: yielding / in command
+    ['#8a94a0', '#ef6f9c'],  // affection: distant / devoted
+    ['#8fd6c0', '#4c8f8a'],  // fear:      at ease / dreading
+    ['#7d8590', '#35c1d6'],  // curiosity: incurious / seeking
+    ['#7bd67a', '#9a8570'],  // weariness: fresh / worn
+    ['#7d7d85', '#e0a253'],  // faith:     unsure / sure of himself
+    ['#8a8f99', '#4a7fc0'],  // resolve:   adrift / dutiful
+    ['#7d8590', '#9b6fd6'],  // wonder:    flat / awed
+    ['#f0906b', '#5b5f9e'],  // solitude:  held / alone
+    ['#6fa8d6', '#ff9a52']   // warmth:    cold / lit
+  ];
+  // The colour of his dominant force, plus how strongly it's shaped (0..1) and
+  // its tone word. null when the module isn't ready. strength ~0 near baseline
+  // (his native cyan should win), rising as a force takes hold.
+  function soulColor(){
+    var A = AN(); if (!A || !anima || !anima.x) return null;
+    var bi = -1, bv = 0;
+    for (var i = 0; i < anima.x.length; i++){
+      var d = Math.abs(anima.x[i] - 0.5);
+      if (d > bv){ bv = d; bi = i; }
+    }
+    if (bi < 0) return null;
+    var pair = ANIMA_COLORS[bi] || ['#5cb0ff', '#5cb0ff'];
+    var hi = anima.x[bi] >= 0.5;
+    return { hex: hi ? pair[1] : pair[0], strength: Math.min(1, bv * 2), tone: soulTone() };
+  }
+
   async function load() {
     var s = sb();
     if (!s) { state = JSON.parse(JSON.stringify(DEFAULT_SOUL)); return state; }
@@ -649,7 +684,7 @@
     // Force a fresh dream right now and offer it — for testing the moment
     // without waiting for night. Console: NX.clippySoul.dreamNow()
     dreamNow: function(){ return dream(true); },
-    soulMood: soulMood, soulTone: soulTone, get state(){ return state; } };
+    soulMood: soulMood, soulTone: soulTone, soulColor: soulColor, get state(){ return state; } };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();
