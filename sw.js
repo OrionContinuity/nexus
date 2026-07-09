@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v245-dlog-soul-face';
+const CACHE_NAME = 'nexus-v246-dlog-center';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
