@@ -1630,8 +1630,19 @@
         }
       } catch (_) {}
 
-      const { error } = await NX.sb.from('kanban_cards')
-        .update({ list_id: target.id, position }).eq('id', card.id);
+      const fromList = lists.find(l => String(l.id) === String(card.list_id));
+      let { error } = await NX.sb.from('kanban_cards')
+        .update({
+          list_id: target.id, position,
+          last_move_from: (fromList && fromList.name) || null,
+          last_move_to: target.name || null,
+          last_status_change_at: new Date().toISOString(),
+        }).eq('id', card.id);
+      if (error) {
+        // Pre-migration fallback: the move itself must never fail.
+        ({ error } = await NX.sb.from('kanban_cards')
+          .update({ list_id: target.id, position }).eq('id', card.id));
+      }
       if (error) throw error;
       // If the board is open, show the move immediately.
       try { if (NX.modules?.board?.reload) NX.modules.board.reload(); } catch (_) {}

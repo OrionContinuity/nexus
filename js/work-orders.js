@@ -98,7 +98,11 @@
           const live = (lists || []).filter(l => l && l.archived !== true);
           const done = live.find(l => /done|complete|closed/i.test(l.name || '')) || live[live.length - 1];
           if (done && String(done.id) !== String(card.list_id)) {
+            const fromList = live.find(l => String(l.id) === String(card.list_id));
             patch.list_id = done.id;
+            patch.last_move_from = (fromList && fromList.name) || null;
+            patch.last_move_to = done.name || null;
+            patch.last_status_change_at = now;
             patch.position = 0;
             try {
               const { data: inList } = await NX.sb.from('kanban_cards')

@@ -2085,8 +2085,11 @@ function renderTicketsSection(d) {
     const detail = cardDetail(c);                 // description / first comment, if any
     // Compact: priority pill + title + lane. No assignee / created / emoji.
     const metaBits = [];
-    if (String(c.created_at || '').slice(0, 10) === todayISO() && bucket !== 'closed') {
+    const isNewToday = String(c.created_at || '').slice(0, 10) === todayISO();
+    if (isNewToday && bucket !== 'closed') {
       metaBits.push('<span class="dlog-tk-new">NEW TODAY</span>');
+    } else if (c._movedToday && c.last_move_from && c.last_move_to && bucket !== 'closed') {
+      metaBits.push(`<span class="dlog-tk-moved">moved today: ${esc(c.last_move_from)} → ${esc(c.last_move_to)}</span>`);
     }
     if (lane) metaBits.push(`<span class="dlog-tk-lane dlog-tk-lane-${bucket}">${esc(lane)}</span>`);
     return `
@@ -3317,10 +3320,14 @@ function dlogLocationReportLines(loc) {
         const pri = (c.priority || 'normal').toLowerCase();
         const tag = '[' + pri.toUpperCase() + '] ';
         // "new today" beats "moved today" (a card created today obviously
-        // also arrived in its lane today). Done lane shows neither.
+        // also arrived in its lane today). Done lane shows neither. Moves
+        // carry their ROUTE when the board recorded one: "To Do \u2192 In
+        // Progress". Today's moves only \u2014 _movedToday is gated to the
+        // log's own date window.
         const isNew = String(c.created_at || '').slice(0, 10) === todayISO();
+        const route = (c.last_move_from && c.last_move_to) ? ': ' + c.last_move_from + ' \u2192 ' + c.last_move_to : '';
         const flag = (g.showMoved && isNew) ? '  (new today)'
-                   : (g.showMoved && c._movedToday) ? '  (moved today)' : '';
+                   : (g.showMoved && c._movedToday) ? '  (moved today' + route + ')' : '';
         out.push('    \u00b7 ' + tag + (c.title || 'Untitled card') + flag);
       });
     });
@@ -3848,7 +3855,7 @@ function dlogTextToHtml(text, meta) {
       let rest2 = tag[2];
       let movedNote = '';
       let isNewToday = false;
-      const mv = rest2.match(/\s*\((moved today|new today)\)\s*$/);
+      const mv = rest2.match(/\s*\((new today|moved today[^)]*)\)\s*$/);
       if (mv) {
         if (mv[1] === 'new today') isNewToday = true; else movedNote = mv[1];
         rest2 = rest2.slice(0, mv.index);

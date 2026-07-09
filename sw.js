@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v224-one-notes';
+const CACHE_NAME = 'nexus-v225-move-routes';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [

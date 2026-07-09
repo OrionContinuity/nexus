@@ -1719,10 +1719,15 @@ async function moveCard(card, targetList, opts){
   try{
     // v18.33 — stamp closed_at when entering a done lane, clear it when
     // leaving one. The daily log's "closed today" bucket reads this.
+    const fromList = lists.find(l => String(l.id) === String(prev.list_id));
     const updatePayload = {
       list_id: targetList.id,
       column_name: targetColName,
       status,
+      // Route memory for the daily notes' "moved today: From → To" note.
+      last_move_from: (fromList && fromList.name) || null,
+      last_move_to: targetList.name || null,
+      last_status_change_at: new Date().toISOString(),
     };
     // Position in the destination list. A drag (opts present) lands in the
     // exact slot the user dropped into — fractional midpoint between
@@ -1748,23 +1753,20 @@ async function moveCard(card, targetList, opts){
       // reopened card doesn't carry a stale closed_at.
       updatePayload.closed_at = null;
     }
-    const { error } = await NX.sb.from('kanban_cards').update(updatePayload).eq('id', card.id);
+    let { error } = await NX.sb.from('kanban_cards').update(updatePayload).eq('id', card.id);
     if(error){
-      // v18.33 — tolerate the pre-migration window where closed_at
-      // doesn't exist yet. Retry the move without the closed_at field
-      // so card moves never break. (Run sql/kanban_cards_closed_at.sql
-      // to enable "closed today" tracking in the daily log.)
-      if(error.code === '42703' && 'closed_at' in updatePayload){
-        const { closed_at, ...rest } = updatePayload;
-        const retry = await NX.sb.from('kanban_cards').update(rest).eq('id', card.id);
-        if(retry.error) throw retry.error;
-        if(!window._kanbanClosedAtWarned){
-          window._kanbanClosedAtWarned = true;
-          console.warn('[board] kanban_cards.closed_at missing — card moved without it. Run sql/kanban_cards_closed_at.sql.');
-        }
-      } else {
-        throw error;
+      // Tolerate missing optional columns (pre-migration windows for
+      // closed_at / last_move_*): strip whichever column the DB rejects
+      // and retry, up to a few times, so card moves never break.
+      let guard = 0;
+      while (error && error.code === '42703' && guard++ < 4) {
+        const m = /column "?([a-z_]+)"?/i.exec(error.message || '');
+        if (!m || !(m[1] in updatePayload)) break;
+        delete updatePayload[m[1]];
+        console.warn('[board] kanban_cards.' + m[1] + ' missing — card moved without it.');
+        ({ error } = await NX.sb.from('kanban_cards').update(updatePayload).eq('id', card.id));
       }
+      if (error) throw error;
     } else {
       // Keep the in-memory card consistent with what we wrote
       if ('closed_at' in updatePayload) card.closed_at = updatePayload.closed_at;
