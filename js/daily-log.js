@@ -2897,6 +2897,7 @@ async function generateClippyDailyQuote(d, dateStr) {
     '4. Obey kitchen/bar/IT phrases literally until they break ("behind", "fire table twelve", "reduce the sauce").',
     '5. Land on a short flat sentence that refuses to be a punchline ("Growth." / "I logged spite." / "Noted.").',
     'Insider knowledge (kitchen, cellar, bar, IT) is the SETUP\'s credibility — never the joke itself. Sarcasm aims at situations and machines, never meanly at staff. No puns, no dad jokes, never inspirational.',
+    'GROUNDING — this is a rule, not a suggestion: only reference things that literally appear in the facts. Never invent equipment or systems (no thermostats, irrigation, sensors, robots) that are not named there. The weather line is the OUTDOOR forecast — if you use the temperature, it is the Texas sun, not a thermostat. If a fact is thin, joke about your own situation instead of inventing one.',
     'Rules: each is one sentence (or two very short ones), max ~28 words. No emojis. No surrounding quotation marks. React like a clever colleague; do NOT list the data back. Do not sign it.',
     'Return ONLY the three lines, numbered 1., 2., 3. — nothing else.',
     'The register to hit (examples):',
