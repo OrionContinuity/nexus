@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v229-svg-trajan';
+const CACHE_NAME = 'nexus-v230-chibi-moments';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [

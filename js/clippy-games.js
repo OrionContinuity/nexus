@@ -388,11 +388,17 @@
   // canvas glow below stands in for it. His orbit nodes stay visible —
   // they're part of the face. Baking is async; until an image decodes,
   // drawTrajanOrb falls back to the canvas painting for that frame.
+  // All combos are EXISTING clippy.svg chibi layers — never new art.
   const SPRITE_FACES = {
-    happy: { eyes: 'cl-eyes-default',    mouth: 'cl-mouth-smile' },
-    flap:  { eyes: 'cl-eyes-happy',      mouth: 'cl-mouth-bigsmile' },
-    fall:  { eyes: 'cl-eyes-wide-shock', mouth: 'cl-mouth-o' },
-    dead:  { eyes: 'cl-eyes-sad',        mouth: 'cl-mouth-frown' },
+    happy:      { eyes: 'cl-eyes-default',    mouth: 'cl-mouth-smile' },
+    flap:       { eyes: 'cl-eyes-happy',      mouth: 'cl-mouth-bigsmile' },
+    fall:       { eyes: 'cl-eyes-wide-shock', mouth: 'cl-mouth-o' },
+    dead:       { eyes: 'cl-eyes-sad',        mouth: 'cl-mouth-frown' },
+    // v18.35 — game-moment faces from his existing wardrobe:
+    starstruck: { eyes: 'cl-eyes-stars',      mouth: 'cl-mouth-star' },     // bonus star caught
+    sparkle:    { eyes: 'cl-eyes-love',       mouth: 'cl-mouth-bigsmile' }, // combo milestone
+    phew:       { eyes: 'cl-eyes-squint',     mouth: 'cl-mouth-wavy' },     // near miss survived
+    determined: { eyes: 'cl-eyes-determined', mouth: 'cl-mouth-flat' },     // countdown / focus
   };
   const trajanSprites = {};
   function trajanSprite(face) {
@@ -1582,6 +1588,7 @@
       let nextColumnX = W + 60;
       let groundOff = 0, t = 0;
       let flapPulse = 0;
+      let faceFlash = null;   // v18.35 — momentary face from his chibi set
       let comboFlash = 0, comboFlashLabel = '';
       let nearMissPulse = 0;
       const juice = makeJuice(W, H);
@@ -1685,7 +1692,7 @@
         columns.length = 0; trail.length = 0; bonusStars.length = 0;
         nextColumnX = W + 60;
         groundOff = 0; t = 0;
-        flapPulse = 0; comboFlash = 0; nearMissPulse = 0;
+        flapPulse = 0; comboFlash = 0; nearMissPulse = 0; faceFlash = null;
         isRetryShown = false;
         juice.flyers.length = 0;
         juice.particles.length = 0;
@@ -1712,6 +1719,7 @@
         for (const c of nearClouds) { c.x -= c.v * dt; if (c.x + c.r * 2 < 0) { c.x = W + c.r * 2; c.y = 60 + Math.random() * (H * 0.35); } }
 
         if (flapPulse > 0)     flapPulse     = Math.max(0, flapPulse     - 0.085 * dt);
+        if (faceFlash && (faceFlash.t -= dt) <= 0) faceFlash = null;
         if (comboFlash > 0)    comboFlash    = Math.max(0, comboFlash    - 0.035 * dt);
         if (nearMissPulse > 0) nearMissPulse = Math.max(0, nearMissPulse - 0.05  * dt);
 
@@ -1784,6 +1792,7 @@
             // Combo milestone (5/10/15...)
             if (combo > 0 && combo % 5 === 0) {
               comboFlash = 1;
+              faceFlash = { face: 'sparkle', t: 50 };
               comboFlashLabel = combo + ' FLOW!';
               juice.flash('#ffd870', 0.25, 10);
               juice.burst(W / 2, H * 0.32, 18, { colors: ['#ffd870', '#fff4c8'], speed: 4 });
@@ -1806,6 +1815,7 @@
             const gapEdge = Math.min(Math.abs(birdY - c.gapY), Math.abs(birdY - (c.gapY + c.gap)));
             if (gapEdge < 22) {
               nearMissPulse = Math.max(nearMissPulse, 0.9);
+              if (!faceFlash) faceFlash = { face: 'phew', t: 28 };
               // v18.11 — near miss = surprise spike (small, repeating)
               try { feel('surprise', 0.04); } catch(_){}
             }
@@ -1825,6 +1835,7 @@
           if (dx * dx + dy * dy < (BIRD_R + 11) * (BIRD_R + 11)) {
             s.taken = true;
             score += 5;
+            faceFlash = { face: 'starstruck', t: 55 };
             juice.flyScore('+5', sx, sy, '#ffe488');
             juice.burst(sx, sy, 18, { colors: ['#ffd870', '#fff4c8', '#ffffff'], speed: 4 });
             juice.flash('#fff4c8', 0.30, 8);
@@ -1977,7 +1988,11 @@
         }
 
         // Trajan
-        const faceState = !alive ? 'dead' : flapPulse > 0.3 ? 'flap' : birdV > 2 ? 'fall' : 'happy';
+        const faceState = !alive ? 'dead'
+          : faceFlash ? faceFlash.face
+          : !started ? 'determined'
+          : flapPulse > 0.3 ? 'flap'
+          : birdV > 2 ? 'fall' : 'happy';
         ctx.save();
         ctx.translate(BIRD_X, birdY);
         ctx.rotate(birdRot);
