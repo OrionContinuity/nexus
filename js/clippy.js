@@ -192,7 +192,7 @@
     sad:         'is-sad',
     surprised:   'is-confused'   /* v18.41 retired — wears a kept face */,
     concerned:   'is-sad'   /* v18.41 retired — wears a kept face */,
-    angry:       'is-determined'   /* v18.41 retired — wears a kept face */,
+    angry:       'is-angry',        // v18.42 — his hand-picked angry (kao-angry2)
     thinking:    'is-thinking',
     // ─── v17 expression system additions ───────────────────────────
     love:        'is-smitten'   /* v18.41 retired — wears a kept face */,         // heart eyes + big smile
@@ -215,7 +215,7 @@
     crying:        'is-sad'   /* v18.41 retired — wears a kept face */,        // tearful eyes + frown + single tear
     sobbing:       'is-sad'   /* v18.41 retired — wears a kept face */,       // shut + frown + tears streaming
     wailing:       'is-sad'   /* v18.41 retired — wears a kept face */,       // shut + open mouth + tears streaming
-    furious:       'is-determined'   /* v18.41 retired — wears a kept face */,       // v18.37 — fire eyes + gritted teeth (kao)
+    furious:       'is-angry',       // v18.42 — fire retired; wears the picked angry
     // v18.39 — kao set II (traced from the second reference sheet)
     guffaw:        'is-laughing'   /* v18.41 retired — wears a kept face */,        // wide arc eyes + huge notched laugh
     flirt:         'is-flirt',         // deep-U eyes + epsilon kiss
@@ -232,7 +232,7 @@
     laughing:      'is-laughing',      // squint XX + open laugh
     super_excited: 'is-super-excited', // sparkle eyes + open laugh
     mortified:     'is-mortified',     // wide-shock + tape mouth + heavy blush
-    frustrated:    'is-determined'   /* v18.41 retired — wears a kept face */,    // angry brows + flat + sweat
+    frustrated:    'is-angry',       // v18.42 — wears the picked angry
     tipsy:         'is-tipsy',         // happy + red clown nose
     singing_star:  'is-singing-star',  // shut + star mouth + music
     melancholy:    'is-sad'   /* v18.41 retired — wears a kept face */,    // looking down (bittersweet)

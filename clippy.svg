@@ -685,6 +685,26 @@
     <path d="M 92.5 117.5 L 108 115.5 L 107.5 130 Q 107 141.5 100 141.5 Q 93 141 92.5 129 Z" fill="none" stroke="#04124a" stroke-width="3" stroke-linejoin="round"/>
   </g>
 
+  
+  <!-- v18.42 — ANGRY, traced from Alfredo's reference: big glint eyes
+       under heavy inward-slanting brows, shallow flat frown, red anger
+       cross at the temple. His pick: "a perfect face for angry". -->
+  <g class="cl-kao cl-kao-angry2">
+    <path d="M 71 89 Q 82 92.5 93 97.5" stroke="#04124a" stroke-width="4.4" fill="none" stroke-linecap="round"/>
+    <path d="M 129 89 Q 118 92.5 107 97.5" stroke="#04124a" stroke-width="4.4" fill="none" stroke-linecap="round"/>
+    <circle cx="83" cy="105" r="9" fill="#04124a"/><circle cx="117" cy="105" r="9" fill="#04124a"/>
+    <circle cx="79.6" cy="101.4" r="3.1" fill="#ffffff"/><circle cx="113.6" cy="101.4" r="3.1" fill="#ffffff"/>
+    <circle cx="86.8" cy="108.8" r="1.5" fill="#ffffff" opacity="0.9"/><circle cx="120.8" cy="108.8" r="1.5" fill="#ffffff" opacity="0.9"/>
+    <path d="M 92 131.5 Q 100 127.5 108 131.5" stroke="#04124a" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <g transform="translate(133 76) scale(0.9)">
+      <path d="M -3 -10 Q 0 -14 3 -10 L 2 -4 L -2 -4 Z" fill="#b83226" transform="rotate(45)"/>
+      <path d="M -3 -10 Q 0 -14 3 -10 L 2 -4 L -2 -4 Z" fill="#b83226" transform="rotate(135)"/>
+      <path d="M -3 -10 Q 0 -14 3 -10 L 2 -4 L -2 -4 Z" fill="#b83226" transform="rotate(225)"/>
+      <path d="M -3 -10 Q 0 -14 3 -10 L 2 -4 L -2 -4 Z" fill="#b83226" transform="rotate(315)"/>
+      <circle cx="0" cy="0" r="2.4" fill="none"/>
+    </g>
+  </g>
+
   <g class="cl-zzz">
     <text x="146" y="50" font-family="serif" font-size="14" font-weight="700" fill="#7df0ff" opacity="0.85">z</text>
     <text x="156" y="38" font-family="serif" font-size="16" font-weight="700" fill="#9bf2ff" opacity="0.85">z</text>

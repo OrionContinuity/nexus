@@ -397,10 +397,10 @@
     happy:      ['cl-eyes-default',    'cl-mouth-smile'],
     flap:       ['cl-eyes-happy',      'cl-mouth-bigsmile'],
     fall:       ['cl-eyes-wide-shock', 'cl-mouth-o'],
-    dead:       ['cl-kao-waterworks'],   // traced: teary plead (his sheet)
+    dead:       ['cl-eyes-sad', 'cl-mouth-frown'],   // his ruling: frowny, no X; teary face was cut
     starstruck: ['cl-eyes-stars',      'cl-mouth-star'],                        // bonus star caught
     sparkle:    ['cl-eyes-default',    'cl-eyes-sparkle', 'cl-mouth-bigsmile'], // big play — ✦ overlay
-    love:       ['cl-eyes-love',       'cl-mouth-bigsmile'],                    // combo milestone
+    angry:      ['cl-kao-angry2'],                                              // his hand-picked angry
     phew:       ['cl-eyes-squint',     'cl-mouth-wavy'],                        // near miss survived
     determined: ['cl-eyes-determined', 'cl-mouth-flat'],                        // countdown / focus
   };
@@ -1797,7 +1797,7 @@
             // Combo milestone (5/10/15...)
             if (combo > 0 && combo % 5 === 0) {
               comboFlash = 1;
-              faceFlash = { face: 'love', t: 50 };
+              faceFlash = { face: 'sparkle', t: 50 };
               comboFlashLabel = combo + ' FLOW!';
               juice.flash('#ffd870', 0.25, 10);
               juice.burst(W / 2, H * 0.32, 18, { colors: ['#ffd870', '#fff4c8'], speed: 4 });
@@ -2340,6 +2340,7 @@
           if (e.y > H - 80) {
             enemies.splice(i, 1);
             hp--;
+            pFace = 'angry'; pFaceUntil = performance.now() + 900;
             // Enemy broke through — bigger shake
             juice.shake(10);
             juice.flash('#c83a3a', 0.4, 8);
@@ -2356,6 +2357,7 @@
           if (b.x + 5 > playerX && b.x < playerX + PLAYER_W && b.y + 14 > H - 80 && b.y < H - 20) {
             enemyBullets.splice(i, 1);
             hp--;
+            pFace = 'angry'; pFaceUntil = performance.now() + 900;
             explosions.push({ x: playerX + PLAYER_W / 2, y: H - 50, life: 20, max: 20 });
             // Player hit — heavy juice
             juice.shake(12);

@@ -4136,3 +4136,8 @@ body.clippy-game-open .clippy-bubble {
 #clippy-shell.is-squee [class*="cl-eyes-"],
 #clippy-shell.is-squee [class*="cl-mouth-"] { opacity: 0; }
 #clippy-shell.is-squee .cl-kao-squee { opacity: 1; }
+
+/* v18.42 — ANGRY traced from Alfredo's reference ("a perfect face"). */
+#clippy-shell.is-angry [class*="cl-eyes-"],
+#clippy-shell.is-angry [class*="cl-mouth-"] { opacity: 0; }
+#clippy-shell.is-angry .cl-kao-angry2 { opacity: 1; }
