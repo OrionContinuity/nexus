@@ -2284,11 +2284,15 @@
           <div id="nxRepPhotoPreview" style="display:none; flex:1; max-width:120px"></div>
         </div>
 
-        <div class="nx-ps-modal-label">Priority</div>
+        <div class="nx-ps-modal-label">How bad is it?</div>
         <div class="nx-ps-modal-priority" id="nxRepPri">
-          <button type="button" class="nx-ps-modal-pri-btn" data-pri="low">Low</button>
-          <button type="button" class="nx-ps-modal-pri-btn active" data-pri="normal">Normal</button>
-          <button type="button" class="nx-ps-modal-pri-btn" data-pri="urgent">Urgent</button>
+          <button type="button" class="nx-ps-modal-pri-btn" data-pri="low">Low — note it</button>
+          <button type="button" class="nx-ps-modal-pri-btn active" data-pri="normal">Normal → needs service</button>
+          <button type="button" class="nx-ps-modal-pri-btn" data-pri="urgent">Urgent → DOWN</button>
+        </div>
+        <div style="font-size:11.5px;color:var(--nx-faint,#888);line-height:1.5;margin:-2px 0 10px">
+          <strong>Urgent</strong> marks the unit DOWN and tells staff a contractor is likely needed right away.
+          <strong>Normal</strong> flags it for service. <strong>Low</strong> just records it.
         </div>
 
         <div class="nx-ps-modal-label">Your name *</div>
@@ -2474,6 +2478,29 @@
             } catch (statusErr) {
               console.warn('[scan] eq status bump failed (non-fatal):', statusErr);
             }
+            // Log the flip so it surfaces in the daily-notes activity feed —
+            // the staff flows write the same event; the public page was the
+            // one path whose status changes never appeared there.
+            try {
+              const LBL = { operational: 'Operational', needs_service: 'Needs Service', down: 'Down' };
+              await sb.from('equipment_events').insert({
+                equipment_id: eq.id,
+                event_type: 'status_change',
+                payload: {
+                  from: currentStatus, to: desiredStatus,
+                  from_label: LBL[currentStatus] || currentStatus,
+                  to_label: LBL[desiredStatus] || desiredStatus,
+                  equipment_name: eq.name,
+                  source: 'public_scan_report',
+                  ticket_priority: priority,
+                },
+                location: eq.location || null,
+                actor_user_id: null,
+                actor_name: reporter || 'QR scan',
+              });
+            } catch (evErr) {
+              console.warn('[scan] status event log failed (non-fatal):', evErr);
+            }
           }
         }
 
@@ -2510,7 +2537,7 @@
             console.warn('[scan] work-order (equipment_issues) create failed (non-fatal):', issueErr?.message || issueErr);
           }
         }
-        const issueLabels = issueId ? [`issue:${issueId}`] : [];
+        const issueLabels = issueId ? ['equipment-issue', `issue:${issueId}`] : [];
 
         // v18.24 — Mirror the ticket onto the Operations board as a
         // kanban_card. The two surfaces (Duties ticket list + Board)

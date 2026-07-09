@@ -13228,7 +13228,9 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
         title: issue.slice(0, 120),
         description: `Reported via Call Service by ${reporter}. Calling ${contactName} (${prettyPhone}).\n\n${issue}`,
         status: 'contractor_called',
-        priority,
+        // Issue vocab is critical/normal/low (matches the public QR flow and
+        // the Work Orders module's ranking); 'urgent' is card vocab.
+        priority: priority === 'urgent' ? 'critical' : priority,
         reported_at: now,
         contractor_called_at: now,
         contractor_name: contactName || null,
@@ -13239,12 +13241,10 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
       if (issueRow?.id && NX.domain?.ensureIssueCard) {
         const card = await NX.domain.ensureIssueCard(issueRow.id);
         if (card && card.id) {
-          const patch = {};
+          const patch = { priority };   // card vocab: urgent/high/normal/low
           if (photoUrl) patch.photo_urls = [photoUrl];
           if (priorStatus) patch.prior_eq_status = priorStatus;
-          if (Object.keys(patch).length) {
-            try { await NX.sb.from('kanban_cards').update(patch).eq('id', card.id); } catch (_) {}
-          }
+          try { await NX.sb.from('kanban_cards').update(patch).eq('id', card.id); } catch (_) {}
         }
       }
     } catch (err) {
@@ -14485,7 +14485,8 @@ async function promptNewIssue(equipment) {
       title,
       description,
       status:           'reported',
-      priority:         issuePriority,
+      // Issue vocab: critical/normal/low (public-flow + WO-module aligned).
+      priority:         issuePriority === 'urgent' ? 'critical' : issuePriority,
       reported_at:      new Date().toISOString(),
       reported_by:      _uidOk,
       reported_by_name: (NX.currentUser && NX.currentUser.name) || (NX.user && NX.user.name) || null,

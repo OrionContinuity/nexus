@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v219-dispatch-heal';
+const CACHE_NAME = 'nexus-v220-public-report';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
