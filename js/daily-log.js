@@ -3996,8 +3996,8 @@ function dlogTextToHtml(text, meta) {
   if (clippyQuote) {
     modules.push(GAP + cardModule(`
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-        <td style="width:56px;vertical-align:top;padding-right:12px;">
-          <img src="https://orioncontinuity.github.io/nexus/assets/clippy-email.png?v=3" width="44" height="44" alt="Clippy" style="display:block;width:44px;height:44px;border:0;">
+        <td style="width:72px;vertical-align:top;padding-right:12px;">
+          <img src="https://orioncontinuity.github.io/nexus/assets/clippy-email.png?v=3" width="60" height="60" alt="Clippy" style="display:block;width:60px;height:60px;border:0;">
         </td>
         <td style="vertical-align:top;">
           <div class="nx-ink" style="font-family:${C.sans};font-size:14.5px;line-height:1.6;color:${C.ink};font-style:italic;">${esc(clippyQuote)}</div>
