@@ -2056,7 +2056,7 @@
    Gold pill pickers, collapsible-style zone cards, tap-to-fill task rows, round
    avatars, floating CTA. Tokens from nx-system.css; matches .ord-* language. */
 .cleanlite { width: 100%; max-width: 680px; align-self: stretch; margin: 0 auto; padding: 8px 14px 120px; box-sizing: border-box; }
-.cleanlite-top { display: flex; align-items: center; gap: 10px; margin: 4px 0 12px; }
+.cleanlite-top { display: flex; align-items: center; gap: 10px; margin: 4px 0 12px; flex-wrap: wrap; } /* v260: Today/Crew seg wraps under the locations on phones instead of clipping */
 .cleanlite-loc-picker {
   display: inline-flex; gap: 4px; padding: 4px; border-radius: 999px; flex: 1;
   border: 1px solid var(--nx-gold-line, rgba(212,164,78,.22)); background: var(--nx-surface-1, rgba(34,46,70,.42));
@@ -2720,9 +2720,11 @@
 .dlog-loc-weather:empty { display: none; }
 
 /* ─── Cleaning Lite v18.37 additions: week strip, overdue chip, shift seg ── */
-#cleanView .cleanlite-week {
+/* v260: .cleanlite-week → .cleanlite-weekstrip (the old name collided with a
+   pill-button style above and dressed the strip as a capsule). */
+.cleanlite-weekstrip {
   display: flex; align-items: flex-end; gap: 8px;
-  padding: 10px 12px 6px; margin: 8px 0 2px;
+  padding: 8px 12px 5px; margin: 8px 0 2px;
   background: var(--nx-surface-2, rgba(255,255,255,.03));
   border: 1px solid var(--nx-gold-line, rgba(212,164,78,.16));
   border-radius: 12px;
@@ -2735,12 +2737,31 @@
 #cleanView .cleanlite-wk-fill.is-low  { background: rgba(168,62,62,.55); }
 #cleanView .cleanlite-wk-lbl { font-size: 9px; color: var(--nx-text-dim, #b6ad9a); font-family: 'JetBrains Mono', monospace; }
 #cleanView .cleanlite-wk-streak { flex: 0 0 auto; align-self: center; font-size: 13px; font-weight: 700; color: var(--nx-gold, #d4a44e); padding-left: 6px; }
+/* v260 — the overdue chip screamed red; NEXUS speaks urgency in gold.
+   Same tap-through, calmer voice (matches the email ladder + home cards). */
 #cleanView .cleanlite-overdue {
   display: block; width: 100%; text-align: left;
-  margin: 8px 0 2px; padding: 10px 12px; border-radius: 10px;
-  background: rgba(168,62,62,.12); border: 1px solid rgba(168,62,62,.35);
-  color: var(--nx-red, #c96a5a); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  margin: 8px 0 2px; padding: 10px 12px; border-radius: 999px;
+  background: var(--nx-gold-faint, rgba(212,164,78,.10));
+  border: 1px solid var(--nx-gold, #d4a44e);
+  color: var(--nx-gold, #d4a44e); font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer;
+  letter-spacing: .02em;
 }
+/* v260 — Today/Crew mode segment (mirrors the board tabs) */
+#cleanView .cleanlite-mode {
+  display: inline-flex; gap: 0; margin-top: 8px;
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,.25));
+  border-radius: 999px; overflow: hidden; align-self: flex-start;
+}
+#cleanView .cleanlite-mode-btn {
+  padding: 7px 18px; font: inherit; font-size: 12.5px; font-weight: 700;
+  background: transparent; border: 0; color: var(--nx-muted, #9aa3b2); cursor: pointer;
+  letter-spacing: .03em;
+}
+#cleanView .cleanlite-mode-btn.is-active { background: var(--nx-gold, #d4a44e); color: var(--nx-gold-on, #101626); }
+/* v260 — the CTA dock wrapped its five pills over the zone list; per-mode
+   it now holds at most four, wraps safely, and backs them fully. */
+.cleanlite-cta-wrap { flex-wrap: wrap; background: linear-gradient(to top, var(--nx-bg, #0e1320) 62%, transparent); }
 #cleanView .cleanlite-shift { display: inline-flex; gap: 0; border: 1px solid var(--nx-gold-line, rgba(212,164,78,.25)); border-radius: 9px; overflow: hidden; }
 #cleanView .cleanlite-shift-btn {
   padding: 6px 14px; font: inherit; font-size: 12px; font-weight: 600;

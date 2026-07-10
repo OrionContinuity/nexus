@@ -2189,6 +2189,12 @@
   // Crew scope being edited/shown: 'all' (every day) or a day-of-week 1..7
   // (1=Sun, Postgres convention). Defaults to today so it opens on today's crew.
   let liteDay = todayDayOfWeek();
+  // v260 — the screen was a cleaner's checklist and a manager's scheduling
+  // console fused into one wall (crew pills + autofill + shift + zones +
+  // exports all at once; opening it could even show "0/0" everywhere).
+  // Split: TODAY = do the work; CREW = plan the people. Persisted.
+  let liteMode = localStorage.getItem('nexus_cleaning_mode') || 'today';
+  if (liteMode !== 'today' && liteMode !== 'crew') liteMode = 'today';
   // Overview = all locations' cleaning at a glance (the "All" pill).
   let liteOverview = false;
   async function liteSwitchLoc(loc) {
@@ -2582,7 +2588,10 @@
     }).join('');
     const streak = weekStats.streak > 1
       ? `<span class="cleanlite-wk-streak" title="Consecutive days at 80%+">🔥 ${weekStats.streak}</span>` : '';
-    return `<div class="cleanlite-week">${bars}${streak}</div>`;
+    // v260 — renamed from .cleanlite-week: that class doubles as a pill-
+    // button style elsewhere in nexus-rm.css, so the strip inherited
+    // padding/cursor it never asked for.
+    return `<div class="cleanlite-weekstrip">${bars}${streak}</div>`;
   }
   function liteUpdateZonePill(sectionEs) {
     const { done, total } = liteZoneCounts(sectionEs);
@@ -3165,8 +3174,21 @@
     const dayPills = `<button class="cleanlite-day ${liteDay === 'all' ? 'is-active' : ''}" data-day="all">All</button>` +
       LITE_DOW.map((lbl, i) => `<button class="cleanlite-day ${liteDay === i + 1 ? 'is-active' : ''} ${todayDow === i + 1 ? 'is-today' : ''}" data-day="${i + 1}" title="${esc(lbl)}">${lbl[0]}</button>`).join('');
 
+    // v260 — the AM/PM default could hide EVERY task (open at 4pm with an
+    // all-AM catalog → "0/0", "No tasks in this zone" everywhere). If the
+    // current shift filter yields nothing but 'all' would, fall back.
+    if (liteShift !== 'all') {
+      const anyNow = zones.some(z => z.tasks.some(t => DAILY_TYPES.has(t.frequency_type) && liteShiftMatch(t)));
+      const anyEver = zones.some(z => z.tasks.some(t => DAILY_TYPES.has(t.frequency_type)));
+      if (!anyNow && anyEver) liteShift = 'all';
+    }
+    // TODAY mode always shows today's crew on the zone cards; the liteDay
+    // scope belongs to CREW mode (scheduling other days).
+    const crewScope = liteMode === 'today' ? todayDow : liteDay;
+    const showTasks = liteMode === 'today';
+
     const zoneCards = zones.map(z => {
-      const ppl = liteZonePeople(z.es, liteDay);
+      const ppl = liteZonePeople(z.es, crewScope);
       const varies = ppl === '__varies__';
       const crew = varies ? [] : ppl;
       const crewNames = crew.map(litePersonName).filter(Boolean);
@@ -3184,7 +3206,7 @@
       // live in their own "Periodic & deep cleans" group below (no dupes).
       // Rows respect the AM/PM shift filter; done rows show who checked
       // them off (accountability visible right on the list).
-      const taskRows = z.tasks.filter(t => DAILY_TYPES.has(t.frequency_type) && liteShiftMatch(t)).map(t => {
+      const taskRows = !showTasks ? '' : z.tasks.filter(t => DAILY_TYPES.has(t.frequency_type) && liteShiftMatch(t)).map(t => {
         const st = todayStateByKey[t.section_es + '_' + t.task_order];
         const isDone = !!(st && st.done);
         const by = isDone && st.by ? `<span class="cleanlite-task-by">${esc(st.by.split(' ')[0])}</span>` : '';
@@ -3206,7 +3228,7 @@
           <button class="cleanlite-guide cleanlite-kebab" data-zone-menu="${esc(z.es)}" title="More — swap, note, history, photo">⋮</button>
         </div>
         ${note ? `<div class="cleanlite-zone-noterow">${svg('pen', 11)}<span>${esc(note)}</span></div>` : ''}
-        <div class="cleanlite-tasks">${taskRows || '<div class="cleanlite-empty">No tasks in this zone.</div>'}</div>
+        ${showTasks ? `<div class="cleanlite-tasks">${taskRows || '<div class="cleanlite-empty">No tasks in this zone.</div>'}</div>` : ''}
       </div>`;
     }).join('');
 
@@ -3214,31 +3236,44 @@
     const shiftSeg = `<div class="cleanlite-shift" role="tablist" aria-label="Shift">
         ${['am', 'pm', 'all'].map(s => `<button class="cleanlite-shift-btn ${liteShift === s ? 'is-active' : ''}" data-shift="${s}">${s === 'all' ? 'All' : s.toUpperCase()}</button>`).join('')}
       </div>`;
-    wrap.innerHTML = `
-      <div class="cleanlite-top">
-        <div class="cleanlite-loc-picker">${locPills}</div>
-      </div>
+    // v260 — one screen, two jobs, cleanly split:
+    //   TODAY: the checklist (week strip, overdue chip, shift, zones with
+    //          tasks, periodic group) + Summary.
+    //   CREW:  the planner (day pills, copy, autofill, assignment-focused
+    //          zone cards) + Apply / Print / All / Excel.
+    const modeSeg = `<div class="cleanlite-mode" role="tablist" aria-label="Cleaning mode">
+        <button class="cleanlite-mode-btn ${liteMode === 'today' ? 'is-active' : ''}" data-mode="today">Today</button>
+        <button class="cleanlite-mode-btn ${liteMode === 'crew' ? 'is-active' : ''}" data-mode="crew">Crew</button>
+      </div>`;
+    const todayBlocks = `
       ${liteWeekStripHTML()}
-      ${overdueN ? `<button class="cleanlite-overdue" data-goto-periodic>⚠ ${overdueN} deep-clean${overdueN === 1 ? '' : 's'} overdue — tap to review</button>` : ''}
+      ${overdueN ? `<button class="cleanlite-overdue" data-goto-periodic>✦ ${overdueN} deep-clean${overdueN === 1 ? '' : 's'} overdue — tap to review</button>` : ''}
+      <div class="cleanlite-dayrow">
+        <span class="cleanlite-dayrow-label">Shift</span>
+        ${shiftSeg}
+      </div>`;
+    const crewBlocks = `
       <div class="cleanlite-dayrow">
         <span class="cleanlite-dayrow-label">Crew · ${esc(scopeLabel)}</span>
         <div class="cleanlite-days">${dayPills}</div>
         ${liteDay !== 'all' ? `<button class="cleanlite-mini" data-copy-all title="Copy this day's crew to every day">${svg('calendar', 12)} → all days</button>` : ''}
         <button class="cleanlite-mini is-accent" data-autofill title="Fill every empty day for every zone from its current crew — covers the next two weeks">⚡ Autofill 2 wks</button>
-      </div>
-      <div class="cleanlite-dayrow">
-        <span class="cleanlite-dayrow-label">Shift</span>
-        ${shiftSeg}
-      </div>
-      <div class="cleanlite-zones">${zoneCards || '<div class="cleanlite-empty">No zones yet — add tasks for this location first.</div>'}</div>
-      ${renderPeriodicGroup()}
-      <div class="cleanlite-cta-wrap">
-        <button class="cleanlite-cta" data-apply title="Write the whole week's crew to the live duties">${svg('calendar', 15)} Apply</button>
-        <button class="cleanlite-cta is-ghost" data-summary title="Email a cleaning summary or send it to the Daily Log">${svg('mail', 15)} Summary</button>
-        <button class="cleanlite-cta is-ghost" data-print title="Printable weekly schedule — this location">${svg('document', 15)} Print</button>
-        <button class="cleanlite-cta is-ghost" data-print-all title="Print every location in one go">${svg('document', 15)} All</button>
-        <button class="cleanlite-cta is-ghost" data-excel title="Weekly Excel — full schedule or one person's tasks">${svg('document', 15)} Excel</button>
       </div>`;
+    const ctas = liteMode === 'today'
+      ? `<button class="cleanlite-cta" data-summary title="Email a cleaning summary or send it to the Daily Log">${svg('mail', 15)} Summary</button>`
+      : `<button class="cleanlite-cta" data-apply title="Write the whole week's crew to the live duties">${svg('calendar', 15)} Apply</button>
+         <button class="cleanlite-cta is-ghost" data-print title="Printable weekly schedule — this location">${svg('document', 15)} Print</button>
+         <button class="cleanlite-cta is-ghost" data-print-all title="Print every location in one go">${svg('document', 15)} All</button>
+         <button class="cleanlite-cta is-ghost" data-excel title="Weekly Excel — full schedule or one person's tasks">${svg('document', 15)} Excel</button>`;
+    wrap.innerHTML = `
+      <div class="cleanlite-top">
+        <div class="cleanlite-loc-picker">${locPills}</div>
+        ${modeSeg}
+      </div>
+      ${liteMode === 'today' ? todayBlocks : crewBlocks}
+      <div class="cleanlite-zones">${zoneCards || '<div class="cleanlite-empty">No zones yet — add tasks for this location first.</div>'}</div>
+      ${liteMode === 'today' ? renderPeriodicGroup() : ''}
+      <div class="cleanlite-cta-wrap">${ctas}</div>`;
 
     // wiring
     wrap.querySelectorAll('[data-loc]').forEach(b => b.addEventListener('click', () => liteSwitchLoc(b.dataset.loc)));
@@ -3261,8 +3296,13 @@
       const t = z && z.tasks.find(t => String(t.id) === b.dataset.taskId);
       if (t) liteToggleTask(t, b);
     }));
-    wrap.querySelector('[data-apply]').addEventListener('click', liteApplySchedule);
-    wrap.querySelector('[data-print]').addEventListener('click', litePrintWeek);
+    wrap.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => {
+      liteMode = b.dataset.mode;
+      try { localStorage.setItem('nexus_cleaning_mode', liteMode); } catch (_) {}
+      render();
+    }));
+    { const ap = wrap.querySelector('[data-apply]'); if (ap) ap.addEventListener('click', liteApplySchedule); }
+    { const pr = wrap.querySelector('[data-print]'); if (pr) pr.addEventListener('click', litePrintWeek); }
     { const pAll = wrap.querySelector('[data-print-all]'); if (pAll) pAll.addEventListener('click', litePrintAll); }
     const sumBtn = wrap.querySelector('[data-summary]'); if (sumBtn) sumBtn.addEventListener('click', () => liteOpenSummary(activeLoc));
     const xlBtn = wrap.querySelector('[data-excel]'); if (xlBtn) xlBtn.addEventListener('click', () => openCardExportMenu(xlBtn, activeLoc));
