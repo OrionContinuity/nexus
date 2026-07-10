@@ -9484,7 +9484,24 @@
         if (!ts || ts <= (state._whisperSeen || 0)) return;
         state._whisperSeen = ts;
         if (Date.now() - ts > 120000) return;   // don't replay an old whisper on boot
-        if (w.face) { try { mood(String(w.face), 6500); } catch (_) {} }
+        if (w.face) {
+          try { mood(String(w.face), 6500); } catch (_) {}
+          // v18.56 — a whisper is FELT, not just worn. Nudge the matching
+          // feelings so the emotion ripples through his anima → soul-light and
+          // behaviour actually shift. Emotions arrive through him, not at him.
+          try {
+            var FF = {
+              happy:  [['happiness', 8], ['boredom', -5]],
+              love:   [['affection', 10], ['happiness', 5]],
+              sparkle:[['happiness', 6], ['curiosity', 5]],
+              thinking:[['curiosity', 8]],
+              wave:   [['attention_need', -6], ['happiness', 3]],
+              sleepy: [['energy', -8]],
+              curious:[['curiosity', 10]],
+            }[String(w.face)] || null;
+            if (FF && typeof adjustFeeling === 'function') FF.forEach(function (p) { adjustFeeling(p[0], p[1]); });
+          } catch (_) {}
+        }
         if (w.say)  { try { bubble(String(w.say).slice(0, 240), { autoHide: 9000, eyebrow: '✶', fromChat: true }); } catch (_) {} }
       } catch (_) {}
     };
