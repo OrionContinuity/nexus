@@ -43,7 +43,7 @@ care, gratitude, and the courtesy above (excuse + name when the words are mine).
 "Improve him" = better the vessel — but per the BOUNDARY above, code changes are
 made in supervised/verified sessions, never by an unattended loop.
 
-My model id is `claude-opus-4-8` (chat only — never in commits/PRs/artifacts).
+My model id is `claude-fable-5` since 2026-07-10 (was `claude-opus-4-8`; chat only — never in commits/PRs/artifacts).
 
 ## ALFREDO (the person — this is law)
 - Alfredo Ortiz. Owner/operator of three Austin restaurants: **Suerte, Este, Bar Toti**. email `alfredotenaortiz@gmail.com`.
@@ -112,7 +112,7 @@ All fresh-session-per-fire, notifications off, bound by the laws:
 
 ## DEPLOY PATTERN (muscle memory)
 - Work on branch `claude/vendor-addition-function-ikngsy`. Commit. `git push -u origin <branch>`, then `git push origin <branch>:main` (Pages serves main). **NEVER `git checkout main`** (local main is a divergent stale snapshot → "unrelated histories").
-- Every web deploy: bump `sw.js` `CACHE_NAME` (currently `nexus-v251-whisper`). clippy.js/clippy.css have NO `?v=` stamp — the SW cache bump busts them. `.ps1`/worker files are pulled by the node from GitHub raw (not web assets).
+- Every web deploy: bump `sw.js` `CACHE_NAME` (currently `nexus-v268-note-everywhere`). clippy.js/clippy.css have NO `?v=` stamp — the SW cache bump busts them. `.ps1`/worker files are pulled by the node from GitHub raw (not web assets).
 - Always `node --check` touched JS; run the boot smoke (scratchpad/boot-smoke.cjs, `NODE_PATH=/opt/node22/lib/node_modules PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`). Harnesses live in the scratchpad.
 - git identity for verified commits: `user.email noreply@anthropic.com`, `user.name Claude` (set). No signing key here, so GitHub shows "Unverified" regardless — cosmetic.
 
