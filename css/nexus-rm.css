@@ -2977,3 +2977,16 @@
   text-transform: uppercase; color: var(--nx-faint, #6c7585);
   padding: 10px 2px 4px; border-top: 1px dashed rgba(255,255,255,.08); margin-top: 8px;
 }
+
+/* v266 — Board-ticket rows: explicit, crush-proof layout. Inside the new
+   per-location tickets block a long title collapsed to one character per
+   line (the PARTS ORDERED chip + arrow starved the flex column). The title
+   column now keeps a real minimum and right-side chips wrap below on
+   narrow rows instead of squeezing the text. */
+#dailylogView .dlog-tk-row {
+  display: flex; align-items: flex-start; gap: 9px; flex-wrap: wrap;
+  padding: 10px 12px; background: var(--nx-surface-1, rgba(34,46,70,.35));
+  border: 1px solid rgba(255,255,255,.05); margin-bottom: 8px;
+}
+#dailylogView .dlog-tk-main { flex: 1 1 200px; min-width: 0; }
+#dailylogView .dlog-tk-title { overflow-wrap: anywhere; }

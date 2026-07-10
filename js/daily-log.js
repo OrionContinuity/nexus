@@ -96,6 +96,9 @@ const CLEANING_FIELDS = [
 const DEFAULT_LOCATION_PRESETS = [
   { id: 'este',   label: 'Este'   },
   { id: 'suerte', label: 'Suerte' },
+  // v266 — Bar Toti was missing from the defaults: a fresh day had no Toti
+  // tab, so its cards/notes had no home until someone added it by hand.
+  { id: 'toti',   label: 'Bar Toti' },
 ];
 
 // In-memory state
@@ -1626,6 +1629,8 @@ function renderLocationSection(loc, idx) {
           <span class="dlog-field-label">Notes &amp; observations</span>
           <textarea data-path="locations.${idx}.notes" rows="4" placeholder="The shift recap for ${esc(loc.label)} — service, guests, 86s, anything noteworthy…">${esc(loc.notes || '')}</textarea>
         </label>
+        ${renderLocationTickets(loc)}
+
         <h3 class="dlog-subsection-title">Repairs &amp; Maintenance</h3>
         <div class="dlog-rm-grid">${rmFields}</div>
 
@@ -2064,6 +2069,62 @@ function cardCreatedLabel(c) {
   return 'created ' + dt.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
+// ─── Shared ticket row (v266) ───────────────────────────────────────────
+// One renderer for both surfaces: the Overview's Board Tickets roll-up and
+// each location tab's own tickets block. Carries the NEW TODAY /
+// moved-today / PARTS ORDERED chips and the › door to the Board.
+function dlogLaneLabel(status) {
+  return ({
+    reported: 'Reported', triaged: 'Triaged', dispatched: 'Dispatched',
+    in_progress: 'In Progress', waiting_parts: 'Waiting on Parts',
+    resolved: 'Resolved', closed: 'Closed', done: 'Done',
+  })[status] || (status || '').replace(/_/g, ' ');
+}
+function dlogCardRow(c, bucket) {
+  const pri = (c.priority || 'normal').toLowerCase();
+  const priClass = pri === 'urgent' ? 'bw-pri-urgent' : (pri === 'low' ? 'bw-pri-low' : 'bw-pri-normal');
+  const lane = c._laneLabel || dlogLaneLabel(c.status);
+  const detail = cardDetail(c);                 // description / first comment, if any
+  // Compact: priority pill + title + lane. No assignee / created / emoji.
+  const metaBits = [];
+  const isNewToday = String(c.created_at || '').slice(0, 10) === todayISO();
+  if (isNewToday && bucket !== 'closed') {
+    metaBits.push('<span class="dlog-tk-new">NEW TODAY</span>');
+  } else if (c._movedToday && c.last_move_from && c.last_move_to && bucket !== 'closed') {
+    metaBits.push(`<span class="dlog-tk-moved">moved today: ${esc(c.last_move_from)} → ${esc(c.last_move_to)}</span>`);
+  }
+  if (lane) metaBits.push(`<span class="dlog-tk-lane dlog-tk-lane-${bucket}">${esc(lane)}</span>`);
+  return `
+    <div class="dlog-tk-row">
+      <span class="bw-pri-pill ${priClass}">${esc(pri)}</span>
+      <div class="dlog-tk-main">
+        <div class="dlog-tk-title">${esc(c.title || 'Untitled card')}</div>
+        <div class="dlog-tk-loc">${metaBits.join(' · ')}</div>
+        ${detail ? `<div class="dlog-tk-detail">${esc(detail)}</div>` : ''}
+      </div>
+      ${c.on_order && bucket !== 'closed' ? `<span class="dlog-tk-onorder">📦 PARTS ORDERED</span>` : ''}
+      ${c.id != null ? `<button type="button" class="dlog-row-go" data-go="card:${esc(String(c.id))}" title="Open on Board" aria-label="Open card on board">›</button>` : ''}
+    </div>`;
+}
+
+// v266 — each location tab gets ITS OWN tickets block. Deep-dive finding:
+// opening "Suerte" showed notes/weather/R&M but not Suerte's board cards —
+// those lived only in the Overview roll-up. Read-only here; › jumps to the
+// Board. Uses live state.ticketSlices (same source as the Overview).
+function renderLocationTickets(loc) {
+  const slices = state.ticketSlices;
+  if (!slices) return '';
+  const key = normLocKey(loc.label);
+  const rows = [];
+  (slices.open    || []).forEach(c => { if (normLocKey(c.location) === key) rows.push(dlogCardRow(c, 'open')); });
+  (slices.working || []).forEach(c => { if (normLocKey(c.location) === key) rows.push(dlogCardRow(c, 'working')); });
+  (slices.closed  || []).forEach(c => { if (normLocKey(c.location) === key) rows.push(dlogCardRow(c, 'closed')); });
+  if (!rows.length) return '';
+  return `
+    <h3 class="dlog-subsection-title">Board tickets <span class="dlog-loc-group-count">${rows.length}</span></h3>
+    <div class="dlog-tk-list">${rows.join('')}</div>`;
+}
+
 function renderTicketsSection(d) {
   // Source preference: LIVE state.ticketSlices for today's editable log.
   // The frozen snapshot (d.tickets) is only used for a PAST SUBMITTED log
@@ -2088,40 +2149,7 @@ function renderTicketsSection(d) {
   // Map equipment_id → name for inline equipment links (state.equipmentDown
   // + any loaded equipment). We keep a light lookup built from what's in
   // memory; cards without a resolvable name just show the location.
-  const eqNameById = state._cardEquipmentNames || {};
-
-  const laneLabel = (status) => ({
-    reported: 'Reported', triaged: 'Triaged', dispatched: 'Dispatched',
-    in_progress: 'In Progress', waiting_parts: 'Waiting on Parts',
-    resolved: 'Resolved', closed: 'Closed', done: 'Done',
-  })[status] || (status || '').replace(/_/g, ' ');
-
-  const cardRow = (c, bucket) => {
-    const pri = (c.priority || 'normal').toLowerCase();
-    const priClass = pri === 'urgent' ? 'bw-pri-urgent' : (pri === 'low' ? 'bw-pri-low' : 'bw-pri-normal');
-    const lane = c._laneLabel || laneLabel(c.status);
-    const detail = cardDetail(c);                 // description / first comment, if any
-    // Compact: priority pill + title + lane. No assignee / created / emoji.
-    const metaBits = [];
-    const isNewToday = String(c.created_at || '').slice(0, 10) === todayISO();
-    if (isNewToday && bucket !== 'closed') {
-      metaBits.push('<span class="dlog-tk-new">NEW TODAY</span>');
-    } else if (c._movedToday && c.last_move_from && c.last_move_to && bucket !== 'closed') {
-      metaBits.push(`<span class="dlog-tk-moved">moved today: ${esc(c.last_move_from)} → ${esc(c.last_move_to)}</span>`);
-    }
-    if (lane) metaBits.push(`<span class="dlog-tk-lane dlog-tk-lane-${bucket}">${esc(lane)}</span>`);
-    return `
-      <div class="dlog-tk-row">
-        <span class="bw-pri-pill ${priClass}">${esc(pri)}</span>
-        <div class="dlog-tk-main">
-          <div class="dlog-tk-title">${esc(c.title || 'Untitled card')}</div>
-          <div class="dlog-tk-loc">${metaBits.join(' · ')}</div>
-          ${detail ? `<div class="dlog-tk-detail">${esc(detail)}</div>` : ''}
-        </div>
-        ${c.on_order && bucket !== 'closed' ? `<span class="dlog-tk-onorder">📦 PARTS ORDERED</span>` : ''}
-        ${c.id != null ? `<button type="button" class="dlog-row-go" data-go="card:${esc(String(c.id))}" title="Open on Board" aria-label="Open card on board">›</button>` : ''}
-      </div>`;
-  };
+  const cardRow = (c, bucket) => dlogCardRow(c, bucket);
 
   // v18.35 — split cards by LOCATION. Each card is tagged with its bucket
   // (open/working/closed) so the lane chip still conveys state, but the
