@@ -1086,3 +1086,41 @@ body.public-view .pm-mass-empty {
 }
 [data-theme="light"] .pm-steps-bar,
 [data-theme="light"] .pm-pub-hb-tr { background: rgba(168, 116, 42, 0.15); }
+
+/* ════════════════════════════════════════════════════════════════════
+   v259 — MASS PM / LOG SERVICE corrections (Alfredo's screenshot, Jul 10)
+   ──────────────────────────────────────────────────────────────────── */
+/* 1. The sticky Cancel/Submit footer painted on --nx-surface-1, which is
+   42%-ALPHA — the Signature heading showed through the Cancel button.
+   The footer of a scrolling form must be opaque, always. */
+.pm-logger-actions {
+  background: var(--nx-surface-solid, #131a2c) !important;
+  z-index: 8 !important;
+}
+[data-theme="light"] .pm-logger-actions { background: var(--bg, #faf7f0) !important; }
+
+/* 2. Mass-PM unit checklist: a cramped 240px window that cut unit rows
+   mid-body under the toggle. Give it real room and a clean frame. */
+.pm-logger-mass-list {
+  max-height: 42vh !important;
+  padding: 10px 14px 12px !important;
+}
+
+/* 3. Date/type rows: Chrome Android date inputs have an intrinsic
+   min-width that overflows a 1fr grid track on ~400px phones, shoving
+   the neighbour off-screen. Clamp them, and stack earlier. */
+.pm-form-row > * { min-width: 0; }
+.pm-form-row .pm-input { width: 100% !important; box-sizing: border-box !important; }
+@media (max-width: 460px) {
+  .pm-form-row { grid-template-columns: 1fr; }
+}
+
+/* 4. Native "Choose Files" inputs → NEXUS-themed pick buttons. */
+.pm-input.pm-file { padding: 9px !important; color: var(--nx-muted, #9aa3b2) !important; }
+.pm-input.pm-file::file-selector-button {
+  margin-right: 10px; padding: 8px 14px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,.35));
+  background: var(--nx-gold-faint, rgba(212,164,78,.12));
+  color: var(--nx-gold, #d4a44e);
+  font-family: 'Outfit', 'DM Sans', system-ui, sans-serif; font-size: 12.5px; font-weight: 600;
+}

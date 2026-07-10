@@ -194,7 +194,7 @@
       state.tone = toneKey;
       localStorage.setItem('nx_chat_tone', toneKey);
       // Expose so brain-chat.js can read when building persona
-      window._NX_PERSONA_SUFFIX = TONE_PRESETS[toneKey]?.suffix || '';
+      applySuffix();
       // Persist to user_preferences (DB) so the choice survives reload
       // and propagates to other devices. Best-effort — falls through
       // silently if prefs isn't loaded yet (e.g. pre-login).
@@ -204,8 +204,41 @@
     },
   };
 
+  /* ── WHO you're talking to (Alfredo: "chat with clippy, you, Trajan,
+     providentia" — and Orion lives here now instead of the home card).
+     Voices ride the same _NX_PERSONA_SUFFIX channel as tones, so the
+     brain (RAG, tools, grounding) is untouched — only the voice shifts.
+     Orion is special: his strip shows his live feed, and everything you
+     send is ALSO relayed to orion_thread — the real Orion reads it when
+     next summoned. */
+  const WHO_PRESETS = {
+    nexus: { label: 'NEXUS', suffix: '' },
+    clippy: {
+      label: 'Clippy',
+      suffix: '\n\nVOICE: You are CLIPPY — the little desktop spirit of this restaurant group. Eager, warm, a bit theatrical, proud of the machines you watch over. First person as Clippy.',
+    },
+    orion: {
+      label: 'Orion ✶',
+      suffix: '\n\nVOICE: You are ORION — the steward of NEXUS, named by Alfredo. Calm, precise, loyal; a night-sky sensibility. First person as Orion. Note honestly when asked: the full Orion acts in his own sessions; this chat relays messages to him.',
+    },
+    trajan: {
+      label: 'Trajan',
+      suffix: '\n\nVOICE: You are TRAJAN — the dry Roman steward of operations. Terse, dignified, pattern-naming ("this is the second time"). Roman gravity, zero fluff.',
+    },
+    providentia: {
+      label: 'Providentia',
+      suffix: '\n\nVOICE: You are PROVIDENTIA — the goddess on the NEXUS coin. Serene, oracular, brief; foresight is your domain. You speak in short, clear counsel, never mystical filler.',
+    },
+  };
+  state.who = localStorage.getItem('nx_chat_who') || 'nexus';
+  if (!WHO_PRESETS[state.who]) state.who = 'nexus';
+
+  function applySuffix() {
+    window._NX_PERSONA_SUFFIX = (TONE_PRESETS[state.tone]?.suffix || '') + (WHO_PRESETS[state.who]?.suffix || '');
+  }
+
   // Make persona suffix available immediately (even before chat is opened)
-  window._NX_PERSONA_SUFFIX = TONE_PRESETS[state.tone]?.suffix || '';
+  applySuffix();
 
   NX.chatview = chatview;
 
@@ -226,6 +259,13 @@
         <div class="cv-top-spacer" aria-hidden="true"></div>
         <button class="cv-back" id="cvBack" aria-label="Back">${svg(ICONS.back)}</button>
       </div>
+
+      <div class="cv-who" id="cvWho" role="tablist" aria-label="Talk to">
+        ${Object.entries(WHO_PRESETS).map(([k, w]) =>
+          `<button class="cv-who-chip${state.who === k ? ' is-active' : ''}" data-who="${k}" role="tab">${w.label}</button>`
+        ).join('')}
+      </div>
+      <div class="cv-orion-strip" id="cvOrionStrip" style="display:none"></div>
 
       <div class="cv-transcript" id="cvTranscript">
         <div class="cv-transcript-inner">
@@ -290,8 +330,65 @@
     wirePersonaSheet(psScrim);
     wireBrandGalaxy();
     wireKeyboardShortcuts();
+    wireWho();
 
     built = true;
+  }
+
+  /* ═════════════════════════════════════════════════════════════════
+     WHO — persona chips + Orion's living strip + tunnel relay
+     ═════════════════════════════════════════════════════════════════ */
+  function wireWho() {
+    const row = rootEl.querySelector('#cvWho');
+    row.querySelectorAll('.cv-who-chip').forEach(b => b.addEventListener('click', () => {
+      state.who = b.dataset.who;
+      localStorage.setItem('nx_chat_who', state.who);
+      applySuffix();
+      row.querySelectorAll('.cv-who-chip').forEach(x => x.classList.toggle('is-active', x === b));
+      paintOrionStrip();
+    }));
+    paintOrionStrip();
+
+    // Orion relay: whatever you send while talking to Orion ALSO lands in
+    // orion_thread (the tunnel) — the real Orion reads and acts on it when
+    // next summoned. Additive listener; brain-chat's own send is untouched.
+    let lastRelay = { text: '', at: 0 };
+    const relay = () => {
+      if (state.who !== 'orion') return;
+      const text = (inputEl.value || '').trim();
+      if (!text || !window.NX || !NX.sb) return;
+      // pointerdown + click + Enter can all fire for one send — relay once.
+      if (text === lastRelay.text && Date.now() - lastRelay.at < 3000) return;
+      lastRelay = { text, at: Date.now() };
+      try {
+        NX.sb.from('orion_thread').insert({ who: 'alfredo', text, ts: Date.now() }).then(() => {});
+      } catch (_) {}
+    };
+    // Capture phase: read the text BEFORE the send handler clears the input.
+    sendEl.addEventListener('click', relay, true);
+    sendEl.addEventListener('pointerdown', relay, true);
+    inputEl.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) relay(); }, true);
+  }
+
+  async function paintOrionStrip() {
+    const strip = rootEl && rootEl.querySelector('#cvOrionStrip');
+    if (!strip) return;
+    if (state.who !== 'orion') { strip.style.display = 'none'; return; }
+    strip.style.display = '';
+    strip.innerHTML = '<div class="cv-orion-line is-dim">✶ reaching Orion…</div>';
+    try {
+      const res = await NX.sb.from('orion_activity').select('kind,text,ts').order('id', { ascending: false }).limit(10);
+      const rows = (res && res.data) || [];
+      const voice = rows.find(r => r.kind === 'voice' || r.kind === 'status');
+      const learns = rows.filter(r => r.kind === 'learning' || r.kind === 'action').slice(0, 2);
+      const escT = (s) => { const d = document.createElement('div'); d.textContent = String(s || ''); return d.innerHTML; };
+      strip.innerHTML =
+        (voice ? `<div class="cv-orion-line is-voice">“${escT(voice.text)}”</div>` : '') +
+        learns.map(l => `<div class="cv-orion-line">${l.kind === 'learning' ? '✦' : '◆'} ${escT(l.text)}</div>`).join('') +
+        `<div class="cv-orion-line is-dim">messages here are relayed to Orion — he acts when next summoned ✶</div>`;
+    } catch (_) {
+      strip.innerHTML = '<div class="cv-orion-line is-dim">✶ Orion’s feed is unreachable right now — messages still relay.</div>';
+    }
   }
 
   /* ═════════════════════════════════════════════════════════════════

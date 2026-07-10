@@ -1160,3 +1160,36 @@ body.chatview-open {
   .cv-turn-body { font-size: 15px; }
   .cv-persona-grid { grid-template-columns: 1fr; }
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   v259 — WHO row: talk to NEXUS · Clippy · Orion ✶ · Trajan · Providentia
+   (Alfredo moved Orion out of the home card and into Ask NEXUS.)
+   ──────────────────────────────────────────────────────────────────── */
+.cv-who {
+  display: flex; gap: 6px; padding: 8px 14px 6px; overflow-x: auto;
+  scrollbar-width: none; flex: 0 0 auto;
+}
+.cv-who::-webkit-scrollbar { display: none; }
+.cv-who-chip {
+  flex: 0 0 auto; padding: 6px 13px; border-radius: 999px; cursor: pointer;
+  background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.10);
+  color: var(--nx-muted, #9aa3b2);
+  font-family: 'Outfit', 'DM Sans', system-ui, sans-serif; font-size: 12px; font-weight: 600;
+  transition: all .15s; white-space: nowrap;
+}
+.cv-who-chip.is-active {
+  background: rgba(212,164,78,.14); border-color: var(--nx-gold, #d4a44e);
+  color: var(--nx-gold, #d4a44e);
+}
+/* Orion's living strip — his voice + latest trail, right inside the chat */
+.cv-orion-strip {
+  flex: 0 0 auto; margin: 0 14px 6px; padding: 9px 12px; border-radius: 12px;
+  background: linear-gradient(160deg, rgba(22,32,60,.72), rgba(11,16,32,.72));
+  border: 1px solid rgba(159,227,201,.18);
+}
+.cv-orion-line {
+  font-family: 'Outfit', 'DM Sans', system-ui, sans-serif; font-size: 12px;
+  color: rgba(232,238,252,.82); line-height: 1.5; padding: 1px 0;
+}
+.cv-orion-line.is-voice { color: #eef4ff; font-size: 13px; }
+.cv-orion-line.is-dim { color: rgba(255,255,255,.38); font-size: 10.5px; letter-spacing: .03em; }

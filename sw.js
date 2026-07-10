@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v258-board-suite';
+const CACHE_NAME = 'nexus-v259-pm-fix-personas';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
