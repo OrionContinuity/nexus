@@ -2958,3 +2958,22 @@
 .cleanlite-pl-saveprofile { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
 .cleanlite-pl-saveprofile .cleanlite-ov-input { flex: 1; }
 .cleanlite-pl-actions { flex-wrap: wrap; }
+
+/* ─── v262 — hidden crew users (tucked, not gone) ───────────────────── */
+/* Planner: hidden chips collapse behind the "+N" chip; revealed = dimmed */
+.cleanlite-pl-chip.is-hidden { display: none; }
+.cleanlite-planner.show-hidden .cleanlite-pl-chip.is-hidden { display: inline-flex; opacity: .55; border-style: dashed; }
+.cleanlite-pl-more { border-style: dashed; color: var(--nx-faint, #6c7585); }
+.cleanlite-pl-more:hover { color: var(--nx-gold, #d4a44e); }
+/* Person picker: dimmed hidden section + the eye toggle */
+.cleanlite-person.is-hidden { opacity: .5; }
+.cleanlite-person .cleanlite-eye {
+  flex: 0 0 auto; font-size: 13px; padding: 4px 6px; border-radius: 8px;
+  opacity: .5; cursor: pointer; margin-left: 4px;
+}
+.cleanlite-person .cleanlite-eye:hover { opacity: 1; background: rgba(255,255,255,.06); }
+.cleanlite-hiddenlbl {
+  font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--nx-faint, #6c7585);
+  padding: 10px 2px 4px; border-top: 1px dashed rgba(255,255,255,.08); margin-top: 8px;
+}

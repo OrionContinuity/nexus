@@ -2328,21 +2328,30 @@
     const people = litePeople();
     const cur = liteZonePeople(sectionEs);
     const selected = new Set(cur === '__varies__' ? [] : cur.map(String));
+    // v262 — hidden users sink to a dimmed section at the bottom: out of the
+    // way, still selectable. The eye on each row hides/unhides (persisted).
+    const hiddenIds = liteHiddenIds();
+    const isHidden = (p) => hiddenIds.has(String(p.id)) && !selected.has(String(p.id));
+    const visible = people.filter(p => !isHidden(p));
+    const hidden = people.filter(isHidden);
+    const personRow = (p, dim) => `
+            <button class="cleanlite-person ${selected.has(String(p.id)) ? 'is-active' : ''} ${dim ? 'is-hidden' : ''}" data-pid="${esc(p.id)}">
+              <span class="cleanlite-av" style="--av-hue:${liteHue(p.id)}">${esc(liteInitials(p.name))}</span>
+              <span class="cleanlite-person-name">${esc(p.name)}</span>
+              ${p.login ? '<span class="cleanlite-tag">login</span>' : '<span class="cleanlite-tag is-muted">schedule</span>'}
+              <span class="cleanlite-eye" data-eye="${esc(p.id)}" title="${hiddenIds.has(String(p.id)) ? 'Unhide from crew lists' : 'Hide from crew lists'}">${hiddenIds.has(String(p.id)) ? '🙈' : '👁'}</span>
+              <span class="cleanlite-psel">${svg('check', 13)}</span>
+            </button>`;
     const bg = document.createElement('div');
     bg.className = 'cleanlite-sheet-bg';
     bg.innerHTML = `
       <div class="cleanlite-sheet" role="dialog" aria-modal="true">
         <div class="cleanlite-sheet-grip"></div>
         <div class="cleanlite-sheet-title">Who works <b>${esc(liteZoneName(sectionEs))}</b> · <span class="cleanlite-sheet-day">${liteDay === 'all' ? 'every day' : esc(LITE_DOW[liteDay - 1])}</span></div>
-        <div class="cleanlite-sheet-hint">Tap everyone on this zone — you can pick more than one.</div>
+        <div class="cleanlite-sheet-hint">Tap everyone on this zone — you can pick more than one. The eye hides accounts that don't clean.</div>
         <div class="cleanlite-people">
-          ${people.map(p => `
-            <button class="cleanlite-person ${selected.has(String(p.id)) ? 'is-active' : ''}" data-pid="${esc(p.id)}">
-              <span class="cleanlite-av" style="--av-hue:${liteHue(p.id)}">${esc(liteInitials(p.name))}</span>
-              <span class="cleanlite-person-name">${esc(p.name)}</span>
-              ${p.login ? '<span class="cleanlite-tag">login</span>' : '<span class="cleanlite-tag is-muted">schedule</span>'}
-              <span class="cleanlite-psel">${svg('check', 13)}</span>
-            </button>`).join('')}
+          ${visible.map(p => personRow(p, false)).join('')}
+          ${hidden.length ? `<div class="cleanlite-hiddenlbl">Hidden · still tappable when needed</div>${hidden.map(p => personRow(p, true)).join('')}` : ''}
           <button class="cleanlite-person cleanlite-newemp" data-new>
             <span class="cleanlite-av is-add">${svg('plus', 16)}</span><span>New employee…</span></button>
         </div>
@@ -2358,11 +2367,22 @@
     const saveBtn = bg.querySelector('[data-save]');
     const paintSave = () => { saveBtn.textContent = selected.size ? `Save crew (${selected.size})` : 'Save crew'; };
     paintSave();
-    bg.querySelectorAll('[data-pid]').forEach(btn => btn.addEventListener('click', () => {
+    bg.querySelectorAll('[data-pid]').forEach(btn => btn.addEventListener('click', (e) => {
+      if (e.target.closest('[data-eye]')) return;   // the eye is not a select
       const pid = btn.dataset.pid;
       if (selected.has(pid)) { selected.delete(pid); btn.classList.remove('is-active'); }
       else { selected.add(pid); btn.classList.add('is-active'); }
       paintSave();
+    }));
+    // Eye: hide/unhide from crew lists (persisted; row dims in place).
+    bg.querySelectorAll('[data-eye]').forEach(eye => eye.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const nowHidden = liteToggleHidden(eye.dataset.eye);
+      const row = eye.closest('.cleanlite-person');
+      if (row) row.classList.toggle('is-hidden', nowHidden);
+      eye.textContent = nowHidden ? '🙈' : '👁';
+      eye.title = nowHidden ? 'Unhide from crew lists' : 'Hide from crew lists';
+      toast(nowHidden ? 'Hidden from crew lists — find them under "Hidden" when needed' : 'Back in the crew lists', 'success');
     }));
     const when = liteDay === 'all' ? 'every day' : LITE_DOW[liteDay - 1];
     saveBtn.addEventListener('click', async () => {
@@ -2390,6 +2410,24 @@
   // One sheet plans a whole day: every zone × every person as toggle chips.
   // Save it to the day, to the whole week, or as a NAMED PROFILE ("Weekday",
   // "Deep clean Monday") that refills the sheet in one tap next time.
+  // Hidden users (v262) — Alfredo: location/test accounts "have almost
+  // absolutely nothing to do with cleaning… but still clickable if it's
+  // ever needed." Hidden ids tuck behind a "+N" chip / dimmed section
+  // instead of disappearing. Managed with the eye toggle in the pickers.
+  function liteHiddenIds() {
+    const c = liteConfig();
+    return new Set((Array.isArray(c.hiddenPeople) ? c.hiddenPeople : []).map(String));
+  }
+  function liteToggleHidden(id) {
+    const c = liteConfig();
+    const set = new Set((Array.isArray(c.hiddenPeople) ? c.hiddenPeople : []).map(String));
+    const k = String(id);
+    if (set.has(k)) set.delete(k); else set.add(k);
+    c.hiddenPeople = Array.from(set);
+    saveLiteConfig(c);
+    return set.has(k);
+  }
+
   function liteCrewProfiles() { const c = liteConfig(); return (c.crewProfiles && typeof c.crewProfiles === 'object') ? c.crewProfiles : {}; }
   function liteSaveCrewProfile(name, map) {
     const c = liteConfig(); c.crewProfiles = liteCrewProfiles(); c.crewProfiles[name] = map; saveLiteConfig(c);
@@ -2412,14 +2450,24 @@
     const profileChips = Object.keys(profiles).map(n =>
       `<span class="cleanlite-pl-profile" data-profile="${esc(n)}">${esc(n)}<button class="cleanlite-pl-profile-x" data-del-profile="${esc(n)}" title="Delete profile">×</button></span>`).join('');
 
+    // Hidden users tuck behind a "+N" chip per zone (still clickable when
+    // revealed). A hidden person who's SELECTED stays visible — a chip you
+    // can't see shouldn't be able to hold an assignment.
+    const hiddenIds = liteHiddenIds();
+    const nHidden = people.filter(p => hiddenIds.has(String(p.id))).length;
     const zoneBlock = (z) => `
       <div class="cleanlite-pl-zone" data-zone="${esc(z.es)}">
         <div class="cleanlite-pl-zonename">${esc(z.en)} <span class="cleanlite-pl-count" data-count="${esc(z.es)}"></span></div>
         <div class="cleanlite-pl-people">
-          ${people.map(p => `
-            <button class="cleanlite-pl-chip ${sel[z.es].has(String(p.id)) ? 'is-active' : ''}" data-z="${esc(z.es)}" data-pid="${esc(p.id)}">
+          ${people.map(p => {
+            const pid = String(p.id);
+            const tucked = hiddenIds.has(pid) && !sel[z.es].has(pid);
+            return `
+            <button class="cleanlite-pl-chip ${sel[z.es].has(pid) ? 'is-active' : ''} ${tucked ? 'is-hidden' : ''}" data-z="${esc(z.es)}" data-pid="${esc(p.id)}">
               <span class="cleanlite-av is-sm" style="--av-hue:${liteHue(p.id)}">${esc(liteInitials(p.name))}</span>${esc((p.name || '').split(' ')[0])}
-            </button>`).join('')}
+            </button>`;
+          }).join('')}
+          ${nHidden ? `<button class="cleanlite-pl-chip cleanlite-pl-more" data-morez>+${nHidden}</button>` : ''}
         </div>
       </div>`;
 
@@ -2453,11 +2501,17 @@
     });
     paintCounts();
 
-    bg.querySelectorAll('.cleanlite-pl-chip').forEach(btn => btn.addEventListener('click', () => {
+    bg.querySelectorAll('.cleanlite-pl-chip:not(.cleanlite-pl-more)').forEach(btn => btn.addEventListener('click', () => {
       const s = sel[btn.dataset.z]; const pid = btn.dataset.pid;
       if (s.has(pid)) { s.delete(pid); btn.classList.remove('is-active'); }
       else { s.add(pid); btn.classList.add('is-active'); }
       paintCounts();
+    }));
+    // "+N" reveals the tucked-away users (sheet-wide toggle, still clickable)
+    bg.querySelectorAll('[data-morez]').forEach(btn => btn.addEventListener('click', () => {
+      const sheet = bg.querySelector('.cleanlite-planner');
+      const on = sheet.classList.toggle('show-hidden');
+      bg.querySelectorAll('[data-morez]').forEach(b => { b.textContent = on ? '− hide' : `+${nHidden}`; });
     }));
 
     // Apply a profile → refill every zone's selection in one tap.
