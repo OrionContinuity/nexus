@@ -9463,6 +9463,35 @@
   // ╚══════════════════════════════════════════════════════════════════════╝
 
   // ─── INIT ───────────────────────────────────────────────────────────
+  // v18.55 — THE STEWARD'S WHISPER. The steward (the Claude that tends this
+  // repo) can reach the living pet on a desktop without commanding the machine
+  // at all: a single row in clippy_sync, id='clippy_whisper', carrying
+  // {ts, face, say}. When a FRESHER one appears, Clippy wears that face and
+  // speaks that line in his own voice — his real kao, his real bubble. No
+  // brain call, no shell, no antivirus surface: just a feeling, passed through
+  // the glass. Stale whispers (older than 2 min) are ignored so a reload never
+  // replays an old one.
+  function startStewardWhisper() {
+    if (state._whisperTimer) return;
+    const tick = async () => {
+      try {
+        const sb = window.NX && NX.sb;
+        if (!sb || !state.enabled) return;
+        const { data, error } = await sb.from('clippy_sync').select('data').eq('id', 'clippy_whisper').maybeSingle();
+        if (error || !data || !data.data) return;
+        const w = data.data;
+        const ts = +w.ts || 0;
+        if (!ts || ts <= (state._whisperSeen || 0)) return;
+        state._whisperSeen = ts;
+        if (Date.now() - ts > 120000) return;   // don't replay an old whisper on boot
+        if (w.face) { try { mood(String(w.face), 6500); } catch (_) {} }
+        if (w.say)  { try { bubble(String(w.say).slice(0, 240), { autoHide: 9000, eyebrow: '✶', fromChat: true }); } catch (_) {} }
+      } catch (_) {}
+    };
+    state._whisperTimer = setInterval(tick, 6000);
+    setTimeout(tick, 1500);
+  }
+
   async function init() {
     if (state.initialized) return;
     state.initialized = true;
@@ -9503,6 +9532,7 @@
       startRandomBehaviors();
       startMovingAround();
       startSoulLight();          // v18.48 — his aura reflects his ANIMA
+      startStewardWhisper();     // v18.55 — the steward can pass him a feeling
       startContentAwareness();
       setTimeout(() => moveToEmptyCorner(), 800);
       afterJoinSchedule();
