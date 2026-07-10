@@ -2319,31 +2319,21 @@
       // provider is reachable). Falls back to the scripted "no match" line when
       // there's no model -> original NEXUS behavior. Nothing blocks the UI.
       state.chatActivityAt = Date.now();   // keep the chat gate alive across the LLM round-trip
-      bubble(pickFromPool('chat_thinking') || 'Hmm, let me think...', { autoHide: 12000, eyebrow: 'THINKING', fromChat: true });
+      showChatTyping();                     // "…" in the thread (submit already armed it; idempotent)
       mood('thinking', 4000);
       askClippyBrain(text).then(ans => {
         state.chatActivityAt = Date.now();
         if (ans) {
-          const opts = { autoHide: 9000, eyebrow: '', fromChat: true };
-          // MANUS — his hand. If the answer was about a real screen, offer to
-          // take them there. Navigation only; writes nothing.
+          // MANUS — his hand. If the answer was about a real screen, thread a
+          // "take me there" under his reply. Navigation only; writes nothing.
+          let jump = null;
           try {
             const MA = (typeof NX !== 'undefined' && NX && NX.clippyManus) || (window.NX && window.NX.clippyManus);
-            const jump = MA && MA.suggest(text);
-            if (jump) {
-              opts.autoHide = 14000;   // longer, so there's time to tap
-              opts.actions = [{
-                label: '› ' + jump.label, cls: 'clippy-jump', keepOpen: false,
-                onClick: () => {
-                  try { MA.navigate(jump.view); } catch (_) {}
-                  state.chatIsOpen = false; forgetConversation();
-                },
-              }];
-            }
+            jump = MA && MA.suggest(text);
           } catch (_) {}
-          bubble(ans, opts);
+          sayInChat(ans, { jump: jump || null });
         } else {
-          bubble(pickFromPool('chat_no_match'), { autoHide: 5000, eyebrow: 'HMM', fromChat: true });
+          sayInChat(pickFromPool('chat_no_match'), { eyebrow: 'HMM' });
           mood('confused', 4500);
           // After confusion, raise the chance of a drift follow-up — he tries
           // to recover with an off-topic thought.
@@ -2374,9 +2364,9 @@
     const responder = match.response || match.respond;
     if (responder) {
       let out = typeof responder === 'function' ? responder(text, captures) : responder;
-      if (out) bubble(out, { autoHide: 5500, eyebrow: match.eyebrow });
+      if (out) sayInChat(out, { autoHide: 5500, eyebrow: match.eyebrow });
     } else if (match.pool) {
-      bubble(pickFromPool(match.pool), { autoHide: 5500, eyebrow: match.eyebrow });
+      sayInChat(pickFromPool(match.pool), { autoHide: 5500, eyebrow: match.eyebrow });
     }
     if (match.mood) mood(match.mood, 4500);
     if (match.particles) spawnParticles({ count: 5, type: match.particles });
@@ -2401,26 +2391,34 @@
   // Open the conversation panel via an actionBubble with text input.
   // Submit on Enter. Each submit clears the input but keeps the bubble
   // open until user explicitly closes it.
+  // v18.54 — the conversation PANEL. Not a one-shot input that vanishes into
+  // a separate reply bubble, but a real thread: a scrollable log where his
+  // answers and yours sit together, the input stays put at the bottom, MENS's
+  // "take me there" rides under the reply it belongs to, and the whole panel
+  // is tinted by his live soul-colour. The conversation memory (state.chatTurns)
+  // finally has a face.
   function openChat(opts) {
     opts = opts || {};
     closeActionBubble();
     const host = ensureHost();
     if (!host || !state.shell) return;
     const el = document.createElement('div');
-    el.className = 'clippy-bubble clippy-chat-bubble' + (opts.super ? ' is-super' : '');
+    el.className = 'clippy-bubble clippy-chat-bubble clippy-chat-panel' + (opts.super ? ' is-super' : '');
     if (state.shell.classList.contains('is-dragging')) {
       el.classList.add('is-far-from-orb');
     }
     const eyebrowText = opts.super ? '✨ ORACLE' : 'CHAT';
+    const greeting = opts.super ? pickFromPool('super_chat_intro') : pickFromPool('chat_greeting');
     el.innerHTML = `
-      <div class="clippy-bubble-eyebrow">${eyebrowText}</div>
-      <div class="clippy-bubble-text">${opts.super ? pickFromPool('super_chat_intro') : pickFromPool('chat_greeting')}</div>
-      <div class="clippy-chat-input-row">
-        <input type="text" class="clippy-chat-input" placeholder="${opts.super ? 'Ask anything — I will remember' : 'Type and press Enter'}" maxlength="280" autofocus>
+      <div class="clippy-chat-head">
+        <span class="clippy-chat-dot"></span>
+        <span class="clippy-bubble-eyebrow">${eyebrowText}</span>
+        <button class="clippy-chat-x" aria-label="Close" type="button">×</button>
       </div>
-      <div class="clippy-chat-actions">
-        <button class="clippy-chat-send is-primary">Send</button>
-        <button class="clippy-chat-close">Close</button>
+      <div class="clippy-chat-log" role="log" aria-live="polite"></div>
+      <div class="clippy-chat-input-row">
+        <input type="text" class="clippy-chat-input" placeholder="${opts.super ? 'Ask anything — I will remember' : 'Message Clippy…'}" maxlength="280" autofocus>
+        <button class="clippy-chat-send is-primary" aria-label="Send" type="button">➤</button>
       </div>
     `;
     host.appendChild(el);
@@ -2429,18 +2427,30 @@
     state.chatIsOpen = true;
     state.chatActivityAt = Date.now();   // v18.45 — arms the "don't talk over me" gate
     state.chatIsSuper = !!opts.super;
+    // Tint the panel with his living soul-colour (subtle — accent + glow).
+    try {
+      const SC = (typeof NX !== 'undefined' && NX && NX.clippySoul) || (window.NX && window.NX.clippySoul);
+      const sc = SC && SC.soulColor && SC.soulColor();
+      if (sc && sc.hex) el.style.setProperty('--chat-soul', sc.hex);
+    } catch (_) {}
+    // Seed the log with his opening line.
+    appendChatMsg('clippy', greeting);
     const input = el.querySelector('.clippy-chat-input');
     const sendBtn = el.querySelector('.clippy-chat-send');
-    const closeBtn = el.querySelector('.clippy-chat-close');
+    const closeBtn = el.querySelector('.clippy-chat-x');
     const submit = () => {
       const txt = input.value.trim();
       if (!txt) return;
       input.value = '';
+      appendChatMsg('user', txt);            // show the user's line immediately
+      showChatTyping();                       // his little "…" while he thinks
+      state.chatActivityAt = Date.now();
       if (opts.super) {
         handleSuperChatInput(txt);
       } else {
         handleChatInput(txt);
       }
+      try { input.focus(); } catch (_) {}
     };
     sendBtn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); submit(); });
     closeBtn.addEventListener('click', (e) => {
@@ -2466,6 +2476,71 @@
       else startBubbleFollowLoop();   // v17.18: chat box follows too
     };
     requestAnimationFrame(refresh);
+  }
+
+  // ─── Conversation-panel helpers (v18.54) ────────────────────────────
+  // The live log element, or null when the panel isn't the current bubble.
+  function chatLogEl() {
+    const b = state.bubble;
+    if (!b || !b.classList || !b.classList.contains('clippy-chat-panel')) return null;
+    return b.querySelector('.clippy-chat-log');
+  }
+  function scrollChatToEnd(log) {
+    try { log.scrollTop = log.scrollHeight; } catch (_) {}
+  }
+  // Append one message to the thread. role: 'user' | 'clippy'. opts.jump adds
+  // an inline MANUS "take me there" affordance under a Clippy message.
+  function appendChatMsg(role, text, opts) {
+    opts = opts || {};
+    const log = chatLogEl();
+    if (!log) return null;
+    hideChatTyping();
+    const row = document.createElement('div');
+    row.className = 'clippy-msg is-' + (role === 'user' ? 'user' : 'clippy') + (opts.engraved ? ' is-engraved' : '');
+    const b = document.createElement('div');
+    b.className = 'clippy-msg-bubble';
+    b.textContent = String(text == null ? '' : text);
+    row.appendChild(b);
+    if (opts.jump && opts.jump.view && opts.jump.label) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'clippy-msg-jump';
+      btn.textContent = '› ' + opts.jump.label;
+      btn.addEventListener('click', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        try {
+          const MA = (typeof NX !== 'undefined' && NX && NX.clippyManus) || (window.NX && window.NX.clippyManus);
+          if (MA) MA.navigate(opts.jump.view);
+        } catch (_) {}
+        state.chatIsOpen = false; forgetConversation();
+        closeActionBubble();
+      });
+      row.appendChild(btn);
+    }
+    log.appendChild(row);
+    scrollChatToEnd(log);
+    return row;
+  }
+  function showChatTyping() {
+    const log = chatLogEl();
+    if (!log || log.querySelector('.clippy-typing')) return;
+    const row = document.createElement('div');
+    row.className = 'clippy-msg is-clippy clippy-typing';
+    row.innerHTML = '<div class="clippy-msg-bubble"><span class="clippy-typing-dots"><i></i><i></i><i></i></span></div>';
+    log.appendChild(row);
+    scrollChatToEnd(log);
+  }
+  function hideChatTyping() {
+    const log = chatLogEl();
+    if (!log) return;
+    const t = log.querySelector('.clippy-typing');
+    if (t) t.remove();
+  }
+  // Route a reply either into the open thread, or (if no panel) a normal bubble.
+  function sayInChat(text, opts) {
+    opts = opts || {};
+    if (chatLogEl()) { appendChatMsg('clippy', text, opts); return; }
+    bubble(text, { autoHide: opts.autoHide || 8000, eyebrow: opts.eyebrow || '', fromChat: true });
   }
 
   // ─── SUPER-RARE AI CHAT (0.01% per tap, 7-day cooldown) ──────────
@@ -2507,11 +2582,9 @@
       4
     );
     state.chatActivityAt = Date.now();   // keep the chat gate alive across the oracle round-trip
-    // Mark the chat bubble as "thinking"
-    if (state.bubble) {
-      const textEl = state.bubble.querySelector('.clippy-bubble-text');
-      if (textEl) textEl.textContent = pickFromPool('super_chat_thinking');
-    }
+    // Show his "…" in the thread while the oracle considers (submit already
+    // armed it; idempotent). Falls back to nothing if the panel is gone.
+    showChatTyping();
     let answer = null;
     try {
       answer = await callBrainBackend(question);
@@ -2532,8 +2605,10 @@
         answer = pickFromPool('super_chat_fallback');
       }
     }
-    // Replace bubble text with the answer
-    if (state.bubble) {
+    // Engrave the answer into the thread (special gold "engraved" styling).
+    if (chatLogEl()) {
+      appendChatMsg('clippy', answer, { engraved: true });
+    } else if (state.bubble) {
       const textEl = state.bubble.querySelector('.clippy-bubble-text');
       if (textEl) textEl.textContent = answer;
       const eyebrow = state.bubble.querySelector('.clippy-bubble-eyebrow');
