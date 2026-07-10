@@ -13927,6 +13927,7 @@ body.eq-bulk-mode .eq-row.is-selected::after {
 .eq-hbar-fill::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent); transform: translateX(-100%); animation: eq-hbar-shimmer 2.6s ease-in-out infinite; }
 .eq-hbar.is-over .eq-hbar-fill { animation: eq-hbar-pulse 1.1s ease-in-out infinite; }
 .eq-hbar-sub { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 9.5px; color: var(--nx-faint, #6c7585); margin-top: 4px; }
+.eq-hbar-note { margin-top: 5px; padding: 5px 8px; border-left: 2px solid var(--nx-gold, #d4a44e); border-radius: 0 7px 7px 0; background: rgba(212, 164, 78, 0.08); font-size: 11.5px; line-height: 1.45; color: var(--nx-text, #ece4d4); }
 @keyframes eq-hbar-shimmer { 0% { transform: translateX(-100%); } 60%, 100% { transform: translateX(220%); } }
 @keyframes eq-hbar-pulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.5); } }
 

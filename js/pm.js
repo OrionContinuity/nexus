@@ -223,12 +223,15 @@
     }
     return list.map(s => {
       const u = URGENCY[s.urgency] || URGENCY.distant;
+      // An overdue schedule with a note is acknowledged — someone already
+      // explained it. Keep the honest label, drop the alarm styling.
+      const noted = s.urgency === 'overdue' && !!s.status_note;
       return `
-        <div class="nxrm-pm-card ${u.tone}" data-schedule-id="${esc(s.id)}" role="button" tabindex="0">
+        <div class="nxrm-pm-card ${u.tone}${noted ? ' is-noted' : ''}" data-schedule-id="${esc(s.id)}" role="button" tabindex="0">
           <div class="nxrm-pm-glyph">${u.glyph}</div>
           <div class="nxrm-pm-body">
             <div class="nxrm-pm-row1">
-              <span class="nxrm-pm-urgency">${u.label}</span>
+              <span class="nxrm-pm-urgency">${u.label}${noted ? ' <span class="nxrm-pm-notedchip">· noted</span>' : ''}</span>
               <span class="nxrm-pm-when">${fmt.days(s.days_until_due)}</span>
             </div>
             <div class="nxrm-pm-title">${esc(s.title || 'PM task')}</div>

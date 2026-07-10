@@ -5029,6 +5029,7 @@ function renderDetailHealth(eq) {
       <div class="eq-hbar-top"><span class="eq-hbar-label">${esc(b.label)}</span><span class="eq-hbar-pct" style="color:${b.cd.color}">${b.cd.overdue ? 'OVERDUE' : b.cd.pct + '%'}</span></div>
       <div class="eq-hbar-track"><div class="eq-hbar-fill" style="width:${b.cd.pct}%;--bar:${b.cd.color}"></div></div>
       <div class="eq-hbar-sub">${esc(b.cd.dueText)}</div>
+      ${b.key === 'pm' && eq.pm_note ? `<div class="eq-hbar-note">📝 ${esc(eq.pm_note)}${eq.pm_note_by ? ` — ${esc(eq.pm_note_by)}` : ''}</div>` : ''}
     </div>`).join('');
   return `
     <div class="eq-detail-card eq-health-card">

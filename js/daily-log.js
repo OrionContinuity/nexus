@@ -2094,6 +2094,9 @@ function dlogCardRow(c, bucket) {
     metaBits.push(`<span class="dlog-tk-moved">moved today: ${esc(c.last_move_from)} → ${esc(c.last_move_to)}</span>`);
   }
   if (lane) metaBits.push(`<span class="dlog-tk-lane dlog-tk-lane-${bucket}">${esc(lane)}</span>`);
+  if (c.repeat_every && bucket !== 'closed') {
+    metaBits.push(`<span class="dlog-tk-repeat">↻ ${esc(c.repeat_every)}</span>`);
+  }
   return `
     <div class="dlog-tk-row">
       <span class="bw-pri-pill ${priClass}">${esc(pri)}</span>
@@ -4042,7 +4045,16 @@ function dlogTextToHtml(text, meta) {
       }
       if (cut === segs.length && segs.length > 1) cut = 1;
       const head = segs.slice(0, cut).join(' — ');
-      const tail = [segs.slice(cut).join(' — '), movedNote].filter(Boolean).join(' · ');
+      let tail = [segs.slice(cut).join(' — '), movedNote].filter(Boolean).join(' · ');
+      // A 📝 status note (set from the PM screen) gets its own gold line —
+      // the explanation is the good news; the due-text above it stays muted
+      // and honest.
+      let noteTail = '';
+      const noteIx = tail.indexOf('📝');
+      if (noteIx !== -1) {
+        noteTail = tail.slice(noteIx).trim();
+        tail = tail.slice(0, noteIx).replace(/[\s—·]+$/, '').trim();
+      }
       // "confirmed schedule" is good news — it reads in GOLD, not green
       // (the ladder has no green; gold + ✓-style copy carry the meaning).
       const good = /confirmed schedule/i.test(tail);
@@ -4062,6 +4074,7 @@ function dlogTextToHtml(text, meta) {
           <td style="vertical-align:top;padding:6px 0;">
             ${headHtml}
             ${tail ? `<div class="${good ? 'nx-eyebrow' : 'nx-muted'}" style="font-family:${C.sans};font-size:13.5px;line-height:1.55;color:${good ? C.gold : C.muted};margin-top:2px;">${esc(tail)}</div>` : ''}
+            ${noteTail ? `<div class="nx-eyebrow" style="font-family:${C.sans};font-size:13.5px;line-height:1.55;color:${C.gold};margin-top:2px;">${esc(noteTail)}</div>` : ''}
           </td>
           ${newPill}
           ${href ? `<td style="width:14px;vertical-align:middle;padding-left:6px;"><a href="${esc(href)}" style="font-family:${C.sans};font-size:17px;font-weight:bold;color:${C.goldSoft};text-decoration:none;">›</a></td>` : ''}

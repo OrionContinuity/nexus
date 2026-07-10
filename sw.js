@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v267-pm-notes';
+const CACHE_NAME = 'nexus-v268-note-everywhere';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [

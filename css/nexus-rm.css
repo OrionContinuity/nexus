@@ -650,6 +650,11 @@
 .nxrm-pm-card.tone-critical .nxrm-pm-when { color: var(--nx-red); }
 .nxrm-pm-card.tone-warn .nxrm-pm-urgency,
 .nxrm-pm-card.tone-warn .nxrm-pm-when { color: var(--nx-gold); }
+/* Overdue but noted — acknowledged, so the alarm quiets to gold */
+.nxrm-pm-card.tone-critical.is-noted { border-left-color: var(--nx-gold); background: var(--nx-gold-tint); }
+.nxrm-pm-card.tone-critical.is-noted .nxrm-pm-urgency,
+.nxrm-pm-card.tone-critical.is-noted .nxrm-pm-when { color: var(--nx-gold); }
+.nxrm-pm-notedchip { font-weight: 600; color: var(--nx-gold); text-transform: none; letter-spacing: 0.02em; }
 .nxrm-pm-title {
   font-family: 'Outfit', system-ui, sans-serif;
   font-size: 15px; font-weight: 600;
@@ -2898,6 +2903,15 @@
   border: 1px solid var(--nx-gold-line, rgba(212,164,78,.35)); border-radius: 999px;
   color: var(--nx-gold, #d4a44e);
   font-size: 9.5px; font-weight: 700; letter-spacing: .04em;
+  text-transform: none;
+}
+
+/* "↻ weekly" repeat chip — same quiet outline as the Board's repeat face chip. */
+#dailylogView .dlog-tk-repeat {
+  display: inline-block; padding: 0 6px;
+  border: 1px dashed var(--nx-gold-line, rgba(212,164,78,.35)); border-radius: 999px;
+  color: var(--nx-muted, #9aa3b2);
+  font-size: 9.5px; font-weight: 600; letter-spacing: .04em;
   text-transform: none;
 }
 
