@@ -251,6 +251,13 @@
   min-height: 0;
   align-items: flex-start !important;  /* lists size to content, not stretched */
 }
+/* v263 — "can't scroll to the bottom of each section": the lists area runs
+   under the fixed .bottom-nav (79px) on phones, so the tail of every column
+   was buried. Columns cap at 100% of this container's CONTENT box, so a
+   nav-sized padding floor ends them above the bar. */
+@media (max-width: 899px) {
+  .b-lists { padding-bottom: calc(92px + env(safe-area-inset-bottom, 0px)) !important; }
+}
 
 /* List column — distinct surface so cards visibly float */
 .b-list {

@@ -115,7 +115,13 @@ const STYLES = `
      vanish; flex:1 makes the column body grow to use whatever's left
      after summary + filter strips. The earlier max-height calc was
      leaving a giant void below short columns on desktop. */
-  .b-list{flex:0 0 300px;background:linear-gradient(168deg,rgba(22,30,52,0.55),rgba(13,18,32,0.55));border:1px solid rgba(212,164,78,0.10);border-radius:12px;padding:10px;display:flex;flex-direction:column;min-height:240px;max-height:calc(100vh - 200px)}
+  /* v263 — "can't scroll to the bottom of each section": 100vh on mobile
+     includes the space under Chrome's collapsing UI, and the bottom nav
+     overlays the last card. dvh measures the REAL viewport, and the cards
+     wrap gets tail padding so the final card clears the nav. */
+  .b-list{flex:0 0 300px;background:linear-gradient(168deg,rgba(22,30,52,0.55),rgba(13,18,32,0.55));border:1px solid rgba(212,164,78,0.10);border-radius:12px;padding:10px;display:flex;flex-direction:column;min-height:240px;max-height:calc(100dvh - 200px)}
+  /* (mobile column height is governed by .b-lists' nav-sized padding floor
+     in board-system.css — the !important layer.) */
   /* Wider on desktop where there's room */
   @media(min-width:900px){
     .b-list{flex:0 0 320px}
@@ -164,7 +170,11 @@ const STYLES = `
      CARD — Trello-style
      cover (image, bleeds to edges) → strip (label color bar) → body
      ═══════════════════════════════════════════════════════════════════ */
-  .b-card{position:relative;background:rgba(17,23,40,0.92);border:1px solid rgba(255,255,255,0.07);border-radius:10px;margin-bottom:8px;cursor:pointer;overflow:hidden;transition:transform .15s,box-shadow .15s,border-color .15s}
+  /* v263 — long-press on a phone was SELECTING the card text (Chrome pops
+     its "tap to see search results" panel) instead of picking the card up.
+     Cards are drag handles, not prose: no selection, no touch callout. */
+  .b-card{position:relative;background:rgba(17,23,40,0.92);border:1px solid rgba(255,255,255,0.07);border-radius:10px;margin-bottom:8px;cursor:pointer;overflow:hidden;transition:transform .15s,box-shadow .15s,border-color .15s;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+  .b-card *{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
   .b-card:active{transform:scale(0.98)}
   .b-card:hover{border-color:rgba(212,164,78,0.28);box-shadow:0 4px 16px rgba(0,0,0,0.35)}
   /* Cover — bleed image at top, like Trello */
@@ -207,12 +217,6 @@ const STYLES = `
   .b-card:hover .b-card-kebab,.b-card.show-move .b-card-kebab{opacity:1}
   .b-card-kebab:hover,.b-card-kebab:active{background:rgba(255,255,255,0.08);color:var(--text)}
   @media(hover:none){.b-card-kebab{opacity:.8}}
-  /* One-tap dismiss (✕) on the card face — Alfredo: getting rid of cards
-     (especially repeating ones) had no fast path. Sits left of the kebab. */
-  .b-card-dismiss{position:absolute;top:3px;right:33px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;background:transparent;border:0;color:var(--text-dim);font-size:14px;line-height:1;border-radius:8px;cursor:pointer;opacity:0;transition:opacity .15s,background .15s,color .15s;z-index:2;-webkit-tap-highlight-color:transparent}
-  .b-card:hover .b-card-dismiss{opacity:1}
-  .b-card-dismiss:hover,.b-card-dismiss:active{background:rgba(212,164,78,0.12);color:var(--accent)}
-  @media(hover:none){.b-card-dismiss{opacity:.55}}
   /* Repeat chip on the face — quiet ↻ so recurring work is recognizable */
   .b-card-badge.repeat{color:var(--accent);background:rgba(212,164,78,0.08)}
   /* "Archive all" on Done column headers */
@@ -1364,7 +1368,6 @@ function createCardEl(card){
   // Replaces the old "→ Move" button: declutters the card and surfaces the
   // previously hidden long-press menu with a visible, tappable affordance.
   html += `<button class="b-card-kebab" data-kebab="${card.id}" aria-label="Card actions">⋯</button>`;
-  html += `<button class="b-card-dismiss" data-dismiss="${card.id}" aria-label="Archive card" title="Archive">✕</button>`;
 
   // Labels (small chips, more Trello-ish — already exists, just more compact)
   if(visibleLabels.length){
@@ -1567,7 +1570,7 @@ function createCardEl(card){
   };
 
   el.addEventListener('pointerdown', e => {
-    if (e.target.closest('.b-card-kebab') || e.target.closest('.b-card-dismiss') || e.target.closest('.nx-tr-btn')) return;
+    if (e.target.closest('.b-card-kebab') || e.target.closest('.nx-tr-btn')) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     P = { startX: e.clientX, startY: e.clientY, dragging: false, moved: false, clone: null, overListId: null, type: e.pointerType, ptr: e.pointerId };
     if (e.pointerType !== 'mouse') {
@@ -1605,19 +1608,12 @@ function createCardEl(card){
     dragCard = null; P = null;
   });
 
-  // Kebab + right-click → bottom sheet (reliable no-drag path)
+  // Kebab + right-click → bottom sheet (reliable no-drag path). v263: the
+  // face ✕ is gone (Alfredo: too loud) — Archive lives in this sheet.
   el.querySelector('.b-card-kebab').addEventListener('click', e => { e.stopPropagation(); openQuickActions(card, el); });
-  // ✕ → archive in two taps (confirm names the card; repeating cards say
-  // what happens next so dismissal is never a mystery).
-  const dismissBtn = el.querySelector('.b-card-dismiss');
-  if (dismissBtn) dismissBtn.addEventListener('click', async e => {
-    e.stopPropagation();
-    const msg = card.repeat_every
-      ? `Archive "${card.title}"? It repeats ${card.repeat_every} — the next one will be scheduled. (Use ⋯ → Stop repeating to end the cycle.)`
-      : `Archive "${card.title}"?`;
-    if (!(await nxConfirm(msg, { title: 'Archive card', okLabel: 'Archive', danger: true }))) return;
-    await archiveCard(card);
-  });
+  // Long-press on Android fires contextmenu — that must open OUR sheet,
+  // never the browser's selection/search UI.
+  el.addEventListener('contextmenu', e => { e.preventDefault(); if (!P || !P.dragging) openQuickActions(card, el); });
   el.addEventListener('contextmenu', e => { e.preventDefault(); openQuickActions(card, el); });
 
   return el;

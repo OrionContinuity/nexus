@@ -3543,11 +3543,34 @@ Thanks for your help sorting this out.`;
     if (el) el.innerHTML = `<div class="ord-entry-loading">Loading…</div>`;
   }
 
+  // v263 — "last ordered" hint per row: one fetch of the most recent SENT
+  // order's lines, shown as "last: 3 cs" in the item meta. Loaded lazily on
+  // first render (covers every entryState construction path), re-renders once.
+  async function loadLastOrderHints() {
+    if (!entryState || entryState.lastByItem !== undefined) return;
+    entryState.lastByItem = null;   // loading sentinel — don't refetch
+    try {
+      const { vendor, location } = entryState;
+      const { data: lastOrder } = await NX.sb.from('orders')
+        .select('id, email_sent_at')
+        .eq('vendor_id', vendor.id).eq('location', location).eq('status', 'sent')
+        .order('email_sent_at', { ascending: false }).limit(1).maybeSingle();
+      if (!lastOrder) { entryState.lastByItem = {}; return; }
+      const { data: lines } = await NX.sb.from('order_lines')
+        .select('item_id, qty, unit').eq('order_id', lastOrder.id);
+      const map = {};
+      (lines || []).forEach(l => { if (l.item_id && parseFloat(l.qty) > 0) map[l.item_id] = { qty: parseFloat(l.qty), unit: l.unit || '' }; });
+      entryState.lastByItem = map;
+      if (Object.keys(map).length && entryState.overlay && document.body.contains(entryState.overlay)) renderEntryItems();
+    } catch (_) { if (entryState) entryState.lastByItem = {}; }
+  }
+
   function renderEntryItems() {
     if (!entryState) return;
     const { vendor, catalog, location, delivery_date, lines, readOnly } = entryState;
     const overlay = entryState.overlay;
     if (!overlay) return;
+    loadLastOrderHints();
 
     // Lazy-init collapsedSections — used by the new section-card UI to
     // remember which sections the user has collapsed during this session.
@@ -3774,6 +3797,7 @@ Thanks for your help sorting this out.`;
       if (countItemsInOrder() > 0) openReview();
     });
     overlay.querySelectorAll('.ord-item-row').forEach(row => wireItemRow(row));
+    if (!readOnly) overlay.querySelectorAll('.ord-item-row:not(.is-disabled)').forEach(row => enableItemDrag(row));
 
     // ─── Order-entry section collapse ─────────────────────────────────
     // Tap the chevron (or anywhere on the section head) to collapse/expand.
@@ -3885,6 +3909,9 @@ Thanks for your help sorting this out.`;
     if (showVendorAlias)  meta.push(esc(vendorName));
     if (item.vendor_sku)  meta.push(`SKU ${esc(item.vendor_sku)}`);
     if (item.note)        meta.push(esc(item.note));
+    // v263 — what you got LAST time, right on the row (ordering memory).
+    const last = entryState && entryState.lastByItem && entryState.lastByItem[item.id];
+    if (last) meta.push(`<span class="ord-item-last">last: ${esc(String(last.qty))}${last.unit ? ' ' + esc(last.unit) : ''}</span>`);
 
     // Par chip — bottom-left of the main column, below the meta line.
     // Empty when there's no par configured. Shows the day label ("Mon",
@@ -3925,6 +3952,7 @@ Thanks for your help sorting this out.`;
 
     return `
       <div class="ord-item-row${qty > 0 ? ' has-qty' : ''}" data-item-id="${esc(item.id)}" data-item-name="${esc(searchKey)}">
+        ${readOnly ? '' : `<span class="ord-item-grip" aria-hidden="true" title="Hold to reorder">⠿</span>`}
         <div class="ord-item-main">
           <div class="ord-item-name">${esc(primary)}</div>
           ${meta.length ? `<div class="ord-item-meta">${meta.join(' · ')}</div>` : ''}
@@ -3953,6 +3981,174 @@ Thanks for your help sorting this out.`;
           ${pack.secondary ? `<div class="ord-item-unit-sub">${esc(pack.secondary)}</div>` : ''}
         </div>
       </div>`;
+  }
+
+  // ─── v263: drag-to-reorder catalog items (the board's grammar) ──────────
+  // Hold a row (or grab it with a mouse) → it lifts with a soft tilt, a
+  // dashed-gold ghost of the row marks the drop slot, edges auto-scroll,
+  // and release settles it in. Reorders WITHIN a section; the new order is
+  // written to order_guide_items.sort_order by re-dealing the section's
+  // existing integers (only changed rows are written).
+  function enableItemDrag(row) {
+    if (!entryState || entryState.readOnly) return;
+    const id = row.dataset.itemId;
+    let P = null;
+    const HOLD_MS = 300, MOVE_THRESH = 8;
+
+    const scroller = () => row.closest('.ord-entry-list') || entryState.overlay;
+
+    const pickUp = () => {
+      P.dragging = true;
+      try { navigator.vibrate?.(6); } catch (_) {}
+      const r = row.getBoundingClientRect();
+      const clone = row.cloneNode(true);
+      clone.classList.add('ord-item-dragclone');
+      clone.style.cssText = `position:fixed;left:0;top:0;width:${r.width}px;margin:0;pointer-events:none;z-index:3000`;
+      document.body.appendChild(clone);
+      P.clone = clone; P.offX = P.startX - r.left; P.offY = P.startY - r.top;
+      P.cx = r.left; P.cy = r.top; P.tx = r.left; P.ty = r.top;
+      P.lastY = P.startY;
+      clone.style.transform = `translate3d(${r.left}px,${r.top}px,0)`;
+      const ph = document.createElement('div');
+      ph.className = 'ord-item-ghost';
+      const ghost = row.cloneNode(true);
+      ghost.classList.remove('is-dragging');
+      ghost.style.pointerEvents = 'none';
+      ph.appendChild(ghost);
+      P._ph = ph; P._phKey = null;
+      row.classList.add('is-dragging');
+      const loop = () => {
+        if (!P || !P.dragging || !P.clone) { if (P) P.raf = null; return; }
+        P.cx += (P.tx - P.cx) * 0.32;
+        P.cy += (P.ty - P.cy) * 0.32;
+        const tilt = Math.max(-2, Math.min(2, (P.ty - P.cy) * 0.04));
+        P.clone.style.transform = `translate3d(${P.cx}px,${P.cy}px,0) rotate(${tilt}deg) scale(1.02)`;
+        const sc = scroller();
+        if (sc) {
+          const wr = sc.getBoundingClientRect ? sc.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+          const m = 60;
+          let scrolled = false;
+          if (P.lastY < wr.top + m && sc.scrollTop > 0) { sc.scrollTop -= Math.min(14, (wr.top + m - P.lastY) * .3); scrolled = true; }
+          else if (P.lastY > wr.bottom - m) { sc.scrollTop += Math.min(14, (P.lastY - (wr.bottom - m)) * .3); scrolled = true; }
+          if (scrolled) seatGhost(P.lastY);
+        }
+        P.raf = requestAnimationFrame(loop);
+      };
+      P.raf = requestAnimationFrame(loop);
+    };
+
+    const seatGhost = (y) => {
+      const wrap = row.closest('.ord-entry-section-items');
+      if (!wrap || !P._ph) return;
+      const siblings = [...wrap.querySelectorAll('.ord-item-row:not(.is-dragging)')]
+        .filter(r => !r.closest('.ord-item-ghost'));
+      let beforeEl = null;
+      for (const s of siblings) {
+        const r = s.getBoundingClientRect();
+        if (y < r.top + r.height / 2) { beforeEl = s; break; }
+      }
+      P.beforeId = beforeEl ? beforeEl.dataset.itemId : null;
+      const key = P.beforeId || 'END';
+      if (key === P._phKey && P._ph.parentNode) return;
+      P._phKey = key;
+      if (beforeEl) wrap.insertBefore(P._ph, beforeEl); else wrap.appendChild(P._ph);
+    };
+
+    const finish = async (commit) => {
+      if (P.raf) cancelAnimationFrame(P.raf);
+      const clone = P.clone, ph = P._ph, beforeId = P.beforeId || null;
+      if (clone && ph && ph.parentNode && commit) {
+        try {
+          const dest = ph.getBoundingClientRect();
+          clone.style.transition = 'transform .16s cubic-bezier(.2,.8,.3,1)';
+          clone.style.transform = `translate3d(${dest.left}px,${dest.top}px,0) rotate(0deg) scale(1)`;
+          await new Promise(r => setTimeout(r, 165));
+        } catch (_) {}
+      }
+      if (ph) ph.remove();
+      if (clone) clone.remove();
+      row.classList.remove('is-dragging');
+      if (commit) await commitItemOrder(id, beforeId);
+      P = null;
+    };
+
+    row.addEventListener('pointerdown', e => {
+      // Inputs/steppers/unit are NOT drag handles.
+      if (e.target.closest('.ord-qty, .ord-item-unit, input, button')) return;
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      P = { startX: e.clientX, startY: e.clientY, dragging: false, moved: false, type: e.pointerType, ptr: e.pointerId };
+      if (e.pointerType !== 'mouse') {
+        P.holdTimer = setTimeout(() => {
+          if (P && !P.dragging && !P.moved) { pickUp(); try { row.setPointerCapture(P.ptr); } catch (_) {} }
+        }, HOLD_MS);
+      }
+    });
+    row.addEventListener('pointermove', e => {
+      if (!P) return;
+      const dx = Math.abs(e.clientX - P.startX), dy = Math.abs(e.clientY - P.startY);
+      if (!P.dragging && (dx > MOVE_THRESH || dy > MOVE_THRESH)) {
+        P.moved = true;
+        if (P.type === 'mouse' && e.target.closest('.ord-item-grip')) { pickUp(); try { row.setPointerCapture(P.ptr); } catch (_) {} }
+        else if (P.type !== 'mouse') clearTimeout(P.holdTimer);   // touch move before hold = scroll
+      }
+      if (P.dragging) {
+        e.preventDefault();
+        P.tx = e.clientX - P.offX; P.ty = e.clientY - P.offY; P.lastY = e.clientY;
+        seatGhost(e.clientY);
+      }
+    });
+    row.addEventListener('pointerup', () => {
+      if (!P) return;
+      clearTimeout(P.holdTimer);
+      if (P.dragging) finish(true); else P = null;
+    });
+    row.addEventListener('pointercancel', () => {
+      if (!P) return;
+      clearTimeout(P.holdTimer);
+      if (P.dragging) finish(false); else P = null;
+    });
+    row.addEventListener('contextmenu', e => { if (P && P.dragging) e.preventDefault(); });
+  }
+
+  // Persist a within-section reorder. Re-deals the section's EXISTING
+  // sort_order integers to the items in their new sequence — preserves the
+  // global numbering structure, touches one section, writes changed rows
+  // only. Legacy all-equal values fall back to a dense renumber.
+  async function commitItemOrder(movedId, beforeId) {
+    if (!entryState) return;
+    const catalog = entryState.catalog;
+    const moved = catalog.find(i => i.id === movedId);
+    if (!moved) return;
+    const sec = moved.section || '';
+    const secItems = catalog.filter(i => (i.section || '') === sec);
+    const rest = secItems.filter(i => i.id !== movedId);
+    let seq;
+    if (beforeId && beforeId !== movedId) {
+      const at = rest.findIndex(i => i.id === beforeId);
+      seq = at === -1 ? [...rest, moved] : [...rest.slice(0, at), moved, ...rest.slice(at)];
+    } else if (beforeId === null) {
+      seq = [...rest, moved];
+    } else return;
+    let slots = secItems.map(i => Number(i.sort_order) || 0).sort((a, b) => a - b);
+    if (new Set(slots).size !== slots.length) slots = seq.map((_, ix) => ix);  // legacy dupes → dense
+    const updates = [];
+    seq.forEach((it, ix) => {
+      if (Number(it.sort_order) !== slots[ix]) { it.sort_order = slots[ix]; updates.push({ id: it.id, sort_order: slots[ix] }); }
+    });
+    // Re-sort the catalog globally so the re-render shows the new order.
+    entryState.catalog = catalog.slice().sort((a, b) => (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0));
+    renderEntryItems();
+    if (!updates.length || !NX.sb) return;
+    try {
+      for (const u of updates) {
+        const { error } = await NX.sb.from('order_guide_items').update({ sort_order: u.sort_order }).eq('id', u.id);
+        if (error) throw error;
+      }
+      if (NX.toast) NX.toast('Item order saved', 'success');
+    } catch (e) {
+      console.warn('[ordering] reorder:', e);
+      if (NX.toast) NX.toast('Reorder failed to save — will reset on reload', 'error');
+    }
   }
 
   function wireItemRow(row) {

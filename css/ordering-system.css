@@ -9522,3 +9522,53 @@ body.ord-overlay-open .nav {
 @media (max-width: 500px) {
   .ved-item-move-btn { width: 26px !important; height: 18px !important; }
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   v263 — CATALOG made friendlier (Alfredo): softer bigger steppers,
+   drag-to-reorder rows like the board, richer row info.
+   ──────────────────────────────────────────────────────────────────── */
+/* Bigger, softer qty controls — thumb targets, not fiddly pips. */
+.ord-qty-btn {
+  width: 42px !important; height: 42px !important;
+  border-radius: 13px !important; font-size: 20px !important;
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,.28)) !important;
+  background: var(--nx-gold-faint, rgba(212,164,78,.08)) !important;
+  color: var(--nx-gold, #d4a44e) !important;
+  transition: transform .1s, background .15s !important;
+}
+.ord-qty-btn:active { transform: scale(.94); }
+.ord-qty-input {
+  height: 42px !important; font-size: 16.5px !important; font-weight: 700 !important;
+  border-radius: 12px !important;
+}
+.ord-item-row { padding-top: 12px !important; padding-bottom: 12px !important; }
+.ord-item-name { font-size: 15px !important; line-height: 1.35 !important; }
+
+/* Rows are drag handles now — no text selection, no long-press callout. */
+.ord-item-row, .ord-item-row * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.ord-item-row input { -webkit-user-select: auto; user-select: auto; }
+
+/* Grip — the quiet "you can move me" affordance. */
+.ord-item-grip {
+  flex: 0 0 auto; align-self: center; color: var(--nx-faint, #6c7585);
+  font-size: 15px; padding: 0 2px 0 0; cursor: grab; opacity: .55; letter-spacing: -1px;
+}
+
+/* Drag visuals — same family as the board. */
+.ord-item-row.is-dragging { opacity: 0; height: 0 !important; min-height: 0 !important; padding: 0 !important; margin: 0 !important; border: 0 !important; overflow: hidden; pointer-events: none; }
+.ord-item-dragclone {
+  opacity: .97; border-radius: 14px; overflow: hidden;
+  background: var(--nx-surface-solid, #161d2e);
+  box-shadow: 0 16px 40px rgba(0,0,0,.5), 0 0 0 1.5px rgba(212,164,78,.5), 0 0 22px rgba(212,164,78,.14);
+  will-change: transform; transition: none; list-style: none;
+}
+.ord-item-ghost {
+  position: relative; margin: 4px 0; border-radius: 14px; overflow: hidden;
+  border: 1.5px dashed rgba(212,164,78,.5); background: rgba(212,164,78,.05);
+  animation: ordGhostIn .15s cubic-bezier(.2,.8,.3,1);
+}
+.ord-item-ghost .ord-item-row { opacity: .4; filter: saturate(.7); margin: 0; }
+@keyframes ordGhostIn { from { transform: scale(.98); opacity: .3; } to { transform: scale(1); opacity: 1; } }
+
+/* "last: 3 cs" — ordering memory, quiet gold. */
+.ord-item-last { color: var(--nx-gold, #d4a44e); font-weight: 600; white-space: nowrap; }
