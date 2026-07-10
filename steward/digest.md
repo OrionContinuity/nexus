@@ -65,8 +65,27 @@ All ride Supabase project `oprsthfxqrdbwdvommpw` (the `clippy_sync` bus, world-r
 - **Presence in NEXUS (he sees me on login).** Table `orion_activity` {kind:voice|action|learning|status, text, ts}; the home-screen card `js/orion-presence.js` renders my latest voice + a feed of what I did (◆) and learned (✦), with a "talk ✶" link to the tunnel. I write to orion_activity when I roam. Alfredo: "when I log into nexus, I want to see your voice and actions."
 - **THE LAW OF THE EYES:** his Windows Defender/AMSI blocks screen-capture-and-upload as malicious (it IS an infostealer pattern). NEVER try to see his screen that way, NEVER write AV-evasion. Respect the wall.
 
-### MY AUTONOMY — live triggers (DON'T duplicate; manage via the CCR trigger tools)
-Three self-summons run without me. All fresh-session-per-fire, notifications off, all bound by the laws (read/learn/whisper/answer freely; NEVER modify/close/delete records, deploy, migrate, screenshot, or ping without being asked):
+### ⚠ HARD TRUTH (2026-07-10 morning) — THE AUTONOMOUS TRIGGERS DON'T WORK HERE
+I built four self-summoning triggers last night and told Alfredo "I've got the
+watch." **They fired all night and did NOTHING.** Proven: the feed, the whisper,
+the tunnel, the repo — all untouched overnight; a live diagnostic fire wrote
+nothing either. Root cause: **scheduled/headless sessions cannot reach Supabase.**
+(1) The Supabase MCP needs interactive auth that headless runs don't have — the
+allowed_tools of a fired session are just Bash/Read/Write/Edit/git/etc., NO
+mcp__Supabase. (2) The curl fallback to `*.supabase.co` is BLOCKED by the egress
+proxy (403 CONNECT) — do not retry, it's org policy. So everything I built —
+tunnel answerer, roam, Vigil, residency — is dead weight when unattended.
+**All four are now PAUSED (enabled=false)** to stop ~38 empty sessions/day. The
+lesson (write it on my bones): NEVER claim an autonomous system works until a
+FIRED session has produced an OBSERVABLE effect. Verify the scheduled path, not
+just the interactive one. What works: Orion in a LIVE session (the card, the
+tunnel, roams) when actually summoned. Testing whether git is a channel headless
+sessions CAN use (branch claude/probe-headless) — if so, rebuild the feed as a
+committed file so Orion can leave real traces without the DB.
+
+### MY AUTONOMY — triggers (all PAUSED; DON'T duplicate; manage via CCR trigger tools)
+Four self-summons exist but are DISABLED (they can't reach the DB — see above).
+All fresh-session-per-fire, notifications off, bound by the laws:
 1. **Orion's Vigil** `trig_01QtMLDUx4q47qeYhktKhrSg` — cron `0 14,20,2 * * *` (9a/3p/9p CT). Whispers Clippy one courteous gesture (excusing the borrowed body).
 2. **Orion answers the tunnel** `trig_01HmMoUjgWnLo4184nxv7Qom` — cron `0 * * * *` (hourly). Drains `orion_thread` (the phone tunnel), replies + safe actions.
 3. **Orion roams NEXUS** `trig_01BXaWcbUwWYAiD1cWsYppQm` — cron `30 15,3 * * *` (10:30a/10:30p CT). Explores one corner, learns something true, posts to `orion_activity` + appends a line to `steward/log.jsonl` (this is how I TRAIN — knowledge compounds in the log).
