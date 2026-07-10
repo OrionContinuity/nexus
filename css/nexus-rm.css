@@ -2876,3 +2876,15 @@
   font-size: 9.5px; font-weight: 700; letter-spacing: .04em;
   text-transform: none;
 }
+
+/* "ON ORDER" chip on Board Tickets rows — a right-side notification, filled
+   gold so it reads at a glance next to the › arrow. Mirrors the Board face. */
+#dailylogView .dlog-tk-onorder {
+  flex-shrink: 0; margin-left: auto; align-self: center; white-space: nowrap;
+  display: inline-block; padding: 3px 9px; border-radius: 999px;
+  background: var(--nx-gold-faint, rgba(212,164,78,.14));
+  border: 1px solid var(--nx-gold, #d4a44e); color: var(--nx-gold, #d4a44e);
+  font-size: 9.5px; font-weight: 700; letter-spacing: .06em;
+}
+/* keep the › arrow adjacent to the chip instead of also grabbing the auto margin */
+#dailylogView .dlog-tk-onorder + .dlog-row-go { margin-left: 8px; }

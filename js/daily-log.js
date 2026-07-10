@@ -2118,6 +2118,7 @@ function renderTicketsSection(d) {
           <div class="dlog-tk-loc">${metaBits.join(' · ')}</div>
           ${detail ? `<div class="dlog-tk-detail">${esc(detail)}</div>` : ''}
         </div>
+        ${c.on_order && bucket !== 'closed' ? `<span class="dlog-tk-onorder">📦 ON ORDER</span>` : ''}
         ${c.id != null ? `<button type="button" class="dlog-row-go" data-go="card:${esc(String(c.id))}" title="Open on Board" aria-label="Open card on board">›</button>` : ''}
       </div>`;
   };

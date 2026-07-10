@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v254-presence-mount-tour-once';
+const CACHE_NAME = 'nexus-v255-on-order';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [

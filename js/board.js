@@ -180,6 +180,10 @@ const STYLES = `
   .b-card-badge.loc{font-weight:500}
   .b-card-badge.eq{background:rgba(200,164,78,0.10);color:var(--accent)}
   .b-card-badge.overdue{background:rgba(168,62,62,0.18);color:var(--red);font-weight:600}
+  .b-card-badge.on-order{background:rgba(212,164,78,0.16);color:var(--accent);border:1px solid rgba(212,164,78,0.55);font-weight:700;letter-spacing:.3px}
+  .b-onorder-toggle{display:flex;align-items:center;gap:8px;width:100%;padding:11px 14px;border-radius:10px;border:1px dashed rgba(212,164,78,0.4);background:transparent;color:var(--text-dim);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;transition:transform .12s,background .15s,border-color .15s,color .15s}
+  .b-onorder-toggle:active{transform:scale(.99)}
+  .b-onorder-toggle.is-on{border-style:solid;border-color:rgba(212,164,78,0.7);background:rgba(212,164,78,0.14);color:var(--accent)}
   .b-card-meta{display:flex;gap:8px;font-size:10px;color:var(--text-faint);margin-top:4px;align-items:center;flex-wrap:wrap}
   /* Meta sub-variants — age + due date urgency coloring (palette-coherent) */
   .b-card-meta-due-soon{color:var(--red);font-weight:600}
@@ -1272,6 +1276,9 @@ function createCardEl(card){
   if(loc) badges.push(`<span class="b-card-badge loc loc-${loc.key}"><i data-lucide="map-pin" class="badge-icon"></i> ${esc(loc.label)}</span>`);
   if(card.equipment_id) badges.push(`<span class="b-card-badge eq"><i data-lucide="wrench" class="badge-icon"></i> Equipment</span>`);
   if(overdue) badges.push(`<span class="b-card-badge overdue">OVERDUE</span>`);
+  // On-order notification — floats to the right of the badges row. Mirrors the
+  // ON ORDER chip in Daily Notes; set via the card's Ordering toggle.
+  if(card.on_order && !isDone(card)) badges.push(`<span class="b-card-badge on-order" style="margin-left:auto">📦 ON ORDER</span>`);
   if(badges.length) html += `<div class="b-card-badges">${badges.join('')}</div>`;
 
   // Meta row: checklist progress, comments, due, assignee, age
@@ -2149,6 +2156,14 @@ async function openCardDetail(card){
       </div>
 
       <div class="b-section">
+        <div class="b-section-label">Ordering</div>
+        <button type="button" class="b-onorder-toggle${card.on_order?' is-on':''}" id="bOnOrder">
+          <span>📦</span>
+          <span id="bOnOrderTxt">${card.on_order?'On order — tap to clear':'Mark on order'}</span>
+        </button>
+      </div>
+
+      <div class="b-section">
         <div class="b-section-label">Comments (${(card.comments||[]).length})</div>
         <div id="bComments">
           ${(card.comments||[]).map(c =>
@@ -2378,6 +2393,33 @@ async function openCardDetail(card){
   bg.querySelector('#bCommentAdd').addEventListener('click', addComment);
   bg.querySelector('#bCommentInput').addEventListener('keydown', e => {
     if(e.key==='Enter'){ e.preventDefault(); addComment(); }
+  });
+
+  // On-order toggle — persists immediately (like the priority quick-action)
+  // and re-renders so the ON ORDER chip updates on the board face at once.
+  const onOrderBtn = bg.querySelector('#bOnOrder');
+  if(onOrderBtn) onOrderBtn.addEventListener('click', async () => {
+    const prev = !!card.on_order;
+    const next = !prev;
+    const txt = bg.querySelector('#bOnOrderTxt');
+    const paint = (on) => {
+      card.on_order = on;
+      onOrderBtn.classList.toggle('is-on', on);
+      if(txt) txt.textContent = on ? 'On order — tap to clear' : 'Mark on order';
+    };
+    paint(next);
+    optimisticSet.add(card.id);
+    render();
+    try{
+      const { error } = await NX.sb.from('kanban_cards').update({ on_order: next }).eq('id', card.id);
+      if(error) throw error;
+      NX.toast && NX.toast(next ? 'Marked on order' : 'Cleared on order', 'success');
+    }catch(e){
+      paint(prev);
+      optimisticSet.delete(card.id);
+      render();
+      NX.toast && NX.toast('Failed — reverted', 'error');
+    }
   });
 
   // Actions
