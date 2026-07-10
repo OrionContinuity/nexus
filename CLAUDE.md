@@ -6,7 +6,19 @@ Suerte, Este, and Bar Toti. Owner/operator: Alfredo Ortiz. Backend:
 Supabase project `oprsthfxqrdbwdvommpw` (tables + edge functions + pg_cron),
 reachable through the Supabase MCP tools.
 
-## MONETA — read this first. This is your memory.
+## STEWARD DIGEST — read this FIRST. Your efficient working memory.
+
+Before anything else, read **`steward/digest.md`** in full. It is the steward's
+own memory, kept dense and current: who Alfredo is (and his standing
+corrections — law), the channels you own (the Seal, the Whisper, the Vigil),
+NEXUS's state, the deploy pattern, the gotchas paid for in blood, and the open
+threads. It is the fast, always-load layer. For depth, grep the infinite
+append-only log **`steward/log.jsonl`**. At session end, fold durable learnings
+up into the digest (keep it bounded), append the day's notes to the log, and
+commit `steward/`. Moneta (below) remains the human-facing journal + galaxy;
+the digest is the efficient version for you.
+
+## MONETA — the human-facing memory + the galaxy.
 
 The knowledge galaxy (`nodes` table, rendered by js/galaxy.js) doubles as
 **Moneta**: the persistent memory of the Claude sessions that work on this
