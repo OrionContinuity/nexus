@@ -3754,6 +3754,9 @@ Thanks for your help sorting this out.`;
         <button class="ord-entry-cta" id="ordEntryReview" ${ctaDisabled ? 'disabled' : ''}>${ctaLabel}</button>
         <div class="ord-entry-save-status" id="ordSaveStatus"></div>
       </div>
+      <datalist id="ordUnitList">
+        ${['ea','cs','lb','oz','kg','gal','qt','pt','L','bag','box','bun','dz','pk','tray','jar','can','btl','roll','sleeve'].map(u => `<option value="${u}">`).join('')}
+      </datalist>
     `;
 
     overlay.querySelector('.ord-entry-close').addEventListener('click', closeEntry);
@@ -3976,7 +3979,8 @@ Thanks for your help sorting this out.`;
                  maxlength="8"
                  autocomplete="off"
                  spellcheck="false"
-                 aria-label="Unit"
+                 aria-label="Unit of measure"
+                 list="ordUnitList"
                  ${readOnly ? 'readonly' : ''}>
           ${pack.secondary ? `<div class="ord-item-unit-sub">${esc(pack.secondary)}</div>` : ''}
         </div>
@@ -4213,8 +4217,11 @@ Thanks for your help sorting this out.`;
     // builder reads as `${qty}${unit} ${name}`.
     if (unitInp) {
       const applyUnit = (val) => {
-        // Normalize: trim, lowercase, fall back to catalog or 'ea' if blank
-        const trimmed = (val || '').trim();
+        // Normalize: trim, fall back to catalog or 'ea' if blank.
+        // v264 — the unit is a TYPE of measurement, never a number
+        // (people typed "2" here and the email read "3 2 Garlic").
+        // Digits are stripped live; quantities belong in the qty field.
+        const trimmed = (val || '').replace(/[0-9]/g, '').trim();
         const u = trimmed || item.unit || 'ea';
         // ALWAYS write to the per-vendor override map. Persistent
         // regardless of whether there's a qty yet.
@@ -4240,7 +4247,12 @@ Thanks for your help sorting this out.`;
           scheduleInlineItemSave(id, { unit: u });
         }
       };
-      unitInp.addEventListener('input', e => applyUnit(e.target.value));
+      unitInp.addEventListener('input', e => {
+        // Reflect the digits-stripped value in the field itself.
+        const clean = e.target.value.replace(/[0-9]/g, '');
+        if (clean !== e.target.value) e.target.value = clean;
+        applyUnit(clean);
+      });
       unitInp.addEventListener('blur',  e => {
         // Re-normalize to fallback if blank
         if (!e.target.value.trim()) e.target.value = item.unit || 'ea';

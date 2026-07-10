@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v263-board-catalog';
+const CACHE_NAME = 'nexus-v264-sleek-units';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
