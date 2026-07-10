@@ -2118,7 +2118,7 @@ function renderTicketsSection(d) {
           <div class="dlog-tk-loc">${metaBits.join(' · ')}</div>
           ${detail ? `<div class="dlog-tk-detail">${esc(detail)}</div>` : ''}
         </div>
-        ${c.on_order && bucket !== 'closed' ? `<span class="dlog-tk-onorder">📦 ON ORDER</span>` : ''}
+        ${c.on_order && bucket !== 'closed' ? `<span class="dlog-tk-onorder">📦 PARTS ORDERED</span>` : ''}
         ${c.id != null ? `<button type="button" class="dlog-row-go" data-go="card:${esc(String(c.id))}" title="Open on Board" aria-label="Open card on board">›</button>` : ''}
       </div>`;
   };
@@ -3463,7 +3463,10 @@ function dlogLocationReportLines(loc) {
         const route = (c.last_move_from && c.last_move_to) ? ': ' + c.last_move_from + ' \u2192 ' + c.last_move_to : '';
         const flag = (g.showMoved && isNew) ? '  (new today)'
                    : (g.showMoved && c._movedToday) ? '  (moved today' + route + ')' : '';
-        out.push('    \u00b7 ' + tag + (c.title || 'Untitled card') + flag);
+        // Parts on order rides as its own trailing marker (becomes a gold
+        // PARTS ORDERED pill in the styled email, next to NEW). Not on Done.
+        const ordered = (g.showMoved && c.on_order) ? '  (parts ordered)' : '';
+        out.push('    \u00b7 ' + tag + (c.title || 'Untitled card') + flag + ordered);
       });
     });
     out.push('');
@@ -3990,9 +3993,14 @@ function dlogTextToHtml(text, meta) {
       let rest2 = tag[2];
       let movedNote = '';
       let isNewToday = false;
-      const mv = rest2.match(/\s*\((new today|moved today[^)]*)\)\s*$/);
-      if (mv) {
-        if (mv[1] === 'new today') isNewToday = true; else movedNote = mv[1];
+      let isOrdered = false;
+      // Markers can stack ("Title  (new today)  (parts ordered)") — peel
+      // them off the tail one at a time.
+      let mv;
+      while ((mv = rest2.match(/\s*\((new today|moved today[^)]*|parts ordered)\)\s*$/))) {
+        if (mv[1] === 'new today') isNewToday = true;
+        else if (mv[1] === 'parts ordered') isOrdered = true;
+        else movedNote = mv[1];
         rest2 = rest2.slice(0, mv.index);
       }
       const segs = rest2.split(' — ');
@@ -4010,11 +4018,12 @@ function dlogTextToHtml(text, meta) {
       const headHtml = href
         ? `<a href="${esc(href)}" style="color:inherit;text-decoration:none;"><span class="nx-ink" style="font-family:${C.sans};font-size:15px;font-weight:bold;color:${C.ink};line-height:1.45;">${esc(head)}</span></a>`
         : `<span class="nx-ink" style="font-family:${C.sans};font-size:15px;font-weight:bold;color:${C.ink};line-height:1.45;">${esc(head)}</span>`;
-      // "NEW" rides as a quiet hollow-gold label on the RIGHT of the row
-      // (Alfredo: "a new label to the right of the ticket").
-      const newPill = isNewToday
-        ? `<td style="width:1%;white-space:nowrap;vertical-align:middle;padding-left:8px;"><span class="nx-pill nx-p-due" style="display:inline-block;padding:1px 6px;border:1.5px solid ${C.dueBd};border-radius:6px;font-family:${C.sans};font-size:9.5px;font-weight:bold;letter-spacing:.06em;color:${C.dueTx};">NEW</span></td>`
-        : '';
+      // "NEW" / "PARTS ORDERED" ride as quiet hollow-gold labels on the RIGHT
+      // of the row (Alfredo: "a new label to the right of the ticket"; then
+      // "inside the daily notes it should have new card and parts ordered").
+      const rightPill = (txt) =>
+        `<td style="width:1%;white-space:nowrap;vertical-align:middle;padding-left:8px;"><span class="nx-pill nx-p-due" style="display:inline-block;padding:1px 6px;border:1.5px solid ${C.dueBd};border-radius:6px;font-family:${C.sans};font-size:9.5px;font-weight:bold;letter-spacing:.06em;color:${C.dueTx};">${txt}</span></td>`;
+      const newPill = (isNewToday ? rightPill('NEW') : '') + (isOrdered ? rightPill('PARTS ORDERED') : '');
       return `
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
           <td style="width:1%;white-space:nowrap;vertical-align:top;padding:6px 9px 6px 0;">${dlogHtmlTag(tag[1])}</td>

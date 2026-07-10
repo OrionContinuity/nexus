@@ -1278,7 +1278,7 @@ function createCardEl(card){
   if(overdue) badges.push(`<span class="b-card-badge overdue">OVERDUE</span>`);
   // On-order notification — floats to the right of the badges row. Mirrors the
   // ON ORDER chip in Daily Notes; set via the card's Ordering toggle.
-  if(card.on_order && !isDone(card)) badges.push(`<span class="b-card-badge on-order" style="margin-left:auto">📦 ON ORDER</span>`);
+  if(card.on_order && !isDone(card)) badges.push(`<span class="b-card-badge on-order" style="margin-left:auto">📦 PARTS ORDERED</span>`);
   if(badges.length) html += `<div class="b-card-badges">${badges.join('')}</div>`;
 
   // Meta row: checklist progress, comments, due, assignee, age
@@ -2159,7 +2159,7 @@ async function openCardDetail(card){
         <div class="b-section-label">Ordering</div>
         <button type="button" class="b-onorder-toggle${card.on_order?' is-on':''}" id="bOnOrder">
           <span>📦</span>
-          <span id="bOnOrderTxt">${card.on_order?'On order — tap to clear':'Mark on order'}</span>
+          <span id="bOnOrderTxt">${card.on_order?'Parts ordered — tap to clear':'Mark parts ordered'}</span>
         </button>
       </div>
 
@@ -2405,7 +2405,7 @@ async function openCardDetail(card){
     const paint = (on) => {
       card.on_order = on;
       onOrderBtn.classList.toggle('is-on', on);
-      if(txt) txt.textContent = on ? 'On order — tap to clear' : 'Mark on order';
+      if(txt) txt.textContent = on ? 'Parts ordered — tap to clear' : 'Mark parts ordered';
     };
     paint(next);
     optimisticSet.add(card.id);
@@ -2413,7 +2413,7 @@ async function openCardDetail(card){
     try{
       const { error } = await NX.sb.from('kanban_cards').update({ on_order: next }).eq('id', card.id);
       if(error) throw error;
-      NX.toast && NX.toast(next ? 'Marked on order' : 'Cleared on order', 'success');
+      NX.toast && NX.toast(next ? 'Parts marked ordered' : 'Parts-ordered cleared', 'success');
     }catch(e){
       paint(prev);
       optimisticSet.delete(card.id);
