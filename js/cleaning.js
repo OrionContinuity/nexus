@@ -2384,6 +2384,129 @@
 
   function liteZoneName(es) { const z = liteZones().find(z => z.es === es); return z ? z.en : es; }
 
+  // ─── Day planner + crew profiles (v261) ──────────────────────────────────
+  // Alfredo: "give me a schedule to autofill in the week. like Monday — let
+  // me assign Yobani and Martin. or a profile for a mass duty to fill in."
+  // One sheet plans a whole day: every zone × every person as toggle chips.
+  // Save it to the day, to the whole week, or as a NAMED PROFILE ("Weekday",
+  // "Deep clean Monday") that refills the sheet in one tap next time.
+  function liteCrewProfiles() { const c = liteConfig(); return (c.crewProfiles && typeof c.crewProfiles === 'object') ? c.crewProfiles : {}; }
+  function liteSaveCrewProfile(name, map) {
+    const c = liteConfig(); c.crewProfiles = liteCrewProfiles(); c.crewProfiles[name] = map; saveLiteConfig(c);
+  }
+  function liteDeleteCrewProfile(name) {
+    const c = liteConfig(); c.crewProfiles = liteCrewProfiles(); delete c.crewProfiles[name]; saveLiteConfig(c);
+  }
+
+  function liteOpenDayPlanner(day) {
+    document.querySelectorAll('.cleanlite-sheet-bg').forEach(m => m.remove());
+    const zones = liteZones();
+    const people = litePeople();
+    if (!zones.length) { toast('No zones at this location yet', 'warn'); return; }
+    // Selection state: zone → Set of person ids, seeded from the day's crew.
+    const sel = {};
+    zones.forEach(z => { sel[z.es] = new Set(liteZonePeopleForDay(z.es, day).map(String)); });
+
+    const dayName = LITE_DOW[day - 1];
+    const profiles = liteCrewProfiles();
+    const profileChips = Object.keys(profiles).map(n =>
+      `<span class="cleanlite-pl-profile" data-profile="${esc(n)}">${esc(n)}<button class="cleanlite-pl-profile-x" data-del-profile="${esc(n)}" title="Delete profile">×</button></span>`).join('');
+
+    const zoneBlock = (z) => `
+      <div class="cleanlite-pl-zone" data-zone="${esc(z.es)}">
+        <div class="cleanlite-pl-zonename">${esc(z.en)} <span class="cleanlite-pl-count" data-count="${esc(z.es)}"></span></div>
+        <div class="cleanlite-pl-people">
+          ${people.map(p => `
+            <button class="cleanlite-pl-chip ${sel[z.es].has(String(p.id)) ? 'is-active' : ''}" data-z="${esc(z.es)}" data-pid="${esc(p.id)}">
+              <span class="cleanlite-av is-sm" style="--av-hue:${liteHue(p.id)}">${esc(liteInitials(p.name))}</span>${esc((p.name || '').split(' ')[0])}
+            </button>`).join('')}
+        </div>
+      </div>`;
+
+    const bg = document.createElement('div');
+    bg.className = 'cleanlite-sheet-bg';
+    bg.innerHTML = `
+      <div class="cleanlite-sheet cleanlite-planner" role="dialog" aria-modal="true">
+        <div class="cleanlite-sheet-grip"></div>
+        <div class="cleanlite-sheet-title">Plan <b>${esc(dayName)}</b> · ${esc(locLabel(activeLoc))}</div>
+        <div class="cleanlite-sheet-hint">Tap people onto each zone — the whole day on one screen.</div>
+        ${profileChips ? `<div class="cleanlite-pl-profiles"><span class="cleanlite-pl-profiles-lbl">Profiles</span>${profileChips}</div>` : ''}
+        <div class="cleanlite-pl-zones">${zones.map(zoneBlock).join('')}</div>
+        <div class="cleanlite-pl-saveprofile" style="display:none">
+          <input class="cleanlite-ov-input" data-profile-name placeholder="Profile name — e.g. Weekday, Mass duty" maxlength="28">
+          <button class="cleanlite-sheet-save" data-profile-ok>Save profile</button>
+        </div>
+        <div class="cleanlite-sheet-actions cleanlite-pl-actions">
+          <button class="cleanlite-sheet-clear" data-save-profile>☆ Save as profile</button>
+          <button class="cleanlite-sheet-clear" data-save-week>Save Mon–Sun</button>
+          <button class="cleanlite-sheet-save" data-save-day>Save ${esc(dayName)}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(bg);
+    requestAnimationFrame(() => bg.classList.add('open'));
+    const close = () => { bg.classList.remove('open'); setTimeout(() => bg.remove(), 200); };
+    bg.addEventListener('click', e => { if (e.target === bg) close(); });
+
+    const paintCounts = () => zones.forEach(z => {
+      const el = bg.querySelector(`[data-count="${cssEsc(z.es)}"]`);
+      if (el) el.textContent = sel[z.es].size ? `· ${sel[z.es].size}` : '';
+    });
+    paintCounts();
+
+    bg.querySelectorAll('.cleanlite-pl-chip').forEach(btn => btn.addEventListener('click', () => {
+      const s = sel[btn.dataset.z]; const pid = btn.dataset.pid;
+      if (s.has(pid)) { s.delete(pid); btn.classList.remove('is-active'); }
+      else { s.add(pid); btn.classList.add('is-active'); }
+      paintCounts();
+    }));
+
+    // Apply a profile → refill every zone's selection in one tap.
+    bg.querySelectorAll('[data-profile]').forEach(chip => chip.addEventListener('click', (e) => {
+      if (e.target.closest('[data-del-profile]')) return;
+      const map = liteCrewProfiles()[chip.dataset.profile] || {};
+      zones.forEach(z => {
+        sel[z.es] = new Set((map[z.es] || []).map(String));
+        bg.querySelectorAll(`.cleanlite-pl-chip[data-z="${cssEsc(z.es)}"]`).forEach(b =>
+          b.classList.toggle('is-active', sel[z.es].has(b.dataset.pid)));
+      });
+      paintCounts();
+      toast(`Profile "${chip.dataset.profile}" loaded — save it to a day or the week`, 'info');
+    }));
+    bg.querySelectorAll('[data-del-profile]').forEach(x => x.addEventListener('click', (e) => {
+      e.stopPropagation();
+      liteDeleteCrewProfile(x.dataset.delProfile);
+      const chip = x.closest('.cleanlite-pl-profile'); if (chip) chip.remove();
+      toast('Profile deleted', 'success');
+    }));
+
+    const saveTo = async (days, label) => {
+      close();
+      toast(`Writing ${label}…`, 'info');
+      for (const z of zones) await liteAssignZone(z.es, Array.from(sel[z.es]), days);
+      render();
+      toast(`Crew saved — ${label}`, 'success');
+    };
+    bg.querySelector('[data-save-day]').addEventListener('click', () => saveTo([day], dayName));
+    bg.querySelector('[data-save-week]').addEventListener('click', () => saveTo([1,2,3,4,5,6,7], 'every day'));
+
+    // Save-as-profile: inline name field (no window.prompt).
+    bg.querySelector('[data-save-profile]').addEventListener('click', () => {
+      const row = bg.querySelector('.cleanlite-pl-saveprofile');
+      row.style.display = row.style.display === 'none' ? 'flex' : 'none';
+      if (row.style.display !== 'none') row.querySelector('[data-profile-name]').focus();
+    });
+    bg.querySelector('[data-profile-ok]').addEventListener('click', () => {
+      const inp = bg.querySelector('[data-profile-name]');
+      const name = (inp.value || '').trim();
+      if (!name) { inp.focus(); return; }
+      const map = {};
+      zones.forEach(z => { if (sel[z.es].size) map[z.es] = Array.from(sel[z.es]); });
+      liteSaveCrewProfile(name, map);
+      toast(`Profile "${name}" saved — it'll be one tap next time`, 'success');
+      bg.querySelector('.cleanlite-pl-saveprofile').style.display = 'none';
+    });
+  }
+
   // Add one person to a zone's existing crew (used by the new-employee flows).
   async function liteAppendZonePerson(sectionEs, pid) {
     const cur = liteZonePeople(sectionEs);
@@ -3256,8 +3379,11 @@
       <div class="cleanlite-dayrow">
         <span class="cleanlite-dayrow-label">Crew · ${esc(scopeLabel)}</span>
         <div class="cleanlite-days">${dayPills}</div>
+      </div>
+      <div class="cleanlite-dayrow">
+        <button class="cleanlite-mini is-accent" data-plan title="Plan the whole day on one screen — every zone, every person, plus saved profiles">📋 Plan ${liteDay === 'all' ? esc(LITE_DOW[todayDow - 1]) : esc(LITE_DOW[liteDay - 1])}</button>
         ${liteDay !== 'all' ? `<button class="cleanlite-mini" data-copy-all title="Copy this day's crew to every day">${svg('calendar', 12)} → all days</button>` : ''}
-        <button class="cleanlite-mini is-accent" data-autofill title="Fill every empty day for every zone from its current crew — covers the next two weeks">⚡ Autofill 2 wks</button>
+        <button class="cleanlite-mini" data-autofill title="Fill every empty day for every zone from its current crew — covers the next two weeks">⚡ Autofill 2 wks</button>
       </div>`;
     const ctas = liteMode === 'today'
       ? `<button class="cleanlite-cta" data-summary title="Email a cleaning summary or send it to the Daily Log">${svg('mail', 15)} Summary</button>`
@@ -3280,6 +3406,8 @@
     wrap.querySelectorAll('[data-day]').forEach(b => b.addEventListener('click', () => {
       const v = b.dataset.day; liteDay = v === 'all' ? 'all' : parseInt(v, 10); render();
     }));
+    const planBtn = wrap.querySelector('[data-plan]');
+    if (planBtn) planBtn.addEventListener('click', () => liteOpenDayPlanner(liteDay === 'all' ? todayDayOfWeek() : liteDay));
     const copyAll = wrap.querySelector('[data-copy-all]'); if (copyAll) copyAll.addEventListener('click', liteCopyDayToAll);
     const autoBtn = wrap.querySelector('[data-autofill]'); if (autoBtn) autoBtn.addEventListener('click', liteAutofillTwoWeeks);
     wrap.querySelectorAll('[data-shift]').forEach(b => b.addEventListener('click', () => { liteShift = b.dataset.shift; render(); }));

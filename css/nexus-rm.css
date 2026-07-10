@@ -2912,3 +2912,49 @@
 }
 /* keep the › arrow adjacent to the chip instead of also grabbing the auto margin */
 #dailylogView .dlog-tk-onorder + .dlog-row-go { margin-left: 8px; }
+
+/* ─── v261 — Crew day planner + profiles (plan a whole day on one sheet) ── */
+#cleanView .cleanlite-planner, .cleanlite-planner { max-height: 88dvh; }
+.cleanlite-pl-profiles {
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin: 2px 0 10px;
+}
+.cleanlite-pl-profiles-lbl {
+  font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--nx-faint, #6c7585);
+}
+.cleanlite-pl-profile {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 6px 5px 12px;
+  border-radius: 999px; cursor: pointer; font-size: 12px; font-weight: 700;
+  background: var(--nx-gold-faint, rgba(212,164,78,.10));
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,.35)); color: var(--nx-gold, #d4a44e);
+}
+.cleanlite-pl-profile-x {
+  border: 0; background: transparent; color: var(--nx-faint, #6c7585);
+  font-size: 13px; cursor: pointer; padding: 0 4px; line-height: 1;
+}
+.cleanlite-pl-profile-x:hover { color: var(--nx-gold, #d4a44e); }
+.cleanlite-pl-zones { display: flex; flex-direction: column; gap: 12px; }
+.cleanlite-pl-zone {
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,.16)); border-radius: 12px;
+  padding: 10px 11px; background: var(--nx-surface-2, rgba(24,34,54,.4));
+}
+.cleanlite-pl-zonename {
+  font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+  color: var(--nx-text-strong, #f6f0e2); margin-bottom: 8px;
+}
+.cleanlite-pl-count { color: var(--nx-gold, #d4a44e); font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+.cleanlite-pl-people { display: flex; flex-wrap: wrap; gap: 6px; }
+.cleanlite-pl-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px 4px 4px;
+  border-radius: 999px; cursor: pointer; font-size: 12px; font-weight: 600;
+  background: transparent; border: 1px solid rgba(255,255,255,.10);
+  color: var(--nx-muted, #9aa3b2); font-family: inherit; transition: all .12s;
+}
+.cleanlite-pl-chip.is-active {
+  background: var(--nx-gold-faint, rgba(212,164,78,.14));
+  border-color: var(--nx-gold, #d4a44e); color: var(--nx-gold, #d4a44e);
+}
+.cleanlite-pl-chip .cleanlite-av.is-sm { width: 24px; height: 24px; font-size: 10px; border-width: 1px; }
+.cleanlite-pl-saveprofile { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
+.cleanlite-pl-saveprofile .cleanlite-ov-input { flex: 1; }
+.cleanlite-pl-actions { flex-wrap: wrap; }
