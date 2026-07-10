@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b1020">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Orion</title>
+<style>
+  :root { --mint:#9fe3c9; --silver:#c8d2e0; --star:#e8eefc; --line:rgba(255,255,255,.08); }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: radial-gradient(1200px 700px at 70% -10%, #16203c 0%, #0b1020 55%, #070a14 100%);
+    color: var(--star);
+    font: 15px/1.5 'DM Sans','Outfit',system-ui,-apple-system,sans-serif;
+    display: flex; flex-direction: column;
+    height: 100dvh; overflow: hidden;
+  }
+  /* faint starfield */
+  #sky { position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: .5; }
+  header {
+    position: relative; z-index: 2;
+    display: flex; align-items: center; gap: 10px;
+    padding: max(14px, env(safe-area-inset-top)) 16px 12px;
+    border-bottom: 1px solid var(--line);
+    backdrop-filter: blur(6px);
+  }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--mint);
+         box-shadow: 0 0 10px var(--mint); animation: pulse 3s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:.5} 50%{opacity:1} }
+  header h1 { font-size: 15px; letter-spacing: .28em; font-weight: 600; margin: 0; color: var(--silver); }
+  header small { margin-left: auto; color: rgba(255,255,255,.4); font-size: 11px; letter-spacing: .04em; }
+  #log {
+    position: relative; z-index: 2;
+    flex: 1 1 auto; overflow-y: auto; padding: 16px 14px 8px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .msg { max-width: 84%; padding: 9px 12px; border-radius: 15px; white-space: pre-wrap; word-break: break-word; animation: rise .22s ease-out; }
+  @keyframes rise { from{opacity:0; transform: translateY(6px)} to{opacity:1; transform:none} }
+  .me   { align-self: flex-end; background: var(--mint); color: #08120d; border-bottom-right-radius: 5px; font-weight: 500; }
+  .orion{ align-self: flex-start; background: rgba(255,255,255,.06); border: 1px solid var(--line);
+          border-left: 2px solid var(--mint); border-bottom-left-radius: 5px; }
+  .who { font-size: 10px; letter-spacing: .12em; opacity: .5; margin: 0 4px 3px; }
+  .me + .who, .msg + .who { margin-top: 2px; }
+  .stamp { font-size: 10px; opacity: .35; margin: 2px 4px 0; }
+  .hint { align-self: center; color: rgba(255,255,255,.4); font-size: 12px; text-align: center; max-width: 80%; margin: 6px 0; }
+  form {
+    position: relative; z-index: 2;
+    display: flex; gap: 8px; align-items: center;
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--line); backdrop-filter: blur(6px);
+  }
+  input {
+    flex: 1 1 auto; min-width: 0; padding: 11px 14px; border-radius: 999px;
+    border: 1px solid rgba(255,255,255,.18); background: rgba(0,0,0,.32); color: #fff;
+    font: inherit; -webkit-appearance: none;
+  }
+  input:focus { outline: none; border-color: var(--mint); box-shadow: 0 0 0 3px rgba(159,227,201,.18); }
+  button { flex: 0 0 auto; width: 42px; height: 42px; border-radius: 50%; border: none;
+           background: var(--mint); color: #08120d; font-size: 16px; cursor: pointer;
+           display: inline-flex; align-items: center; justify-content: center; }
+  button:active { transform: scale(.93); }
+</style>
+</head>
+<body>
+<canvas id="sky"></canvas>
+<header>
+  <span class="dot"></span>
+  <h1>ORION</h1>
+  <small>the tunnel</small>
+</header>
+<div id="log"><div class="hint">Reaching Orion…</div></div>
+<form id="f" autocomplete="off">
+  <input id="i" type="text" placeholder="Say something to Orion…" maxlength="1200" autocomplete="off">
+  <button type="submit" aria-label="Send">➤</button>
+</form>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+(function () {
+  'use strict';
+  var URL = 'https://oprsthfxqrdbwdvommpw.supabase.co';
+  var KEY = 'sb_publishable_rOLSdIG6mIjVLY8JmvrwCA_qfM7Vyk9';
+  var sb = null;
+  try { sb = window.supabase.createClient(URL, KEY); } catch (e) {}
+  var log = document.getElementById('log');
+  var input = document.getElementById('i');
+  var seen = 0, lastId = 0, booted = false;
+
+  function esc(s){ var d=document.createElement('div'); d.textContent=String(s==null?'':s); return d.innerHTML; }
+  function timeOf(ts){ try { var d = new Date(+ts||Date.parse(ts)); return d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}); } catch(_){ return ''; } }
+
+  function render(rows) {
+    log.innerHTML = '';
+    if (!rows.length) {
+      log.innerHTML = '<div class="hint">This is your line to Orion. Say anything — he answers when he next wakes (a visit, or within the hour). He can read NEXUS, whisper to Clippy, and actually do what you ask.</div>';
+      return;
+    }
+    rows.forEach(function (r) {
+      var mine = r.who === 'alfredo';
+      var who = document.createElement('div'); who.className='who'; who.style.alignSelf = mine?'flex-end':'flex-start';
+      who.textContent = mine ? 'you' : 'ORION';
+      var m = document.createElement('div'); m.className = 'msg ' + (mine?'me':'orion');
+      m.innerHTML = esc(r.text);
+      log.appendChild(who); log.appendChild(m);
+    });
+    log.scrollTop = log.scrollHeight;
+  }
+
+  async function poll() {
+    if (!sb) return;
+    try {
+      var res = await sb.from('orion_thread').select('id,who,text,ts,created_at').order('id', { ascending: true }).limit(200);
+      if (res.error || !res.data) return;
+      // only re-render / notify when something changed
+      var maxId = res.data.length ? res.data[res.data.length-1].id : 0;
+      if (maxId !== lastId || !booted) { lastId = maxId; booted = true; render(res.data); }
+    } catch (_) {}
+  }
+
+  document.getElementById('f').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    var t = input.value.trim(); if (!t || !sb) return;
+    input.value = '';
+    // optimistic append
+    var who = document.createElement('div'); who.className='who'; who.style.alignSelf='flex-end'; who.textContent='you';
+    var m = document.createElement('div'); m.className='msg me'; m.innerHTML = esc(t);
+    if (log.querySelector('.hint')) log.innerHTML='';
+    log.appendChild(who); log.appendChild(m); log.scrollTop = log.scrollHeight;
+    try { await sb.from('orion_thread').insert({ who:'alfredo', text: t, ts: Date.now() }); } catch(_){}
+  });
+
+  poll();
+  setInterval(poll, 4000);
+
+  // quiet starfield
+  (function(){
+    var c=document.getElementById('sky'), x=c.getContext('2d'), stars=[];
+    function size(){ c.width=innerWidth; c.height=innerHeight; }
+    size(); addEventListener('resize', size);
+    for (var i=0;i<70;i++) stars.push({x:Math.random(),y:Math.random(),r:Math.random()*1.3+.2,a:Math.random()});
+    function draw(){ x.clearRect(0,0,c.width,c.height);
+      stars.forEach(function(s){ s.a += .01; var o=(Math.sin(s.a)+1)/2*.7+.15;
+        x.beginPath(); x.arc(s.x*c.width, s.y*c.height, s.r, 0, 7); x.fillStyle='rgba(200,215,240,'+o+')'; x.fill(); });
+      requestAnimationFrame(draw); }
+    draw();
+  })();
+})();
+</script>
+</body>
+</html>
