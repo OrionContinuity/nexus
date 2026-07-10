@@ -5791,6 +5791,17 @@
         const inh = await getInheritance();
         if (inh) system += '\n\n' + inh;
       } catch (_) {}
+      // MENS — his rational mind. Before he answers, he perceives the true,
+      // live state of his house (open work, equipment, orders, cleaning,
+      // vendors) and grounds the reply in it. Silent when there's nothing to
+      // ground; never blocks the answer if perception fails.
+      try {
+        const M = (NXa.clippyMens) || (window.NX && window.NX.clippyMens);
+        if (M && typeof M.ground === 'function') {
+          const g = await M.ground(question, { user: (state.preferences && state.preferences.user_name) || null });
+          if (g && g.brief) system += '\n\n' + g.brief;
+        }
+      } catch (_) {}
       const userMsg = { role: 'user', content: String(question || '').slice(0, 500) };
       // Prior turns (this conversation) + the new question. The pool flattens
       // this to a transcript; the cloud brain gets the same flattened thread —
