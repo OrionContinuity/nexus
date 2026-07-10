@@ -115,24 +115,28 @@ const STYLES = `
      vanish; flex:1 makes the column body grow to use whatever's left
      after summary + filter strips. The earlier max-height calc was
      leaving a giant void below short columns on desktop. */
-  .b-list{flex:0 0 300px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:10px;padding:10px;display:flex;flex-direction:column;min-height:240px;max-height:calc(100vh - 200px)}
+  .b-list{flex:0 0 300px;background:linear-gradient(168deg,rgba(22,30,52,0.55),rgba(13,18,32,0.55));border:1px solid rgba(212,164,78,0.10);border-radius:12px;padding:10px;display:flex;flex-direction:column;min-height:240px;max-height:calc(100vh - 200px)}
   /* Wider on desktop where there's room */
   @media(min-width:900px){
     .b-list{flex:0 0 320px}
   }
-  .b-list-head{display:flex;align-items:center;gap:6px;margin-bottom:8px;padding:2px 2px 6px;border-bottom:1px solid rgba(255,255,255,0.05)}
-  .b-list-name{font-weight:600;font-size:13px;flex:1;color:var(--text)}
-  .b-list-count{font-size:11px;color:var(--text-dim);background:rgba(255,255,255,0.05);padding:2px 7px;border-radius:8px}
+  .b-list-head{display:flex;align-items:center;gap:6px;margin-bottom:8px;padding:2px 2px 6px;border-bottom:1px solid rgba(212,164,78,0.14)}
+  .b-list-name{font-weight:600;font-size:12.5px;flex:1;color:var(--text);letter-spacing:.05em;text-transform:uppercase}
+  .b-list-count{font-size:11px;color:var(--accent);background:rgba(212,164,78,0.10);border:1px solid rgba(212,164,78,0.18);padding:2px 8px;border-radius:999px;font-weight:600}
   .b-list-cards{flex:1;overflow-y:auto;min-height:30px;margin:0 -2px;padding:0 2px;scrollbar-width:thin}
   .b-list-cards.drag-over{background:rgba(200,164,78,0.05);border-radius:6px}
-  /* Trello-style drag feedback. The picked-up card collapses to nothing
-     (its clone floats under the finger) so only the live gap shows where
-     it will land; the target list gets a soft ring; the placeholder is the
-     gap itself, sized to a typical card so the layout doesn't jump. */
+  /* Trello-style drag feedback, v2 "soft physics". The picked-up card
+     collapses to nothing; its clone floats under the finger with eased
+     inertia + a slight travel tilt (see the rAF lerp in enableCardDrag).
+     The drop slot is a GHOST of the actual card — a dimmed copy inside a
+     dashed gold frame — so you see exactly what lands where. On release
+     the clone flies into the ghost slot and settles. */
   .b-card.is-dragging{opacity:0;height:0;min-height:0;margin:0;padding:0;border:0;overflow:hidden;pointer-events:none}
-  .b-list.drop-target{outline:2px solid rgba(200,164,78,0.35);outline-offset:-2px;border-radius:10px}
-  .b-card-dragclone{opacity:.95;transform:rotate(1.5deg) scale(1.02);box-shadow:0 14px 34px rgba(0,0,0,0.55);border-color:rgba(200,164,78,0.4)!important;transition:none}
-  .b-card-placeholder{height:44px;margin-bottom:8px;border-radius:10px;background:rgba(200,164,78,0.08);border:1px dashed rgba(200,164,78,0.35);flex-shrink:0;animation:bfade .12s ease}
+  .b-list.drop-target{outline:1.5px solid rgba(212,164,78,0.5);outline-offset:-1.5px;border-radius:10px;box-shadow:inset 0 0 26px rgba(212,164,78,0.05)}
+  .b-card-dragclone{opacity:.97;box-shadow:0 18px 44px rgba(0,0,0,0.5),0 0 0 1.5px rgba(212,164,78,0.5),0 0 26px rgba(212,164,78,0.14);border-color:rgba(212,164,78,0.55)!important;transition:none;will-change:transform;border-radius:10px}
+  .b-card-placeholder{position:relative;margin-bottom:8px;border-radius:10px;border:1.5px dashed rgba(212,164,78,0.5);background:rgba(212,164,78,0.05);flex-shrink:0;overflow:hidden;animation:bGhostIn .16s cubic-bezier(.2,.8,.3,1)}
+  .b-card-placeholder .b-card{opacity:.4;margin:0;border-color:transparent;filter:saturate(.7);pointer-events:none}
+  @keyframes bGhostIn{from{transform:scale(.97);opacity:.3}to{transform:scale(1);opacity:1}}
   /* List (column) drag-to-reorder. The header is the grip; the original
      fades in place while its clone floats, and the target column that the
      dragged list will land next to gets a dashed ring. */
@@ -149,7 +153,7 @@ const STYLES = `
   /* Terminal list collapse — Done/Closed/Resolved/Complete/Archived default
      to a single-line summary. Tap the header to expand. Saves screen real
      estate on mobile by hiding completed work. */
-  .b-list.is-terminal{background:rgba(20,18,14,0.4);opacity:.85}
+  .b-list.is-terminal{background:rgba(13,18,30,0.4);opacity:.85}
   .b-list.is-terminal .b-list-head{color:var(--text-dim)}
   .b-list-collapse-icon{display:inline-block;margin-right:6px;color:var(--text-dim);font-size:10px;transition:transform .15s;user-select:none}
   .b-list.is-collapsed{min-height:auto}
@@ -160,9 +164,9 @@ const STYLES = `
      CARD — Trello-style
      cover (image, bleeds to edges) → strip (label color bar) → body
      ═══════════════════════════════════════════════════════════════════ */
-  .b-card{position:relative;background:rgba(20,18,14,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:10px;margin-bottom:8px;cursor:pointer;overflow:hidden;transition:transform .15s,box-shadow .15s,border-color .15s}
+  .b-card{position:relative;background:rgba(17,23,40,0.92);border:1px solid rgba(255,255,255,0.07);border-radius:10px;margin-bottom:8px;cursor:pointer;overflow:hidden;transition:transform .15s,box-shadow .15s,border-color .15s}
   .b-card:active{transform:scale(0.98)}
-  .b-card:hover{border-color:rgba(200,164,78,0.2);box-shadow:0 4px 14px rgba(0,0,0,0.3)}
+  .b-card:hover{border-color:rgba(212,164,78,0.28);box-shadow:0 4px 16px rgba(0,0,0,0.35)}
   /* Cover — bleed image at top, like Trello */
   .b-card-cover{width:100%;height:140px;overflow:hidden;background:rgba(255,255,255,0.02);position:relative}
   .b-card-cover img{width:100%;height:100%;object-fit:cover;display:block}
@@ -1032,39 +1036,45 @@ function normalizeCardLabel(l){
 }
 
 // ─── Trello-style positional drag helpers ────────────────────────────────
-// The dragged card carries a live "placeholder" — a gap that follows the
-// finger and shows exactly where the card will land. We track which card
-// we'd drop *before* (null = end of list) so the drop can compute a
-// fractional position between neighbours.
+// The dragged card carries a live GHOST — a dimmed copy of the actual card
+// in a dashed gold frame, sitting exactly where it would land. One element,
+// created at pick-up and MOVED between slots (recreating it every pointermove
+// flickered). We track which card we'd drop *before* (null = end of list) so
+// the drop can compute a fractional position between neighbours.
 function removePlaceholder(P){
-  if (P && P._ph) { P._ph.remove(); P._ph = null; }
+  if (P && P._ph) { P._ph.remove(); P._ph = null; P._phKey = null; }
   else document.querySelectorAll('.b-card-placeholder').forEach(n => n.remove());
 }
 
 function positionPlaceholder(P, listEl, y){
-  removePlaceholder(P);
-  P.overBeforeId = null;
-  if (!listEl) return;
+  if (!listEl){
+    // No target — park the ghost (keep the element for reuse).
+    if (P._ph) P._ph.remove();
+    P._phKey = null; P.overBeforeId = null;
+    return;
+  }
   const wrap = listEl.querySelector('.b-list-cards');
-  if (!wrap) return;
-  // Only consider real cards that aren't the one being dragged.
-  const siblings = [...wrap.querySelectorAll('.b-card:not(.is-dragging)')];
+  if (!wrap || !P._ph) return;
+  // Only real cards: not the one being dragged, and not the ghost's own copy.
+  const siblings = [...wrap.querySelectorAll('.b-card:not(.is-dragging)')]
+    .filter(c => !c.closest('.b-card-placeholder'));
   let beforeEl = null;
   for (const c of siblings){
     const r = c.getBoundingClientRect();
     if (y < r.top + r.height / 2){ beforeEl = c; break; }
   }
-  const ph = document.createElement('div');
-  ph.className = 'b-card-placeholder';
+  P.overBeforeId = beforeEl ? beforeEl.dataset.cardId : null;
+  // Same slot as last time → nothing to do (this is what makes it calm).
+  const key = (listEl.dataset.listId || '') + ':' + (beforeEl ? beforeEl.dataset.cardId : 'END');
+  if (key === P._phKey && P._ph.parentNode) return;
+  P._phKey = key;
   if (beforeEl){
-    P.overBeforeId = beforeEl.dataset.cardId;
-    wrap.insertBefore(ph, beforeEl);
+    wrap.insertBefore(P._ph, beforeEl);
   } else {
     // Drop at the end — before the empty-state note if present, else append.
     const empty = wrap.querySelector('.b-list-empty');
-    if (empty) wrap.insertBefore(ph, empty); else wrap.appendChild(ph);
+    if (empty) wrap.insertBefore(P._ph, empty); else wrap.appendChild(P._ph);
   }
-  P._ph = ph;
 }
 
 // Compute the fractional position a card should take when dropped into a
@@ -1359,43 +1369,94 @@ function createCardEl(card){
     const clone = el.cloneNode(true);
     clone.classList.remove('is-dragging');
     clone.classList.add('b-card-dragclone');
-    clone.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width}px;margin:0;pointer-events:none;z-index:3000`;
+    clone.style.cssText = `position:fixed;left:0;top:0;width:${r.width}px;margin:0;pointer-events:none;z-index:3000`;
     document.body.appendChild(clone);
     P.clone = clone; P.offX = P.startX - r.left; P.offY = P.startY - r.top;
+    // Soft physics state: the clone EASES toward the finger (lerp in a rAF
+    // loop) with a slight travel tilt, instead of snapping rigidly.
+    P.cx = r.left; P.cy = r.top;          // current (eased) position
+    P.tx = r.left; P.ty = r.top;          // target (finger) position
+    P.lastX = P.startX; P.lastY = P.startY;
+    clone.style.transform = `translate3d(${r.left}px,${r.top}px,0)`;
+    // The GHOST: a dimmed copy of the real card in a dashed gold frame,
+    // moved between slots as the finger travels (see positionPlaceholder).
+    const ph = document.createElement('div');
+    ph.className = 'b-card-placeholder';
+    const ghost = el.cloneNode(true);
+    ghost.classList.remove('is-dragging');
+    ghost.style.pointerEvents = 'none';
+    ph.appendChild(ghost);
+    P._ph = ph; P._phKey = null;
+    P.hscroll = el.closest('.b-lists');
     el.classList.add('is-dragging');
+    // rAF loop: ease the clone, and edge-scroll BOTH axes — vertical inside
+    // the hovered column (Trello-style: hold near the top/bottom edge and it
+    // scrolls, even with the finger still), horizontal across columns.
+    const loop = () => {
+      if (!P || !P.dragging || !P.clone) { if (P) P.raf = null; return; }
+      P.cx += (P.tx - P.cx) * 0.32;
+      P.cy += (P.ty - P.cy) * 0.32;
+      const tilt = Math.max(-2.5, Math.min(2.5, (P.tx - P.cx) * 0.05));
+      P.clone.style.transform = `translate3d(${P.cx}px,${P.cy}px,0) rotate(${tilt}deg) scale(1.03)`;
+      let scrolled = false;
+      if (P.scrollWrap) {
+        const wr = P.scrollWrap.getBoundingClientRect();
+        const m = 56;
+        if (P.lastY < wr.top + m && P.scrollWrap.scrollTop > 0) {
+          P.scrollWrap.scrollTop -= Math.min(14, (wr.top + m - P.lastY) * 0.3); scrolled = true;
+        } else if (P.lastY > wr.bottom - m) {
+          P.scrollWrap.scrollTop += Math.min(14, (P.lastY - (wr.bottom - m)) * 0.3); scrolled = true;
+        }
+      }
+      if (P.hscroll) {
+        const m = 52;
+        if (P.lastX < m) { P.hscroll.scrollLeft -= 14; scrolled = true; }
+        else if (P.lastX > window.innerWidth - m) { P.hscroll.scrollLeft += 14; scrolled = true; }
+      }
+      // Content moved under a still finger — re-seat the ghost.
+      if (scrolled && P.dropListEl) positionPlaceholder(P, P.dropListEl, P.lastY);
+      P.raf = requestAnimationFrame(loop);
+    };
+    P.raf = requestAnimationFrame(loop);
   };
   const dragTo = (x, y) => {
-    if (P.clone) {
-      P.clone.style.left = (x - P.offX) + 'px';
-      P.clone.style.top  = (y - P.offY) + 'px';
-      P.clone.style.visibility = 'hidden';
-    }
+    P.tx = x - P.offX; P.ty = y - P.offY;
+    P.lastX = x; P.lastY = y;
+    // The clone is pointer-events:none, so it never blocks the hit test.
     const under = document.elementFromPoint(x, y);
-    if (P.clone) P.clone.style.visibility = '';
     const listEl = under && under.closest('.b-list');
     clearDropTargets();
     // Don't offer the "add another list" tile as a drop target.
     const dropList = listEl && !listEl.classList.contains('b-list-new') ? listEl : null;
     if (dropList) dropList.classList.add('drop-target');
     P.overListId = dropList ? dropList.dataset.listId : null;
-    // Position the live gap where the card would land, and remember which
-    // card we'd drop before (null = end of list). This is what makes
-    // ordering feel like Trello — you drop into a slot, not just onto a list.
+    P.dropListEl = dropList;
+    P.scrollWrap = dropList ? dropList.querySelector('.b-list-cards') : null;
+    // Seat the ghost where the card would land, and remember which card
+    // we'd drop before (null = end of list). This is what makes ordering
+    // feel like Trello — you drop into a slot, not just onto a list.
     positionPlaceholder(P, dropList, y);
-    // Edge auto-scroll the horizontal lists container so you can drag across
-    // columns even when only one is on screen (mobile snap layout).
-    const sc = el.closest('.b-lists');
-    if (sc) {
-      const m = 52;
-      if (x < m) sc.scrollLeft -= 16;
-      else if (x > window.innerWidth - m) sc.scrollLeft += 16;
-    }
   };
   const drop = async () => {
-    const overId = P.overListId;
-    const beforeId = P.overBeforeId || null;
-    removePlaceholder(P);
-    if (P.clone) P.clone.remove();
+    const S = P;   // capture the session — a fast second touch may reassign P during the settle
+    if (S.raf) { cancelAnimationFrame(S.raf); S.raf = null; }
+    const overId = S.overListId;
+    const beforeId = S.overBeforeId || null;
+    // THE SETTLE: fly the clone into the ghost slot (or back home when
+    // dropped nowhere), then commit. 180ms — felt, not waited-for.
+    const clone = S.clone;
+    if (clone) {
+      let dest = null;
+      if (overId && S._ph && S._ph.parentNode) dest = S._ph.getBoundingClientRect();
+      else { const hr = el.getBoundingClientRect(); dest = { left: hr.left, top: hr.top }; }
+      try {
+        clone.style.transition = 'transform .18s cubic-bezier(.2,.8,.3,1),opacity .18s ease';
+        clone.style.transform = `translate3d(${dest.left}px,${dest.top}px,0) rotate(0deg) scale(1)`;
+        await new Promise(r => setTimeout(r, 185));
+      } catch(_) {}
+    }
+    removePlaceholder(S);
+    if (clone) clone.remove();
     el.classList.remove('is-dragging');
     clearDropTargets();
     dragCard = null;
@@ -1438,6 +1499,7 @@ function createCardEl(card){
   el.addEventListener('pointercancel', () => {
     if (!P) return;
     clearTimeout(P.holdTimer);
+    if (P.raf) cancelAnimationFrame(P.raf);
     removePlaceholder(P);
     if (P.clone) P.clone.remove();
     el.classList.remove('is-dragging');
