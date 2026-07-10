@@ -207,6 +207,23 @@ const STYLES = `
   .b-card:hover .b-card-kebab,.b-card.show-move .b-card-kebab{opacity:1}
   .b-card-kebab:hover,.b-card-kebab:active{background:rgba(255,255,255,0.08);color:var(--text)}
   @media(hover:none){.b-card-kebab{opacity:.8}}
+  /* One-tap dismiss (✕) on the card face — Alfredo: getting rid of cards
+     (especially repeating ones) had no fast path. Sits left of the kebab. */
+  .b-card-dismiss{position:absolute;top:3px;right:33px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;background:transparent;border:0;color:var(--text-dim);font-size:14px;line-height:1;border-radius:8px;cursor:pointer;opacity:0;transition:opacity .15s,background .15s,color .15s;z-index:2;-webkit-tap-highlight-color:transparent}
+  .b-card:hover .b-card-dismiss{opacity:1}
+  .b-card-dismiss:hover,.b-card-dismiss:active{background:rgba(212,164,78,0.12);color:var(--accent)}
+  @media(hover:none){.b-card-dismiss{opacity:.55}}
+  /* Repeat chip on the face — quiet ↻ so recurring work is recognizable */
+  .b-card-badge.repeat{color:var(--accent);background:rgba(212,164,78,0.08)}
+  /* "Archive all" on Done column headers */
+  .b-list-archive-all{background:transparent;border:1px solid rgba(212,164,78,0.25);color:var(--text-dim);font-size:10px;padding:3px 8px;border-radius:999px;cursor:pointer;white-space:nowrap;font-family:inherit}
+  .b-list-archive-all:hover{color:var(--accent);border-color:rgba(212,164,78,0.5)}
+  /* Column sort button + menu */
+  .b-list-sort{background:transparent;border:0;color:var(--text-dim);font-size:13px;width:26px;height:26px;border-radius:8px;cursor:pointer;line-height:1}
+  .b-list-sort:hover{background:rgba(212,164,78,0.10);color:var(--accent)}
+  .b-sort-menu{position:absolute;z-index:1200;background:#131a2c;border:1px solid rgba(212,164,78,0.25);border-radius:10px;box-shadow:0 12px 34px rgba(0,0,0,0.5);padding:4px;min-width:150px}
+  .b-sort-menu button{display:block;width:100%;text-align:left;background:transparent;border:0;color:var(--text);font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer;font-family:inherit}
+  .b-sort-menu button:hover{background:rgba(212,164,78,0.10);color:var(--accent)}
 
   /* Detail modal */
   .b-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:20px 10px;overflow-y:auto;animation:bfade .15s ease}
@@ -215,6 +232,8 @@ const STYLES = `
   .b-modal-head{display:flex;align-items:flex-start;gap:8px;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,0.05);background:rgba(255,255,255,0.02)}
   .b-modal-title{flex:1;background:transparent;border:0;color:var(--text);font-size:15px;font-weight:600;outline:none;font-family:inherit}
   .b-modal-close{background:transparent;border:0;color:var(--text-dim);font-size:18px;cursor:pointer;padding:4px 8px}
+  .b-watch-toggle{background:transparent;border:1px solid rgba(255,255,255,0.12);color:var(--text-dim);font-size:14px;cursor:pointer;padding:4px 9px;border-radius:999px;line-height:1;filter:grayscale(1);opacity:.65;transition:all .15s}
+  .b-watch-toggle.is-on{border-color:rgba(212,164,78,0.6);background:rgba(212,164,78,0.12);filter:none;opacity:1}
   .b-modal-body{padding:14px 16px;max-height:70vh;overflow-y:auto}
   .b-section{margin-bottom:16px}
   .b-section-label{font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-faint);margin-bottom:4px}
@@ -931,8 +950,27 @@ function renderLists(){
     const head = document.createElement('div');
     head.className = 'b-list-head';
     const collapseIcon = isTerminal ? `<span class="b-list-collapse-icon">${collapsed ? '▸' : '▾'}</span>` : '';
+    // Terminal lists get "Archive all" (Trello's archive-all-in-list — the
+    // fast broom for a Done column full of finished repeat cards); working
+    // lists get a ⇅ sort control.
+    const headTool = isTerminal
+      ? (listCards.length ? `<button class="b-list-archive-all" data-archive-all="${esc(list.id)}">Archive all</button>` : '')
+      : `<button class="b-list-sort" data-sort-list="${esc(list.id)}" title="Sort column" aria-label="Sort column">⇅</button>`;
     head.innerHTML = `${collapseIcon}<div class="b-list-name">${esc(list.name)}</div>
+      ${headTool}
       <div class="b-list-count">${listCards.length}</div>`;
+    const archAllBtn = head.querySelector('.b-list-archive-all');
+    if (archAllBtn) archAllBtn.addEventListener('click', async e => {
+      e.stopPropagation();
+      const n = listCards.length;
+      if (!(await nxConfirm(`Archive all ${n} card${n===1?'':'s'} in "${list.name}"? Their tickets close too.`, { title: 'Archive all', okLabel: `Archive ${n}`, danger: true }))) return;
+      let done = 0;
+      for (const c of [...listCards]) { if (await archiveCard(c, { quiet: true })) done++; }
+      render();
+      NX.toast && NX.toast(`Archived ${done} card${done===1?'':'s'}`, 'success');
+    });
+    const sortBtn = head.querySelector('.b-list-sort');
+    if (sortBtn) sortBtn.addEventListener('click', e => { e.stopPropagation(); openSortMenu(sortBtn, list); });
     // Click header on terminal list → toggle collapse
     if(isTerminal){
       head.style.cursor = 'pointer';
@@ -1194,6 +1232,64 @@ function enableListDrag(head, listEl, list){
   });
 }
 
+// ─── Column sort ─────────────────────────────────────────────────────────
+// One tap orders a whole column: by priority, due date, or age. Writes
+// dense positions for the rows that changed (same pattern as reorderList).
+function openSortMenu(anchor, list){
+  document.querySelectorAll('.b-sort-menu').forEach(m => m.remove());
+  const menu = document.createElement('div');
+  menu.className = 'b-sort-menu';
+  menu.innerHTML = `
+    <button data-sort="priority">Priority first</button>
+    <button data-sort="due">Due date</button>
+    <button data-sort="oldest">Oldest first</button>
+    <button data-sort="newest">Newest first</button>`;
+  const r = anchor.getBoundingClientRect();
+  menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 168)) + 'px';
+  menu.style.top = (r.bottom + 4) + 'px';
+  menu.style.position = 'fixed';
+  document.body.appendChild(menu);
+  const closeAll = (ev) => { if (ev && menu.contains(ev.target)) return; menu.remove(); document.removeEventListener('pointerdown', closeAll, true); };
+  setTimeout(() => document.addEventListener('pointerdown', closeAll, true), 0);
+  menu.querySelectorAll('button').forEach(b => b.addEventListener('click', async () => {
+    closeAll();
+    await sortColumn(list, b.dataset.sort);
+  }));
+}
+
+async function sortColumn(list, mode){
+  const PRI = { urgent: 0, high: 1, normal: 2, low: 3 };
+  const inList = cards.filter(c => c.list_id === list.id);
+  const sorted = inList.slice().sort((a, b) => {
+    if (mode === 'priority') return (PRI[(a.priority||'normal')] ?? 2) - (PRI[(b.priority||'normal')] ?? 2);
+    if (mode === 'due'){
+      const ad = a.due_date ? new Date(a.due_date).getTime() : Infinity;
+      const bd = b.due_date ? new Date(b.due_date).getTime() : Infinity;
+      return ad - bd;
+    }
+    const ac = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const bc = b.created_at ? new Date(b.created_at).getTime() : 0;
+    return mode === 'oldest' ? ac - bc : bc - ac;
+  });
+  const updates = [];
+  sorted.forEach((c, i) => { if (c.position !== i) { c.position = i; updates.push({ id: c.id, position: i }); } });
+  if (!updates.length) { NX.toast && NX.toast('Already in that order', 'info'); return; }
+  render();
+  updates.forEach(u => optimisticSet.add(u.id));
+  try{
+    for (const u of updates){
+      const { error } = await NX.sb.from('kanban_cards').update({ position: u.position }).eq('id', u.id);
+      if (error) throw error;
+    }
+    NX.toast && NX.toast(`Sorted by ${mode === 'priority' ? 'priority' : mode === 'due' ? 'due date' : mode === 'oldest' ? 'oldest' : 'newest'}`, 'success');
+  }catch(e){
+    console.error('[board] sortColumn:', e);
+    NX.toast && NX.toast('Sort failed — reloading', 'error');
+    await loadCards(); render();
+  }
+  setTimeout(() => updates.forEach(u => optimisticSet.delete(u.id)), 4000);
+}
+
 async function reorderList(dragId, overId, after){
   const ordered = [...lists].sort((a,b) => (a.position||0) - (b.position||0));
   const dragIdx = ordered.findIndex(l => String(l.id) === String(dragId));
@@ -1268,6 +1364,7 @@ function createCardEl(card){
   // Replaces the old "→ Move" button: declutters the card and surfaces the
   // previously hidden long-press menu with a visible, tappable affordance.
   html += `<button class="b-card-kebab" data-kebab="${card.id}" aria-label="Card actions">⋯</button>`;
+  html += `<button class="b-card-dismiss" data-dismiss="${card.id}" aria-label="Archive card" title="Archive">✕</button>`;
 
   // Labels (small chips, more Trello-ish — already exists, just more compact)
   if(visibleLabels.length){
@@ -1286,6 +1383,7 @@ function createCardEl(card){
   if(loc) badges.push(`<span class="b-card-badge loc loc-${loc.key}"><i data-lucide="map-pin" class="badge-icon"></i> ${esc(loc.label)}</span>`);
   if(card.equipment_id) badges.push(`<span class="b-card-badge eq"><i data-lucide="wrench" class="badge-icon"></i> Equipment</span>`);
   if(overdue) badges.push(`<span class="b-card-badge overdue">OVERDUE</span>`);
+  if(card.repeat_every) badges.push(`<span class="b-card-badge repeat" title="Repeats ${esc(card.repeat_every)}">↻ ${esc(card.repeat_every)}</span>`);
   // On-order notification — floats to the right of the badges row. Mirrors the
   // ON ORDER chip in Daily Notes; set via the card's Ordering toggle.
   if(card.on_order && !isDone(card)) badges.push(`<span class="b-card-badge on-order" style="margin-left:auto">📦 PARTS ORDERED</span>`);
@@ -1469,7 +1567,7 @@ function createCardEl(card){
   };
 
   el.addEventListener('pointerdown', e => {
-    if (e.target.closest('.b-card-kebab') || e.target.closest('.nx-tr-btn')) return;
+    if (e.target.closest('.b-card-kebab') || e.target.closest('.b-card-dismiss') || e.target.closest('.nx-tr-btn')) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     P = { startX: e.clientX, startY: e.clientY, dragging: false, moved: false, clone: null, overListId: null, type: e.pointerType, ptr: e.pointerId };
     if (e.pointerType !== 'mouse') {
@@ -1509,6 +1607,17 @@ function createCardEl(card){
 
   // Kebab + right-click → bottom sheet (reliable no-drag path)
   el.querySelector('.b-card-kebab').addEventListener('click', e => { e.stopPropagation(); openQuickActions(card, el); });
+  // ✕ → archive in two taps (confirm names the card; repeating cards say
+  // what happens next so dismissal is never a mystery).
+  const dismissBtn = el.querySelector('.b-card-dismiss');
+  if (dismissBtn) dismissBtn.addEventListener('click', async e => {
+    e.stopPropagation();
+    const msg = card.repeat_every
+      ? `Archive "${card.title}"? It repeats ${card.repeat_every} — the next one will be scheduled. (Use ⋯ → Stop repeating to end the cycle.)`
+      : `Archive "${card.title}"?`;
+    if (!(await nxConfirm(msg, { title: 'Archive card', okLabel: 'Archive', danger: true }))) return;
+    await archiveCard(card);
+  });
   el.addEventListener('contextmenu', e => { e.preventDefault(); openQuickActions(card, el); });
 
   return el;
@@ -1582,6 +1691,7 @@ function openQuickActions(card, anchorEl){
       </div>
       <div class="b-qa-section b-qa-actions">
         <button class="b-qa-action b-qa-detail">Open card</button>
+        ${card.repeat_every ? `<button class="b-qa-action b-qa-stop-repeat">↻ Stop repeating</button>` : ''}
         <button class="b-qa-action b-qa-archive">Archive</button>
       </div>
       <button class="b-qa-cancel">Cancel</button>
@@ -1673,23 +1783,23 @@ function openQuickActions(card, anchorEl){
   menu.querySelector('.b-qa-archive').addEventListener('click', async () => {
     if(!(await nxConfirm(`Archive "${card.title}"?`, { title: 'Archive card', okLabel: 'Archive', danger: true }))){ return; }
     close();
-    const prev = card.archived;
-    card.archived = true;
-    optimisticSet.add(card.id);
-    // Remove from local state since loadCards filters by archived=false
-    const idx = cards.findIndex(c => c.id === card.id);
-    if(idx >= 0) cards.splice(idx, 1);
-    render();
+    await archiveCard(card);
+  });
+
+  // Repeating card → offer to kill the cycle for good (Alfredo: repeat
+  // cards were really hard to get rid of; this is the off switch).
+  const stopBtn = menu.querySelector('.b-qa-stop-repeat');
+  if (stopBtn) stopBtn.addEventListener('click', async () => {
+    close();
+    const prevEvery = card.repeat_every;
+    card.repeat_every = null;
     try{
-      await NX.sb.from('kanban_cards').update({ archived: true }).eq('id', card.id);
-      closeMirrorTicket(card);
-      NX.toast && NX.toast('Card archived', 'success');
+      const { error } = await NX.sb.from('kanban_cards').update({ repeat_every: null }).eq('id', card.id);
+      if (error) throw error;
+      NX.toast && NX.toast('Repeating stopped — this is the last one', 'success');
     }catch(e){
-      card.archived = prev;
-      optimisticSet.delete(card.id);
-      cards.push(card);
-      render();
-      NX.toast && NX.toast('Archive failed', 'error');
+      card.repeat_every = prevEvery;
+      NX.toast && NX.toast('Failed to stop repeating', 'error');
     }
   });
 }
@@ -1723,6 +1833,106 @@ function closeMirrorTicket(card){
         .then(r => { if (r && r.error) console.warn('[board] mirror ticket close failed — Duties may still show it open:', r.error.message); });
     }
   } catch (_) {}
+}
+
+// ─── Activity trail ──────────────────────────────────────────────────────
+// Small structured entries on the card: {a, f, t, by, at}. Kept compact —
+// this renders as "Moved To Do → In Progress · Alexander · Jul 10".
+function actEntry(a, f, t){
+  return { a, f: f || null, t: t || null, by: (NX.currentUser && NX.currentUser.name) || null, at: new Date().toISOString() };
+}
+
+// ─── Repeat cards ────────────────────────────────────────────────────────
+// A card with repeat_every (weekly/biweekly/monthly/quarterly) respawns a
+// fresh copy when it's finished (moved to a done lane) or archived. The
+// dying card's repeat_every is cleared FIRST — locally and in the DB — so
+// done-then-archived never spawns twice. Alfredo's pain: repeat cards were
+// impossible to get rid of; now the repeat lives ON the card, dismissal is
+// one ✕, and "Stop repeating" kills the cycle for good.
+function advanceDue(from, every){
+  const base = new Date(Math.max(Date.now(), from ? new Date(from).getTime() : 0));
+  const d = new Date(base);
+  if (every === 'weekly') d.setDate(d.getDate() + 7);
+  else if (every === 'biweekly') d.setDate(d.getDate() + 14);
+  else if (every === 'monthly') d.setMonth(d.getMonth() + 1);
+  else if (every === 'quarterly') d.setMonth(d.getMonth() + 3);
+  else return null;
+  return d.toISOString().slice(0, 10);
+}
+
+async function maybeRespawnRepeat(card){
+  const every = card && card.repeat_every;
+  if (!every) return;
+  card.repeat_every = null;   // claim the respawn before any await (no double-spawn)
+  try{
+    const nextDue = advanceDue(card.due_date, every);
+    // Land in the first non-terminal list of the card's board (To Do).
+    const home = lists
+      .slice().sort((a,b) => (a.position||0) - (b.position||0))
+      .find(l => !/(done|closed|resolved|complete|archived?)/.test((l.name||'').toLowerCase()));
+    if (!home || !nextDue) return;
+    const fresh = {
+      title: card.title,
+      description: card.description || null,
+      board_id: card.board_id,
+      list_id: home.id,
+      column_name: (home.name || '').toLowerCase().replace(/\s+/g,'_'),
+      position: (Math.min(0, ...cards.filter(c => c.list_id === home.id).map(c => c.position || 0))) - 1,
+      priority: card.priority || 'normal',
+      location: card.location || null,
+      equipment_id: card.equipment_id || null,
+      labels: card.labels || [],
+      photo_urls: [],
+      comments: [],
+      checklist: (card.checklist || []).map(s => ({ ...s, done: false })),
+      due_date: nextDue,
+      repeat_every: every,                     // the cycle carries forward
+      reported_by: card.reported_by || null,
+      assignee: card.assignee || null,
+      watchers: card.watchers || [],
+      activity: [actEntry('repeat', card.title, nextDue)],
+      archived: false,
+    };
+    await NX.sb.from('kanban_cards').update({ repeat_every: null }).eq('id', card.id);
+    const { data, error } = await NX.sb.from('kanban_cards').insert(fresh).select('*').single();
+    if (error) throw error;
+    if (data) { cards.push(data); render(); }
+    NX.toast && NX.toast(`↻ Next "${(card.title||'').slice(0,32)}" scheduled — due ${nextDue}`, 'success');
+  }catch(e){ console.warn('[board] repeat respawn failed:', e && e.message); }
+}
+
+// ─── One archive path for everything ────────────────────────────────────
+// Face ✕, kebab sheet, card modal, and Archive-All all land here: archive
+// the card, close its mirrored ticket (or it haunts Duties/Home forever),
+// log the trail, and respawn the next instance if the card repeats.
+async function archiveCard(card, opts){
+  const quiet = opts && opts.quiet;
+  const prev = card.archived;
+  card.archived = true;
+  optimisticSet.add(card.id);
+  const idx = cards.findIndex(c => c.id === card.id);
+  if (idx >= 0) cards.splice(idx, 1);
+  if (!quiet) render();
+  try{
+    const activity = [ ...(card.activity || []), actEntry('archived') ];
+    let { error } = await NX.sb.from('kanban_cards').update({ archived: true, activity }).eq('id', card.id);
+    if (error && error.code === '42703'){
+      ({ error } = await NX.sb.from('kanban_cards').update({ archived: true }).eq('id', card.id));
+    }
+    if (error) throw error;
+    card.activity = activity;
+    closeMirrorTicket(card);
+    await maybeRespawnRepeat(card);
+    if (!quiet) NX.toast && NX.toast('Card archived', 'success');
+    return true;
+  }catch(e){
+    card.archived = prev;
+    optimisticSet.delete(card.id);
+    cards.push(card);
+    render();
+    NX.toast && NX.toast('Archive failed', 'error');
+    return false;
+  }
 }
 
 async function moveCard(card, targetList, opts){
@@ -1789,10 +1999,13 @@ async function moveCard(card, targetList, opts){
     // v18.33 — stamp closed_at when entering a done lane, clear it when
     // leaving one. The daily log's "closed today" bucket reads this.
     const fromList = lists.find(l => String(l.id) === String(prev.list_id));
+    // Activity trail — "Moved To Do → In Progress · who · when" in the modal.
+    const newActivity = [ ...(card.activity || []), actEntry('move', (fromList && fromList.name) || null, targetList.name || null) ];
     const updatePayload = {
       list_id: targetList.id,
       column_name: targetColName,
       status,
+      activity: newActivity,
       // Route memory for the daily notes' "moved today: From → To" note.
       last_move_from: (fromList && fromList.name) || null,
       last_move_to: targetList.name || null,
@@ -1854,6 +2067,13 @@ async function moveCard(card, targetList, opts){
     // that isn't currently Operational, offer to mark the equipment
     // repaired. One confirm, one update, one toast — saves switching
     // to the Equip tab to manually flip the status.
+    card.activity = newActivity;
+    // Finishing a repeating card schedules its next instance (the repeat
+    // lives on the card; archiving later won't double-spawn — the flag is
+    // cleared before the insert).
+    if (movingToDone && wasNotDone) {
+      maybeRespawnRepeat(card);
+    }
     if (movingToDone && wasNotDone && card.equipment_id) {
       offerEquipmentRepaired(card);
     }
@@ -2086,6 +2306,7 @@ async function openCardDetail(card){
   bg.innerHTML = `<div class="b-modal">
     <div class="b-modal-head">
       <input class="b-modal-title" id="bTitle" value="${esc(card.title||'')}" placeholder="Card title">
+      <button class="b-watch-toggle${(card.watchers||[]).includes((NX.currentUser&&NX.currentUser.name)||'') ? ' is-on' : ''}" id="bWatch" title="Watch this card — the bell pings you when it changes">👁</button>
       <button class="b-modal-close">✕</button>
     </div>
     <div class="b-modal-body">
@@ -2226,6 +2447,18 @@ async function openCardDetail(card){
       </div>
 
       <div class="b-section">
+        <div class="b-section-label">Repeat</div>
+        <select class="b-field" id="bRepeat">
+          <option value="">Doesn't repeat</option>
+          <option value="weekly"${card.repeat_every==='weekly'?' selected':''}>Weekly</option>
+          <option value="biweekly"${card.repeat_every==='biweekly'?' selected':''}>Every 2 weeks</option>
+          <option value="monthly"${card.repeat_every==='monthly'?' selected':''}>Monthly</option>
+          <option value="quarterly"${card.repeat_every==='quarterly'?' selected':''}>Quarterly</option>
+        </select>
+        <div class="b-repeat-hint" style="font-size:11px;color:var(--text-faint);margin-top:5px;line-height:1.5">↻ When this card is finished or archived, the next one schedules itself. Set to “Doesn't repeat” to end the cycle.</div>
+      </div>
+
+      <div class="b-section">
         <div class="b-section-label">Comments (${(card.comments||[]).length})</div>
         <div id="bComments">
           ${(card.comments||[]).map(c =>
@@ -2237,6 +2470,23 @@ async function openCardDetail(card){
           <button id="bCommentAdd">Post</button>
         </div>
       </div>
+
+      ${(card.activity||[]).length ? `
+      <div class="b-section">
+        <div class="b-section-label">Activity</div>
+        <div class="b-activity">
+          ${(card.activity||[]).slice(-8).reverse().map(a => {
+            const when = a.at ? new Date(a.at).toLocaleDateString([], { month:'short', day:'numeric' }) : '';
+            const who = a.by ? esc(a.by) : '';
+            const what = a.a === 'move' ? `Moved ${esc(a.f||'?')} → ${esc(a.t||'?')}`
+                       : a.a === 'archived' ? 'Archived'
+                       : a.a === 'repeat' ? `↻ Spawned by repeat — due ${esc(a.t||'')}`
+                       : a.a === 'created' ? 'Created'
+                       : esc(a.a||'');
+            return `<div class="b-activity-row" style="font-size:12px;color:var(--text-dim);padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04)">${what}${who?` · ${who}`:''}${when?` · ${when}`:''}</div>`;
+          }).join('')}
+        </div>
+      </div>` : ''}
 
       <div class="b-actions">
         <button class="b-btn b-btn-primary" id="bSave">Save</button>
@@ -2484,6 +2734,49 @@ async function openCardDetail(card){
     }
   });
 
+  // Repeat cadence — persists immediately; the ↻ chip on the face updates.
+  const repeatSel = bg.querySelector('#bRepeat');
+  if (repeatSel) repeatSel.addEventListener('change', async () => {
+    const prev = card.repeat_every || null;
+    const next = repeatSel.value || null;
+    card.repeat_every = next;
+    optimisticSet.add(card.id);
+    render();
+    try{
+      const { error } = await NX.sb.from('kanban_cards').update({ repeat_every: next }).eq('id', card.id);
+      if (error) throw error;
+      NX.toast && NX.toast(next ? `Repeats ${next}` : 'Repeating stopped', 'success');
+    }catch(e){
+      card.repeat_every = prev;
+      repeatSel.value = prev || '';
+      optimisticSet.delete(card.id);
+      render();
+      NX.toast && NX.toast('Failed to save repeat', 'error');
+    }
+  });
+
+  // Watch — the bell pings you when someone else moves/comments this card.
+  const watchBtn = bg.querySelector('#bWatch');
+  if (watchBtn) watchBtn.addEventListener('click', async () => {
+    const me = (NX.currentUser && NX.currentUser.name) || null;
+    if (!me) { NX.toast && NX.toast('Sign in to watch cards', 'warn'); return; }
+    const had = (card.watchers || []).includes(me);
+    const next = had ? (card.watchers || []).filter(w => w !== me) : [ ...(card.watchers || []), me ];
+    const prev = card.watchers;
+    card.watchers = next;
+    watchBtn.classList.toggle('is-on', !had);
+    try{
+      const { error } = await NX.sb.from('kanban_cards').update({ watchers: next }).eq('id', card.id);
+      if (error) throw error;
+      if (!had) { try { localStorage.setItem('nx_watch_seen_' + card.id, new Date().toISOString()); } catch(_){} }
+      NX.toast && NX.toast(had ? 'Stopped watching' : '👁 Watching — the bell will ping you', 'success');
+    }catch(e){
+      card.watchers = prev;
+      watchBtn.classList.toggle('is-on', had);
+      NX.toast && NX.toast('Failed to update watch', 'error');
+    }
+  });
+
   // Actions
   bg.querySelector('#bSave').addEventListener('click', () => saveCard(card, bg, true));
   bg.querySelector('#bMoveBtn').addEventListener('click', () => {
@@ -2494,11 +2787,8 @@ async function openCardDetail(card){
   });
   bg.querySelector('#bArchive').addEventListener('click', async () => {
     if(!(await nxConfirm('Archive this card?', { title: 'Archive card', okLabel: 'Archive', danger: true }))) return;
-    await NX.sb.from('kanban_cards').update({ archived: true }).eq('id', card.id);
-    closeMirrorTicket(card);
     bg.remove();
-    await loadCards(); render();
-    NX.toast && NX.toast('Card archived', 'info');
+    await archiveCard(card);
     // Stage R: pulse the mini-galaxy — ops state just shifted
     if (NX.homeGalaxyPulse) NX.homeGalaxyPulse();
   });
@@ -3021,6 +3311,7 @@ async function createCard(listId, payload){
       checklist: [], comments: [],
       labels: Array.isArray(payload.labels) ? payload.labels : [],
       photo_urls: [],
+      activity: [actEntry('created')],
       archived: false,
     }).select().single();
 

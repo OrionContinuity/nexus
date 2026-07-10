@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v257-board-soft-drag';
+const CACHE_NAME = 'nexus-v258-board-suite';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [

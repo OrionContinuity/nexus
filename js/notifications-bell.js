@@ -109,7 +109,34 @@
       return sb.from('equipment_issues').select('*', { count: 'exact', head: true })
         .not('invoice_received_at', 'is', null).is('invoice_paid_at', null);
     });
+    // Watched cards that changed since I last looked. Watch state lives on
+    // the card (watchers jsonb, set from the card modal's 👁); "seen" state
+    // is per-device localStorage — tapping the row marks all watched seen.
+    var watched = [];
+    try {
+      var me = T.currentUser && T.currentUser.name;
+      if (me) {
+        var wr = await sb.from('kanban_cards')
+          .select('id, title, last_move_to, last_status_change_at')
+          .contains('watchers', JSON.stringify([me]))
+          .eq('archived', false)
+          .not('last_status_change_at', 'is', null);
+        (wr && wr.data || []).forEach(function (c) {
+          var seen = null;
+          try { seen = localStorage.getItem('nx_watch_seen_' + c.id); } catch (_) {}
+          if (!seen || new Date(c.last_status_change_at) > new Date(seen)) watched.push(c);
+        });
+      }
+    } catch (e) { if (T.debug) T.debug('bell.watched', e); }
+
     var rows = [];
+    if (watched.length) rows.push({
+      label: '👁 ' + (watched.length === 1
+        ? '"' + String(watched[0].title || 'Watched card').slice(0, 34) + '" moved' + (watched[0].last_move_to ? ' to ' + watched[0].last_move_to : '')
+        : watched.length + ' watched cards changed'),
+      view: 'board', cls: 'warn',
+      onTap: function () { watched.forEach(function (c) { try { localStorage.setItem('nx_watch_seen_' + c.id, new Date().toISOString()); } catch (_) {} }); }
+    });
     if (urgent > 0)  rows.push({ label: urgent + ' urgent work order' + (urgent > 1 ? 's' : '') + ' open', view: 'issues', cls: 'danger' });
     if (down > 0)    rows.push({ label: down + ' unit' + (down > 1 ? 's' : '') + ' down', view: 'equipment', cls: 'danger' });
     if (overdue > 0) rows.push({ label: overdue + ' card' + (overdue > 1 ? 's' : '') + ' overdue', view: 'board', cls: overdue >= 50 ? 'danger' : 'warn' });
@@ -141,8 +168,8 @@
 
   function listHtml() {
     if (!_rows.length) return '<div class="nx-notif-empty"><span>\u2713</span><span>You\u2019re all caught up.</span></div>';
-    return '<div class="nx-notif-list">' + _rows.map(function (r) {
-      return '<button class="nx-notif-item ' + r.cls + '" data-view="' + r.view + '">' +
+    return '<div class="nx-notif-list">' + _rows.map(function (r, i) {
+      return '<button class="nx-notif-item ' + r.cls + '" data-view="' + r.view + '" data-idx="' + i + '">' +
         '<span class="nx-notif-item-txt">' + r.label + '</span>' +
         '<span class="nx-notif-item-go">\u203a</span></button>';
     }).join('') + '</div>';
@@ -193,6 +220,8 @@
     bg.querySelectorAll('.nx-notif-item').forEach(function (it) {
       it.addEventListener('click', function () {
         var v = it.getAttribute('data-view');
+        var row = _rows[+it.getAttribute('data-idx')];
+        if (row && typeof row.onTap === 'function') { try { row.onTap(); } catch (_) {} }
         var T = NXref();
         document.removeEventListener('keydown', onKey, true);
         close(bg);
@@ -213,6 +242,8 @@
         bg.querySelectorAll('.nx-notif-item').forEach(function (it) {
           it.addEventListener('click', function () {
             var v = it.getAttribute('data-view'); var T = NXref();
+            var row = _rows[+it.getAttribute('data-idx')];
+            if (row && typeof row.onTap === 'function') { try { row.onTap(); } catch (_) {} }
             document.removeEventListener('keydown', onKey, true);
             close(bg);
             if (T && typeof T.switchTo === 'function') T.switchTo(v);
