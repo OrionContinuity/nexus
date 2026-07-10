@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v248-mens';
+const CACHE_NAME = 'nexus-v249-manus';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
@@ -253,6 +253,7 @@ const APP_SHELL = [
   './js/clippy.js',
   './js/clippy-gacha.js',
   './js/clippy-mens.js',
+  './js/clippy-manus.js',
   './js/equipment.js',
   './js/equipment-ai.js',
   './js/equipment-badge-choice.js',

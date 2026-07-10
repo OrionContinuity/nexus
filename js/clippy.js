@@ -2324,7 +2324,24 @@
       askClippyBrain(text).then(ans => {
         state.chatActivityAt = Date.now();
         if (ans) {
-          bubble(ans, { autoHide: 8000, eyebrow: '', fromChat: true });
+          const opts = { autoHide: 9000, eyebrow: '', fromChat: true };
+          // MANUS — his hand. If the answer was about a real screen, offer to
+          // take them there. Navigation only; writes nothing.
+          try {
+            const MA = (typeof NX !== 'undefined' && NX && NX.clippyManus) || (window.NX && window.NX.clippyManus);
+            const jump = MA && MA.suggest(text);
+            if (jump) {
+              opts.autoHide = 14000;   // longer, so there's time to tap
+              opts.actions = [{
+                label: '› ' + jump.label, cls: 'clippy-jump', keepOpen: false,
+                onClick: () => {
+                  try { MA.navigate(jump.view); } catch (_) {}
+                  state.chatIsOpen = false; forgetConversation();
+                },
+              }];
+            }
+          } catch (_) {}
+          bubble(ans, opts);
         } else {
           bubble(pickFromPool('chat_no_match'), { autoHide: 5000, eyebrow: 'HMM', fromChat: true });
           mood('confused', 4500);
