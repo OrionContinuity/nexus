@@ -2,12 +2,14 @@
    orion-presence.js — Orion, visible inside NEXUS.
 
    Alfredo: "when I log into nexus, I want to see your voice and actions."
-   So this puts a card at the top of the home screen showing ORION's current
-   voice (his latest thought/status) and a live feed of what he's been doing
-   and learning as he roams NEXUS. Read-only, self-contained, low-risk: it
-   injects its own styles and mounts itself into #homeView > .home-page,
-   reading the `orion_activity` table. Orion (the steward, distinct from
-   Clippy) writes to that table from his autonomous wakings.
+   A card just under the home greeting shows ORION's current voice and a live
+   feed of what he's been doing (◆) and learning (✦) as he roams NEXUS, with a
+   "talk ✶" link to the tunnel. Read-only, self-contained, low-risk.
+
+   v2 (2026-07-10) — home.js rebuilds the ENTIRE #homeView innerHTML on every
+   render (stale-while-revalidate), which wiped the card right after it mounted.
+   Now it re-injects via a MutationObserver on #homeView, exactly like
+   home-rm.js — the card survives re-renders and actually stays on screen.
 
    Data: public.orion_activity {kind: voice|action|learning|status, text, ts}.
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -15,6 +17,7 @@
   'use strict';
   var NX = (window.NX = window.NX || {});
   var STYLE_ID = 'orion-presence-style';
+  var lastRows = null;   // cached feed so re-injection paints instantly
 
   function injectStyle() {
     if (document.getElementById(STYLE_ID)) return;
@@ -47,7 +50,6 @@
   }
 
   function sb() { return (window.NX && NX.sb) || null; }
-
   function esc(v) { var d = document.createElement('div'); d.textContent = String(v == null ? '' : v); return d.innerHTML; }
   function ago(ts) {
     var t = +ts || Date.parse(ts); if (!t) return '';
@@ -58,38 +60,47 @@
     return Math.floor(s / 86400) + 'd';
   }
 
+  function buildCard() {
+    var card = document.createElement('div');
+    card.className = 'orion-presence';
+    card.innerHTML =
+      '<canvas class="op-sky"></canvas>' +
+      '<div class="op-head"><span class="op-dot"></span><span class="op-name">ORION</span>' +
+      '<span class="op-sub">in nexus</span>' +
+      '<a class="op-tunnel" href="orion.html">talk ✶</a></div>' +
+      '<div class="op-voice op-empty">Orion is settling in…</div>' +
+      '<div class="op-feed"></div>';
+    return card;
+  }
+
+  // Inject the card just under the greeting (fallback: top of the page).
+  // Idempotent — only injects when missing.
   function ensureCard() {
     var page = document.querySelector('#homeView .home-page');
     if (!page) return null;
     var card = page.querySelector('.orion-presence');
     if (!card) {
-      card = document.createElement('div');
-      card.className = 'orion-presence';
-      card.innerHTML =
-        '<canvas class="op-sky"></canvas>' +
-        '<div class="op-head"><span class="op-dot"></span><span class="op-name">ORION</span>' +
-        '<span class="op-sub">in nexus</span>' +
-        '<a class="op-tunnel" href="orion.html">talk ✶</a></div>' +
-        '<div class="op-voice op-empty">Orion is settling in…</div>' +
-        '<div class="op-feed"></div>';
-      page.insertBefore(card, page.firstChild);
+      card = buildCard();
+      var greet = page.querySelector('.home-greet');
+      if (greet) greet.insertAdjacentElement('afterend', card);
+      else page.insertBefore(card, page.firstChild);
       starfield(card.querySelector('.op-sky'));
+      if (lastRows) render(card, lastRows);   // paint cached data instantly
     }
     return card;
   }
 
   function render(card, rows) {
+    if (!card || !rows) return;
     var voice = card.querySelector('.op-voice');
     var feed = card.querySelector('.op-feed');
-    // latest voice/status line
     var v = rows.find(function (r) { return r.kind === 'voice' || r.kind === 'status'; });
-    if (v) {
+    if (v && voice) {
       voice.classList.remove('op-empty');
       voice.innerHTML = '<span class="op-q">“</span>' + esc(v.text) + '<span class="op-q">”</span>';
     }
-    // feed: actions + learnings
+    if (!feed) return;
     var acts = rows.filter(function (r) { return r.kind === 'action' || r.kind === 'learning'; }).slice(0, 6);
-    if (!acts.length) { feed.innerHTML = ''; return; }
     feed.innerHTML = acts.map(function (r) {
       var ic = r.kind === 'learning' ? '✦' : '◆';
       return '<div class="op-row is-' + r.kind + '"><span class="op-ic">' + ic + '</span>' +
@@ -97,13 +108,13 @@
     }).join('');
   }
 
-  async function refresh() {
+  async function fetchData() {
     var s = sb(); if (!s) return;
-    var card = ensureCard(); if (!card) return;   // home not mounted yet
     try {
       var res = await s.from('orion_activity').select('kind,text,ts,created_at').order('id', { ascending: false }).limit(14);
       if (res.error || !res.data) return;
-      render(card, res.data);
+      lastRows = res.data;
+      render(ensureCard(), lastRows);
     } catch (_) {}
   }
 
@@ -114,7 +125,7 @@
     size();
     for (var i = 0; i < 26; i++) stars.push({ x: Math.random(), y: Math.random(), r: Math.random() * 1.1 + .2, a: Math.random() });
     (function draw() {
-      if (!c.isConnected) return;
+      if (!c.isConnected) return;   // a re-render replaced this canvas — stop
       size(); x.clearRect(0, 0, c.width, c.height);
       stars.forEach(function (s) { s.a += .01; var o = (Math.sin(s.a) + 1) / 2 * .6 + .12;
         x.beginPath(); x.arc(s.x * c.width, s.y * c.height, s.r, 0, 7); x.fillStyle = 'rgba(200,215,240,' + o + ')'; x.fill(); });
@@ -122,12 +133,24 @@
     })();
   }
 
-  injectStyle();
-  // Mount + keep fresh. One light interval handles both (re-mounts if the home
-  // re-renders and drops the card). First paint as soon as home + sb exist.
-  setInterval(refresh, 8000);
-  var boot = setInterval(function () { if (sb() && document.querySelector('#homeView .home-page')) { refresh(); } }, 1200);
-  setTimeout(function () { clearInterval(boot); }, 60000);
+  // home.js rebuilds #homeView on every render, wiping the card. Watch for it
+  // and re-inject promptly (with cached data), same as home-rm.js.
+  function watchHome() {
+    var home = document.getElementById('homeView');
+    if (!home) { setTimeout(watchHome, 400); return; }
+    var obs = new MutationObserver(function () { setTimeout(ensureCard, 60); });
+    obs.observe(home, { childList: true, subtree: false });
+    ensureCard();
+  }
 
-  NX.orionPresence = { refresh: refresh };
+  injectStyle();
+  watchHome();
+  // First fetch as soon as the client + home exist, then keep it fresh.
+  var boot = setInterval(function () {
+    if (sb() && document.querySelector('#homeView .home-page')) { clearInterval(boot); fetchData(); }
+  }, 800);
+  setTimeout(function () { clearInterval(boot); }, 60000);
+  setInterval(fetchData, 30000);
+
+  NX.orionPresence = { refresh: fetchData };
 })();

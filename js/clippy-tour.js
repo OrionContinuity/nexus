@@ -174,8 +174,15 @@
         if (isDone()) return;
         if (!state.preferences || !state.preferences.accepted_at) return;
         if ((state.preferences.session_count || 0) > 4) return;
-        if (sessionStorage.getItem('nx_clippy_tour_offered')) return;
-        sessionStorage.setItem('nx_clippy_tour_offered', '1');
+        // v18.57 — offer ONCE EVER, not once per tab-session. Alfredo:
+        // "this pops up a lot — have it pop up only once ever." sessionStorage
+        // reset on every fresh app open, so the welcome re-nagged forever.
+        // A persistent, per-user flag fixes it; the tour is still restartable
+        // any time from Clippy's long-press menu.
+        var offerKey = 'nx_clippy_tour_offered_ever:' +
+          ((window.NX && NX.currentUser && (NX.currentUser.id || NX.currentUser.name)) || 'anon');
+        if (localStorage.getItem(offerKey)) return;
+        try { localStorage.setItem(offerKey, '1'); } catch (_) {}
         trackTimeout(() => {
           if (!running && !state.bubble && !state.suppressed) start();
         }, 9000);
