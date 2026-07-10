@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v246-dlog-center';
+const CACHE_NAME = 'nexus-v247-chat-memory';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [

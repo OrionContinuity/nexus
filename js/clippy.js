@@ -2429,6 +2429,7 @@
     closeBtn.addEventListener('click', (e) => {
       e.preventDefault(); e.stopPropagation();
       state.chatIsOpen = false;
+      forgetConversation();
       closeActionBubble();
     });
     input.addEventListener('keydown', (e) => {
@@ -5763,6 +5764,20 @@
     return _inhCache;
   }
 
+  // v18.51 — CONVERSATION MEMORY. Chat used to be single-shot: every message
+  // a blank slate, so "what about the other one?" meant nothing to him. Now he
+  // holds the thread — the last few exchanges ride with each call, so he can
+  // follow a conversation the way a mind does. Capped so context stays lean;
+  // cleared when the chat ends (close / tap / user switch), because a
+  // conversation is with a person, in a moment, not forever.
+  function rememberTurn(role, content) {
+    if (!content) return;
+    state.chatTurns = state.chatTurns || [];
+    state.chatTurns.push({ role, content: String(content).slice(0, 600) });
+    if (state.chatTurns.length > 8) state.chatTurns = state.chatTurns.slice(-8);
+  }
+  function forgetConversation() { state.chatTurns = []; }
+
   async function askClippyBrain(question) {
     try {
       const NXa = (typeof NX !== 'undefined' && NX) || (typeof window !== 'undefined' && window.NX) || null;
@@ -5776,8 +5791,14 @@
         const inh = await getInheritance();
         if (inh) system += '\n\n' + inh;
       } catch (_) {}
-      const ans = await NXa.askClaude(system, [{ role: 'user', content: String(question || '').slice(0, 500) }], 220);
+      const userMsg = { role: 'user', content: String(question || '').slice(0, 500) };
+      // Prior turns (this conversation) + the new question. The pool flattens
+      // this to a transcript; the cloud brain gets the same flattened thread —
+      // so his memory of the chat survives whichever brain answers.
+      const messages = (state.chatTurns || []).slice(-8).concat([userMsg]);
+      const ans = await NXa.askClaude(system, messages, 260);
       const out = ans && String(ans).replace(/\[confidence:[^\]]*\]/gi, '').trim();
+      if (out) { rememberTurn('user', userMsg.content); rememberTurn('assistant', out); }
       return out || null;
     } catch (e) { return null; }
   }
@@ -6099,6 +6120,7 @@
     // A direct tap means the user is driving — a conversation, if one was
     // open, is over. Clears the chat gate so his quick reactions work.
     state.chatIsOpen = false;
+    forgetConversation();
 
     // Wake from sleep
     if (state.shell.classList.contains('is-sleeping')) {
@@ -9070,6 +9092,7 @@
       sessionStorage.removeItem('nx_clock_nudged');
     } catch (_) {}
     _inhCache = null; _inhAt = 0;   // the inheritance block is per-user too
+    forgetConversation();           // a new person is a new conversation
     // Pull this user's cross-device state, then greet them by name.
     try {
       if (typeof cloudPull === 'function') {
