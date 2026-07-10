@@ -461,19 +461,25 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
       try { [Environment]::SetEnvironmentVariable('CLIPPY_CMD_TOKEN', $CmdToken, 'User') } catch {}
       $env:CLIPPY_CMD_TOKEN = $CmdToken
       Log "[ok] command token set - remote 'Push update' enabled" 'Green'
-      # Publish the token to the bus so NEXUS auto-fills it (no manual entry).
-      # NOTE: the bus is readable with the public anon key, so this trades the
-      # token's secrecy for convenience - anyone with the site can then send
-      # commands to this node. Skip (don't pass -CmdToken / unset it) if you
-      # want command-exec to stay manual-token-only.
-      try {
-        $anon = 'sb_publishable_rOLSdIG6mIjVLY8JmvrwCA_qfM7Vyk9'
-        $hdr  = @{ apikey = $anon; Authorization = "Bearer $anon"; 'Content-Type' = 'application/json'; Prefer = 'resolution=merge-duplicates,return=minimal' }
-        $ms   = [int64]([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())
-        $body = @{ id = 'clippy_cmd'; from_id = $env:COMPUTERNAME; data = @{ token = $CmdToken; node = $env:COMPUTERNAME; ts = $ms } } | ConvertTo-Json -Depth 5
-        Invoke-RestMethod -Uri 'https://oprsthfxqrdbwdvommpw.supabase.co/rest/v1/clippy_sync' -Method Post -Headers $hdr -Body $body -TimeoutSec 15 | Out-Null
-        Log "[ok] command token published to bus - NEXUS Push needs no manual entry" 'Green'
-      } catch { Log "[..] token publish skipped: $($_.Exception.Message)" 'Yellow' }
+      # Publish the token to the bus so NEXUS can auto-fill it? OFF by default.
+      # The bus is readable with the public anon key, so publishing the token
+      # trades its secrecy for convenience: anyone with the site could then
+      # send commands to this node. We keep the token PRIVATE (set only in this
+      # PC's environment) unless you explicitly opt in by setting the env var
+      # CLIPPY_PUBLISH_TOKEN=1. Remote 'Push update' still works from a session
+      # that knows the token; it just isn't broadcast for anyone to read.
+      if ($env:CLIPPY_PUBLISH_TOKEN -eq '1') {
+        try {
+          $anon = 'sb_publishable_rOLSdIG6mIjVLY8JmvrwCA_qfM7Vyk9'
+          $hdr  = @{ apikey = $anon; Authorization = "Bearer $anon"; 'Content-Type' = 'application/json'; Prefer = 'resolution=merge-duplicates,return=minimal' }
+          $ms   = [int64]([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())
+          $body = @{ id = 'clippy_cmd'; from_id = $env:COMPUTERNAME; data = @{ token = $CmdToken; node = $env:COMPUTERNAME; ts = $ms } } | ConvertTo-Json -Depth 5
+          Invoke-RestMethod -Uri 'https://oprsthfxqrdbwdvommpw.supabase.co/rest/v1/clippy_sync' -Method Post -Headers $hdr -Body $body -TimeoutSec 15 | Out-Null
+          Log "[ok] command token published to bus (opt-in) - NEXUS Push needs no manual entry" 'Green'
+        } catch { Log "[..] token publish skipped: $($_.Exception.Message)" 'Yellow' }
+      } else {
+        Log "[ok] command token kept PRIVATE (not published to bus). Set CLIPPY_PUBLISH_TOKEN=1 to opt in." 'DarkGray'
+      }
     }
     # Coexist with the legacy v2.4.4 poller: it keeps answering TEXT (qwen3:8b)
     # while the worker specializes in VISION on its own 'vis:' lane. We never
