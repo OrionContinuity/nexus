@@ -90,6 +90,38 @@ NODE       = os.environ.get("CLIPPY_NODE_NAME", socket.gethostname())
 # code execution for anyone. Set CLIPPY_CMD_TOKEN on the node and include the
 # same token in a cmd job to enable it. Empty = command jobs are refused.
 CMD_TOKEN  = os.environ.get("CLIPPY_CMD_TOKEN", "")
+# THE STEWARD'S SEAL — a signed command channel. The bus is world-readable with
+# the public anon key, so a plaintext token is only as private as the last job
+# that carried it. A seal fixes that: each command is signed HMAC-SHA256 over
+# (cmd|ts|nonce) with a secret that lives ONLY in this node's environment and in
+# a Supabase table the anon key cannot read. Anyone may READ the bus and still
+# cannot forge a command, and replays are refused (freshness + nonce memory).
+# The legacy token still works as a fallback so a node is never locked out.
+STEWARD_SECRET = os.environ.get("CLIPPY_STEWARD_SECRET", "")
+_SEAL_SEEN = []   # recent nonces (replay guard), capped
+def _seal_ok(data):
+    if not STEWARD_SECRET:
+        return False
+    try:
+        import hmac, hashlib
+        sig   = data.get("seal"); nonce = data.get("nonce"); ts = data.get("ts")
+        cmd   = data.get("cmd") or ""
+        if not (sig and nonce and ts):
+            return False
+        if abs(time.time() * 1000 - float(ts)) > 180000:   # within 3 min
+            return False
+        if nonce in _SEAL_SEEN:                              # no replay
+            return False
+        msg    = (str(cmd) + "|" + str(ts) + "|" + str(nonce)).encode("utf-8")
+        expect = hmac.new(STEWARD_SECRET.encode("utf-8"), msg, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expect, str(sig)):
+            return False
+        _SEAL_SEEN.append(nonce)
+        if len(_SEAL_SEEN) > 512:
+            del _SEAL_SEEN[:256]
+        return True
+    except Exception:
+        return False
 # Set by clippy-daemon.ps1 when it runs the worker as a supervised "slave"
 # (Clippy is the master). Surfaced in the heartbeat so the Tools UI can show it.
 MANAGED    = os.environ.get("CLIPPY_MANAGED", "")
@@ -306,7 +338,7 @@ def sb_heartbeat():
     if not GENERATE:    needs.append("gen")      # no image generation
     if not HAS_BLENDER: needs.append("art")      # no 3D
     if not CMD_TOKEN:   needs.append("cmd")      # cannot act on the world
-    entry = {"name": NODE, "ts": now, "vision": True, "cmd": bool(CMD_TOKEN),
+    entry = {"name": NODE, "ts": now, "vision": True, "cmd": bool(CMD_TOKEN), "seal": bool(STEWARD_SECRET),
              "os": OSDESC, "version": "worker-1.7", "code_ver": SELF_VER,
              "managed": MANAGED, "busy": _state["busy"], "current": _state["current"],
              "caps": ((["ask"] if CLAIM_TEXT else []) + ["vision"] + (["cmd"] if CMD_TOKEN else []) + (["gen"] if GENERATE else []) + (["art"] if HAS_BLENDER else [])),
@@ -546,10 +578,11 @@ def run_command(job_id, data):
     `tail` so NEXUS shows progress. Token-gated (CLIPPY_CMD_TOKEN) — refuses
     otherwise, since the bus is writable with the public anon key."""
     now_ms = lambda: int(time.time() * 1000)
-    if not CMD_TOKEN:
-        sb_finish(job_id, {"status": "error", "error": "command exec disabled on this node (set CLIPPY_CMD_TOKEN)", "node": NODE, "ts": now_ms()}); return
-    if data.get("token") != CMD_TOKEN:
-        sb_finish(job_id, {"status": "error", "error": "bad or missing command token", "node": NODE, "ts": now_ms()}); return
+    if not CMD_TOKEN and not STEWARD_SECRET:
+        sb_finish(job_id, {"status": "error", "error": "command exec disabled on this node (set CLIPPY_STEWARD_SECRET or CLIPPY_CMD_TOKEN)", "node": NODE, "ts": now_ms()}); return
+    # A valid seal (preferred) OR the legacy shared token authorizes the command.
+    if not (_seal_ok(data) or (CMD_TOKEN and data.get("token") == CMD_TOKEN)):
+        sb_finish(job_id, {"status": "error", "error": "unauthorized: need a valid steward seal or the command token", "node": NODE, "ts": now_ms()}); return
     cmd = (data.get("cmd") or "").strip()
     if not cmd:
         sb_finish(job_id, {"status": "error", "error": "empty command", "node": NODE, "ts": now_ms()}); return
