@@ -2990,3 +2990,20 @@
 }
 #dailylogView .dlog-tk-main { flex: 1 1 200px; min-width: 0; }
 #dailylogView .dlog-tk-title { overflow-wrap: anywhere; }
+
+/* ─── v267 — PM status notes: the human word on late/booked PMs ───────── */
+.nxrm-pm-note {
+  margin-top: 5px; font-size: 12px; line-height: 1.45;
+  color: var(--nx-gold, #d4a44e);
+  background: var(--nx-gold-faint, rgba(212,164,78,.08));
+  border-left: 2px solid var(--nx-gold, #d4a44e);
+  border-radius: 0 8px 8px 0; padding: 5px 9px;
+  overflow-wrap: anywhere;
+}
+.nxrm-pm-note-by { color: var(--nx-muted, #9aa3b2); font-size: 11px; }
+.nxrm-pm-notebtn {
+  display: block; width: 100%; margin-bottom: 6px; padding: 7px 0;
+  border-radius: 10px; border: 1px solid var(--nx-gold-line, rgba(212,164,78,.3));
+  background: transparent; font-size: 14px; cursor: pointer; line-height: 1;
+}
+.nxrm-pm-notebtn:hover { background: var(--nx-gold-faint, rgba(212,164,78,.10)); }

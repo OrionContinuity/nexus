@@ -3351,7 +3351,7 @@ function dlogLocationReportLines(loc) {
       if (pmNext && !isNaN(pmNext) && pmNext <= soonD) {
         const overdue = pmNext < todayD;
         const days = Math.round((pmNext - todayD) / 86400000);
-        pmItems.push({ name: eq.name || 'Equipment', date: pmNext, overdue, days, sched: pmConfirmNote(eq.id) });
+        pmItems.push({ name: eq.name || 'Equipment', date: pmNext, overdue, days, sched: pmConfirmNote(eq.id), note: (eq.pm_note || '').trim() });
       }
       const insNext = nextOf(eq.last_inspection_date, eq.inspection_interval_days);
       if (insNext && !isNaN(insNext) && insNext <= soonInsD) {
@@ -3370,7 +3370,7 @@ function dlogLocationReportLines(loc) {
         // UNhandled ones. Overdue inspections always show (with the booking
         // note when one exists), same treatment as overdue PMs.
         if (overdue || !sched) {
-          insItems.push({ name: eq.name || 'Equipment', date: insNext, overdue, days, sched, vendor });
+          insItems.push({ name: eq.name || 'Equipment', date: insNext, overdue, days, sched, vendor, note: (eq.pm_note || '').trim() });
         }
       }
       const dcNext = nextOf(eq.last_deep_clean_date, eq.deep_clean_interval_days);
@@ -3391,9 +3391,12 @@ function dlogLocationReportLines(loc) {
         // work-order and equipment-status tags. When a pm_schedules visit is
         // booked, say so — "10d overdue" alone reads as unhandled when the
         // vendor is in fact confirmed for the 22nd.
+        // v267 — the human note rides last: "scheduled for the 30th",
+        // "overdue — rep's mistake, rebooked". Set from the PM screen's 📝.
+        const noteSuffix = x.note ? ' — 📝 ' + x.note : '';
         out.push('    ' + (x.overdue
-          ? ('[OVERDUE] ' + x.name + ' — was due ' + shortDate2(x.date) + (x.days <= -1 ? ' (' + Math.abs(x.days) + 'd overdue)' : '') + (x.sched ? ' — ' + x.sched : ''))
-          : ('[DUE] ' + x.name + ' — ' + shortDate2(x.date) + (x.days <= 14 ? ' (in ' + x.days + 'd)' : '') + (x.sched ? ' — ' + x.sched : ''))));
+          ? ('[OVERDUE] ' + x.name + ' — was due ' + shortDate2(x.date) + (x.days <= -1 ? ' (' + Math.abs(x.days) + 'd overdue)' : '') + (x.sched ? ' — ' + x.sched : '') + noteSuffix)
+          : ('[DUE] ' + x.name + ' — ' + shortDate2(x.date) + (x.days <= 14 ? ' (in ' + x.days + 'd)' : '') + (x.sched ? ' — ' + x.sched : '') + noteSuffix)));
       });
       if (pmItems.length > 12) out.push('    +' + (pmItems.length - 12) + ' more');
     }
@@ -3405,9 +3408,10 @@ function dlogLocationReportLines(loc) {
       const overdueN = insItems.filter(x => x.overdue).length;
       out.push('· Inspections due: ' + insItems.length + (overdueN ? ' (' + overdueN + ' overdue)' : ''));
       insItems.slice(0, 12).forEach(x => {
+        const noteSuffix2 = x.note ? ' — 📝 ' + x.note : '';
         out.push('    ' + (x.overdue
-          ? ('[OVERDUE] ' + x.name + ' — was due ' + shortDate2(x.date) + (x.days <= -1 ? ' (' + Math.abs(x.days) + 'd overdue)' : '') + (x.sched ? ' — ' + x.sched : (x.vendor ? ' — call ' + x.vendor : '')))
-          : ('[DUE] ' + x.name + ' — ' + shortDate2(x.date) + ' (in ' + x.days + 'd)' + (x.vendor ? ' — ' + x.vendor : ''))));
+          ? ('[OVERDUE] ' + x.name + ' — was due ' + shortDate2(x.date) + (x.days <= -1 ? ' (' + Math.abs(x.days) + 'd overdue)' : '') + (x.sched ? ' — ' + x.sched : (x.vendor ? ' — call ' + x.vendor : '')) + noteSuffix2)
+          : ('[DUE] ' + x.name + ' — ' + shortDate2(x.date) + ' (in ' + x.days + 'd)' + (x.vendor ? ' — ' + x.vendor : '') + noteSuffix2)));
       });
       if (insItems.length > 12) out.push('    +' + (insItems.length - 12) + ' more');
     }

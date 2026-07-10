@@ -33,12 +33,30 @@
   // DATA
   // ─────────────────────────────────────────────────────────────────────
 
+  // v267 — status notes ("scheduled for the 30th", "rep's mistake") live on
+  // pm_schedules; the v_pm_due_soon view predates them, so merge them in
+  // with one light query. Never blocks the list.
+  async function mergeStatusNotes() {
+    try {
+      if (!state.schedules.length) return;
+      const { data } = await NX.sb.from('pm_schedules')
+        .select('id, status_note, status_note_by, status_note_at');
+      const byId = {};
+      (data || []).forEach(r => { byId[r.id] = r; });
+      state.schedules.forEach(s => {
+        const n = byId[s.id];
+        if (n) { s.status_note = n.status_note; s.status_note_by = n.status_note_by; s.status_note_at = n.status_note_at; }
+      });
+    } catch (_) {}
+  }
+
   async function loadSchedules() {
     if (!NX?.sb) return;
     try {
       const { data, error } = await NX.sb.from('v_pm_due_soon').select('*');
       if (error) throw error;
       state.schedules = data || [];
+      await mergeStatusNotes();
     } catch (_) {
       try {
         const { data: raw } = await NX.sb.from('pm_schedules')
@@ -206,7 +224,7 @@
     return list.map(s => {
       const u = URGENCY[s.urgency] || URGENCY.distant;
       return `
-        <button class="nxrm-pm-card ${u.tone}" data-schedule-id="${esc(s.id)}">
+        <div class="nxrm-pm-card ${u.tone}" data-schedule-id="${esc(s.id)}" role="button" tabindex="0">
           <div class="nxrm-pm-glyph">${u.glyph}</div>
           <div class="nxrm-pm-body">
             <div class="nxrm-pm-row1">
@@ -221,13 +239,15 @@
               <span class="nxrm-pm-freq">every ${s.frequency_days}d</span>
             </div>
             ${s.assigned_to ? `<div class="nxrm-pm-meta">→ ${esc(s.assigned_to)}</div>` : ''}
+            ${s.status_note ? `<div class="nxrm-pm-note">📝 ${esc(s.status_note)}${s.status_note_by ? ` <span class="nxrm-pm-note-by">— ${esc(s.status_note_by)}${s.status_note_at ? ' · ' + new Date(s.status_note_at).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}</span>` : ''}</div>` : ''}
           </div>
           <div class="nxrm-pm-action">
+            <button class="nxrm-pm-notebtn" data-note="${esc(s.id)}" type="button" title="${s.status_note ? 'Edit the note' : 'Add a note — why late, when scheduled…'}">📝</button>
             <button class="nxrm-pm-done" data-mark-done="${esc(s.id)}" type="button">
               ✓ Mark<br>done
             </button>
           </div>
-        </button>`;
+        </div>`;
     }).join('');
   }
 
@@ -257,6 +277,43 @@
         }, 220);
       });
     }
+    // v267 — the 📝 note: why a PM is late / when it's actually booked.
+    // Saved on the schedule AND mirrored to equipment.pm_note so the daily
+    // email and the equipment detail tell the same story to everyone.
+    view.querySelectorAll('[data-note]').forEach(el => {
+      el.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const s = state.schedules.find(x => String(x.id) === String(el.getAttribute('data-note')));
+        if (!s || !NX.sb) return;
+        const txt = prompt(
+          `Note for "${s.title || 'PM'}" — everyone sees this on the PM list, the equipment page, and the daily email.\n(e.g. "scheduled for the 30th", "overdue — rep's mistake, rebooked")\nEmpty = clear the note.`,
+          s.status_note || ''
+        );
+        if (txt === null) return;   // cancelled
+        const note = txt.trim();
+        const by = (NX.currentUser && NX.currentUser.name) || null;
+        const at = new Date().toISOString();
+        try {
+          const patch = note
+            ? { status_note: note, status_note_by: by, status_note_at: at }
+            : { status_note: null, status_note_by: null, status_note_at: null };
+          const { error } = await NX.sb.from('pm_schedules').update(patch).eq('id', s.id);
+          if (error) throw error;
+          if (s.equipment_id) {
+            await NX.sb.from('equipment').update(note
+              ? { pm_note: note, pm_note_by: by, pm_note_at: at }
+              : { pm_note: null, pm_note_by: null, pm_note_at: null }
+            ).eq('id', s.equipment_id);
+          }
+          s.status_note = note || null; s.status_note_by = note ? by : null; s.status_note_at = note ? at : null;
+          renderPMView();
+          NXRM.notify.bubble(note ? '📝 Note saved — it shows everywhere this PM does.' : 'Note cleared.', 'success');
+        } catch (err) {
+          console.warn('[pm] note save:', err);
+          NXRM.notify.bubble('Could not save the note — try again.', 'error');
+        }
+      });
+    });
     view.querySelectorAll('[data-mark-done]').forEach(el => {
       el.addEventListener('click', async (e) => {
         e.stopPropagation();
