@@ -430,20 +430,26 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
   $ollamaExe = if ($ollama) { $ollama.Source } else { Join-Path $ProgRoot 'Ollama\ollama.exe' }
   if (Test-Path $ollamaExe) {
     $estGB = if ($VisionModel -match 'moondream') { 3 } else { 9 }
-    # Check the model list over the HTTP API: Invoke-RestMethod honours -TimeoutSec
-    # and CANNOT hang, whereas a wedged `ollama list` CLI call (no timeout) is what
-    # stranded a node mid-provision on 2026-07-05 - the daemon blocked here forever
-    # and never reached the supervisor loop, so pet+worker never started. Fall back
-    # to the CLI only if the API itself is unreachable.
+    # Check the model list over the HTTP API ONLY: Invoke-RestMethod honours
+    # -TimeoutSec and CANNOT hang. The old CLI fallback (`ollama list`, no
+    # timeout) is what wedged this daemon pre-supervisor-loop on 2026-07-05
+    # AND on both boots of 2026-07-11: at logon Ollama isn't listening yet,
+    # the API check fails instantly, and the CLI call blocks forever - the
+    # supervisor loop never starts, and (MultipleInstances IgnoreNew) the
+    # wedged Running instance blocks every 5-min self-heal launch too. When
+    # the API is down we DEFER: the worker self-pulls the model on first use,
+    # so skipping here costs nothing and can never strand the node.
     $have = $false
+    $apiUp = $false
     try {
       $tags = Invoke-RestMethod 'http://127.0.0.1:11434/api/tags' -TimeoutSec 8
+      $apiUp = $true
       $have = [bool]($tags.models | Where-Object { $_.name -like "$VisionModel*" -or $_.model -like "$VisionModel*" })
-    } catch {
-      try { $have = [bool](& $ollamaExe list 2>$null | Select-String -SimpleMatch $VisionModel) } catch { $have = $false }
-    }
+    } catch { $apiUp = $false }
     if ($have) {
       Log "[have] vision model '$VisionModel'" 'Green'
+    } elseif (-not $apiUp) {
+      Log "[defer] Ollama API not answering yet - model check skipped (worker self-pulls on first use)" 'Yellow'
     } else {
       $g = Test-CanInstall ([double]$estGB)
       if ($g.ok) {

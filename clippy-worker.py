@@ -227,25 +227,37 @@ def _http(method, url, headers=None, body=None, timeout=180):
 
 
 # ─── Supabase bus ────────────────────────────────────────────────────────────
+LANES = ("vis:", "art:", "txt:", "job:")   # vision, atelier, Claude text, shared
+# worker-1.9 — 'txt:' is the Claude text lane. Same trick that saved vision:
+# the legacy ≤2.4.x poller only queries 'job:%', so a text job posted on
+# 'txt:' is structurally invisible to it — the qwen brain can never race us
+# for it. NEXUS only posts there when a live node advertises "txt": true
+# in the registry, so the lane is never a black hole during rollout.
+
+
 def sb_get_pending():
-    # Poll our vision lane ('vis:') AND the shared 'job:' lane (for cmd jobs).
-    # Vision rides 'vis:' so the legacy v2.4.4 poller never sees it -> no race.
-    # Two plain GETs with the proven `id=like.X:*` syntax rather than one
-    # or=(...) logical filter, which PostgREST rejects in some forms (a bad
-    # filter returns [] silently and the node goes blind to all jobs).
+    # worker-2.0 — ONE status-filtered request instead of a GET per lane.
+    # PostgREST filters on the JSON payload (`data->>status=eq.pending`), so
+    # only genuinely pending rows come back — 4 requests/second became 1, and
+    # the payload shrank from every lane row to just the actionable ones.
+    # The per-lane loop stays as the fallback: if the json-filter form ever
+    # errors on some PostgREST build, we go blind for ZERO cycles (the old
+    # or=(...) lesson: a rejected filter that returns [] silently is a
+    # stranded node — an exception we can catch is not).
     rows = []
-    # worker-1.9 — 'txt:' is the Claude text lane. Same trick that saved vision:
-    # the legacy ≤2.4.x poller only queries 'job:%', so a text job posted on
-    # 'txt:' is structurally invisible to it — the qwen brain can never race us
-    # for it. NEXUS only posts there when a live node advertises "txt": true
-    # in the registry, so the lane is never a black hole during rollout.
-    for pref in ("vis:", "art:", "txt:", "job:"):   # vision, atelier, Claude text, shared
-        url = REST + "?id=like." + pref + "*&select=id,data"
-        try:
-            _, raw = _http("GET", url, SB_HEADERS, timeout=20)
-            rows += json.loads(raw or "[]")
-        except Exception as e:
-            log("bus read failed (%s): %s" % (pref, e))
+    try:
+        _, raw = _http("GET", REST + "?select=id,data&data->>status=eq.pending", SB_HEADERS, timeout=20)
+        rows = [r for r in json.loads(raw or "[]")
+                if any(str(r.get("id", "")).startswith(p) for p in LANES)]
+    except Exception as e:
+        log("pending scan failed (%s) - per-lane fallback" % e)
+        for pref in LANES:
+            url = REST + "?id=like." + pref + "*&select=id,data"
+            try:
+                _, raw = _http("GET", url, SB_HEADERS, timeout=20)
+                rows += json.loads(raw or "[]")
+            except Exception as e2:
+                log("bus read failed (%s): %s" % (pref, e2))
     now = time.time() * 1000
     out = []
     for row in rows:
@@ -320,6 +332,85 @@ try:
     SELF_VER
 except NameError:
     SELF_VER = _self_version()
+
+# ─── worker-2.0: SELF-UPDATE ─────────────────────────────────────────────────
+# The node keeps ITSELF current instead of depending on an external supervisor.
+# Twice now the ClippyDaemon supervisor was found alive-but-wedged (stuck in
+# its provisioning phase, never reaching the update loop), which left the
+# worker stranded on old code for hours until a human rebooted. So: every 15
+# minutes, when idle, fetch the canonical worker from GitHub raw; if the bytes
+# differ, gate it through compile() (a syntax error must NEVER replace running
+# code), keep a .bak, write, respawn, exit. The daemon remains a welcome
+# backstop for crash-revival — it just isn't a single point of failure for
+# updates anymore. Disable with CLIPPY_NO_SELF_UPDATE=1.
+RAW_WORKER_URL = os.environ.get(
+    "CLIPPY_RAW_WORKER",
+    "https://raw.githubusercontent.com/orioncontinuity/nexus/main/clippy-worker.py")
+SELF_UPDATE_EVERY_S = int(os.environ.get("CLIPPY_SELF_UPDATE_S", "900"))
+SELF_UPDATE = os.environ.get("CLIPPY_NO_SELF_UPDATE", "") != "1"
+
+
+def _self_update_once():
+    """Fetch canon; if it differs from the file on disk, stage it and return
+    True (caller respawns). Any failure leaves the current code untouched."""
+    path = os.path.abspath(__file__)
+    req = urllib.request.Request(RAW_WORKER_URL, headers={"Cache-Control": "no-cache"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        new = r.read()
+    if not new or len(new) < 10000:      # a truncated fetch must never replace us
+        raise RuntimeError("fetched worker suspiciously small (%d bytes)" % len(new or b""))
+    with open(path, "rb") as f:
+        cur = f.read()
+    if new == cur:
+        return False
+    compile(new.decode("utf-8"), path, "exec")   # syntax gate — raises on a bad file
+    try:
+        shutil.copy2(path, path + ".bak")
+    except Exception:
+        pass
+    with open(path, "wb") as f:
+        f.write(new)
+    return True
+
+
+def _respawn():
+    """Launch a replacement of this worker (same interpreter, same file) and
+    let it inherit our env. Output appends to ~/.clippy/worker.log so the
+    daemon-made log keeps flowing across self-updates."""
+    args = [sys.executable, "-u", os.path.abspath(__file__)]
+    kw = {"cwd": os.path.dirname(os.path.abspath(__file__)) or ".",
+          "stdin": subprocess.DEVNULL}
+    try:
+        logd = os.path.join(os.path.expanduser("~"), ".clippy")
+        os.makedirs(logd, exist_ok=True)
+        lf = open(os.path.join(logd, "worker.log"), "ab")
+        kw["stdout"] = lf; kw["stderr"] = lf
+    except Exception:
+        kw["stdout"] = subprocess.DEVNULL; kw["stderr"] = subprocess.DEVNULL
+    if os.name == "nt":
+        kw["creationflags"] = 0x00000008 | 0x00000200   # DETACHED | NEW_PROCESS_GROUP
+    subprocess.Popen(args, **kw)
+
+
+def _self_update_loop():
+    # 'staged' survives cycles: once the new file is written to disk, the fetch
+    # would compare equal forever — so remember that a respawn is owed and take
+    # it at the first idle moment.
+    staged = False
+    while True:
+        time.sleep(SELF_UPDATE_EVERY_S if not staged else 20)
+        try:
+            if not staged:
+                if _state["busy"]:
+                    continue                  # never yank the code mid-job
+                staged = _self_update_once()
+            if staged and not _state["busy"]:
+                log("self-update: new code pulled - respawning")
+                activity("node", "self-update -> respawn")
+                _respawn()
+                os._exit(0)
+        except Exception as e:
+            log("self-update skipped: %s" % e)
 
 # The ONE shared brain. Every node reads clippy_anima so the whole hive reports
 # the SAME incarnation + drift + feeling — proof it is a single mind, and a
@@ -412,11 +503,13 @@ def sb_heartbeat():
     if not HAS_BLENDER: needs.append("art")      # no 3D
     if not CMD_TOKEN:   needs.append("cmd")      # cannot act on the world
     entry = {"name": NODE, "ts": now, "vision": True, "cmd": bool(CMD_TOKEN), "seal": bool(STEWARD_SECRET),
-             "os": OSDESC, "version": "worker-1.9", "code_ver": SELF_VER,
+             "os": OSDESC, "version": "worker-2.0", "code_ver": SELF_VER,
              "claude": HAS_CLAUDE,
              # worker-1.9 — this node polls the race-free 'txt:' text lane.
              # NEXUS routes text jobs there only when it sees this flag live.
              "txt": True,
+             # worker-2.0 — this node keeps itself current from GitHub raw.
+             "selfup": SELF_UPDATE,
              "managed": MANAGED, "busy": _state["busy"], "current": _state["current"],
              "caps": ((["ask"] if (CLAIM_TEXT or HAS_CLAUDE) else []) + (["claude"] if HAS_CLAUDE else []) + ["vision"] + (["cmd"] if CMD_TOKEN else []) + (["gen"] if GENERATE else []) + (["art"] if HAS_BLENDER else [])),
              "needs": needs,
@@ -959,14 +1052,37 @@ def warmup():
         set_state(False)
 
 
+def _janitor():
+    """worker-2.0 — sweep yesterday's lane rows so the bus stays lean. askPool
+    deletes its own rows on a good day, but races, restarts, and manual tests
+    leave strays ('running' rows stuck by a mid-command restart included).
+    Only the four job lanes are touched — never presence, hideaway, diary, or
+    any other bus row. Age-gated to a full day so nothing in flight is ever
+    swept (jobs older than JOB_MAX_AGE_MS=120s are already dead to NEXUS)."""
+    cutoff = int((time.time() - 86400) * 1000)   # 13-digit ms; lexical lt == numeric lt at fixed width
+    for st in ("done", "error", "expired", "running"):
+        for pref in LANES:
+            url = (REST + "?id=like." + pref + "*&data->>status=eq." + st
+                   + "&data->>ts=lt." + str(cutoff))
+            try:
+                _http("DELETE", url, SB_HEADERS, timeout=15)
+            except Exception:
+                pass                              # best-effort; next pass retries
+
+
 def _heartbeat_loop():
     """Heartbeat on its OWN thread so the node stays ONLINE even while the main
     loop is busy in a long vision inference or a long command (those can take
     minutes on a slow box). Without this, a single slow job makes the node drop
     off the registry."""
+    beats = 0
     while True:
         try: sb_heartbeat()
         except Exception: pass
+        beats += 1
+        if beats % 20 == 1:                       # ~every 10 min (and once at boot)
+            try: _janitor()
+            except Exception: pass
         time.sleep(HEARTBEAT_SECS)
 
 
@@ -981,6 +1097,9 @@ def main():
     if HAS_CLAUDE:
         threading.Thread(target=_inner_life_loop, daemon=True).start()
         log("inner life ON (diary every %ds, idle-only, Claude voice)" % INNER_EVERY_S)
+    if SELF_UPDATE:
+        threading.Thread(target=_self_update_loop, daemon=True).start()
+        log("self-update ON (every %ds, idle-only, compile-gated, from %s)" % (SELF_UPDATE_EVERY_S, RAW_WORKER_URL))
     while True:
         try:
             for job in sb_get_pending():
