@@ -3551,42 +3551,20 @@ Thanks for your help sorting this out.`;
     entryState.lastByItem = null;   // loading sentinel — don't refetch
     try {
       const { vendor, location } = entryState;
-      // v279 — Clippy's counsel: "the same three or four things run out
-      // first, every single week — the app makes Alfredo re-remember it
-      // each time." One fetch of the last 8 SENT orders now feeds BOTH the
-      // per-row "last:" hint (most recent order) and the USUAL SUSPECTS
-      // strip: items that appeared in nearly every recent order, surfaced
-      // at the top so the pattern lives in the app, not in his memory.
-      const { data: recent } = await NX.sb.from('orders')
+      // (v280 — the v279 "usual suspects" strip was removed on Alfredo's
+      // call: too much chrome on an already dense screen. Back to the one
+      // job this fetch had: the per-row "last:" hint.)
+      const { data: lastOrder } = await NX.sb.from('orders')
         .select('id, email_sent_at')
         .eq('vendor_id', vendor.id).eq('location', location).eq('status', 'sent')
-        .order('email_sent_at', { ascending: false }).limit(8);
-      if (!recent || !recent.length) { entryState.lastByItem = {}; entryState.usual = []; return; }
+        .order('email_sent_at', { ascending: false }).limit(1).maybeSingle();
+      if (!lastOrder) { entryState.lastByItem = {}; return; }
       const { data: lines } = await NX.sb.from('order_lines')
-        .select('order_id, item_id, item_name, qty, unit').in('order_id', recent.map(o => o.id));
+        .select('item_id, qty, unit').eq('order_id', lastOrder.id);
       const map = {};
-      (lines || []).forEach(l => {
-        if (l.order_id === recent[0].id && l.item_id && parseFloat(l.qty) > 0) {
-          map[l.item_id] = { qty: parseFloat(l.qty), unit: l.unit || '' };
-        }
-      });
+      (lines || []).forEach(l => { if (l.item_id && parseFloat(l.qty) > 0) map[l.item_id] = { qty: parseFloat(l.qty), unit: l.unit || '' }; });
       entryState.lastByItem = map;
-      const freq = new Map();   // item_id -> {name, orders:Set, qtys:[]}
-      (lines || []).forEach(l => {
-        if (!l.item_id || !(parseFloat(l.qty) > 0)) return;
-        const f = freq.get(l.item_id) || { name: l.item_name || '', orders: new Set(), qtys: [], unit: l.unit || '' };
-        f.orders.add(l.order_id); f.qtys.push(parseFloat(l.qty));
-        freq.set(l.item_id, f);
-      });
-      const needed = Math.max(3, Math.ceil(recent.length * 0.75));
-      entryState.usual = [...freq.entries()]
-        .filter(([, f]) => f.orders.size >= needed)
-        .map(([id, f]) => {
-          const s = [...f.qtys].sort((a, b) => a - b);
-          return { id, name: f.name, n: f.orders.size, of: recent.length, typQty: s[Math.floor(s.length / 2)], unit: f.unit };
-        })
-        .sort((a, b) => b.n - a.n).slice(0, 6);
-      if ((Object.keys(map).length || entryState.usual.length) && entryState.overlay && document.body.contains(entryState.overlay)) renderEntryItems();
+      if (Object.keys(map).length && entryState.overlay && document.body.contains(entryState.overlay)) renderEntryItems();
     } catch (_) { if (entryState) entryState.lastByItem = {}; }
   }
 
@@ -3717,17 +3695,6 @@ Thanks for your help sorting this out.`;
           `;
         })()}
       </div>
-      ${(entryState.usual && entryState.usual.length && !readOnly) ? `
-        <!-- v279 USUAL SUSPECTS — Clippy's counsel: the items this house
-             orders in (almost) every send to this vendor, learned from real
-             order history (NOT pars). Tap a chip to jump to the item. -->
-        <div class="ord-usual">
-          <span class="ord-usual-label">🔁 every order:</span>
-          ${entryState.usual.map(u => `
-            <button type="button" class="ord-usual-chip" data-usual-id="${esc(u.id)}" title="In ${u.n} of your last ${u.of} orders · typically ${esc(String(u.typQty))} ${esc(u.unit || '')}">
-              ${esc(u.name)} <span class="ord-usual-qty">~${esc(String(u.typQty))}${u.unit ? ' ' + esc(baseUnit(u.unit)) : ''}</span>
-            </button>`).join('')}
-        </div>` : ''}
       <div class="ord-entry-search-wrap">
         <input type="search" class="ord-entry-search" id="ordEntrySearch" placeholder="Search items…" autocomplete="off" spellcheck="false">
       </div>
@@ -3837,20 +3804,6 @@ Thanks for your help sorting this out.`;
     });
     overlay.querySelectorAll('.ord-item-row').forEach(row => wireItemRow(row));
     if (!readOnly) overlay.querySelectorAll('.ord-item-row:not(.is-disabled)').forEach(row => enableItemDrag(row));
-    // v279 — usual-suspect chips jump to their item (expanding a collapsed
-    // section on the way) and flash the row so the eye lands on it.
-    overlay.querySelectorAll('.ord-usual-chip').forEach(chip => chip.addEventListener('click', () => {
-      const row = overlay.querySelector(`.ord-item-row[data-item-id="${CSS.escape(chip.dataset.usualId)}"]`);
-      if (!row) { NX.toast && NX.toast('That item is hidden by the current filter — tap All', 'info', 2500); return; }
-      const sec = row.closest('.ord-entry-section');
-      if (sec && sec.classList.contains('is-collapsed')) {
-        sec.classList.remove('is-collapsed');
-        if (entryState.collapsedSections) entryState.collapsedSections.delete(sec.dataset.section || '');
-      }
-      row.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      row.classList.add('is-usual-flash');
-      setTimeout(() => row.classList.remove('is-usual-flash'), 1600);
-    }));
 
     // ─── Order-entry section collapse ─────────────────────────────────
     // Tap the chevron (or anywhere on the section head) to collapse/expand.

@@ -655,33 +655,6 @@ body.ord-overlay-open .nav {
   background: var(--nx-bg);
 }
 
-/* ─── v279 USUAL SUSPECTS — the items this house orders every time,
-   learned from the last 8 sent orders (real history, never pars).
-   Chips jump to the row; the row flashes so the eye lands. ───────── */
-.ord-usual {
-  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-  padding: 8px 16px 2px; background: var(--nx-bg); flex-shrink: 0;
-}
-.ord-usual-label {
-  font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase;
-  color: var(--nx-gold, #d4a44e); font-weight: 700;
-}
-.ord-usual-chip {
-  background: var(--nx-gold-faint, rgba(212,164,78,.10));
-  border: 1px solid var(--nx-gold-line, rgba(212,164,78,.35));
-  color: var(--text); border-radius: 999px; padding: 4px 11px;
-  font: inherit; font-size: 12px; cursor: pointer;
-}
-.ord-usual-chip:hover { border-color: var(--nx-gold, #d4a44e); }
-.ord-usual-qty { color: var(--muted); font-size: 11px; }
-.ord-item-row.is-usual-flash {
-  animation: ord-usual-flash 1.6s ease;
-}
-@keyframes ord-usual-flash {
-  0%, 55% { background: var(--nx-gold-faint, rgba(212,164,78,.16)); }
-  100% { background: transparent; }
-}
-
 /* ─── Search ───────────────────────────────────────────────────── */
 
 .ord-entry-search-wrap {
@@ -792,39 +765,36 @@ body.ord-overlay-open .nav {
   flex: 1;
   min-width: 0;
   font-family: 'JetBrains Mono', monospace;
-  /* v18.28 (polish) — bumped 11→12px with looser letter-spacing for
-     more confidence + breathing room. The section is a navigational
-     anchor for chefs scanning ("am I in cleaning supplies or paper
-     supplies?"), so a slightly larger reading helps glance-ability
-     without ballooning row height (just one line of section head). */
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--nx-gold, var(--accent));
+  /* v280 — sections are wayfinding, not action; they don't get the
+     accent voice. Muted reads calmer and makes the few remaining gold
+     marks (set-row bar, CTA) actually stand out. */
+  color: var(--nx-muted, var(--muted));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .ord-entry-section-count {
-  /* Matches .ved-section-count — same gold-on-gold pill so flipping
-     between catalog editor and order entry doesn't read as two
-     different design systems. */
   flex-shrink: 0;
   min-width: 24px;
   padding: 2px 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--nx-gold-faint, var(--elevated));
-  border: 0;
+  /* v280 — neutral pill (was gold-on-gold); a count is information,
+     not a call to action. */
+  background: var(--nx-surface-1, var(--elevated));
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.18));
   border-radius: 999px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.06em;
-  color: var(--nx-gold, var(--accent));
+  color: var(--nx-muted, var(--muted));
 }
 
 .ord-entry-section-collapse {
@@ -881,7 +851,10 @@ body.ord-overlay-open .nav {
   border-bottom: none;
 }
 .ord-item-row.has-qty {
-  background: var(--nx-gold-soft, var(--nx-gold-faint));
+  /* v280 — the row-wide gold wash stacked with the (then-solid) gold
+     stepper into a wall of yellow. The 3px left bar alone marks a set
+     row perfectly well; the background stays quiet. */
+  background: transparent;
   box-shadow: inset 3px 0 0 0 var(--nx-gold);
 }
 .ord-item-row.is-disabled {
@@ -938,35 +911,34 @@ body.ord-overlay-open .nav {
   transition: border-color .15s;
 }
 .ord-item-row.has-qty .ord-qty {
-  /* v18.28 (polish) — was just gold border on white. Now the entire
-     pill fills with the gold gradient so a "set" item reads as set
-     from across a kitchen. Buttons and input flip to dark-on-gold
-     so the contrast against the filled pill works. */
+  /* v280 — the v18.28 solid gold-gradient fill made every set row a
+     glowing yellow blob; four set items + the gold CTA and the screen
+     read as "all yellow" (Alfredo, by screenshot). A set item now says
+     so quietly: gold border, whisper of gold behind, the NUMBER in gold.
+     One screen, one loud gold thing — the Send button. */
   border-color: var(--nx-gold);
-  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e));
-  box-shadow: 0 1px 6px var(--nx-gold-soft, rgba(212, 164, 78, 0.35));
+  background: var(--nx-gold-faint, rgba(212, 164, 78, 0.10));
+  box-shadow: none;
 }
 .ord-item-row.has-qty .ord-qty-btn {
-  color: var(--nx-gold-on, #101626);
-  font-weight: 700;
+  color: var(--nx-text);
+  font-weight: 600;
 }
 .ord-item-row.has-qty .ord-qty-btn:hover {
-  background: rgba(28, 20, 8, 0.12);
-  color: var(--nx-gold-on, #101626);
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.16));
+  color: var(--nx-gold);
 }
 .ord-item-row.has-qty .ord-qty-btn:active {
-  background: rgba(28, 20, 8, 0.2);
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.24));
 }
 .ord-item-row.has-qty .ord-qty-input {
-  color: var(--nx-gold-on, #101626);
+  color: var(--nx-gold);
   font-weight: 700;
-  /* Subtle vertical dividers between button and input — was gold-line
-     which disappeared against the gold fill. */
-  border-left-color: rgba(28, 20, 8, 0.18);
-  border-right-color: rgba(28, 20, 8, 0.18);
+  border-left-color: var(--nx-gold-line);
+  border-right-color: var(--nx-gold-line);
 }
 .ord-item-row.has-qty .ord-qty-input:focus {
-  background: rgba(28, 20, 8, 0.08);
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.12));
 }
 .ord-qty-btn {
   /* v18.28 (round 2) — shrunk from 32→28px wide. The 34px height keeps
@@ -7313,8 +7285,10 @@ body.ord-overlay-open .nav {
   transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
 }
 .ord-entry-filter-pill.is-active {
-  background: var(--nx-gold);
-  color: var(--nx-bg);
+  /* v280 — outline treatment instead of a solid gold slab; the active
+     filter should read as "selected", not compete with the CTA. */
+  background: var(--nx-gold-faint, rgba(212, 164, 78, 0.10));
+  color: var(--nx-gold);
   border-color: var(--nx-gold);
   font-weight: 600;
 }
@@ -8357,7 +8331,9 @@ body.ord-overlay-open .nav {
 .ord-item-par-chip.is-met    { color: #6da46d; opacity: 1; }
 .ord-item-par-chip.is-short  { color: #d9a44e; opacity: 1; }
 .ord-item-par-label {
-  color: var(--nx-gold, #d4a44e);
+  /* v280 — the gold PAR label on every row was another coat of yellow;
+     pars are reference numbers (Alfredo's law), so they whisper. */
+  color: var(--nx-faint, var(--muted));
   font-weight: 700;
   letter-spacing: 1.4px;
   font-size: 9px;
@@ -8377,7 +8353,8 @@ body.ord-overlay-open .nav {
   letter-spacing: 0.6px;
 }
 .ord-item-par-day {
-  color: var(--nx-gold, #d4a44e);
+  /* v280 — muted with the rest of the par chip. */
+  color: var(--nx-faint, var(--muted));
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -8385,11 +8362,11 @@ body.ord-overlay-open .nav {
   opacity: 0.85;
 }
 
-/* When the row has an active qty (gold-tinted state), brighten the chip
-   border just slightly so it still reads against the warmer background. */
+/* v280 — set rows no longer tint the par chip into a gold box; the
+   is-met/is-short status colors carry the meaning on their own. */
 .ord-item-row.has-qty .ord-item-par-chip {
-  background: rgba(212, 164, 78, 0.14);
-  border-color: var(--nx-gold);
+  background: transparent;
+  border-color: transparent;
 }
 
 /* Right-edge pack-size column — overrides the old narrow 26px unit cell
@@ -9591,4 +9568,5 @@ body.ord-overlay-open .nav {
 @keyframes ordGhostIn { from { transform: scale(.98); opacity: .3; } to { transform: scale(1); opacity: 1; } }
 
 /* "last: 3 cs" — ordering memory, quiet gold. */
-.ord-item-last { color: var(--nx-gold, #d4a44e); font-weight: 600; white-space: nowrap; }
+/* v280 — "last:" is a hint, not an action; it lost the gold voice. */
+.ord-item-last { color: var(--nx-muted, var(--muted)); font-weight: 600; white-space: nowrap; }
