@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v272-hideaway';
+const CACHE_NAME = 'nexus-v273-two-ribbons';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [

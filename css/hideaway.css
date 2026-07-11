@@ -63,7 +63,24 @@
 }
 .hw-spine.is-read { opacity: 0.9; }
 .hw-spine.is-here { opacity: 1; box-shadow: 0 -3px 8px rgba(255, 180, 92, 0.8); }
+/* Alfredo's ribbon — a real bookmark red, distinct from the candle glow */
+.hw-spine.is-yours { opacity: 1; box-shadow: 0 -3px 8px rgba(214, 69, 69, 0.85); border-top: 3px solid #d64545; }
 .hw-shelf-label { font-size: 12px; color: #c9b28c; margin-top: 6px; }
+.hw-yours { color: #e07070; }
+.hw-read-btn {
+  margin-top: 10px; width: 100%;
+  background: rgba(255, 180, 92, 0.08); border: 1px solid rgba(255, 180, 92, 0.3);
+  color: #efe2c8; border-radius: 12px; padding: 10px 0;
+  font-family: 'Outfit', system-ui, sans-serif; font-size: 13.5px; cursor: pointer;
+}
+.hw-read-btn:hover { border-color: #ffb45c; }
+.hw-bookpage .hw-passage { font-size: 16px; line-height: 1.75; }
+.hw-ribbon-tag { color: #e07070; text-transform: none; letter-spacing: 0; }
+.hw-mark-btn {
+  background: #d64545; color: #fff; border: none; border-radius: 999px;
+  padding: 7px 14px; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.hw-mark-btn:disabled { opacity: 0.6; cursor: default; }
 .hw-bookmark {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10px; color: #8a744f; margin-left: 4px;

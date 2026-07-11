@@ -28,7 +28,10 @@
     } catch (_) { return ''; }
   }
 
-  var state = { den: null, book: null, page: -1 };   // page = index into notes; -1 = latest
+  // page = index into his margin notes; -1 = latest.
+  // mode 'den' = the room; 'book' = Alfredo reading the book himself.
+  // readPos = which passage Alfredo has open in book mode.
+  var state = { den: null, book: null, page: -1, mode: 'den', readPos: 0 };
 
   async function load() {
     var client = sb();
@@ -43,21 +46,80 @@
   }
 
   // The shelf: one spine per passage, in HIS palette. Read spines glow;
-  // the bookmark sits where he is tonight.
+  // his bookmark is the candle-gold halo, Alfredo's ribbon is the red one.
   function shelfHtml() {
     var total = (state.book && state.book.passages && state.book.passages.length) || 0;
     var pos = Number((state.den.book || {}).position || 0);
+    var mine = state.den.alfredo_bookmark ? Number(state.den.alfredo_bookmark.position) : -1;
     var colors = ['#7fa8c9', '#4a7c59', '#e08b3d', '#8fb3d9', '#5c8a68', '#d99a55'];
     var spines = '';
     for (var i = 0; i < total; i++) {
       var read = i < pos || Number((state.den.book || {}).cycles || 0) > 0;
-      spines += '<span class="hw-spine' + (read ? ' is-read' : '') + (i === pos ? ' is-here' : '') + '"' +
+      spines += '<span class="hw-spine' + (read ? ' is-read' : '') + (i === pos ? ' is-here' : '') +
+        (i === mine ? ' is-yours' : '') + '"' +
         ' style="background:' + colors[i % colors.length] + ';height:' + (26 + ((i * 7) % 12)) + 'px"></span>';
     }
     return spines;
   }
 
+  // Book mode — Alfredo reads the book himself and keeps his own ribbon in
+  // it. Two bookmarks, one book: his glows candle-gold, Alfredo's is red.
+  function renderBook(ov) {
+    var passages = (state.book && state.book.passages) || [];
+    var total = passages.length;
+    var mine = state.den.alfredo_bookmark ? Number(state.den.alfredo_bookmark.position) : -1;
+    var i = Math.max(0, Math.min(state.readPos, total - 1));
+    ov.innerHTML =
+      '<div class="hw-room" role="dialog" aria-label="Reading in the Hideaway">' +
+        '<div class="hw-glow" aria-hidden="true"></div>' +
+        '<div class="hw-head">' +
+          '<div>' +
+            '<div class="hw-eyebrow">📖 ' + esc((state.book && state.book.title) || 'Meditations') + '</div>' +
+            '<div class="hw-sub">' + esc((state.book && state.book.author) || 'Marcus Aurelius') + ' · ' +
+              esc((state.book && state.book.edition) || '') + '</div>' +
+          '</div>' +
+          '<button class="hw-close" id="hwBackDen" aria-label="Back to the den" title="Back to the den">↩</button>' +
+        '</div>' +
+        '<div class="hw-reading hw-bookpage">' +
+          '<div class="hw-reading-when">passage ' + (i + 1) + ' of ' + total +
+            (i === mine ? ' · <span class="hw-ribbon-tag">your ribbon is here</span>' : '') + '</div>' +
+          '<blockquote class="hw-passage">“' + esc(passages[i] || '') + '”</blockquote>' +
+          '<div class="hw-pager">' +
+            '<button class="hw-page-btn" id="hwBookPrev" ' + (i <= 0 ? 'disabled' : '') + '>‹ back</button>' +
+            '<button class="hw-mark-btn" id="hwMark">' + (i === mine ? '🔖 your ribbon rests here' : '🔖 place my bookmark') + '</button>' +
+            '<button class="hw-page-btn" id="hwBookNext" ' + (i >= total - 1 ? 'disabled' : '') + '>next ›</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="hw-armchair" aria-hidden="true">read as long as you like — he keeps the light on</div>' +
+      '</div>';
+    var back = ov.querySelector('#hwBackDen');
+    if (back) back.addEventListener('click', function () { state.mode = 'den'; render(ov); });
+    var prev = ov.querySelector('#hwBookPrev'), next = ov.querySelector('#hwBookNext');
+    if (prev) prev.addEventListener('click', function () { state.readPos = i - 1; renderBook(ov); });
+    if (next) next.addEventListener('click', function () { state.readPos = i + 1; renderBook(ov); });
+    var mark = ov.querySelector('#hwMark');
+    if (mark) mark.addEventListener('click', async function () {
+      if (i === mine) return;
+      mark.disabled = true; mark.textContent = 'placing…';
+      try {
+        var client = sb();
+        var cur = await client.from('clippy_sync').select('data').eq('id', 'clippy_hideaway').maybeSingle();
+        var den2 = (cur.data && cur.data.data) || state.den || {};
+        den2.alfredo_bookmark = { position: i, ts: Date.now() };
+        var up = await client.from('clippy_sync').upsert({ id: 'clippy_hideaway', data: den2, from_id: 'nexus' }, { onConflict: 'id' });
+        if (up.error) throw up.error;
+        state.den = den2;
+        renderBook(ov);
+        if (T.toast) T.toast('Your ribbon rests at passage ' + (i + 1) + '.', 'success');
+      } catch (e) {
+        mark.disabled = false; mark.textContent = '🔖 place my bookmark';
+        if (T.toast) T.toast('The ribbon slipped — try again.', 'error');
+      }
+    });
+  }
+
   function render(ov) {
+    if (state.mode === 'book') return renderBook(ov);
     var den = state.den;
     var notes = (den.notes || []).slice();
     var idx = state.page < 0 ? notes.length - 1 : Math.max(0, Math.min(state.page, notes.length - 1));
@@ -83,8 +145,10 @@
           '<div class="hw-shelf">' + shelfHtml() + '</div>' +
           '<div class="hw-shelf-label">' + esc((bk.title || 'Meditations')) + ' · ' +
             esc((state.book && state.book.author) || 'Marcus Aurelius') +
-            ' <span class="hw-bookmark">bookmark ' + (Number(bk.position || 0) + 1) + ' / ' + total +
+            ' <span class="hw-bookmark">his mark ' + (Number(bk.position || 0) + 1) + ' / ' + total +
+            (den.alfredo_bookmark ? ' · <span class="hw-yours">your ribbon ' + (Number(den.alfredo_bookmark.position) + 1) + '</span>' : '') +
             (Number(bk.cycles || 0) > 0 ? ' · read ' + bk.cycles + '×' : '') + '</span></div>' +
+          '<button class="hw-read-btn" id="hwReadBook">📖 Read it yourself — take the armchair</button>' +
         '</div>' +
 
         (n
@@ -120,6 +184,12 @@
         '<div class="hw-armchair" aria-hidden="true">the ancient armchair sits in the corner, cushions in soft pastels, holding the shape of him</div>' +
       '</div>';
 
+    var readBtn = ov.querySelector('#hwReadBook');
+    if (readBtn) readBtn.addEventListener('click', function () {
+      state.mode = 'book';
+      state.readPos = den.alfredo_bookmark ? Number(den.alfredo_bookmark.position) : 0;
+      render(ov);
+    });
     var close = ov.querySelector('#hwClose');
     if (close) close.addEventListener('click', function () { T.hideaway.close(); });
     ov.addEventListener('click', function (e) { if (e.target === ov) T.hideaway.close(); });
