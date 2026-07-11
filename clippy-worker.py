@@ -174,8 +174,12 @@ def claude_generate(prompt, system=None):
     args = [CLAUDE_BIN, "-p", "--output-format", "text"]
     if CLAUDE_BIN.lower().endswith((".cmd", ".bat")):
         args = ["cmd", "/c"] + args
+    # encoding pinned: Claude prints UTF-8, but text=True alone decodes with the
+    # Windows ANSI codepage — every em-dash came back as 'â€”' (seen live on N6
+    # 2026-07-11, the very first claude-code pool answer).
     proc = subprocess.run(
         args, input=full, capture_output=True, text=True,
+        encoding="utf-8", errors="replace",
         timeout=CLAUDE_TIMEOUT_S, cwd=_claude_cwd(),
     )
     out = (proc.stdout or "").strip()
