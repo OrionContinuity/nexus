@@ -191,6 +191,7 @@
         '<div class="hw-shelf-wrap">' +
           '<div class="hw-table-title">THE LIBRARY · full texts, free books</div>' +
           shelfHtml() +
+          '<button class="hw-read-btn" id="hwAddBook">＋ add a book — any free classic, by its Gutenberg number</button>' +
         '</div>' +
 
         (n
@@ -234,6 +235,32 @@
     if (next) next.addEventListener('click', function () { state.page = idx + 1; render(ov); });
     ov.querySelectorAll('[data-open]').forEach(function (btn) {
       btn.addEventListener('click', function () { openBook(ov, btn.getAttribute('data-open')); });
+    });
+    // ＋ add a book — the shelf belongs to Alfredo and Clippy, not to Orion's
+    // taste. Any Gutenberg number; hideaway-add-book fetches, pages, shelves.
+    // Ribbons work on every book automatically (den.ribbons is per-book).
+    var addBtn = ov.querySelector('#hwAddBook');
+    if (addBtn) addBtn.addEventListener('click', async function () {
+      var themed = (T.confirm && T.confirm.__nx && T.prompt) ? T.prompt : null;
+      var val = themed
+        ? await themed('Give me the Project Gutenberg ebook number — the digits in the book’s gutenberg.org address. I’ll fetch the full text and shelve it; ribbons work on every book.', { title: '＋ a new book', placeholder: 'e.g. 174', okLabel: 'Fetch it' })
+        : prompt('Gutenberg ebook number (e.g. 174):');
+      if (val == null) return;
+      var gid = parseInt(String(val).replace(/\D/g, ''), 10);
+      if (!gid) { if (T.toast) T.toast('That needs to be a number, jefe.', 'error'); return; }
+      addBtn.disabled = true; addBtn.textContent = 'fetching the book…';
+      try {
+        var client = sb();
+        var r = await client.functions.invoke('hideaway-add-book', { body: { gutenberg_id: gid } });
+        var d = r.data || {};
+        if (r.error || !d.ok) throw new Error((d && d.error) || (r.error && r.error.message) || 'fetch failed');
+        if (T.toast) T.toast('“' + (d.title || 'book') + '” shelved — ' + d.pages + ' pages.', 'success');
+        await load();
+        render(ov);
+      } catch (e) {
+        if (T.toast) T.toast('Couldn’t fetch #' + gid + ' — ' + String(e.message || e).slice(0, 60), 'error');
+        addBtn.disabled = false; addBtn.textContent = '＋ add a book — any free classic, by its Gutenberg number';
+      }
     });
     // "Make this his midnight book" — explicit confirm; the only write here.
     ov.querySelectorAll('[data-night]').forEach(function (btn) {
