@@ -1194,6 +1194,29 @@ body.chatview-open {
 .cv-orion-line.is-voice { color: #eef4ff; font-size: 13px; }
 .cv-orion-line.is-dim { color: rgba(255,255,255,.38); font-size: 10.5px; letter-spacing: .03em; }
 
+/* ── v278 THE PANTHEON — the chosen god's latest word, pinned. Gold for
+   Trajan (the present), silver for Providentia (foresight) — the two faces
+   of the NEXUS coin. ── */
+.cv-god-strip {
+  flex: 0 0 auto; margin: 0 14px 6px; padding: 9px 12px; border-radius: 12px;
+  background: linear-gradient(160deg, rgba(22,32,60,.72), rgba(11,16,32,.72));
+  border: 1px solid rgba(255,255,255,.14);
+}
+.cv-god-strip.is-trajan { border-color: rgba(212,164,78,.38); }
+.cv-god-strip.is-providentia { border-color: rgba(196,204,216,.38); }
+.cv-god-head {
+  font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10px;
+  letter-spacing: .12em; text-transform: uppercase; margin-bottom: 4px;
+}
+.is-trajan .cv-god-head { color: #d4a44e; }
+.is-providentia .cv-god-head { color: #c4ccd8; }
+.cv-god-when { opacity: .55; text-transform: none; letter-spacing: .03em; margin-left: 6px; }
+.cv-god-line {
+  font-family: 'Outfit', 'DM Sans', system-ui, sans-serif; font-size: 12.5px;
+  color: rgba(232,238,252,.88); line-height: 1.55; white-space: pre-wrap;
+}
+.cv-god-line.is-dim { color: rgba(255,255,255,.38); font-size: 10.5px; letter-spacing: .03em; }
+
 /* ── WALK WITH ME (clippy-buddy) — house chips + the house brief bubble ── */
 .cv-house {
   display: flex; align-items: center; gap: 6px;
