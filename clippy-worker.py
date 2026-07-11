@@ -230,7 +230,12 @@ def sb_get_pending():
     # or=(...) logical filter, which PostgREST rejects in some forms (a bad
     # filter returns [] silently and the node goes blind to all jobs).
     rows = []
-    for pref in ("vis:", "art:", "job:"):     # vision, atelier (Blender renders), shared
+    # worker-1.9 — 'txt:' is the Claude text lane. Same trick that saved vision:
+    # the legacy ≤2.4.x poller only queries 'job:%', so a text job posted on
+    # 'txt:' is structurally invisible to it — the qwen brain can never race us
+    # for it. NEXUS only posts there when a live node advertises "txt": true
+    # in the registry, so the lane is never a black hole during rollout.
+    for pref in ("vis:", "art:", "txt:", "job:"):   # vision, atelier, Claude text, shared
         url = REST + "?id=like." + pref + "*&select=id,data"
         try:
             _, raw = _http("GET", url, SB_HEADERS, timeout=20)
@@ -254,6 +259,11 @@ def sb_get_pending():
         # them (it has the preferred text model). We still take vision, cmd, and
         # atelier renders.
         is_text = not (d.get("image_b64") or d.get("vision") or d.get("cmd") or d.get("render"))
+        # worker-1.9 — our private text lane: nobody else polls 'txt:', so
+        # never hold off on it (the rescue-grace below would just add latency).
+        if is_text and (row.get("id") or "").startswith("txt:"):
+            out.append(row)
+            continue
         # worker-1.8 — a Claude-equipped node outranks the legacy qwen brain:
         # claim text immediately (sb_claim is atomic, so racing is safe).
         if is_text and not (CLAIM_TEXT or HAS_CLAUDE):
@@ -398,8 +408,11 @@ def sb_heartbeat():
     if not HAS_BLENDER: needs.append("art")      # no 3D
     if not CMD_TOKEN:   needs.append("cmd")      # cannot act on the world
     entry = {"name": NODE, "ts": now, "vision": True, "cmd": bool(CMD_TOKEN), "seal": bool(STEWARD_SECRET),
-             "os": OSDESC, "version": "worker-1.8", "code_ver": SELF_VER,
+             "os": OSDESC, "version": "worker-1.9", "code_ver": SELF_VER,
              "claude": HAS_CLAUDE,
+             # worker-1.9 — this node polls the race-free 'txt:' text lane.
+             # NEXUS routes text jobs there only when it sees this flag live.
+             "txt": True,
              "managed": MANAGED, "busy": _state["busy"], "current": _state["current"],
              "caps": ((["ask"] if (CLAIM_TEXT or HAS_CLAUDE) else []) + (["claude"] if HAS_CLAUDE else []) + ["vision"] + (["cmd"] if CMD_TOKEN else []) + (["gen"] if GENERATE else []) + (["art"] if HAS_BLENDER else [])),
              "needs": needs,

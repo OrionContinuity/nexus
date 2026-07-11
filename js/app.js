@@ -4010,9 +4010,10 @@ td.check{background:#F0EDE6 !important}
     // empty pool meant waiting the full job timeout (5 MINUTES for chat)
     // before the cloud fallback — the daemon looked dead when it was
     // merely off. Now: no live node → throw now, caller falls back now.
+    let liveNodes = [];
     try {
-      const _live = await this.clippyPoolNodes();
-      if (!_live.length) throw new Error('Clippy pool: no nodes online');
+      liveNodes = await this.clippyPoolNodes();
+      if (!liveNodes.length) throw new Error('Clippy pool: no nodes online');
     } catch (e) {
       if (/no nodes online/.test(e && e.message || '')) throw e;
       // registry unreadable — proceed; the job timeout still protects us
@@ -4023,8 +4024,13 @@ td.check{background:#F0EDE6 !important}
     // queries (it polls id like 'job:%'). That makes vision work invisible to
     // it, so it can't grab a vision job, 400 on it, and write 'error' — the
     // race is structurally impossible rather than merely won by polling fast.
-    // Text jobs stay on 'job:' so the legacy brain (qwen3) keeps serving them.
-    const id = (opts.image_b64 ? 'vis:' : 'job:') + rid;
+    // Text jobs ride 'txt:' when a live node advertises that lane (worker-1.9+,
+    // Claude-equipped) — the legacy qwen brain only polls 'job:%', so it can
+    // never race Claude for the answer. No txt-capable node online → 'job:'
+    // as before, and the legacy brain keeps serving text. Same structural
+    // trick that made vision race-proof.
+    const txtNode = !opts.image_b64 && liveNodes.some(n => n && n.txt);
+    const id = (opts.image_b64 ? 'vis:' : (txtNode ? 'txt:' : 'job:')) + rid;
     // Strongest-node routing for vision: when more than one vision node is
     // online, tag the job with the strongest (highest vscore, idle preferred).
     // Workers let that node claim first and fail over after a short grace, so
