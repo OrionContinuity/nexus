@@ -150,3 +150,38 @@
 
 /* The door chip in Ask NEXUS keeps the candle's warmth */
 .cv-hideaway-door { margin-left: auto; }
+
+/* ── v275 THE LIBRARY — real books, two ribbons per book ── */
+.hw-book {
+  margin: 10px 0; padding: 10px 12px; border-radius: 12px;
+  background: #1d150e; border: 1px solid rgba(255, 180, 92, 0.14);
+}
+.hw-book-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.hw-book-title { font-size: 14.5px; font-weight: 700; color: #efe2c8; }
+.hw-open-btn {
+  background: rgba(255, 180, 92, 0.1); border: 1px solid rgba(255, 180, 92, 0.35);
+  color: #ffcf96; border-radius: 999px; padding: 4px 12px; font-size: 12px; cursor: pointer;
+  flex-shrink: 0;
+}
+.hw-open-btn:hover { border-color: #ffb45c; }
+.hw-book-meta { font-size: 11px; color: #a8916c; margin-top: 2px; }
+.hw-track {
+  position: relative; height: 5px; border-radius: 999px;
+  background: rgba(255, 180, 92, 0.1); margin: 8px 0 4px;
+}
+.hw-mark {
+  position: absolute; top: -3px; width: 3px; height: 11px; border-radius: 2px;
+  transform: translateX(-50%);
+}
+.hw-mark-his { background: #ffb45c; box-shadow: 0 0 6px rgba(255, 180, 92, 0.9); }
+.hw-mark-yours { background: #d64545; box-shadow: 0 0 6px rgba(214, 69, 69, 0.8); }
+.hw-book-marks { display: flex; gap: 12px; align-items: center; font-size: 11px; }
+.hw-his { color: #ffcf96; }
+.hw-night-btn {
+  background: none; border: none; padding: 0; cursor: pointer;
+  color: #8a744f; font-size: 10.5px; font-style: italic; text-decoration: underline dotted;
+}
+.hw-night-btn:hover { color: #ffb45c; }
+.hw-pagetext { font-size: 15px; line-height: 1.75; color: #e9dcc0; }
+.hw-loadpage { color: #a8916c; font-style: italic; padding: 20px 0; text-align: center; }
+.hw-pager { flex-wrap: wrap; gap: 6px; }
