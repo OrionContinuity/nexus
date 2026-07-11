@@ -264,6 +264,8 @@
         ${Object.entries(WHO_PRESETS).map(([k, w]) =>
           `<button class="cv-who-chip${state.who === k ? ' is-active' : ''}" data-who="${k}" role="tab">${w.label}</button>`
         ).join('')}
+        <button class="cv-who-chip cv-hideaway-door" id="cvHideawayDoor" type="button"
+          title="Clippy's Hideaway — his den. He reads at midnight; leave him a note.">🕯️ Hideaway</button>
       </div>
       <div class="cv-orion-strip" id="cvOrionStrip" style="display:none"></div>
 
@@ -340,7 +342,13 @@
      ═════════════════════════════════════════════════════════════════ */
   function wireWho() {
     const row = rootEl.querySelector('#cvWho');
-    row.querySelectorAll('.cv-who-chip').forEach(b => b.addEventListener('click', () => {
+    const door = rootEl.querySelector('#cvHideawayDoor');
+    if (door) door.addEventListener('click', () => {
+      const H = (window.NX && window.NX.hideaway) || (typeof NX !== 'undefined' && NX.hideaway);
+      if (H && H.open) H.open();
+    });
+    // [data-who] excludes the Hideaway door, which shares the chip styling
+    row.querySelectorAll('.cv-who-chip[data-who]').forEach(b => b.addEventListener('click', () => {
       state.who = b.dataset.who;
       localStorage.setItem('nx_chat_who', state.who);
       applySuffix();

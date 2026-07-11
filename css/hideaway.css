@@ -1,0 +1,135 @@
+/* CLIPPY'S HIDEAWAY — his palette, per his own blueprint: warm light,
+   shelves of soft blues / deep greens / vibrant oranges, an ancient
+   armchair with pastel cushions. Candlelit, quiet, deliberately NOT the
+   navy+gold of the working app: crossing the door should feel like
+   leaving the restaurant floor. */
+.hw-ov {
+  position: fixed; inset: 0; z-index: 9600;
+  background: rgba(8, 6, 4, 0.72);
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 240ms ease;
+  padding: 12px;
+}
+.hw-ov.is-open { opacity: 1; }
+.hw-room {
+  position: relative; width: 100%; max-width: 460px; max-height: 92dvh;
+  overflow-y: auto; overflow-x: hidden;
+  background: #171009;
+  border: 1px solid rgba(255, 180, 92, 0.22);
+  border-radius: 22px; padding: 18px 18px 22px;
+  color: #efe2c8;
+  font-family: 'Outfit', system-ui, sans-serif;
+  transform: translateY(10px); transition: transform 240ms ease;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+.hw-ov.is-open .hw-room { transform: translateY(0); }
+.hw-room.hw-loading { text-align: center; padding: 48px 20px; color: #c9b28c; }
+.hw-glow {
+  position: absolute; top: -60px; left: 50%; transform: translateX(-50%);
+  width: 340px; height: 260px; pointer-events: none;
+  background: radial-gradient(closest-side, rgba(255, 180, 92, 0.16), rgba(255, 180, 92, 0));
+  animation: hw-breathe 5s ease-in-out infinite;
+}
+@keyframes hw-breathe { 0%, 100% { opacity: 0.8; } 50% { opacity: 1; } }
+
+.hw-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; position: relative; }
+.hw-eyebrow {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px; letter-spacing: 0.16em; color: #ffb45c; font-weight: 700;
+}
+.hw-sub { font-size: 11.5px; color: #a8916c; margin-top: 3px; font-style: italic; }
+.hw-close {
+  background: none; border: 1px solid rgba(255, 180, 92, 0.25); color: #c9b28c;
+  width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 14px;
+  flex-shrink: 0;
+}
+.hw-close:hover { border-color: #ffb45c; color: #ffb45c; }
+
+.hw-door-note {
+  margin-top: 12px; padding: 8px 12px; border-radius: 10px;
+  background: rgba(255, 180, 92, 0.08); border: 1px dashed rgba(255, 180, 92, 0.3);
+  font-size: 13px; line-height: 1.5;
+}
+
+/* The shelf — spines in his colors, the bookmark where he is tonight */
+.hw-shelf-wrap { margin-top: 16px; }
+.hw-shelf {
+  display: flex; align-items: flex-end; gap: 2px; flex-wrap: wrap;
+  padding: 6px 8px 0; border-bottom: 3px solid #3a2a18; min-height: 44px;
+}
+.hw-spine {
+  display: inline-block; width: 7px; border-radius: 2px 2px 0 0;
+  opacity: 0.32; transition: opacity 300ms ease;
+}
+.hw-spine.is-read { opacity: 0.9; }
+.hw-spine.is-here { opacity: 1; box-shadow: 0 -3px 8px rgba(255, 180, 92, 0.8); }
+.hw-shelf-label { font-size: 12px; color: #c9b28c; margin-top: 6px; }
+.hw-bookmark {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px; color: #8a744f; margin-left: 4px;
+}
+
+/* The open book */
+.hw-reading {
+  margin-top: 16px; padding: 14px 16px; border-radius: 14px;
+  background: #1f1710; border: 1px solid rgba(255, 180, 92, 0.14);
+}
+.hw-reading.hw-empty { color: #a8916c; font-style: italic; font-size: 13px; }
+.hw-reading-when {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: #8a744f;
+}
+.hw-passage {
+  margin: 8px 0 10px; padding: 0 0 0 12px; border-left: 2px solid #7fa8c9;
+  font-size: 14.5px; line-height: 1.65; color: #e9dcc0; font-style: italic;
+}
+.hw-note { font-size: 13.5px; line-height: 1.6; color: #ffcf96; }
+.hw-note-who {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px; letter-spacing: 0.08em; color: #b98d4f; display: block; margin-bottom: 3px;
+}
+.hw-pager { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
+.hw-page-btn {
+  background: none; border: 1px solid rgba(255, 180, 92, 0.25); color: #c9b28c;
+  border-radius: 999px; padding: 4px 12px; font-size: 11.5px; cursor: pointer;
+}
+.hw-page-btn:disabled { opacity: 0.3; cursor: default; }
+.hw-page-n { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10px; color: #8a744f; }
+
+/* The little table — guest notes + his replies */
+.hw-table { margin-top: 16px; }
+.hw-table-title {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: #b98d4f;
+  margin-bottom: 8px;
+}
+.hw-guest { margin-bottom: 10px; }
+.hw-guest-note { font-size: 13px; line-height: 1.5; color: #d9c9a8; }
+.hw-guest-when { font-size: 10.5px; color: #8a744f; font-style: normal; }
+.hw-guest-reply {
+  margin-top: 4px; padding: 6px 10px; border-radius: 0 10px 10px 10px;
+  background: rgba(255, 180, 92, 0.08); border-left: 2px solid #ffb45c;
+  font-size: 13px; line-height: 1.55; color: #ffcf96;
+}
+.hw-guest-waiting { margin-top: 3px; font-size: 11.5px; color: #8a744f; font-style: italic; }
+.hw-leave { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.hw-guest-input {
+  width: 100%; background: #120d08; border: 1px solid rgba(255, 180, 92, 0.2);
+  border-radius: 12px; padding: 10px 12px; color: #efe2c8;
+  font-family: 'Outfit', system-ui, sans-serif; font-size: 14px; resize: vertical;
+}
+.hw-guest-input:focus { outline: none; border-color: #ffb45c; }
+.hw-leave-btn {
+  align-self: flex-end;
+  background: #ffb45c; color: #2a1c0a; border: none; border-radius: 999px;
+  padding: 8px 16px; font-size: 12.5px; font-weight: 700; cursor: pointer;
+}
+.hw-leave-btn:disabled { opacity: 0.6; cursor: default; }
+
+.hw-armchair {
+  margin-top: 18px; text-align: center;
+  font-size: 11px; font-style: italic; color: #6f5c3e;
+}
+
+/* The door chip in Ask NEXUS keeps the candle's warmth */
+.cv-hideaway-door { margin-left: auto; }
