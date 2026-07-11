@@ -342,6 +342,16 @@ $tools = @(
      Test = { (Test-Path (Join-Path $ProgRoot 'ghcli\bin\gh.exe')) -or [bool](Get-Command gh -EA SilentlyContinue) } }
   @{ Name = 'Python 3';     EstGB = 0.6; Winget = 'Python.Python.3.12';
      Test = { [bool](Get-Command python -EA SilentlyContinue) -or [bool](Get-Command python3 -EA SilentlyContinue) } }
+  # v281 — THE SUBSCRIPTION ENGINE (keeper's word 2026-07-11: "wire everything
+  # to just use claude subscription. daemon installs everything"). Claude Code
+  # is what makes a node answer with claude:true on the txt: lane — the same
+  # engine Clippy thinks with, and (as of pantheon-voice v3 / hideaway-night
+  # v4) the engine the gods and the midnight reading prefer. Winget first,
+  # official native installer as the fallback. The LOGIN stays human (see the
+  # [next] hint after provisioning): a seat is granted, never taken.
+  @{ Name = 'Claude Code';  EstGB = 0.4; Winget = 'Anthropic.ClaudeCode';
+     Direct = { Invoke-Expression (Invoke-RestMethod -Uri 'https://claude.ai/install.ps1' -UseBasicParsing) };
+     Test = { [bool](Get-Command claude -EA SilentlyContinue) -or (Test-Path (Join-Path $env:USERPROFILE '.local\bin\claude.exe')) } }
   @{ Name = 'Ollama';       EstGB = 1.5; Winget = 'Ollama.Ollama';
      Test = { [bool](Get-Command ollama -EA SilentlyContinue) -or (Test-Path (Join-Path $ProgRoot 'Ollama\ollama.exe')) } }
   @{ Name = 'Blender';      EstGB = 4; Winget = 'BlenderFoundation.Blender';
@@ -395,6 +405,20 @@ foreach ($t in $tools) {
   } catch { Log "[!!] $($t.Name) failed: $($_.Exception.Message)" 'Red'; $failed++ }
 }
 Log "provision summary - present:$present installed:$installed skipped:$skipped failed:$failed" 'Cyan'
+
+# v281 — Claude Code installs unattended, but the SUBSCRIPTION LOGIN is
+# interactive by design: the seat is Alfredo's to grant, never a machine's to
+# take. Until a human runs the login once, the worker heartbeats claude:false
+# and text jobs fall back to Ollama — nothing breaks, it just thinks smaller.
+$claudeCmd = Get-Command claude -EA SilentlyContinue
+if (-not $claudeCmd -and (Test-Path (Join-Path $env:USERPROFILE '.local\bin\claude.exe'))) {
+  $claudeCmd = @{ Source = (Join-Path $env:USERPROFILE '.local\bin\claude.exe') }
+}
+if ($claudeCmd -and -not (Test-Path (Join-Path $env:USERPROFILE '.claude'))) {
+  Log "[next] Claude Code is installed but NOT logged in. Run once in any terminal:" 'Yellow'
+  Log "         claude /login" 'Yellow'
+  Log "       (subscription auth; within a minute of login the worker advertises claude:true and this node thinks with Claude)" 'Yellow'
+}
 
 # --- Make the function go: (re)deploy clippy-pool if we can ------------------
 if (-not $EnsureOnly -and -not $ReportOnly) {
