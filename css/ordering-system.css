@@ -655,6 +655,33 @@ body.ord-overlay-open .nav {
   background: var(--nx-bg);
 }
 
+/* ─── v279 USUAL SUSPECTS — the items this house orders every time,
+   learned from the last 8 sent orders (real history, never pars).
+   Chips jump to the row; the row flashes so the eye lands. ───────── */
+.ord-usual {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 8px 16px 2px; background: var(--nx-bg); flex-shrink: 0;
+}
+.ord-usual-label {
+  font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--nx-gold, #d4a44e); font-weight: 700;
+}
+.ord-usual-chip {
+  background: var(--nx-gold-faint, rgba(212,164,78,.10));
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,.35));
+  color: var(--text); border-radius: 999px; padding: 4px 11px;
+  font: inherit; font-size: 12px; cursor: pointer;
+}
+.ord-usual-chip:hover { border-color: var(--nx-gold, #d4a44e); }
+.ord-usual-qty { color: var(--muted); font-size: 11px; }
+.ord-item-row.is-usual-flash {
+  animation: ord-usual-flash 1.6s ease;
+}
+@keyframes ord-usual-flash {
+  0%, 55% { background: var(--nx-gold-faint, rgba(212,164,78,.16)); }
+  100% { background: transparent; }
+}
+
 /* ─── Search ───────────────────────────────────────────────────── */
 
 .ord-entry-search-wrap {

@@ -3450,10 +3450,37 @@
         <div class="cleanlite-loc-picker">${locPills}</div>
         ${modeSeg}
       </div>
+      <div class="cleanlite-eqdown" id="cleanliteEqDown" style="display:none"></div>
       ${liteMode === 'today' ? todayBlocks : crewBlocks}
       <div class="cleanlite-zones">${zoneCards || '<div class="cleanlite-empty">No zones yet — add tasks for this location first.</div>'}</div>
       ${liteMode === 'today' ? renderPeriodicGroup() : ''}
       <div class="cleanlite-cta-wrap">${ctas}</div>`;
+
+    // ── Clippy's counsel (v279): cleaning and equipment finally talk.
+    // "When a piece of equipment goes down, the cleaning checklist still
+    // cheerfully asks the team to clean it." If any unit at THIS house is
+    // down/broken/needs service, say so at the top of the checklist so
+    // nobody scrubs a machine that shouldn't be touched. Async fill,
+    // best-effort — the checklist never waits on it.
+    (async () => {
+      try {
+        const el = wrap.querySelector('#cleanliteEqDown');
+        if (!el || !NX.sb) return;
+        const { data } = await NX.sb.from('equipment')
+          .select('name, location, status, status_note')
+          .in('status', ['down', 'broken', 'needs_service'])
+          .eq('is_deleted', false).limit(20);
+        const norm = s => String(s || '').toLowerCase().replace(/[^a-z]/g, '');
+        const here = (data || []).filter(e => {
+          const l = norm(e.location);
+          return l && (l.includes(norm(activeLoc)) || norm(activeLoc).includes(l));
+        });
+        if (!here.length) return;
+        el.style.display = '';
+        el.innerHTML = `⚠️ <b>Don't clean these — not running:</b> ` +
+          here.map(e => `${esc(e.name)} <span class="cleanlite-eqdown-st">(${esc(e.status.replace('_', ' '))}${e.status_note ? ' — ' + esc(String(e.status_note).slice(0, 40)) : ''})</span>`).join(' · ');
+      } catch (_) {}
+    })();
 
     // wiring
     wrap.querySelectorAll('[data-loc]').forEach(b => b.addEventListener('click', () => liteSwitchLoc(b.dataset.loc)));

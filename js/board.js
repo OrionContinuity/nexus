@@ -652,7 +652,10 @@ function applyFilters(cardList){
   const fortnight = 14 * 86400000;
   return cardList.filter(c => {
     if(filters.priority && c.priority !== filters.priority) return false;
-    if(filters.location && locKey(c.location) !== filters.location) return false;
+    // 'unfiled' — the gods' audit view: cards born without a house are
+    // invisible to every location filter, so they get their own lens.
+    if(filters.location === 'unfiled'){ if(c.location) return false; }
+    else if(filters.location && locKey(c.location) !== filters.location) return false;
     if(filters.equipment && c.equipment_id !== filters.equipment) return false;
     if(filters.state === 'overdue'){
       if(isDone(c)) return false;
@@ -682,6 +685,21 @@ function render(){
   wrap.appendChild(renderSummaryStrip());
   wrap.appendChild(renderBoardHeader());
   wrap.appendChild(renderFilterBar());
+  // Providentia's escalation: past-due work announces itself above the
+  // board instead of waiting to be looked for. Tap = jump to the overdue
+  // lens. Hidden while that lens is already on (no nagging the fixer).
+  {
+    const nOver = cards.filter(c => !isDone(c) && isOverdue(c)).length;
+    if (nOver && filters.state !== 'overdue') {
+      const ban = document.createElement('button');
+      ban.type = 'button';
+      ban.className = 'b-overdue-banner';
+      ban.innerHTML = `⏰ <b>${nOver} past due</b> — tap to see ${nOver === 1 ? 'it' : 'them'}`;
+      ban.style.cssText = 'display:block;width:calc(100% - 24px);margin:0 12px 8px;padding:9px 14px;border-radius:10px;text-align:left;cursor:pointer;font-family:inherit;font-size:12.5px;color:var(--text);background:color-mix(in srgb, var(--red) 12%, transparent);border:1px solid color-mix(in srgb, var(--red) 45%, transparent)';
+      ban.addEventListener('click', () => { filters.state = 'overdue'; render(); });
+      wrap.appendChild(ban);
+    }
+  }
   const navEl = renderListNav();
   if(navEl) wrap.appendChild(navEl);
   const listsEl = renderLists();
@@ -861,12 +879,21 @@ function renderFilterBar(){
   // State filters — Overdue (past due) and Stale (>14d old, no due date
   // or past due). These surface cards that have fallen through cracks
   // — the "weekly cleanup" pass any kitchen manager runs Monday morning.
-  html += mk('state', 'overdue', 'Overdue', 'var(--red)');
+  // Providentia's counsel: overdue carries its live count — aging in
+  // silence was the failure mode ("items roll forward in silence until
+  // someone happens to look").
+  const nOverdue = cards.filter(c => !isDone(c) && isOverdue(c)).length;
+  const nUnfiled = cards.filter(c => !c.location).length;
+  html += mk('state', 'overdue', nOverdue ? `Overdue · ${nOverdue}` : 'Overdue', 'var(--red)');
   html += mk('state', 'stale',   'Stale 14d+', 'var(--muted)');
   html += `<span style="width:8px"></span>`;
   LOCATIONS.forEach(l => {
     html += mk('location', l.key, l.label, l.color);
   });
+  // The gods' audit chip: only appears while unfiled cards exist, so the
+  // day it shows up again you know the guardrail leaked (Trajan: "trust
+  // nothing you cannot see").
+  if (nUnfiled) html += mk('location', 'unfiled', `Unfiled · ${nUnfiled}`, 'var(--muted)');
   bar.innerHTML = html;
   bar.querySelectorAll('.b-filter').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -2556,9 +2583,43 @@ async function openCardDetail(card){
     equipment_id:  card.equipment_id || '',
   });
   const _initialScalars = JSON.stringify(readScalars());
+  // ── Draft shield — Clippy's counsel: "in a kitchen, everyone gets
+  // interrupted; that's the normal case, not the edge case." Title/notes
+  // persist to this device as they're typed, so a phone lock, view switch,
+  // or killed tab can't eat half-written words. On reopen the draft refills
+  // the fields (making them "changed", so any close writes them through).
+  // Cleared on successful save. Restore happens AFTER the snapshot above —
+  // that's what makes the rescue stick.
+  const draftKey = 'nx_card_draft_' + card.id;
+  try {
+    const d = JSON.parse(localStorage.getItem(draftKey) || 'null');
+    if (d && ((d.title !== undefined && d.title !== (card.title || '')) ||
+              (d.desc !== undefined && d.desc !== (card.description || '')))) {
+      if (d.title !== undefined) bg.querySelector('#bTitle').value = d.title;
+      if (d.desc !== undefined) bg.querySelector('#bDesc').value = d.desc;
+      NX.toast && NX.toast('Rescued your unsaved words ✍️', 'info', 3200);
+    } else if (d) {
+      localStorage.removeItem(draftKey);   // stale draft, already saved
+    }
+  } catch (_) {}
+  let _draftTimer = null;
+  const draftWrite = () => {
+    clearTimeout(_draftTimer);
+    _draftTimer = setTimeout(() => {
+      try {
+        localStorage.setItem(draftKey, JSON.stringify({
+          title: bg.querySelector('#bTitle').value,
+          desc: bg.querySelector('#bDesc').value,
+          at: Date.now(),
+        }));
+      } catch (_) {}
+    }, 350);
+  };
+  bg.querySelector('#bTitle').addEventListener('input', draftWrite);
+  bg.querySelector('#bDesc').addEventListener('input', draftWrite);
   const closeDetail = () => {
     if(JSON.stringify(readScalars()) !== _initialScalars){ saveCard(card, bg, true); }
-    else { bg.remove(); }
+    else { try { localStorage.removeItem(draftKey); } catch (_) {} bg.remove(); }
   };
   bg.addEventListener('click', e => { if(e.target===bg) closeDetail(); });
   bg.querySelector('.b-modal-close').addEventListener('click', closeDetail);
@@ -3093,6 +3154,9 @@ async function saveCard(card, modal, closeAfter){
       }
     } catch (syncErr) { console.warn('[board] issue-notes sync failed (non-fatal):', syncErr); }
 
+    // The words made it to the DB — the local rescue copy has done its job.
+    try { localStorage.removeItem('nx_card_draft_' + card.id); } catch (_) {}
+
     // Keep in-memory state in step so a re-render doesn't flash stale values.
     Object.assign(card, patch);
     const idx = cards.findIndex(c => c.id === card.id);
@@ -3287,6 +3351,20 @@ async function createCard(listId, payload){
   // Pure data path — used by both the inline composer and external
   // callers (prefill flow). Returns the created row or null.
   try{
+    // The gods' guardrail: no card born without a house when one is
+    // knowable. The composer already forces a choice; programmatic
+    // callers fall back to the equipment's home, then the last house
+    // used on this device. A truly unknowable house still creates the
+    // card — it just shows in the Unfiled audit chip instead of hiding.
+    if (!payload.location) {
+      try {
+        if (payload.equipment_id) {
+          const eq = (equipmentCache || []).find(e => e.id === payload.equipment_id);
+          if (eq && eq.location) payload.location = locKey(eq.location) || null;
+        }
+        if (!payload.location) payload.location = localStorage.getItem('nexus.board.lastLocation') || null;
+      } catch (_) {}
+    }
     const { data: created } = await NX.sb.from('kanban_cards').insert({
       title: payload.title,
       description: payload.description || null,

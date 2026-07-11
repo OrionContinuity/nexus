@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v278-pantheon';
+const CACHE_NAME = 'nexus-v279-council';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
