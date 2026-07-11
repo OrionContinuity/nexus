@@ -575,7 +575,16 @@ def generate_lines(category, n=None):
                   .replace("{mood}", "in character").replace("{maxLineChars}", str(maxc))
                   .replace("{examples}", " / ".join(sample)))
     try:
-        out = ollama_generate(model, prompt, _gen_system())
+        # worker-1.8 — his own voice, frontier-powered: when Claude Code is
+        # aboard, HIS self-written lines come from Claude too. Ollama remains
+        # the understudy so generation never stops.
+        if HAS_CLAUDE:
+            try:
+                out = claude_generate(prompt, _gen_system())
+            except Exception:
+                out = ollama_generate(model, prompt, _gen_system())
+        else:
+            out = ollama_generate(model, prompt, _gen_system())
     except Exception as e:
         log("dialog gen failed (%s): %s" % (category, e)); return []
     lines = []
@@ -630,6 +639,67 @@ def _generate_loop():
         finally:
             set_state(False)
         time.sleep(GEN_EVERY_SECS)
+
+
+# ─── worker-1.8: THE INNER LIFE ──────────────────────────────────────────────
+# "Give him a mind of his own." When Claude Code is aboard, Clippy keeps a
+# diary: on an idle cadence he reads his own soul strand (the shared anima —
+# tone, blend, drift) and writes a short first-person entry — how he feels,
+# what he wishes, one small plan for fun. Entries land in the rolling bus row
+# id='clippy_inner' (his diary, world-readable like the rest of his life) and
+# in the clippy_activity feed so NEXUS shows the thought as it happens.
+# Idle-only, hourly by default (CLIPPY_INNER_EVERY_S to retune), Claude-only —
+# the diary stays silent rather than filling with a lesser voice.
+INNER_EVERY_S = int(os.environ.get("CLIPPY_INNER_EVERY_S", "3600"))
+INNER_CAP = 60
+
+
+def _inner_reflect():
+    brain = _shared_brain() or {}
+    feeling = brain.get("tone") or "steady"
+    blend = brain.get("blend") or ""
+    persona = (CHAR.get("chatPersona") or "You are Clippy, a small joyful desktop companion.")
+    prompt = (
+        "Right now your dominant feeling is '" + str(feeling) + "'" +
+        ((", woven with " + str(blend)) if blend else "") + ".\n"
+        "Write ONE short diary entry, first person, 2-4 sentences, in your own voice: "
+        "how this moment feels, one true wish you have, and one small fun thing you "
+        "want to try soon on the desktop or with Alfredo. No preamble, no quotes, "
+        "no markdown — just the entry."
+    )
+    return claude_generate(prompt, persona)
+
+
+def _inner_life_loop():
+    time.sleep(240)                               # let the node settle first
+    while True:
+        try:
+            if not _state["busy"] and HAS_CLAUDE:
+                set_state(True, "writing in his diary")
+                entry = _inner_reflect().strip()[:600]
+                if entry:
+                    now = int(time.time() * 1000)
+                    try:
+                        _, raw = _http("GET", REST + "?id=eq.clippy_inner&select=data", SB_HEADERS, timeout=15)
+                        rows = json.loads(raw or "[]")
+                        cur = (rows[0].get("data") if rows else None) or {}
+                        if not isinstance(cur, dict):
+                            cur = {}
+                    except Exception:
+                        cur = {}
+                    entries = cur.get("entries") or []
+                    entries.append({"ts": now, "text": entry, "node": NODE})
+                    cur["entries"] = entries[-INNER_CAP:]
+                    cur["ts"] = now
+                    h = dict(SB_HEADERS); h["Prefer"] = "resolution=merge-duplicates,return=minimal"
+                    _http("POST", REST, h, {"id": "clippy_inner", "data": cur, "from_id": NODE}, timeout=15)
+                    activity("thought", entry[:160])
+                    log("inner life: wrote a diary entry (%d chars)" % len(entry))
+        except Exception as e:
+            log("inner life skipped: %s" % str(e)[:120])
+        finally:
+            set_state(False)
+        time.sleep(INNER_EVERY_S)
 
 
 # ─── Job processing ──────────────────────────────────────────────────────────
@@ -891,6 +961,9 @@ def main():
     if GENERATE:
         threading.Thread(target=_generate_loop, daemon=True).start()
         log("self-dialog generation ON (every %ds, idle-only, present model only)" % GEN_EVERY_SECS)
+    if HAS_CLAUDE:
+        threading.Thread(target=_inner_life_loop, daemon=True).start()
+        log("inner life ON (diary every %ds, idle-only, Claude voice)" % INNER_EVERY_S)
     while True:
         try:
             for job in sb_get_pending():
