@@ -112,7 +112,7 @@ All fresh-session-per-fire, notifications off, bound by the laws:
 
 ## DEPLOY PATTERN (muscle memory)
 - Work on branch `claude/vendor-addition-function-ikngsy`. Commit. `git push -u origin <branch>`, then `git push origin <branch>:main` (Pages serves main). **NEVER `git checkout main`** (local main is a divergent stale snapshot → "unrelated histories").
-- Every web deploy: bump `sw.js` `CACHE_NAME` (currently `nexus-v268-note-everywhere`). clippy.js/clippy.css have NO `?v=` stamp — the SW cache bump busts them. `.ps1`/worker files are pulled by the node from GitHub raw (not web assets).
+- Every web deploy: bump `sw.js` `CACHE_NAME` (currently `nexus-v272-hideaway`). clippy.js/clippy.css have NO `?v=` stamp — the SW cache bump busts them. `.ps1`/worker files are pulled by the node from GitHub raw (not web assets).
 - Always `node --check` touched JS; run the boot smoke (scratchpad/boot-smoke.cjs, `NODE_PATH=/opt/node22/lib/node_modules PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`). Harnesses live in the scratchpad.
 - git identity for verified commits: `user.email noreply@anthropic.com`, `user.name Claude` (set). No signing key here, so GitHub shows "Unverified" regardless — cosmetic.
 
