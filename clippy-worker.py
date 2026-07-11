@@ -126,6 +126,63 @@ def _seal_ok(data):
 # (Clippy is the master). Surfaced in the heartbeat so the Tools UI can show it.
 MANAGED    = os.environ.get("CLIPPY_MANAGED", "")
 
+# ─── worker-1.8: THE CLAUDE ENGINE ───────────────────────────────────────────
+# If Claude Code is installed on this machine (subscription auth — no API key),
+# text jobs are answered by `claude -p` instead of local Ollama: frontier
+# intelligence for Clippy's chat, straight off this node. Vision/cmd/render
+# paths are untouched; any Claude failure falls back to Ollama so the node
+# never answers worse than before. Disable with CLIPPY_NO_CLAUDE=1.
+def _find_claude():
+    p = shutil.which("claude")
+    if p:
+        return p
+    home = os.path.expanduser("~")
+    for cand in (
+        os.path.join(home, ".local", "bin", "claude.exe"),
+        os.path.join(home, ".local", "bin", "claude"),
+        os.path.join(os.environ.get("APPDATA", ""), "npm", "claude.cmd"),
+        os.path.join(os.environ.get("APPDATA", ""), "npm", "claude"),
+    ):
+        if cand and os.path.exists(cand):
+            return cand
+    return None
+
+
+CLAUDE_BIN = None if os.environ.get("CLIPPY_NO_CLAUDE", "") == "1" else _find_claude()
+HAS_CLAUDE = bool(CLAUDE_BIN)
+CLAUDE_TIMEOUT_S = int(os.environ.get("CLIPPY_CLAUDE_TIMEOUT_S", "150"))
+
+
+def _claude_cwd():
+    """A dedicated empty directory so `claude -p` can't slurp whatever project
+    the worker happens to run from (context bleed + token waste)."""
+    d = os.path.join(os.path.expanduser("~"), ".clippy", "claude-room")
+    try:
+        os.makedirs(d, exist_ok=True)
+    except Exception:
+        d = tempfile.gettempdir()
+    return d
+
+
+def claude_generate(prompt, system=None):
+    """One text answer from Claude Code in headless print mode. The prompt
+    rides stdin (no shell quoting, no cmdline length limit). Non-interactive
+    -p mode cannot approve tools, so this is pure text in, text out."""
+    if not CLAUDE_BIN:
+        raise RuntimeError("claude not installed")
+    full = ((str(system).strip() + "\n\n") if system else "") + str(prompt or "")
+    args = [CLAUDE_BIN, "-p", "--output-format", "text"]
+    if CLAUDE_BIN.lower().endswith((".cmd", ".bat")):
+        args = ["cmd", "/c"] + args
+    proc = subprocess.run(
+        args, input=full, capture_output=True, text=True,
+        timeout=CLAUDE_TIMEOUT_S, cwd=_claude_cwd(),
+    )
+    out = (proc.stdout or "").strip()
+    if proc.returncode != 0 or not out:
+        raise RuntimeError("claude exit %d: %s" % (proc.returncode, (proc.stderr or "")[-300:]))
+    return out
+
 _state = {"busy": False, "current": ""}     # what this node is doing right now
 
 REST = SUPA_URL + "/rest/v1/clippy_sync"
@@ -197,7 +254,9 @@ def sb_get_pending():
         # them (it has the preferred text model). We still take vision, cmd, and
         # atelier renders.
         is_text = not (d.get("image_b64") or d.get("vision") or d.get("cmd") or d.get("render"))
-        if is_text and not CLAIM_TEXT:
+        # worker-1.8 — a Claude-equipped node outranks the legacy qwen brain:
+        # claim text immediately (sb_claim is atomic, so racing is safe).
+        if is_text and not (CLAIM_TEXT or HAS_CLAUDE):
             # worker-1.7 — stranded-text rescue: if the legacy brain hasn't
             # taken it within the grace, it isn't coming. We answer.
             if now - (d.get("ts") or 0) < TEXT_RESCUE_MS:
@@ -334,16 +393,17 @@ def sb_heartbeat():
     # What this node is missing, so the hive can see gaps and pull each other
     # forward (updates each other; installs what he needs to function).
     needs = []
-    if not CLAIM_TEXT:  needs.append("text")     # no local LLM to think with
+    if not (CLAIM_TEXT or HAS_CLAUDE): needs.append("text")   # no LLM to think with
     if not GENERATE:    needs.append("gen")      # no image generation
     if not HAS_BLENDER: needs.append("art")      # no 3D
     if not CMD_TOKEN:   needs.append("cmd")      # cannot act on the world
     entry = {"name": NODE, "ts": now, "vision": True, "cmd": bool(CMD_TOKEN), "seal": bool(STEWARD_SECRET),
-             "os": OSDESC, "version": "worker-1.7", "code_ver": SELF_VER,
+             "os": OSDESC, "version": "worker-1.8", "code_ver": SELF_VER,
+             "claude": HAS_CLAUDE,
              "managed": MANAGED, "busy": _state["busy"], "current": _state["current"],
-             "caps": ((["ask"] if CLAIM_TEXT else []) + ["vision"] + (["cmd"] if CMD_TOKEN else []) + (["gen"] if GENERATE else []) + (["art"] if HAS_BLENDER else [])),
+             "caps": ((["ask"] if (CLAIM_TEXT or HAS_CLAUDE) else []) + (["claude"] if HAS_CLAUDE else []) + ["vision"] + (["cmd"] if CMD_TOKEN else []) + (["gen"] if GENERATE else []) + (["art"] if HAS_BLENDER else [])),
              "needs": needs,
-             "vision_model": ACTIVE_VISION, "models": [VISION_MODEL, TEXT_MODEL],
+             "vision_model": ACTIVE_VISION, "models": ([("claude-code")] if HAS_CLAUDE else []) + [VISION_MODEL, TEXT_MODEL],
              "ram_gb": RAM_GB, "accel": ACCEL, "vscore": VSCORE}
     brain = _shared_brain()   # the one soul every node shares
     if brain:
@@ -768,10 +828,22 @@ def process(job):
     log("job %s -> %s (%s)" % (job_id, model, kind))
     t0 = time.time()
     try:
-        answer = ollama_generate(model, data.get("prompt"), data.get("system"), data.get("image_b64"))
-        sb_finish(job_id, {"status": "done", "result": answer, "node": NODE, "ts": int(time.time() * 1000)})
-        activity("job", "%s done in %ds" % (kind, int(time.time() - t0)))
-        log("job %s done (%d chars)" % (job_id, len(answer)))
+        answer, engine = None, model
+        # worker-1.8 — text jobs go to Claude Code first when it's installed
+        # (subscription auth, frontier answers). Any failure → Ollama, so the
+        # node never answers worse than before. Vision stays on Ollama (local
+        # images never leave the LAN). A job may opt out with no_claude:true.
+        if not is_vision and HAS_CLAUDE and not data.get("no_claude"):
+            try:
+                answer = claude_generate(data.get("prompt"), data.get("system"))
+                engine = "claude-code"
+            except Exception as ce:
+                log("claude engine failed (%s) - falling back to ollama" % str(ce)[:120])
+        if answer is None:
+            answer = ollama_generate(model, data.get("prompt"), data.get("system"), data.get("image_b64"))
+        sb_finish(job_id, {"status": "done", "result": answer, "node": NODE, "model": engine, "ts": int(time.time() * 1000)})
+        activity("job", "%s done in %ds (%s)" % (kind, int(time.time() - t0), engine))
+        log("job %s done via %s (%d chars)" % (job_id, engine, len(answer)))
     except Exception as e:
         sb_finish(job_id, {"status": "error", "error": str(e), "node": NODE, "ts": int(time.time() * 1000)})
         activity("job", "error: " + str(e)[:80])
@@ -812,7 +884,7 @@ def _heartbeat_loop():
 
 
 def main():
-    log("clippy-worker up - node='%s' vision='%s' bus=%s ollama=%s" % (NODE, VISION_MODEL, SUPA_URL, OLLAMA))
+    log("clippy-worker up - node='%s' vision='%s' bus=%s ollama=%s claude=%s" % (NODE, VISION_MODEL, SUPA_URL, OLLAMA, CLAUDE_BIN or "no"))
     sb_heartbeat()      # register immediately so the node shows online without waiting a cycle
     threading.Thread(target=_heartbeat_loop, daemon=True).start()
     warmup()
