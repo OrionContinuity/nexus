@@ -168,34 +168,28 @@
           <button class="nxrm-btn-pill" data-act="new-schedule">+ New</button>
         </div>
 
+        <!-- The tiles ARE the filter — tap a number to see just those, tap
+             again for all. The old duplicate chip row is gone (simpler). -->
         <div class="nxrm-tiles tiles-4">
-          <button class="nxrm-tile ${overdue ? 'is-alert' : ''}" data-quick="overdue">
+          <button class="nxrm-tile ${overdue ? 'is-alert' : ''}${f.urgency === 'overdue' ? ' is-active' : ''}" data-quick="overdue">
             <div class="nxrm-tile-num">${overdue}</div>
             <div class="nxrm-tile-lbl">Overdue</div>
           </button>
-          <button class="nxrm-tile ${dueSoon ? 'is-alert' : ''}" data-quick="due_soon">
+          <button class="nxrm-tile ${dueSoon ? 'is-alert' : ''}${f.urgency === 'due_soon' ? ' is-active' : ''}" data-quick="due_soon">
             <div class="nxrm-tile-num">${dueSoon}</div>
             <div class="nxrm-tile-lbl">Due&nbsp;Soon</div>
           </button>
-          <button class="nxrm-tile" data-quick="upcoming">
+          <button class="nxrm-tile${f.urgency === 'upcoming' ? ' is-active' : ''}" data-quick="upcoming">
             <div class="nxrm-tile-num">${upcoming}</div>
             <div class="nxrm-tile-lbl">Upcoming</div>
           </button>
-          <button class="nxrm-tile" data-quick="all">
+          <button class="nxrm-tile${f.urgency === 'all' ? ' is-active' : ''}" data-quick="all">
             <div class="nxrm-tile-num">${total}</div>
-            <div class="nxrm-tile-lbl">Total</div>
+            <div class="nxrm-tile-lbl">All</div>
           </button>
         </div>
 
         <div class="nxrm-filters">
-          <div class="nxrm-chip-row">
-            ${['all','overdue','due_soon','upcoming','distant'].map(u => `
-              <button class="nxrm-chip ${f.urgency === u ? 'is-active' : ''}"
-                      data-filter-urgency="${u}">
-                ${u === 'all' ? 'All' : URGENCY[u]?.label || u}
-              </button>
-            `).join('')}
-          </div>
           <div class="nxrm-chip-row">
             <input class="nxrm-search" placeholder="Search title or equipment…"
                    value="${esc(f.search)}" id="pmSearch">
@@ -242,10 +236,11 @@
               <span class="nxrm-pm-freq">every ${s.frequency_days}d</span>
             </div>
             ${s.assigned_to ? `<div class="nxrm-pm-meta">→ ${esc(s.assigned_to)}</div>` : ''}
-            ${s.status_note ? `<div class="nxrm-pm-note">📝 ${esc(s.status_note)}${s.status_note_by ? ` <span class="nxrm-pm-note-by">— ${esc(s.status_note_by)}${s.status_note_at ? ' · ' + new Date(s.status_note_at).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}</span>` : ''}</div>` : ''}
+            ${s.status_note
+              ? `<div class="nxrm-pm-note" data-note="${esc(s.id)}" role="button" tabindex="0" title="Tap to edit the note">📝 ${esc(s.status_note)}${s.status_note_by ? ` <span class="nxrm-pm-note-by">— ${esc(s.status_note_by)}${s.status_note_at ? ' · ' + new Date(s.status_note_at).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}</span>` : ''}<span class="nxrm-pm-note-edit">✎</span></div>`
+              : `<button class="nxrm-pm-addnote" data-note="${esc(s.id)}" type="button">＋ note</button>`}
           </div>
           <div class="nxrm-pm-action">
-            <button class="nxrm-pm-notebtn" data-note="${esc(s.id)}" type="button" title="${s.status_note ? 'Edit the note' : 'Add a note — why late, when scheduled…'}">📝</button>
             <button class="nxrm-pm-done" data-mark-done="${esc(s.id)}" type="button">
               ✓ Mark<br>done
             </button>
@@ -255,15 +250,11 @@
   }
 
   function wirePMView(view) {
-    view.querySelectorAll('[data-filter-urgency]').forEach(el => {
-      el.addEventListener('click', () => {
-        state.filter.urgency = el.getAttribute('data-filter-urgency');
-        renderPMView();
-      });
-    });
     view.querySelectorAll('[data-quick]').forEach(el => {
       el.addEventListener('click', () => {
-        state.filter.urgency = el.getAttribute('data-quick');
+        const q = el.getAttribute('data-quick');
+        // Tap the active tile again to go back to All.
+        state.filter.urgency = (state.filter.urgency === q) ? 'all' : q;
         renderPMView();
       });
     });
@@ -281,40 +272,12 @@
       });
     }
     // v267 — the 📝 note: why a PM is late / when it's actually booked.
-    // Saved on the schedule AND mirrored to equipment.pm_note so the daily
-    // email and the equipment detail tell the same story to everyone.
+    // Tap the note (or "＋ note") to edit; themed sheet, not a browser prompt.
     view.querySelectorAll('[data-note]').forEach(el => {
       el.addEventListener('click', async (e) => {
         e.stopPropagation();
         const s = state.schedules.find(x => String(x.id) === String(el.getAttribute('data-note')));
-        if (!s || !NX.sb) return;
-        const txt = prompt(
-          `Note for "${s.title || 'PM'}" — everyone sees this on the PM list, the equipment page, and the daily email.\n(e.g. "scheduled for the 30th", "overdue — rep's mistake, rebooked")\nEmpty = clear the note.`,
-          s.status_note || ''
-        );
-        if (txt === null) return;   // cancelled
-        const note = txt.trim();
-        const by = (NX.currentUser && NX.currentUser.name) || null;
-        const at = new Date().toISOString();
-        try {
-          const patch = note
-            ? { status_note: note, status_note_by: by, status_note_at: at }
-            : { status_note: null, status_note_by: null, status_note_at: null };
-          const { error } = await NX.sb.from('pm_schedules').update(patch).eq('id', s.id);
-          if (error) throw error;
-          if (s.equipment_id) {
-            await NX.sb.from('equipment').update(note
-              ? { pm_note: note, pm_note_by: by, pm_note_at: at }
-              : { pm_note: null, pm_note_by: null, pm_note_at: null }
-            ).eq('id', s.equipment_id);
-          }
-          s.status_note = note || null; s.status_note_by = note ? by : null; s.status_note_at = note ? at : null;
-          renderPMView();
-          NXRM.notify.bubble(note ? '📝 Note saved — it shows everywhere this PM does.' : 'Note cleared.', 'success');
-        } catch (err) {
-          console.warn('[pm] note save:', err);
-          NXRM.notify.bubble('Could not save the note — try again.', 'error');
-        }
+        if (s) await editNote(s);
       });
     });
     view.querySelectorAll('[data-mark-done]').forEach(el => {
@@ -331,6 +294,46 @@
     });
     const newBtn = view.querySelector('[data-act="new-schedule"]');
     if (newBtn) newBtn.addEventListener('click', bulkCreateSchedule);
+  }
+
+  // The 📝 note flow — saved on the schedule AND mirrored to
+  // equipment.pm_note so the PM list, the equipment page, daily notes and
+  // the daily email all tell the same story. Empty text clears the note.
+  async function editNote(s) {
+    if (!s || !NX.sb) return;
+    // themed dialogs mark themselves via confirm.__nx (core.js)
+    const ask = (NX.confirm && NX.confirm.__nx && NX.prompt) ? NX.prompt : null;
+    const txt = ask
+      ? await ask('Everyone sees this on the PM list, the equipment page, daily notes, and the daily email. Leave empty to clear.', {
+          title: '📝 ' + (s.title || 'PM'),
+          value: s.status_note || '',
+          placeholder: 'e.g. scheduled for the 30th — rep rebooked',
+          okLabel: 'Save', multiline: true,
+        })
+      : prompt(`Note for "${s.title || 'PM'}" — empty clears it.`, s.status_note || '');
+    if (txt === null) return;   // cancelled
+    const note = txt.trim();
+    const by = (NX.currentUser && NX.currentUser.name) || null;
+    const at = new Date().toISOString();
+    try {
+      const patch = note
+        ? { status_note: note, status_note_by: by, status_note_at: at }
+        : { status_note: null, status_note_by: null, status_note_at: null };
+      const { error } = await NX.sb.from('pm_schedules').update(patch).eq('id', s.id);
+      if (error) throw error;
+      if (s.equipment_id) {
+        await NX.sb.from('equipment').update(note
+          ? { pm_note: note, pm_note_by: by, pm_note_at: at }
+          : { pm_note: null, pm_note_by: null, pm_note_at: null }
+        ).eq('id', s.equipment_id);
+      }
+      s.status_note = note || null; s.status_note_by = note ? by : null; s.status_note_at = note ? at : null;
+      renderPMView();
+      NXRM.notify.bubble(note ? '📝 Note saved — it shows everywhere this PM does.' : 'Note cleared.', 'success');
+    } catch (err) {
+      console.warn('[pm] note save:', err);
+      NXRM.notify.bubble('Could not save the note — try again.', 'error');
+    }
   }
 
   async function markScheduleDone(scheduleId) {
@@ -595,34 +598,66 @@
     requestAnimationFrame(() => $('#pmbTitle')?.focus());
   }
 
+  // Tap a card → one clear sheet: edit the fields, or pause/delete below.
+  // (Replaced the old numeric prompt() menu — "type 1, 2 or 3" is not a UI.)
   async function editSchedule(s) {
-    const action = prompt(
-      `${s.title}\n\nWhat do you want to do?\n\n1 = edit details\n2 = pause (deactivate)\n3 = delete\n(cancel = nothing)`);
-    if (action === '1') {
-      const newTitle = prompt('Title:', s.title);
-      if (newTitle === null) return;
-      const newFreq = prompt('Frequency days:', s.frequency_days);
-      if (newFreq === null) return;
-      const newAssigned = prompt('Assigned to:', s.assigned_to || '');
-      await NX.sb.from('pm_schedules').update({
-        title: newTitle,
-        frequency_days: parseInt(newFreq, 10) || s.frequency_days,
-        assigned_to: newAssigned || null,
+    const html = `
+      <div class="nxrm-card-head">
+        <div class="nxrm-eyebrow">PM SCHEDULE</div>
+        <div class="nxrm-h1">${esc(s.title || 'PM task')}</div>
+        <button class="nxrm-close" data-close>✕</button>
+      </div>
+      <div class="nxrm-sheet-form">
+        <label class="nxrm-sheet-field"><span>Title</span>
+          <input id="pmEsTitle" value="${esc(s.title || '')}"></label>
+        <div class="nxrm-sheet-2col">
+          <label class="nxrm-sheet-field"><span>Every (days)</span>
+            <input id="pmEsFreq" type="number" min="1" inputmode="numeric" value="${esc(String(s.frequency_days || ''))}"></label>
+          <label class="nxrm-sheet-field"><span>Assigned to</span>
+            <input id="pmEsWho" value="${esc(s.assigned_to || '')}" placeholder="vendor / person"></label>
+        </div>
+        <button class="nxrm-btn-pill nxrm-sheet-save" data-act="save">Save changes</button>
+        <div class="nxrm-sheet-row">
+          <button class="nxrm-sheet-minor" data-act="note" type="button">📝 ${s.status_note ? 'Edit note' : 'Add note'}</button>
+          <button class="nxrm-sheet-minor" data-act="pause" type="button">⏸ Pause</button>
+          <button class="nxrm-sheet-minor is-danger" data-act="delete" type="button">Delete</button>
+        </div>
+      </div>`;
+    const { el, close } = NXRM.overlay.open(html);
+    const refresh = async () => { await loadSchedules(); renderPMView(); };
+    el.querySelector('[data-act="save"]').addEventListener('click', async () => {
+      const title = (el.querySelector('#pmEsTitle').value || '').trim() || s.title;
+      const freq = parseInt(el.querySelector('#pmEsFreq').value, 10) || s.frequency_days;
+      const who = (el.querySelector('#pmEsWho').value || '').trim();
+      close();
+      const { error } = await NX.sb.from('pm_schedules').update({
+        title, frequency_days: freq, assigned_to: who || null,
         updated_at: new Date().toISOString(),
       }).eq('id', s.id);
-      await loadSchedules();
-      renderPMView();
-    } else if (action === '2') {
-      await NX.sb.from('pm_schedules').update({ active: false }).eq('id', s.id);
-      await loadSchedules();
-      renderPMView();
-    } else if (action === '3') {
-      if (confirm(`Permanently delete "${s.title}"?`)) {
-        await NX.sb.from('pm_schedules').delete().eq('id', s.id);
-        await loadSchedules();
-        renderPMView();
-      }
-    }
+      if (error) { console.warn('[pm] edit save:', error); NXRM.notify.bubble('Could not save — try again.', 'error'); return; }
+      await refresh();
+    });
+    el.querySelector('[data-act="note"]').addEventListener('click', async () => {
+      close();
+      await editNote(s);
+    });
+    el.querySelector('[data-act="pause"]').addEventListener('click', async () => {
+      close();
+      const { error } = await NX.sb.from('pm_schedules').update({ active: false }).eq('id', s.id);
+      if (error) { console.warn('[pm] pause:', error); NXRM.notify.bubble('Could not pause — try again.', 'error'); return; }
+      NXRM.notify.bubble('Paused — it will not generate work until reactivated.', 'success');
+      await refresh();
+    });
+    el.querySelector('[data-act="delete"]').addEventListener('click', async () => {
+      const sure = (NX.confirm && NX.confirm.__nx)
+        ? await NX.confirm(`Permanently delete "${s.title}"?`, { danger: true, okLabel: 'Delete' })
+        : confirm(`Permanently delete "${s.title}"?`);
+      if (!sure) return;
+      close();
+      const { error } = await NX.sb.from('pm_schedules').delete().eq('id', s.id);
+      if (error) { console.warn('[pm] delete:', error); NXRM.notify.bubble('Could not delete — try again.', 'error'); return; }
+      await refresh();
+    });
   }
 
   // ─────────────────────────────────────────────────────────────────────

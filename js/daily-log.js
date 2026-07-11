@@ -1335,6 +1335,7 @@ function render() {
             ${renderHeaderSection(d)}
             ${renderPlanningSection(d)}
             ${renderEquipmentStatusSection(d)}
+            ${renderMaintDueSection()}
             ${renderPmsSection()}
             ${renderEquipmentActivitySection(d)}
             ${renderVendorActivitySection(d)}
@@ -1393,7 +1394,7 @@ function renderGlanceStrip() {
   const chips = [];
   if (down)   chips.push(`<button type="button" class="dlog-glance-chip g-down" data-glance="dlogSecEq">${down} down</button>`);
   if (urgent) chips.push(`<button type="button" class="dlog-glance-chip g-down" data-glance="dlogSecTickets">${urgent} urgent</button>`);
-  if (pmOver) chips.push(`<button type="button" class="dlog-glance-chip g-od" data-glance="dlogSecEq">${pmOver} PM overdue${pmSched ? ` (${pmSched} scheduled)` : ''}</button>`);
+  if (pmOver) chips.push(`<button type="button" class="dlog-glance-chip g-od" data-glance="dlogSecMaint">${pmOver} PM overdue${pmSched ? ` (${pmSched} scheduled)` : ''}</button>`);
   if (open)   chips.push(`<button type="button" class="dlog-glance-chip" data-glance="dlogSecTickets">${open} open</button>`);
   if (!chips.length) return '';
   return `<div class="dlog-glance">${chips.join('')}</div>`;
@@ -1630,6 +1631,7 @@ function renderLocationSection(loc, idx) {
           <textarea data-path="locations.${idx}.notes" rows="4" placeholder="The shift recap for ${esc(loc.label)} — service, guests, 86s, anything noteworthy…">${esc(loc.notes || '')}</textarea>
         </label>
         ${renderLocationTickets(loc)}
+        ${renderMaintenanceDue(loc)}
 
         <h3 class="dlog-subsection-title">Repairs &amp; Maintenance</h3>
         <div class="dlog-rm-grid">${rmFields}</div>
@@ -3237,6 +3239,122 @@ function buildDailyLogEmailBody(d, dateStr) {
 // a venue manager just their venue, split out from the rest of the day.
 // Render ONE location's report as digestible email lines: service report,
 // R&M, vendor calls, next service, other notes — each section skipped when
+// v269 — the ONE maintenance-due collector. Both the text/email report and
+// the on-screen "Maintenance due" block read from here, so screen and email
+// can never disagree about what's due. Rules preserved from the email
+// builder: PM window 14d / inspection window 30d (vendor visits need
+// booking lead); an upcoming inspection with a visit already booked is
+// dropped (Alfredo: nag only for UNhandled ones); the 📝 pm_note rides on
+// every item.
+function collectMaintDue(eqAll) {
+  const todayD = new Date(); todayD.setHours(0, 0, 0, 0);
+  const soonD = new Date(todayD); soonD.setDate(soonD.getDate() + 14);
+  const soonInsD = new Date(todayD); soonInsD.setDate(soonInsD.getDate() + 30);
+  const nextOf = (lastIso, days) => {
+    const n = parseInt(days, 10);
+    if (!lastIso || !n) return null;
+    const d = new Date(String(lastIso).slice(0, 10) + 'T00:00:00');
+    if (isNaN(d)) return null;
+    d.setDate(d.getDate() + n);
+    return d;
+  };
+  let dcO = 0, dcS = 0, op = 0;
+  const pmItems = [], insItems = [];
+  eqAll.forEach(eq => {
+    if ((eq.status || 'operational').toLowerCase() === 'operational') op++;
+    const pmNext = eq.next_pm_date
+      ? new Date(String(eq.next_pm_date).slice(0, 10) + 'T00:00:00')
+      : nextOf(eq.last_pm_date, eq.pm_interval_days);
+    if (pmNext && !isNaN(pmNext) && pmNext <= soonD) {
+      const overdue = pmNext < todayD;
+      const days = Math.round((pmNext - todayD) / 86400000);
+      pmItems.push({ id: eq.id, loc: eq.location || '', name: eq.name || 'Equipment', date: pmNext, overdue, days, sched: pmConfirmNote(eq.id), note: (eq.pm_note || '').trim() });
+    }
+    const insNext = nextOf(eq.last_inspection_date, eq.inspection_interval_days);
+    if (insNext && !isNaN(insNext) && insNext <= soonInsD) {
+      const overdue = insNext < todayD;
+      const days = Math.round((insNext - todayD) / 86400000);
+      const sched = pmConfirmNote(eq.id);
+      // The unit's assigned inspection vendor (pool-picked in Equipment)
+      // rides along so the note says who to call.
+      let vendor = '';
+      if (eq.inspection_vendor_id) {
+        const v = (state.vendors || []).find(x => String(x.id) === String(eq.inspection_vendor_id));
+        vendor = v ? (v.company || v.name || '') : '';
+      }
+      if (overdue || !sched) {
+        insItems.push({ id: eq.id, loc: eq.location || '', name: eq.name || 'Equipment', date: insNext, overdue, days, sched, vendor, note: (eq.pm_note || '').trim() });
+      }
+    }
+    const dcNext = nextOf(eq.last_deep_clean_date, eq.deep_clean_interval_days);
+    if (dcNext) { if (dcNext < todayD) dcO++; else if (dcNext <= soonD) dcS++; }
+  });
+  pmItems.sort((a, b) => a.date - b.date);
+  insItems.sort((a, b) => a.date - b.date);
+  return { pmItems, insItems, dcO, dcS, op };
+}
+
+// One maintenance-due row for the daily notes SCREEN — [overdue]/[due] pill,
+// the when, the booking, and the 📝 note in gold. › jumps to the unit.
+function dlogMaintRow(x, kind, showLoc) {
+  const shortD = d => d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  const when = x.overdue
+    ? 'was due ' + shortD(x.date) + (x.days <= -1 ? ' · ' + Math.abs(x.days) + 'd overdue' : '')
+    : shortD(x.date) + (x.days >= 0 ? ' · in ' + x.days + 'd' : '');
+  const bits = [when];
+  if (x.sched) bits.push(esc(x.sched));
+  if (!x.sched && x.vendor) bits.push('call ' + esc(x.vendor));
+  if (showLoc && x.loc) bits.push(esc(x.loc));
+  return `
+    <div class="dlog-tk-row dlog-maint-row">
+      <span class="bw-pri-pill ${x.overdue ? 'bw-pri-urgent' : 'bw-pri-normal'}">${x.overdue ? 'overdue' : 'due'}</span>
+      <div class="dlog-tk-main">
+        <div class="dlog-tk-title">${esc(x.name)} <span class="dlog-maint-kind">· ${kind}</span></div>
+        <div class="dlog-tk-loc">${bits.join(' · ')}</div>
+        ${x.note ? `<div class="dlog-maint-note">📝 ${esc(x.note)}</div>` : ''}
+      </div>
+      ${x.id ? `<button type="button" class="dlog-row-go" data-go="eq:${esc(String(x.id))}" title="Open in Equipment" aria-label="Open ${esc(x.name)} in Equipment">›</button>` : ''}
+    </div>`;
+}
+
+// Per-location "Maintenance due" block (inside each location tab) — the
+// same PM/inspection items the email reports, now ON the screen with the
+// 📝 notes visible. Read-only; the note is edited from the PM screen.
+function renderMaintenanceDue(loc) {
+  const locKey = normLocKey(loc.label);
+  const eqAll = (state.equipmentHealth || []).filter(eq => normLocKey(eq.location) === locKey && eq.archived !== true && String(eq.status || '').toLowerCase() !== 'retired');
+  if (!eqAll.length) return '';
+  const { pmItems, insItems } = collectMaintDue(eqAll);
+  const rows = pmItems.map(x => dlogMaintRow(x, 'PM', false))
+    .concat(insItems.map(x => dlogMaintRow(x, 'inspection', false)));
+  if (!rows.length) return '';
+  return `
+    <h3 class="dlog-subsection-title">Maintenance due <span class="dlog-loc-group-count">${rows.length}</span></h3>
+    <div class="dlog-tk-list">${rows.join('')}</div>`;
+}
+
+// Overview "Maintenance due" section — the whole fleet in one glance so the
+// notes are visible without opening each location tab. The "PM overdue"
+// glance chip jumps here.
+function renderMaintDueSection() {
+  const eqAll = (state.equipmentHealth || []).filter(eq => eq.archived !== true && String(eq.status || '').toLowerCase() !== 'retired');
+  if (!eqAll.length) return '';
+  const { pmItems, insItems } = collectMaintDue(eqAll);
+  const rows = pmItems.map(x => dlogMaintRow(x, 'PM', true))
+    .concat(insItems.map(x => dlogMaintRow(x, 'inspection', true)));
+  if (!rows.length) return '';
+  return `
+    <details class="dlog-section" id="dlogSecMaint" open>
+      <summary class="dlog-section-header">
+        <span class="dlog-section-title">Maintenance due</span>
+        <span class="dlog-section-count">${rows.length}</span>
+      </summary>
+      <div class="dlog-section-body">
+        <div class="dlog-tk-list">${rows.join('')}</div>
+      </div>
+    </details>`;
+}
+
 // empty. Shared by the per-location email and the full-day digest.
 function dlogLocationReportLines(loc) {
   const clean = s => String(s == null ? '' : s).trim();
@@ -3330,55 +3448,8 @@ function dlogLocationReportLines(loc) {
   // warranty date ("if it has any").
   const eqAll = (state.equipmentHealth || []).filter(eq => normLocKey(eq.location) === locKey && eq.archived !== true && String(eq.status || '').toLowerCase() !== 'retired');
   if (eqAll.length) {
-    const todayD = new Date(); todayD.setHours(0, 0, 0, 0);
-    const soonD = new Date(todayD); soonD.setDate(soonD.getDate() + 14);
-    const nextOf = (lastIso, days) => {
-      const n = parseInt(days, 10);
-      if (!lastIso || !n) return null;
-      const d = new Date(String(lastIso).slice(0, 10) + 'T00:00:00');
-      if (isNaN(d)) return null;
-      d.setDate(d.getDate() + n);
-      return d;
-    };
-    // Inspections get a LONGER lead time than PMs (30 days vs 14) — they're
-    // usually vendor visits that need booking, so the note flags them early.
-    const soonInsD = new Date(todayD); soonInsD.setDate(soonInsD.getDate() + 30);
-    let dcO = 0, dcS = 0, op = 0;
-    const pmItems = [], insItems = [];
+    const { pmItems, insItems, dcO, dcS, op } = collectMaintDue(eqAll);
     const shortDate2 = d => d.toLocaleDateString([], { month: 'short', day: 'numeric' });
-    eqAll.forEach(eq => {
-      if ((eq.status || 'operational').toLowerCase() === 'operational') op++;
-      const pmNext = eq.next_pm_date
-        ? new Date(String(eq.next_pm_date).slice(0, 10) + 'T00:00:00')
-        : nextOf(eq.last_pm_date, eq.pm_interval_days);
-      if (pmNext && !isNaN(pmNext) && pmNext <= soonD) {
-        const overdue = pmNext < todayD;
-        const days = Math.round((pmNext - todayD) / 86400000);
-        pmItems.push({ name: eq.name || 'Equipment', date: pmNext, overdue, days, sched: pmConfirmNote(eq.id), note: (eq.pm_note || '').trim() });
-      }
-      const insNext = nextOf(eq.last_inspection_date, eq.inspection_interval_days);
-      if (insNext && !isNaN(insNext) && insNext <= soonInsD) {
-        const overdue = insNext < todayD;
-        const days = Math.round((insNext - todayD) / 86400000);
-        const sched = pmConfirmNote(eq.id);
-        // The unit's assigned inspection vendor (pool-picked in Equipment)
-        // rides along so the note says who to call.
-        let vendor = '';
-        if (eq.inspection_vendor_id) {
-          const v = (state.vendors || []).find(x => String(x.id) === String(eq.inspection_vendor_id));
-          vendor = v ? (v.company || v.name || '') : '';
-        }
-        // Alfredo's rule: an upcoming inspection with the next visit already
-        // booked doesn't need to appear at all — the nag is only for
-        // UNhandled ones. Overdue inspections always show (with the booking
-        // note when one exists), same treatment as overdue PMs.
-        if (overdue || !sched) {
-          insItems.push({ name: eq.name || 'Equipment', date: insNext, overdue, days, sched, vendor, note: (eq.pm_note || '').trim() });
-        }
-      }
-      const dcNext = nextOf(eq.last_deep_clean_date, eq.deep_clean_interval_days);
-      if (dcNext) { if (dcNext < todayD) dcO++; else if (dcNext <= soonD) dcS++; }
-    });
     out.push(SH('Maintenance health'));
     out.push('· ' + eqAll.length + ' unit' + (eqAll.length === 1 ? '' : 's') + ' — ' + op + ' operational');
     // Which units aren't operational, and their status.
@@ -3386,7 +3457,6 @@ function dlogLocationReportLines(loc) {
     _nonOp.forEach(e => { const _st = (e.status || '').replace(/_/g, ' ').trim(); out.push('    [' + (_st ? _st.toUpperCase() : 'NOT OPERATIONAL') + '] ' + (e.name || 'Equipment')); });
     // PM due — itemized: WHICH unit + WHEN it was/is due (not just a count).
     if (pmItems.length) {
-      pmItems.sort((a, b) => a.date - b.date);
       const overdueN = pmItems.filter(x => x.overdue).length;
       out.push('· PM due: ' + pmItems.length + (overdueN ? ' (' + overdueN + ' overdue)' : ''));
       pmItems.slice(0, 12).forEach(x => {
@@ -3407,7 +3477,6 @@ function dlogLocationReportLines(loc) {
     // Units whose upcoming inspection already has a visit booked were
     // dropped above, so every line here is actionable.
     if (insItems.length) {
-      insItems.sort((a, b) => a.date - b.date);
       const overdueN = insItems.filter(x => x.overdue).length;
       out.push('· Inspections due: ' + insItems.length + (overdueN ? ' (' + overdueN + ' overdue)' : ''));
       insItems.slice(0, 12).forEach(x => {
@@ -3443,7 +3512,8 @@ function dlogLocationReportLines(loc) {
     // Warranty — prompt ONLY when a unit's warranty is within 90 days of
     // expiring (the actionable window). No active/expired roll-up; if nothing
     // is coming due, the email says nothing about warranties.
-    const todayMs = todayD.getTime();
+    const _tw = new Date(); _tw.setHours(0, 0, 0, 0);
+    const todayMs = _tw.getTime();
     const warrSoon = eqAll
       .filter(eq => eq.warranty_until)
       .map(eq => {

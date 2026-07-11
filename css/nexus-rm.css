@@ -2906,6 +2906,23 @@
   text-transform: none;
 }
 
+/* ─── v269 — Maintenance due ON the daily notes screen ─────────────────
+   The same PM/inspection items the daily email reports, with the 📝 note
+   visible in gold. Read-only rows; › jumps to the unit. */
+#dailylogView .dlog-maint-kind {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px; font-weight: 500; color: var(--nx-muted, #9aa3b2);
+  letter-spacing: .04em;
+}
+#dailylogView .dlog-maint-note {
+  margin-top: 4px; padding: 4px 8px;
+  border-left: 2px solid var(--nx-gold, #d4a44e);
+  border-radius: 0 7px 7px 0;
+  background: var(--nx-gold-faint, rgba(212,164,78,.08));
+  font-size: 12px; line-height: 1.45; color: var(--nx-gold, #d4a44e);
+  overflow-wrap: anywhere;
+}
+
 /* "↻ weekly" repeat chip — same quiet outline as the Board's repeat face chip. */
 #dailylogView .dlog-tk-repeat {
   display: inline-block; padding: 0 6px;
@@ -3015,9 +3032,48 @@
   overflow-wrap: anywhere;
 }
 .nxrm-pm-note-by { color: var(--nx-muted, #9aa3b2); font-size: 11px; }
-.nxrm-pm-notebtn {
-  display: block; width: 100%; margin-bottom: 6px; padding: 7px 0;
-  border-radius: 10px; border: 1px solid var(--nx-gold-line, rgba(212,164,78,.3));
-  background: transparent; font-size: 14px; cursor: pointer; line-height: 1;
+/* v269 — the note itself is the editor: tap it (✎ hints at that). */
+.nxrm-pm-note[data-note] { cursor: pointer; }
+.nxrm-pm-note-edit { float: right; margin-left: 6px; opacity: .55; font-size: 11px; }
+.nxrm-pm-addnote {
+  display: inline-block; margin-top: 5px; padding: 2px 0;
+  background: none; border: none; cursor: pointer;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px; letter-spacing: .05em;
+  color: var(--nx-gold, #d4a44e); opacity: .7;
 }
-.nxrm-pm-notebtn:hover { background: var(--nx-gold-faint, rgba(212,164,78,.10)); }
+.nxrm-pm-addnote:hover { opacity: 1; }
+
+/* v269 — PM screen simplification: the KPI tiles ARE the filter */
+.nxrm-tile.is-active {
+  border-color: var(--nx-gold, #d4a44e);
+  box-shadow: inset 0 0 0 1px var(--nx-gold, #d4a44e);
+}
+
+/* v269 — schedule edit sheet (replaces the numeric prompt menu) */
+.nxrm-sheet-form { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
+.nxrm-sheet-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.nxrm-sheet-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.nxrm-sheet-field > span {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--nx-muted, #9aa3b2);
+}
+.nxrm-sheet-field > input {
+  width: 100%; min-width: 0; background: rgba(0,0,0,0.3);
+  border: 1px solid var(--nx-gold-line, rgba(212,164,78,.24));
+  border-radius: 12px; padding: 10px 12px;
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 15px; color: var(--nx-text, #ede9e0);
+}
+.nxrm-sheet-field > input:focus { border-color: var(--nx-gold, #d4a44e); outline: none; }
+.nxrm-sheet-save { width: 100%; padding: 12px 0; font-size: 14px; }
+.nxrm-sheet-row { display: flex; gap: 8px; }
+.nxrm-sheet-minor {
+  flex: 1; padding: 9px 0; border-radius: 12px;
+  background: transparent; border: 1px solid var(--nx-gold-line, rgba(212,164,78,.24));
+  color: var(--nx-muted, #9aa3b2); font-size: 12.5px; cursor: pointer;
+}
+.nxrm-sheet-minor:hover { border-color: var(--nx-gold, #d4a44e); color: var(--nx-text, #ede9e0); }
+.nxrm-sheet-minor.is-danger { color: var(--nx-red, #d24b4b); border-color: rgba(210,75,75,.35); }
+.nxrm-sheet-minor.is-danger:hover { border-color: var(--nx-red, #d24b4b); }
