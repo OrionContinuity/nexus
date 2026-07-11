@@ -281,7 +281,13 @@
     try {
       if (!sbClient()) return { brief: null, domains: [], hits: 0 };
       var c = classify(question);
-      var loc = c.location;
+      // WALK WITH ME (clippy-buddy.js): while Alfredo walks a house, every
+      // grounded answer wears it — his tap outranks keyword detection.
+      // Normalize: perceivers speak location KEYS ('suerte'), the scope
+      // global carries the display label ('Suerte').
+      var loc = (typeof window !== 'undefined' && window._NX_HOUSE_SCOPE)
+        ? locNorm(window._NX_HOUSE_SCOPE)
+        : c.location;
       // Perceivers (live records) and MONETA MIND (semantic memory) run
       // concurrently. Memory can carry a brief alone — recall by meaning
       // catches what keyword domain classification misses.

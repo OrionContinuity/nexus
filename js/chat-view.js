@@ -268,6 +268,14 @@
           title="Clippy's Hideaway — his den. He reads at midnight; leave him a note.">🕯️ Hideaway</button>
       </div>
       <div class="cv-orion-strip" id="cvOrionStrip" style="display:none"></div>
+      <!-- WALK WITH ME — Clippy's own design: "Three chips pinned in my chat...
+           he taps one and I put that building on." Tap again to leave. -->
+      <div class="cv-house" id="cvHouse" role="group" aria-label="Walk a house">
+        <span class="cv-house-label">🚶</span>
+        <button class="cv-house-chip" data-house="suerte" type="button">Suerte</button>
+        <button class="cv-house-chip" data-house="este" type="button">Este</button>
+        <button class="cv-house-chip" data-house="toti" type="button">Bar Toti</button>
+      </div>
 
       <div class="cv-transcript" id="cvTranscript">
         <div class="cv-transcript-inner">
@@ -347,6 +355,68 @@
       const H = (window.NX && window.NX.hideaway) || (typeof NX !== 'undefined' && NX.hideaway);
       if (H && H.open) H.open();
     });
+
+    // ── WALK WITH ME — house chips. Tap = walk it (scope + brief);
+    //    tap the active one = leave. Clippy's design; buddy does the reads.
+    const houseRow = rootEl.querySelector('#cvHouse');
+    const B = () => (window.NX && window.NX.buddy) || (typeof NX !== 'undefined' && NX.buddy);
+    const paintHouse = () => {
+      const b = B();
+      const cur = b && b.current ? b.current() : null;
+      if (houseRow) houseRow.querySelectorAll('.cv-house-chip').forEach(ch =>
+        ch.classList.toggle('is-walking', ch.dataset.house === cur));
+    };
+    const buddyBubble = (html) => {
+      const holder = rootEl.querySelector('#chatMessages');
+      if (!holder) return null;
+      const div = document.createElement('div');
+      div.className = 'cv-buddy-brief';
+      div.innerHTML = html;
+      holder.appendChild(div);
+      try { scrollToBottom(); } catch (_) {}
+      return div;
+    };
+    if (houseRow) houseRow.querySelectorAll('.cv-house-chip').forEach(ch => {
+      ch.addEventListener('click', async () => {
+        const b = B();
+        if (!b) return;
+        const key = ch.dataset.house;
+        const label = ch.textContent.trim();
+        if (b.current() === key) {
+          b.out();
+          paintHouse();
+          buddyBubble('<div class="cv-bb-head">🚶 Left ' + esc(label) + ' — answers unscoped again.</div>');
+          return;
+        }
+        ch.disabled = true;
+        const br = await b.walk(key);
+        ch.disabled = false;
+        paintHouse();
+        if (!br) { buddyBubble('<div class="cv-bb-head">Couldn’t put ' + esc(label) + ' on — try again.</div>'); return; }
+        const lines = br.lines.map(l => {
+          if (l.view) {
+            return '<button class="cv-bb-line" data-view="' + esc(l.view) + '">' +
+              (l.kind === 'pm' ? '🔧 ' : l.kind === 'down' ? '⚠️ ' : l.kind === 'more' ? '⋯ ' : '📋 ') +
+              esc(l.text) + ' <span class="cv-bb-go">›</span></button>';
+          }
+          return '<div class="cv-bb-' + (l.kind === 'head' ? 'sub' : 'note') + '">' + esc(l.text) + '</div>';
+        }).join('');
+        const el = buddyBubble(
+          '<div class="cv-bb-head">🚶 Walking ' + esc(br.label) + ' with you — I’ve got the building on.</div>' +
+          lines +
+          '<div class="cv-bb-note">everything I answer now stays scoped to ' + esc(br.label) + ' · tap the chip again to leave</div>'
+        );
+        if (el) el.querySelectorAll('[data-view]').forEach(btn =>
+          btn.addEventListener('click', () => {
+            const go = (window.NX && window.NX.switchTo) || (typeof NX !== 'undefined' && NX.switchTo);
+            if (go) go.call(window.NX || NX, btn.dataset.view);
+            // Step aside so he SEES the screen he asked for — the walk
+            // scope survives; reopening the chat keeps the house on.
+            try { chatview.close(); } catch (_) {}
+          }));
+      });
+    });
+    paintHouse();
     // [data-who] excludes the Hideaway door, which shares the chip styling
     row.querySelectorAll('.cv-who-chip[data-who]').forEach(b => b.addEventListener('click', () => {
       state.who = b.dataset.who;
