@@ -489,9 +489,14 @@
       }
       state.to = to;
       persistRecipients();   // local + Supabase
-      var finish = function () {
+      // v282 — onSend now reports HOW it went out: 'gmail-api' means the
+      // email was CONFIRMED delivered by the API; 'draft' means we handed a
+      // pre-filled draft to Gmail/mail app and cannot see whether the user
+      // pressed Send there. Callers (e.g. the daily-log send ledger) use
+      // this to decide between auto-stamping and asking for one honest tap.
+      var finish = function (method) {
         close();
-        if (typeof opts.onSend === 'function') { try { opts.onSend({ to: to, cc: state.cc, bcc: state.bcc, subject: subj, body: bod }); } catch (_) {} }
+        if (typeof opts.onSend === 'function') { try { opts.onSend({ to: to, cc: state.cc, bcc: state.bcc, subject: subj, body: bod, method: method || 'draft' }); } catch (_) {} }
       };
       if (htmlRender) {
         // Styled path: send the real email (plain + HTML) via the Gmail API.
@@ -505,7 +510,7 @@
           .then(function (r) {
             if (r && r.ok) {
               if (T.toast) T.toast('Sent ✓ — styled email delivered', 'success', 3200);
-              finish();
+              finish('gmail-api');
             } else {
               // Tell the user WHY, then fall back — a silent downgrade to the
               // plain draft looked like the feature simply didn't exist.

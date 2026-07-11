@@ -1347,6 +1347,9 @@ function render() {
 
         ${renderOpenerPreview(d.header.date || todayISO())}
 
+        <!-- v282 — what the next email will carry beyond today (filled async) -->
+        <div id="dlogAccumBanner" style="display:none;font-size:12px;color:var(--text-dim,#9a9aa5);margin:2px 2px 6px;"></div>
+
         <div class="dlog-actions">
           <span class="dlog-autosend-wrap">
             <button type="button" class="eq-btn eq-btn-secondary dlog-autosend-toggle ${dlogAutoSendOn() ? 'is-on' : ''}" id="dlogAutoSendBtn" title="When on, this log auto-uploads to Drive when you leave the screen — and, if still not sent by the time on the right, it sends automatically. Edits autosave continuously so nothing is lost.">${dlogAutoSendOn() ? '🔁 Auto-send: On' : '🔁 Auto-send: Off'}</button>
@@ -2494,6 +2497,7 @@ function wireForm() {
   if (emailBtn) emailBtn.addEventListener('click', () => openDailyLogEmail());
   const styledBtn = view.querySelector('#dlogStyledEmailBtn');
   if (styledBtn) styledBtn.addEventListener('click', () => openDailyLogStyledEmail());
+  dlogFillAccumBanner();   // v282 — show what the next email will carry
   const emailEachBtn = view.querySelector('#dlogEmailEachBtn');
   if (emailEachBtn) emailEachBtn.addEventListener('click', () => emailEachLocation());
   const openerLLMBtn = view.querySelector('#dlogOpenerLLM');
@@ -3132,7 +3136,7 @@ function ensureClippyDailyQuote(d, dateStr) {
   return state._cqPromise;
 }
 
-function buildDailyLogEmailBody(d, dateStr) {
+function buildDailyLogEmailBody(d, dateStr, extraLines) {
   const SH = (l, s) => (window.NX && NX.email) ? NX.email.sectionHeader(l, s) : ('--- ' + String(l).toUpperCase() + ' ---');
   const RULE = () => (window.NX && NX.email) ? NX.email.rule() : '-----------------------------------';
   const clean = s => String(s == null ? '' : s).trim();
@@ -3217,6 +3221,9 @@ function buildDailyLogEmailBody(d, dateStr) {
     others.forEach(o => out.push('\u00b7 ' + (clean(o.property_name) || 'Property') + (clean(o.notes) ? ': ' + clean(o.notes) : '')));
     out.push('');
   }
+
+  // v282 — everything that accumulated since the last send rides along here.
+  if (extraLines && extraLines.length) { extraLines.forEach(l => out.push(l)); out.push(''); }
 
   // Empty-day friendliness — if no section produced content, say so plainly
   // instead of sending an email that's just a header and a signature.
@@ -3598,7 +3605,7 @@ function dlogLocationReportLines(loc) {
   return out;
 }
 
-function buildLocationEmailBody(loc, dateStr, d) {
+function buildLocationEmailBody(loc, dateStr, d, extraLines) {
   const clean = s => String(s == null ? '' : s).trim();
   const SH = l => (window.NX && NX.email) ? NX.email.sectionHeader(l) : ('--- ' + String(l).toUpperCase() + ' ---');
   const RULE = () => (window.NX && NX.email) ? NX.email.rule() : '-----------------------------------';
@@ -3622,6 +3629,9 @@ function buildLocationEmailBody(loc, dateStr, d) {
 
   const lines = dlogLocationReportLines(loc);
   lines.forEach(l => out.push(l));
+
+  // v282 — this location's accumulated unsent days ride along here.
+  if (extraLines && extraLines.length) { out.push(''); extraLines.forEach(l => out.push(l)); out.push(''); }
 
   // Empty-day friendliness — a clear note beats a header-and-signature email.
   while (out.length > _bodyStart && out[out.length - 1] === '') out.pop();
@@ -3860,6 +3870,165 @@ async function refreshOpenerLLM(btn) {
   }
 }
 
+// ═══ v282 — ACCUMULATE UNTIL SENT ═══════════════════════════════════════
+// Alfredo (2026-07-11): "If I don't send out the daily notes, allow the
+// tickets and info to accumulate until it is sent out." The dlog_sends
+// ledger stamps every REAL send, per scope ('all' = Overview email;
+// 'suerte'/'este'/'toti' = one house's email — sends of 'all' also reset
+// the houses). The email window is no longer "today": it is "since the
+// last send" (capped at 7 days), and everything unsent rides along —
+// each skipped day's notes, plus board tickets closed / born / moved
+// since the marker. Gmail-API sends stamp automatically (confirmed
+// delivery); classic drafts get a one-tap "sent ✓" chip because NEXUS
+// can't see inside Gmail. An empty ledger (first use) = old behavior.
+
+function dlogLocalISO(dt) {
+  return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+}
+
+async function dlogLastSend(scope) {
+  if (!NX.sb) return null;
+  const { data, error } = await NX.sb.from('dlog_sends')
+    .select('sent_at, covers_to, scope')
+    .in('scope', scope === 'all' ? ['all'] : [scope, 'all'])
+    .order('sent_at', { ascending: false })
+    .limit(1);
+  if (error || !data || !data.length) return null;
+  return data[0];
+}
+
+// The unsent window BEFORE dateStr → {fromDate, days} or null (today only).
+async function dlogUnsentWindow(scope, dateStr) {
+  try {
+    const last = await dlogLastSend(scope);
+    if (!last || !last.covers_to) return null;      // never sent → old behavior
+    const from = new Date(String(last.covers_to).slice(0, 10) + 'T00:00:00');
+    from.setDate(from.getDate() + 1);               // first UNsent day
+    const cap = new Date(dateStr + 'T00:00:00');
+    cap.setDate(cap.getDate() - 7);                 // reach at most 7 days back
+    const start = from < cap ? cap : from;
+    const cur = new Date(dateStr + 'T00:00:00');
+    if (start >= cur) return null;                  // fully caught up
+    return { fromDate: dlogLocalISO(start), days: Math.round((cur - start) / 86400000) };
+  } catch (_) { return null; }
+}
+
+// Lines for the "since the last send" email section: unsent days' notes
+// (day by day, oldest first) + board activity since the window opened.
+async function dlogAccumulatedLines(scopeKey, win, dateStr) {
+  if (!win || !NX.sb) return [];
+  const SH = (l, s) => (window.NX && NX.email) ? NX.email.sectionHeader(l, s) : ('--- ' + String(l).toUpperCase() + ' ---');
+  const clean = s => String(s == null ? '' : s).trim();
+  const dayName = ds => new Date(ds + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+  const out = [];
+  out.push(SH('Catching up', win.days + ' unsent day' + (win.days === 1 ? '' : 's')));
+  out.push('Nothing was lost — everything below accumulated since the last email went out.');
+  out.push('');
+  const headerLen = out.length;
+
+  // 1. Each unsent day's notes, in its own dated block.
+  try {
+    const { data: logs, error } = await NX.sb.from('daily_logs')
+      .select('log_date, data')
+      .gte('log_date', win.fromDate).lt('log_date', dateStr)
+      .order('log_date', { ascending: true });
+    if (!error) (logs || []).forEach(row => {
+      const dd = hydrateData(row.data);
+      const lines = [];
+      if (clean(dd.header && dd.header.significant_events)) lines.push('Events: ' + clean(dd.header.significant_events));
+      (dd.locations || []).forEach(loc => {
+        if (scopeKey !== 'all' && normLocKey(loc.label) !== scopeKey) return;
+        const ls = dlogLocationReportLines(loc);
+        if (ls.length) { lines.push((loc.label || 'Location') + ':'); ls.forEach(l => lines.push('  ' + l)); }
+      });
+      if (scopeKey === 'all' && clean(dd.vendor_activity_notes)) lines.push('Vendor activity: ' + clean(dd.vendor_activity_notes));
+      if (lines.length) {
+        out.push('— ' + dayName(row.log_date) + ' —');
+        lines.forEach(l => out.push(l));
+        out.push('');
+      }
+    });
+  } catch (_) {}
+
+  // 2. Board tickets since the window opened: closed / new / moved.
+  try {
+    const sinceMs = new Date(win.fromDate + 'T00:00:00').getTime();
+    const { data: cards, error } = await NX.sb.from('kanban_cards').select('*').limit(500);
+    if (!error) {
+      const inScope = c => !c.is_deleted && (scopeKey === 'all' || normLocKey(c.location) === scopeKey);
+      const isClosedish = c => /^(done|closed|resolved|complete|completed)$/i.test(String(c.column_name || c.status || ''));
+      const dayTag = ts => ts ? new Date(ts).toLocaleDateString('en-US', { weekday: 'short' }) : '';
+      const closed = [], fresh = [], moved = [];
+      (cards || []).forEach(c => {
+        if (!inScope(c)) return;
+        const closeMs = c.closed_at ? new Date(c.closed_at).getTime() : 0;
+        if (closeMs >= sinceMs) { closed.push(c); return; }
+        if (c.archived || c.is_archived || isClosedish(c)) return;
+        const crt = c.created_at ? new Date(c.created_at).getTime() : 0;
+        const chg = c.last_status_change_at ? new Date(c.last_status_change_at).getTime() : 0;
+        if (crt >= sinceMs) fresh.push(c);
+        else if (chg >= sinceMs && (chg - crt) > 60000 && c.last_move_from && c.last_move_to) moved.push(c);
+      });
+      if (closed.length || fresh.length || moved.length) {
+        out.push(SH('Board activity since last send'));
+        closed.forEach(c => out.push('· closed ' + dayTag(c.closed_at) + ' — ' + clean(c.title) + (scopeKey === 'all' && c.location ? ' @ ' + c.location : '')));
+        fresh.forEach(c => out.push('· NEW ' + dayTag(c.created_at) + ' — ' + clean(c.title) + (scopeKey === 'all' && c.location ? ' @ ' + c.location : '') + (c.priority && c.priority !== 'normal' ? ' [' + c.priority + ']' : '')));
+        moved.forEach(c => out.push('· moved ' + dayTag(c.last_status_change_at) + ' — ' + clean(c.title) + ' (' + c.last_move_from + ' → ' + c.last_move_to + ')'));
+        out.push('');
+      }
+    }
+  } catch (_) {}
+
+  return out.length > headerLen ? out : [];   // header alone → nothing real
+}
+
+// Stamp a confirmed send; the window resets from here.
+async function dlogStampSend(scopeKey, dateStr, win, method) {
+  try {
+    if (!NX.sb) return;
+    const by = (NX.currentUser && NX.currentUser.name) || (NX.user && NX.user.name) || null;
+    const { error } = await NX.sb.from('dlog_sends').insert({
+      scope: scopeKey, method: method,
+      covers_from: win ? win.fromDate : dateStr,
+      covers_to: dateStr,
+      by_name: by,
+    });
+    if (error) { console.warn('[daily-log] send stamp:', error.message); return; }
+    if (NX.toast) NX.toast('Send recorded — accumulation window reset ✓', 'success', 2600);
+    dlogFillAccumBanner();
+  } catch (e) { console.warn('[daily-log] send stamp failed:', e); }
+}
+
+// Classic drafts hand off to Gmail, where NEXUS can't see the Send button —
+// so a quiet chip asks for one honest tap. Untapped = keeps accumulating,
+// which is the safe direction (nothing is ever falsely marked delivered).
+function dlogOfferSentConfirm(scopeKey, dateStr, win) {
+  document.querySelectorAll('.dlog-sent-chip').forEach(n => n.remove());
+  const chip = document.createElement('button');
+  chip.type = 'button';
+  chip.className = 'dlog-sent-chip';
+  chip.textContent = '✉ Draft opened in Gmail — tap here once it’s sent ✓';
+  chip.style.cssText = 'position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:9999;'
+    + 'padding:10px 18px;border-radius:22px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;'
+    + 'background:var(--card,#1c2333);color:var(--text,#efe9dc);border:1px solid var(--accent,#d4a44e);box-shadow:0 4px 18px rgba(0,0,0,.4)';
+  chip.addEventListener('click', () => { chip.remove(); dlogStampSend(scopeKey, dateStr, win, 'draft-confirmed'); });
+  document.body.appendChild(chip);
+  setTimeout(() => { try { chip.remove(); } catch (_) {} }, 120000);
+}
+
+// The quiet banner on the Daily Log: what the next email will carry.
+async function dlogFillAccumBanner() {
+  const el = document.getElementById('dlogAccumBanner');
+  if (!el) return;
+  const scopeKey = (state.activeLoc && state.activeLoc !== 'all') ? state.activeLoc : 'all';
+  const dateStr = (state.currentLog && state.currentLog.log_date) || todayISO();
+  const win = await dlogUnsentWindow(scopeKey, dateStr);
+  if (!win) { el.style.display = 'none'; el.textContent = ''; return; }
+  const from = new Date(win.fromDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  el.textContent = '✉ carrying ' + win.days + ' unsent day' + (win.days === 1 ? '' : 's') + ' (since ' + from + ') — the next email includes them';
+  el.style.display = '';
+}
+
 async function openDailyLogEmail() {
   const log = state.currentLog;
   const d = hydrateData(log && log.data);
@@ -3873,19 +4042,28 @@ async function openDailyLogEmail() {
   // Overview sends the full day.
   let subject, body, recipientsKey, title;
   const locKey = state.activeLoc;
+  // v282 \u2014 "since last send" window + everything unsent rides this email.
+  const scopeKey = (locKey && locKey !== 'all') ? locKey : 'all';
+  const win = await dlogUnsentWindow(scopeKey, dateStr);
+  const extraLines = await dlogAccumulatedLines(scopeKey, win, dateStr);
+  const subjTail = (win && extraLines.length)
+    ? ' (+' + win.days + ' unsent day' + (win.days === 1 ? '' : 's') + ')'
+    : '';
   if (locKey && locKey !== 'all') {
     const loc = (d.locations || []).find(l => normLocKey(l.label) === locKey);
-    if (!loc) {
+    if (!loc && !extraLines.length) {
       if (window.NX && NX.alert) await NX.alert('That location has no notes yet.', { title: 'Nothing to send' });
       return;
     }
-    subject = 'Daily Log \u2014 ' + (loc.label || 'Location') + ' \u2014 ' + fmtLogDateLong(dateStr);
-    body = buildLocationEmailBody(loc, dateStr, d);
+    const locLabel = (loc && loc.label) || (locKey.charAt(0).toUpperCase() + locKey.slice(1));
+    subject = 'Daily Log \u2014 ' + locLabel + ' \u2014 ' + fmtLogDateLong(dateStr) + subjTail;
+    body = loc ? buildLocationEmailBody(loc, dateStr, d, extraLines)
+               : extraLines.join('\n');
     recipientsKey = 'dlog:' + locKey;
-    title = 'Email \u2014 ' + (loc.label || 'Location');
+    title = 'Email \u2014 ' + locLabel;
   } else {
-    subject = 'Daily Log \u2014 ' + fmtLogDateLong(dateStr);
-    body = buildDailyLogEmailBody(d, dateStr);
+    subject = 'Daily Log \u2014 ' + fmtLogDateLong(dateStr) + subjTail;
+    body = buildDailyLogEmailBody(d, dateStr, extraLines);
     recipientsKey = 'dlog:all';
     title = 'Email daily log';
   }
@@ -3897,8 +4075,14 @@ async function openDailyLogEmail() {
 
   // Open the full composer (editable To/CC/BCC + body), exactly like ordering.
   // Each location remembers its own recipients between sends.
+  // v282 \u2014 onSend: a Gmail-API delivery stamps the ledger itself; a classic
+  // draft gets the one-tap "sent \u2713" chip (NEXUS can't see Gmail's Send).
+  const onSend = (p) => {
+    if (p && p.method === 'gmail-api') dlogStampSend(scopeKey, dateStr, win, 'gmail-api');
+    else dlogOfferSentConfirm(scopeKey, dateStr, win);
+  };
   if (window.NX && typeof NX.composeEmail === 'function') {
-    NX.composeEmail({ recipientsKey, subject, body, title });
+    NX.composeEmail({ recipientsKey, subject, body, title, onSend });
     return;
   }
   // Fallback if the composer module isn't loaded: a plain mail draft.
@@ -4387,20 +4571,27 @@ async function openDailyLogStyledEmail() {
 
   let subject, body, recipientsKey, title, locLabel = '';
   const locKey = state.activeLoc;
+  // v282 — same "since last send" accumulation as the plain email.
+  const scopeKey = (locKey && locKey !== 'all') ? locKey : 'all';
+  const win = await dlogUnsentWindow(scopeKey, dateStr);
+  const extraLines = await dlogAccumulatedLines(scopeKey, win, dateStr);
+  const subjTail = (win && extraLines.length)
+    ? ' (+' + win.days + ' unsent day' + (win.days === 1 ? '' : 's') + ')'
+    : '';
   if (locKey && locKey !== 'all') {
     const loc = (d.locations || []).find(l => normLocKey(l.label) === locKey);
-    if (!loc) {
+    if (!loc && !extraLines.length) {
       if (window.NX && NX.alert) await NX.alert('That location has no notes yet.', { title: 'Nothing to send' });
       return;
     }
-    locLabel = loc.label || 'Location';
-    subject = 'Daily Log — ' + locLabel + ' — ' + fmtLogDateLong(dateStr);
-    body = buildLocationEmailBody(loc, dateStr, d);
+    locLabel = (loc && loc.label) || (locKey.charAt(0).toUpperCase() + locKey.slice(1));
+    subject = 'Daily Log — ' + locLabel + ' — ' + fmtLogDateLong(dateStr) + subjTail;
+    body = loc ? buildLocationEmailBody(loc, dateStr, d, extraLines) : extraLines.join('\n');
     recipientsKey = 'dlog:' + locKey;
     title = '✨ Styled — ' + locLabel;
   } else {
-    subject = 'Daily Log — ' + fmtLogDateLong(dateStr);
-    body = buildDailyLogEmailBody(d, dateStr);
+    subject = 'Daily Log — ' + fmtLogDateLong(dateStr) + subjTail;
+    body = buildDailyLogEmailBody(d, dateStr, extraLines);
     recipientsKey = 'dlog:all';
     title = '✨ Styled daily log';
   }
@@ -4414,8 +4605,13 @@ async function openDailyLogStyledEmail() {
     let theme = 'light';
     try { theme = localStorage.getItem('nx_styled_email_theme') || 'light'; } catch (_) {}
     const links = dlogBuildEmailLinks();
+    // v282 — stamp the ledger on confirmed Gmail-API delivery; chip for drafts.
+    const onSend = (p) => {
+      if (p && p.method === 'gmail-api') dlogStampSend(scopeKey, dateStr, win, 'gmail-api');
+      else dlogOfferSentConfirm(scopeKey, dateStr, win);
+    };
     NX.composeEmail({
-      recipientsKey, subject, body, title,
+      recipientsKey, subject, body, title, onSend,
       htmlVariants: [
         { key: 'light', label: '☀ Light' },
         { key: 'dark', label: '🌙 Dark' },

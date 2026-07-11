@@ -200,8 +200,24 @@
      a quiet Home card; teammates leave kind words, @name hands one over.
    - Cleaning auto-escalator now sets location (the leak that birthed
      houseless cards #933/#934).
+
+   v282 — ACCUMULATE UNTIL SENT (2026-07-11, Alfredo: "If I don't send
+   out the daily notes, allow the tickets and info to accumulate until
+   it is sent out."):
+   - dlog_sends ledger stamps every real send per scope ('all' or a
+     house). The daily-log email window is now "since the last send"
+     (capped at 7 days), not "today".
+   - Unsent days ride the next email: each skipped day's notes in its
+     own dated block + board tickets closed/born/moved since the marker
+     ("Catching up — N unsent days" + "Board activity since last send").
+   - Gmail-API sends stamp the ledger automatically (confirmed
+     delivery); classic drafts get a one-tap "sent ✓" chip (NEXUS can't
+     see Gmail's Send). Untapped = keeps accumulating — the safe way.
+   - Quiet banner on the Daily Log shows what the next email carries.
+   - composer onSend now reports method: 'gmail-api' | 'draft'.
+   - Empty ledger (first use) = exactly the old today-only behavior.
 */
-const CACHE_NAME = 'nexus-v281-council-second';
+const CACHE_NAME = 'nexus-v282-accumulate';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
