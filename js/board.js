@@ -664,6 +664,11 @@ function applyFilters(cardList){
       if(isDone(c)) return false;
       const created = c.created_at ? new Date(c.created_at).getTime() : 0;
       if(!created || (now - created) < fortnight) return false;
+    } else if(filters.state === 'unowned'){
+      // v281 — Trajan's second ask: "every open card should name whose
+      // hand, by when." This lens shows open work no one has sworn to.
+      if(isDone(c)) return false;
+      if(c.assignee) return false;
     }
     if(q){
       const labelText = Array.isArray(c.labels) ? c.labels.join(' ') : '';
@@ -886,6 +891,11 @@ function renderFilterBar(){
   const nUnfiled = cards.filter(c => !c.location).length;
   html += mk('state', 'overdue', nOverdue ? `Overdue · ${nOverdue}` : 'Overdue', 'var(--red)');
   html += mk('state', 'stale',   'Stale 14d+', 'var(--muted)');
+  // v281 — Trajan's second ask: work with no named hand gets its own lens,
+  // with a live count so silence can't hide it. Muted — one screen, one
+  // gold voice. Appears only while unowned open cards exist.
+  const nUnowned = cards.filter(c => !isDone(c) && !c.assignee).length;
+  if (nUnowned) html += mk('state', 'unowned', `Unowned · ${nUnowned}`, 'var(--muted)');
   html += `<span style="width:8px"></span>`;
   LOCATIONS.forEach(l => {
     html += mk('location', l.key, l.label, l.color);

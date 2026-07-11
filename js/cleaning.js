@@ -1134,6 +1134,11 @@
       list_id:                 list.id,
       title:                   `Cleaning · ${group.section_en} · ${activeLoc} (auto)`,
       description:             desc + '\n\n[Auto-escalated by NEXUS — overdue cleaning section]',
+      // v281 — the council's law, second pass: "no card born without a
+      // house." This auto-escalator was the leak that birthed cards #933
+      // and #934 houseless: it knew the house (activeLoc) but wrote it only
+      // to cleaning_link_location, never to location itself.
+      location:                activeLoc,
       cleaning_link_location:  activeLoc,
       cleaning_link_section:   group.section_es,
       due_date:                today,

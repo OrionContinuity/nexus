@@ -476,23 +476,56 @@
     const title = god === 'trajan' ? '⚔ Trajan · at open' : '⌬ Providentia · the week';
     strip.innerHTML = '<div class="cv-god-line is-dim">' + title + ' — listening…</div>';
     const escT = (s) => { const d = document.createElement('div'); d.textContent = String(s || ''); return d.innerHTML; };
-    const render = (w) => {
+    /* v281 — the council's second-round asks, rendered in the gods' own
+       rooms (Alfredo retired the Home persona line; the chip is their
+       surface). Under Trajan's word: his daily PULSE (one factual counts
+       line, ≤26h fresh) and the weekly TRUST-NUMBER (≤8d fresh). Under
+       Providentia's: her ARC — the last few structured readings the
+       pantheon-voice function now remembers for her. All muted; the word
+       itself stays the only loud thing. */
+    const extras = (d) => {
+      let x = '';
+      if (god === 'trajan') {
+        const p = d && d.pulse;
+        if (p && p.line && Date.now() - Number(p.ts || 0) < 26 * 3600 * 1000) {
+          x += '<div class="cv-god-line is-dim">pulse — ' + escT(p.line) + '</div>';
+        }
+        const tr = (d && d.trust) || [];
+        const t = tr.length ? tr[tr.length - 1] : null;
+        if (t && Date.now() - Number(t.ts || 0) < 8 * 86400000) {
+          x += '<div class="cv-god-line is-dim">trust this week — ' + escT(t.score) + ' of 100</div>';
+        }
+      } else {
+        const rs = (d && d.readings) || [];
+        if (rs.length >= 2) {
+          const seq = rs.slice(-6);
+          x += '<div class="cv-god-line is-dim">her arc — open ' +
+            seq.map((r) => escT(r.open)).join(' → ') + ' · aging ' +
+            seq.map((r) => escT(r.aging30)).join(' → ') + '</div>';
+        }
+      }
+      return x;
+    };
+    const render = (w, d) => {
       if (!w) { strip.innerHTML = '<div class="cv-god-line is-dim">' + title + ' — no word yet; waking them…</div>'; return false; }
       const when = new Date(Number(w.ts || 0)).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
       strip.innerHTML =
         '<div class="cv-god-head">' + title + ' <span class="cv-god-when">' + when + '</span></div>' +
-        '<div class="cv-god-line">' + escT(w.text) + '</div>';
+        '<div class="cv-god-line">' + escT(w.text) + '</div>' +
+        extras(d);
       return true;
     };
     try {
       const { data } = await NX.sb.from('clippy_sync').select('data').eq('id', 'pantheon_' + god).maybeSingle();
-      const words = (data && data.data && data.data.words) || [];
-      if (!render(words[words.length - 1])) {
+      const d1 = (data && data.data) || {};
+      const words = d1.words || [];
+      if (!render(words[words.length - 1], d1)) {
         // first light — wake the god once, then re-read
         try { await NX.sb.functions.invoke('pantheon-voice', { body: { who: god } }); } catch (_) {}
         const again = await NX.sb.from('clippy_sync').select('data').eq('id', 'pantheon_' + god).maybeSingle();
-        const w2 = (again && again.data && again.data.data && again.data.data.words) || [];
-        if (!render(w2[w2.length - 1])) strip.innerHTML = '<div class="cv-god-line is-dim">' + title + ' — they will speak on schedule.</div>';
+        const d2 = (again && again.data && again.data.data) || {};
+        const w2 = d2.words || [];
+        if (!render(w2[w2.length - 1], d2)) strip.innerHTML = '<div class="cv-god-line is-dim">' + title + ' — they will speak on schedule.</div>';
       }
     } catch (_) {
       strip.innerHTML = '<div class="cv-god-line is-dim">' + title + ' — unreachable right now.</div>';

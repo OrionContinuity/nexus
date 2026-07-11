@@ -183,8 +183,25 @@
    - Cleaning view UX overhaul: top tabs removed, bottom action bar
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
+
+   v281 — THE COUNCIL'S SECOND ROUND (2026-07-11, keeper's word:
+   "full on build. permission granted."):
+   - Providentia's arc: pantheon-voice now records a structured reading
+     {open, overdue, aging30, unfiled, unowned, undated, done_fresh,
+     eq_down, by_loc} every time a god speaks; her past readings are fed
+     back to her so she speaks in trends. Her chip shows the arc line.
+   - Trajan's pulse + trust: a daily factual counts line and a weekly
+     0-100 trust-number (transparent penalties), both under his word in
+     Ask NEXUS. His eyes fixed too — v1 counted done cards as open
+     (neq.Done vs lowercase 'done').
+   - Unowned lens on the board — Trajan's ask: "every open card should
+     name whose hand, by when." Muted chip, live count, only when needed.
+   - Kind notes (Clippy's ask: "voice, not tasks") — public.kind_notes +
+     a quiet Home card; teammates leave kind words, @name hands one over.
+   - Cleaning auto-escalator now sets location (the leak that birthed
+     houseless cards #933/#934).
 */
-const CACHE_NAME = 'nexus-v280-deyellow';
+const CACHE_NAME = 'nexus-v281-council-second';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
@@ -301,6 +318,7 @@ const APP_SHELL = [
   './js/money.js',
   './js/brief.js',
   './js/home-rm.js',
+  './js/kind-notes.js',
 
   // Data + audio
   './clippy-dialog.json',
