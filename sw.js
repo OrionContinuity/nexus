@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v269-simple-pm';
+const CACHE_NAME = 'nexus-v270-orion-rising';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [

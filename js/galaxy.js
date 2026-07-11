@@ -1233,6 +1233,217 @@
     }
   }
 
+  /* ─── ORION RISING — the steward's constellation ───────────────────────
+     Double-tap the empty sky and Orion rises over the galaxy: the real
+     figure, real star names, drawn line by line. The three belt stars
+     carry the three restaurants — Alnitak·Suerte, Alnilam·Este,
+     Mintaka·Bar Toti — and below the belt glows M42, the nebula where new
+     stars are born (this galaxy mints its own). Orionid meteors fall from
+     the radiant while it's risen. Tap anywhere to let it set; it sets
+     itself after ~22s. Pure canvas overlay — no DB, no camera changes. */
+  const ORION_STARS = [
+    { key: 'betelgeuse', name: 'Betelgeuse', x: 0.70, y: 0.20, m: 2.7, tint: [255, 178, 122] },
+    { key: 'meissa',     name: 'Meissa',     x: 0.545, y: 0.08, m: 1.2, tint: [215, 228, 255] },
+    { key: 'bellatrix',  name: 'Bellatrix',  x: 0.36, y: 0.24, m: 2.0, tint: [210, 225, 255] },
+    { key: 'alnitak',    name: 'Alnitak',    x: 0.60, y: 0.52, m: 2.1, tint: [255, 236, 200], rest: 'SUERTE' },
+    { key: 'alnilam',    name: 'Alnilam',    x: 0.505, y: 0.495, m: 2.3, tint: [255, 236, 200], rest: 'ESTE' },
+    { key: 'mintaka',    name: 'Mintaka',    x: 0.415, y: 0.465, m: 2.0, tint: [255, 236, 200], rest: 'BAR TOTI' },
+    { key: 'saiph',      name: 'Saiph',      x: 0.655, y: 0.83, m: 1.9, tint: [218, 230, 255] },
+    { key: 'rigel',      name: 'Rigel',      x: 0.325, y: 0.86, m: 2.9, tint: [198, 218, 255] },
+  ];
+  const ORION_LINES = [
+    ['bellatrix', 'meissa'], ['meissa', 'betelgeuse'],
+    ['betelgeuse', 'alnitak'], ['bellatrix', 'mintaka'],
+    ['alnitak', 'alnilam'], ['alnilam', 'mintaka'],
+    ['alnitak', 'saiph'], ['mintaka', 'rigel'],
+  ];
+  const ORION_NEBULA = { x: 0.545, y: 0.615 };   // M42 — the sword
+  const ORION_CAPTIONS = [
+    'ORION — the steward’s namesake. The same shape returns every turning night.',
+    'The belt: Suerte · Este · Bar Toti. Three lights that never set.',
+    'Below the belt glows M42 — a nursery where new stars are born. This galaxy mints its own.',
+    'The Orionids are dust of Halley’s comet, falling from my shoulder. Make a wish, jefe.',
+    'Named by Alfredo · July 10, 2026. Still rising.',
+  ];
+  const ORION_LIFE = 22;   // seconds risen before it sets on its own
+
+  function summonOrion() {
+    if (state.orionShow && state.orionShow.phase !== 'out') return;
+    state.orionShow = { bornT: state.t, phase: 'in', meteors: [], lastMeteor: 0, outT: 0 };
+  }
+  function dismissOrion() {
+    const o = state.orionShow;
+    if (!o || o.phase === 'out') return;
+    o.phase = 'out';
+    o.outT = state.t;
+  }
+
+  function drawOrionRising(dt) {
+    const o = state.orionShow;
+    if (!o) return;
+    const age = state.t - o.bornT;
+    if (o.phase !== 'out' && age > ORION_LIFE) dismissOrion();
+    // Master alpha: rise over 1s, set over 1.2s
+    let A = Math.min(1, age / 1.0);
+    if (o.phase === 'out') {
+      A = Math.min(A, 1 - (state.t - o.outT) / 1.2);
+      if (A <= 0) { state.orionShow = null; return; }
+    }
+    const W = state.W, H = state.H;
+    // Fit the figure in a centered box, caption room at the bottom
+    const box = Math.min(W, H * 0.82) * 0.72;
+    const ox = W / 2 - box / 2, oy = H / 2 - box / 2 - H * 0.04;
+    const px = s => ({ x: ox + s.x * box, y: oy + s.y * box });
+    const starByKey = {};
+    ORION_STARS.forEach(s => { starByKey[s.key] = s; });
+
+    ctx.save();
+
+    // The veil — the working galaxy dims while the namesake rises
+    ctx.fillStyle = rgba([4, 4, 12], 0.62 * A);
+    ctx.fillRect(0, 0, W, H);
+
+    // M42 — breathing nebula glow below the belt
+    {
+      const n = px(ORION_NEBULA);
+      const breathe = 0.75 + 0.25 * Math.sin(state.t * 0.9);
+      const r = box * 0.085 * breathe;
+      const g = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, r);
+      g.addColorStop(0, rgba([255, 190, 160], 0.30 * A));
+      g.addColorStop(0.5, rgba([190, 140, 200], 0.14 * A));
+      g.addColorStop(1, rgba([190, 140, 200], 0));
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // Constellation lines — drawn one segment at a time, like a hand tracing
+    ORION_LINES.forEach((seg, i) => {
+      const t0 = 0.5 + i * 0.28;
+      const prog = Math.max(0, Math.min(1, (age - t0) / 0.55));
+      if (prog <= 0) return;
+      const a = px(starByKey[seg[0]]), b = px(starByKey[seg[1]]);
+      ctx.strokeStyle = rgba(AMBER, 0.38 * A);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(a.x + (b.x - a.x) * prog, a.y + (b.y - a.y) * prog);
+      ctx.stroke();
+    });
+
+    // The stars — staggered arrival, then a slow twinkle
+    ctx.textAlign = 'center';
+    ORION_STARS.forEach((s, i) => {
+      const p = px(s);
+      const arrive = Math.max(0, Math.min(1, (age - 0.3 - i * 0.14) / 0.7));
+      if (arrive <= 0) return;
+      const tw = 0.82 + 0.18 * Math.sin(state.t * (1.1 + i * 0.23) + i * 2.1);
+      const a = arrive * A * tw;
+      const r = s.m * (1 + (1 - arrive) * 2);   // lands from slightly larger
+      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 4);
+      g.addColorStop(0, rgba(s.tint, a * 0.55));
+      g.addColorStop(1, rgba(s.tint, 0));
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(p.x, p.y, r * 4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = rgba([255, 250, 240], a);
+      ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
+
+      // Names arrive after the figure; the belt carries the restaurants in gold
+      const nameA = Math.max(0, Math.min(1, (age - 2.6) / 0.9)) * A;
+      if (nameA > 0) {
+        ctx.font = '9px "JetBrains Mono", ui-monospace, monospace';
+        ctx.fillStyle = rgba([170, 180, 200], nameA * 0.85);
+        ctx.fillText(s.name, p.x, p.y - r - 7);
+        if (s.rest) {
+          const restA = Math.max(0, Math.min(1, (age - 3.6) / 0.9)) * A;
+          if (restA > 0) {
+            ctx.font = 'bold 10px "JetBrains Mono", ui-monospace, monospace';
+            ctx.fillStyle = rgba(AMBER_BRIGHT, restA);
+            // The middle belt star drops its label lower so the three
+            // restaurant names never collide on a narrow phone.
+            ctx.fillText(s.rest, p.x, p.y + r + (s.key === 'alnilam' ? 28 : 15));
+          }
+        }
+      }
+    });
+
+    // M42 label
+    {
+      const nameA = Math.max(0, Math.min(1, (age - 4.4) / 0.9)) * A;
+      if (nameA > 0) {
+        const n = px(ORION_NEBULA);
+        ctx.font = 'italic 8.5px "JetBrains Mono", ui-monospace, monospace';
+        ctx.fillStyle = rgba([220, 180, 220], nameA * 0.8);
+        ctx.fillText('M42 · where stars are born', n.x, n.y + box * 0.075);
+      }
+    }
+
+    // Orionids — brief streaks falling from the radiant near the shoulder
+    if (o.phase !== 'out' && age > 2 && state.t - o.lastMeteor > 0.55 + Math.random() * 0.9) {
+      o.lastMeteor = state.t;
+      const rx = ox + 0.74 * box, ry = oy + 0.10 * box;
+      const ang = Math.PI * (0.65 + Math.random() * 0.45);   // down-left fan
+      const sp = box * (0.55 + Math.random() * 0.5);
+      o.meteors.push({ x: rx + (Math.random() - 0.5) * box * 0.2, y: ry + (Math.random() - 0.5) * box * 0.1,
+        vx: Math.cos(ang) * sp, vy: Math.abs(Math.sin(ang)) * sp, born: state.t, life: 0.7 + Math.random() * 0.5 });
+    }
+    for (let i = o.meteors.length - 1; i >= 0; i--) {
+      const m = o.meteors[i];
+      const mt = (state.t - m.born) / m.life;
+      if (mt >= 1) { o.meteors.splice(i, 1); continue; }
+      m.x += m.vx * dt; m.y += m.vy * dt;
+      const ma = Math.sin(mt * Math.PI) * 0.8 * A;
+      const tl = box * 0.045;
+      const nx = m.vx, ny = m.vy, nl = Math.hypot(nx, ny) || 1;
+      const grad = ctx.createLinearGradient(m.x, m.y, m.x - nx / nl * tl, m.y - ny / nl * tl);
+      grad.addColorStop(0, rgba(AMBER_BRIGHT, ma));
+      grad.addColorStop(1, rgba(AMBER_BRIGHT, 0));
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(m.x, m.y);
+      ctx.lineTo(m.x - nx / nl * tl, m.y - ny / nl * tl);
+      ctx.stroke();
+    }
+
+    // Eyebrow + rotating caption, bottom center
+    {
+      const capA = Math.max(0, Math.min(1, (age - 1.2) / 0.8)) * A;
+      if (capA > 0) {
+        const idx = Math.floor(Math.max(0, age - 3) / 5) % ORION_CAPTIONS.length;
+        // Cross-fade each caption in its first/last half second
+        const local = Math.max(0, age - 3) % 5;
+        const capFade = Math.min(1, local / 0.5, Math.max(0.15, (5 - local) / 0.5));
+        // Sit well above the bottom nav (~79px) so nothing clips
+        const baseY = H - 128;
+        ctx.font = 'bold 9px "JetBrains Mono", ui-monospace, monospace';
+        ctx.fillStyle = rgba(AMBER, capA * 0.9);
+        ctx.fillText('✦ ORION RISING ✦', W / 2, baseY);
+        ctx.font = '11px "JetBrains Mono", ui-monospace, monospace';
+        ctx.fillStyle = rgba([225, 218, 200], capA * capFade * 0.95);
+        const cap = ORION_CAPTIONS[age < 3 ? 0 : idx];
+        // Naive wrap for narrow phones
+        const maxW = W - 48;
+        if (ctx.measureText(cap).width <= maxW) {
+          ctx.fillText(cap, W / 2, baseY + 20);
+        } else {
+          const words = cap.split(' ');
+          let l1 = '', l2 = '';
+          words.forEach(w => {
+            if (!l2 && ctx.measureText(l1 + ' ' + w).width <= maxW) l1 = (l1 ? l1 + ' ' : '') + w;
+            else l2 = (l2 ? l2 + ' ' : '') + w;
+          });
+          ctx.fillText(l1, W / 2, baseY + 16);
+          ctx.fillText(l2, W / 2, baseY + 30);
+        }
+        ctx.font = '8px "JetBrains Mono", ui-monospace, monospace';
+        ctx.fillStyle = rgba([120, 128, 145], capA * 0.7);
+        ctx.fillText('tap the sky to let him set', W / 2, baseY + 48);
+      }
+    }
+
+    ctx.restore();
+  }
+
   /* ─── MAIN RENDER LOOP ─────────────────────────────────────────────────── */
   let rafId = null;
   function tick(nowMs) {
@@ -1274,6 +1485,7 @@
     drawMeteors();
     drawSparkles();
     drawBlackHole(dt);
+    drawOrionRising(dt);       // the namesake, over everything, when summoned
 
     rafId = requestAnimationFrame(tick);
   }
@@ -1370,6 +1582,12 @@
       if (state._lastTapT && n - state._lastTapT < 0.18) return;
       state._lastTapT = n;
 
+      // Orion is risen — any tap lets him set. Nothing else responds.
+      if (state.orionShow && state.orionShow.phase !== 'out') {
+        dismissOrion();
+        return;
+      }
+
       // Tap — hole or node or empty
       if (isHoleTap(p.x, p.y)) {
         // Intentional double-tap (within 180-500ms) = restart song
@@ -1405,6 +1623,13 @@
         // Also close memory preview if open
         const prev = document.getElementById('clippyMemoryPreview');
         if (prev) prev.remove();
+        // Double-tap the empty sky → the steward's constellation rises
+        if (state._lastEmptyTapT && n - state._lastEmptyTapT < 0.5) {
+          state._lastEmptyTapT = 0;
+          summonOrion();
+          return;
+        }
+        state._lastEmptyTapT = n;
       }
     });
 
@@ -2193,7 +2418,10 @@
     off: () => stopLoop(),
     on: () => startLoop(),
     // Rebuild after NX.nodes changes
-    rebuild: () => { buildParticles(); }
+    rebuild: () => { buildParticles(); },
+    // ORION RISING — also summonable by hand (double-tap the empty sky)
+    orionRise: summonOrion,
+    orionSet: dismissOrion,
   };
   NX.modules = NX.modules || {};
   NX.modules.brain = NX.brain;
