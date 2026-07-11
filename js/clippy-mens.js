@@ -275,19 +275,31 @@
     vendors: { title: 'VENDORS', fn: perceiveVendors },
   };
 
-  // ── ground(): the whole faculty. classify → perceive → brief. ─────────────
+  // ── ground(): the whole faculty. classify → perceive → recall → brief. ────
   async function ground(question, opts) {
     opts = opts || {};
     try {
       if (!sbClient()) return { brief: null, domains: [], hits: 0 };
       var c = classify(question);
-      if (!c.domains.length) return { brief: null, domains: [], hits: 0 };
       var loc = c.location;
-      // Run only the matched perceivers, concurrently, each defensive.
-      var results = await Promise.all(c.domains.map(function (d) {
-        var P = PERCEIVERS[d]; if (!P) return null;
-        return Promise.resolve(P.fn(loc, question)).then(function (r) { return { d: d, r: r }; }).catch(function () { return null; });
-      }));
+      // Perceivers (live records) and MONETA MIND (semantic memory) run
+      // concurrently. Memory can carry a brief alone — recall by meaning
+      // catches what keyword domain classification misses.
+      var perceiverWork = c.domains.length
+        ? Promise.all(c.domains.map(function (d) {
+            var P = PERCEIVERS[d]; if (!P) return null;
+            return Promise.resolve(P.fn(loc, question)).then(function (r) { return { d: d, r: r }; }).catch(function () { return null; });
+          }))
+        : Promise.resolve([]);
+      var NXR = (typeof NX !== 'undefined' && NX) ? NX : window.NX;
+      // 0.78 floor: gte-small cosines run high on this corpus (~0.78-0.83
+      // for genuinely related nodes) — only near matches may enter the chat.
+      var memoryWork = (NXR && NXR.moneta && String(question || '').length >= 6)
+        ? NXR.moneta.recall(question, { k: 3, minSimilarity: 0.78 }).catch(function () { return []; })
+        : Promise.resolve([]);
+      var both = await Promise.all([perceiverWork, memoryWork]);
+      var results = both[0] || [];
+      var memories = both[1] || [];
       var sections = [], hits = 0;
       results.forEach(function (x) {
         if (!x || !x.r || !x.r.lines || !x.r.lines.length) return;
@@ -296,6 +308,13 @@
         var head = P.title + (x.r.note ? ' (' + x.r.note + ')' : '') + (loc && x.d !== 'vendors' && x.d !== 'cleaning' ? ' · ' + locLabel(loc) : '') + ':';
         sections.push(head + '\n' + x.r.lines.join('\n'));
       });
+      if (memories.length) {
+        hits += memories.length;
+        sections.push('MONETA MEMORY · what the galaxy remembers (by meaning):\n' +
+          memories.map(function (m) {
+            return '• ' + (m.name || 'memory') + ' — ' + String(m.notes || '').replace(/\s+/g, ' ').slice(0, 170);
+          }).join('\n'));
+      }
       if (!sections.length) return { brief: null, domains: c.domains, hits: 0 };
       var now = new Date();
       var stamp = now.toLocaleString('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });

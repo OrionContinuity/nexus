@@ -61,6 +61,13 @@
           });
         }else{res.classList.remove('open');}
         if(listViewOpen)renderList();
+
+        // ── MONETA MIND — recall by MEANING, layered under the keyword hits.
+        // gte-small embeddings + pgvector find nodes the substring pass can't
+        // ("who fixes the hoods" → the Hoodz contractor; "that time the rep
+        // messed up" → the Moneta memory). Results ride in a "✦ by meaning"
+        // section and light up on the canvas like any other hit.
+        semanticSearch(q, inp, res);
       },150);
     });
 
@@ -82,6 +89,52 @@
     const idx=text.toLowerCase().indexOf(q);
     if(idx===-1)return text;
     return text.slice(0,idx)+'<mark>'+text.slice(idx,idx+q.length)+'</mark>'+text.slice(idx+q.length);
+  }
+
+  // ─── Semantic recall (MONETA MIND) ──────────────────────────────
+  // Debounced separately (embedding a query costs ~100ms server-side),
+  // sequence-tokened so a stale response can never paint over a newer
+  // query, and additive: it only appends nodes the keyword pass missed.
+  let semDebounce=null,semSeq=0;
+  function semanticSearch(q, inp, res){
+    clearTimeout(semDebounce);
+    if(!q || q.length<5 || !(NX.moneta&&NX.moneta.recall)) return;
+    const seq=++semSeq;
+    semDebounce=setTimeout(async()=>{
+      // gte-small cosines live in a high band (~0.78-0.83 for real matches
+      // on this corpus) — 0.74 is the "actually related" floor, measured.
+      const matches=await NX.moneta.recall(q,{k:6,minSimilarity:0.74});
+      // Stale? The user kept typing or cleared the box — drop silently.
+      if(seq!==semSeq || inp.value.toLowerCase().trim()!==q) return;
+      const already=new Set([...res.querySelectorAll('.sr-item')].map(el=>String(el.dataset.nodeId||'')));
+      const fresh=(matches||[]).filter(m=>{
+        const n=NX.nodes && NX.nodes.find(x=>x.id==m.id);
+        return n && !n.is_private && !already.has(String(m.id)) && !NX.brain.state.searchHits.has(n.id);
+      });
+      if(!fresh.length) return;
+      res.classList.add('open');
+      const head=document.createElement('div');
+      head.className='sr-help-section sr-sem-head';
+      head.textContent='✦ by meaning';
+      res.appendChild(head);
+      fresh.slice(0,5).forEach(m=>{
+        const n=NX.nodes.find(x=>x.id==m.id);
+        NX.brain.state.searchHits.add(n.id);      // light the star + strings
+        const el=document.createElement('div');
+        el.className='sr-item sr-sem-item';
+        el.dataset.nodeId=String(n.id);
+        const pct=Math.round((m.similarity||0)*100);
+        el.innerHTML=`<div class="sr-cat">${n.category}</div><div class="sr-main"><div class="sr-name">${esc(n.name)}</div><div class="sr-meta">✦ ${pct}% close${(n.notes||'')?' · '+esc((n.notes||'').replace(/\s+/g,' ').slice(0,50)):''}</div></div>`;
+        el.addEventListener('click',()=>{
+          res.classList.remove('open');res.innerHTML='';inp.value='';
+          NX.brain.state.searchHits=new Set();
+          const particle=NX.brain.state.particles.find(p=>p.id===n.id);
+          if(particle){NX.brain.state.frozenNode=particle;NX.brain.state.activeNode=n;NX.brain.openPanel(n);}
+        });
+        res.appendChild(el);
+      });
+      NX.brain.wakePhysics();
+    },420);
   }
 
   // ─── Empty-state help panel ─────────────────────────────────────

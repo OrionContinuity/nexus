@@ -1917,6 +1917,9 @@ body.view-brain .list-toggle {
   border-bottom: 1px solid var(--nx-gold-tint);
   transition: background 0.1s;
 }
+/* MONETA MIND — the "by meaning" section of galaxy search results */
+.sr-sem-head { color: var(--accent, #d4a44e); border-top: 1px solid var(--nx-gold-tint, rgba(212,164,78,.12)); }
+.sr-sem-item .sr-meta { color: var(--accent, #d4a44e); opacity: .85; }
 .sr-help-item:hover {
   background: var(--nx-gold-tint);
 }
