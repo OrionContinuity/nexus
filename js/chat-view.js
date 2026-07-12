@@ -264,6 +264,10 @@
           Persona identity lives in the masthead, top bar stays minimal.
         -->
         <button class="cv-icon-btn" id="cvMenu" aria-label="Past conversations" title="Past conversations">${svg(ICONS.history)}</button>
+        <!-- v283 — Alfredo's "3 button": hides every section (voices,
+             houses, the gods' words) for a clean full-screen chat;
+             tap again to switch voices. -->
+        <button class="cv-icon-btn" id="cvSections" aria-label="Hide or show sections" title="Hide/show the voice &amp; house sections">${svg(ICONS.menu)}</button>
         <div class="cv-top-spacer" aria-hidden="true"></div>
         <button class="cv-back" id="cvBack" aria-label="Back">${svg(ICONS.back)}</button>
       </div>
@@ -584,6 +588,26 @@
   function wireTopBar() {
     rootEl.querySelector('#cvBack').addEventListener('click', () => chatview.close());
     rootEl.querySelector('#cvMenu').addEventListener('click', () => openDrawer());
+    // v283 — the ☰ sections toggle: hides/shows every section row (voice
+    // chips, houses, the gods' pinned words, Orion's strip) so the
+    // conversation can own the whole screen. Persisted per device; tapping
+    // it again is how you get back to switching voices.
+    {
+      const secBtn = rootEl.querySelector('#cvSections');
+      const applySections = () => {
+        let hidden = false;
+        try { hidden = localStorage.getItem('nx_chat_sections_hidden') === '1'; } catch (_) {}
+        rootEl.classList.toggle('cv-hide-sections', hidden);
+        if (secBtn) secBtn.classList.toggle('is-on', hidden);
+      };
+      if (secBtn) secBtn.addEventListener('click', () => {
+        let hidden = false;
+        try { hidden = localStorage.getItem('nx_chat_sections_hidden') === '1'; } catch (_) {}
+        try { localStorage.setItem('nx_chat_sections_hidden', hidden ? '0' : '1'); } catch (_) {}
+        applySections();
+      });
+      applySections();
+    }
     // The center brand area, top-bar voice toggle, and inline mic button
     // were removed in this pass — those controls are now consolidated in
     // the plus (+) menu. Voice mute, mic, and camera all live there.

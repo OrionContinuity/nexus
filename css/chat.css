@@ -11,14 +11,14 @@
    a typeface that would clash with the rest of the app.
    ═══════════════════════════════════════════════════════════════════════ */
 
-/* ─── View shell — bottom sheet (leaves masthead visible) ─────────
-   Was inset:0 (full takeover) — felt heavy and hid the NEXUS coin
-   identity. Now starts below the 53px top nav so the masthead with
-   the coin, name, and live date stays visible. Reads as a sheet
-   rising from the bottom rather than a full app takeover. */
+/* ─── View shell — FULL TAKEOVER (v283) ───────────────────────────
+   Alfredo, 2026-07-12: "allow the window to fully take over the
+   screen." The sheet-below-the-masthead treatment is retired: when
+   Ask NEXUS opens it owns the whole viewport. Home remains the
+   landing view — this is only what happens once you enter chat. */
 .chatview {
   position: fixed;
-  top: 70px;
+  top: 0;
   left: 0;
   right: 0;
   bottom: 0;
@@ -29,22 +29,14 @@
      visible area, hiding the cv-top toolbar. dvh tracks the live
      visible viewport, so cv-top stays put. Fallback to vh for older
      browsers. */
-  height: calc(100vh - 70px);
-  height: calc(100dvh - 70px);
-  z-index: 120;               /* above bottom-nav (50) + node panel (40) */
+  height: 100vh;
+  height: 100dvh;
+  z-index: 200;               /* above masthead + bottom-nav — a true takeover */
   background: var(--bg);
   display: flex;
   flex-direction: column;
   color: var(--text);
   font-family: 'DM Sans', system-ui, sans-serif;
-  /* Top corners — communicates "sheet" rather than "full screen" */
-  border-top-left-radius: 18px;
-  border-top-right-radius: 18px;
-  /* Soft shadow at the top edge so it floats over the masthead */
-  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.4);
-  /* Subtle hairline at the top edge — keeps the sheet visually
-     anchored without a heavy border */
-  border-top: 1px solid var(--nx-gold-soft);
   overflow: hidden;
   transform: translateY(100%);
   opacity: 0;
@@ -60,6 +52,16 @@
 
 /* Hide the legacy chat-hud while the new chat view is open */
 body.chatview-open .chat-hud { display: none !important; }
+
+/* v283 — the ☰ sections toggle (next to history, left side): one tap
+   tucks every section away (voice chips, house chips, the gods' pinned
+   words, Orion's strip) so the conversation owns the whole screen; tap
+   again to bring them back and switch voices. Persists per device. */
+.chatview.cv-hide-sections .cv-who,
+.chatview.cv-hide-sections .cv-house,
+.chatview.cv-hide-sections .cv-god-strip,
+.chatview.cv-hide-sections .cv-orion-strip { display: none !important; }
+#cvSections.is-on { color: var(--nx-gold, #d4a44e); }
 
 /* Lock scroll while chat is open. Without this, mobile Chrome's
    "scroll input into view on focus" reflex pushes the page up to
