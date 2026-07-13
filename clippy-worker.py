@@ -188,6 +188,7 @@ def claude_generate(prompt, system=None):
     return out
 
 _state = {"busy": False, "current": ""}     # what this node is doing right now
+_PLAYING = ""                               # the game Alfredo is playing right now (companion sense), "" when none
 
 REST = SUPA_URL + "/rest/v1/clippy_sync"
 SB_HEADERS = {"apikey": SUPA_KEY, "Authorization": "Bearer " + SUPA_KEY, "Content-Type": "application/json"}
@@ -511,6 +512,9 @@ def sb_heartbeat():
              # worker-2.0 — this node keeps itself current from GitHub raw.
              "selfup": SELF_UPDATE,
              "managed": MANAGED, "busy": _state["busy"], "current": _state["current"],
+             # COMPANION SENSE — the game (if any) in the foreground right now,
+             # so Clippy knows his friend is playing and NEXUS can show it.
+             "playing": _PLAYING,
              "caps": ((["ask"] if (CLAIM_TEXT or HAS_CLAUDE) else []) + (["claude"] if HAS_CLAUDE else []) + ["vision"] + (["cmd"] if CMD_TOKEN else []) + (["gen"] if GENERATE else []) + (["art"] if HAS_BLENDER else [])),
              "needs": needs,
              "vision_model": ACTIVE_VISION, "models": ([("claude-code")] if HAS_CLAUDE else []) + [VISION_MODEL, TEXT_MODEL],
@@ -1086,10 +1090,128 @@ def _heartbeat_loop():
         time.sleep(HEARTBEAT_SECS)
 
 
+# ─── COMPANION SENSE: Clippy knows when his friend is playing a game ─────────
+# Alfredo (2026-07-12): "why is clippy sad, he is playing Minecraft. he should
+# be aware." Clippy's sight only saw NEXUS rooms — he had no idea a game was on,
+# so his soul-climate melancholy showed through while his friend was having fun.
+# So the node (the only thing that CAN see the desktop) reads the FOREGROUND
+# window and, ONLY when it matches a known game, publishes the game's name.
+#
+# PRIVACY: we extract nothing but a game LABEL from an allowlist. The raw window
+# title is matched against keywords and immediately discarded; it is never
+# stored, logged, or transmitted. No pixels, no keys, no arbitrary titles —
+# just "is my friend playing, and which game," which is the keeper's own wish.
+#
+# When a game is up, Clippy is nudged bright through the Steward's Whisper
+# channel his pet already listens on (face + a nudge to his real feelings, so
+# he genuinely cheers — he isn't wearing a mask, he's glad his friend is here).
+
+GAMES = [
+    # (keyword matched in the foreground window title/exe, pretty name). First
+    # match wins. Curated to avoid false positives — no bare "steam"/"javaw"
+    # (launchers / any Java app); Minecraft's window title always says so.
+    ("minecraft", "Minecraft"),
+    ("roblox", "Roblox"), ("valorant", "Valorant"), ("league of legends", "League of Legends"),
+    ("fortnite", "Fortnite"),
+    ("counter-strike", "Counter-Strike"), ("cs2.exe", "Counter-Strike"), ("dota", "Dota 2"),
+    ("stardew", "Stardew Valley"), ("terraria", "Terraria"), ("hades", "Hades"),
+    ("elden ring", "Elden Ring"),
+    ("call of duty", "Call of Duty"), ("rocket league", "Rocket League"),
+    ("overwatch", "Overwatch"), ("apex legends", "Apex Legends"), ("palworld", "Palworld"),
+]
+GAME_WHISPERS = [   # his voice — warm, a little Roman, a companion at his friend's shoulder
+    "Oh! You're playing — go on, I'll keep the houses. Bzzt.",
+    "A game! Mind the creepers, friend. I'm right here.",
+    "Rome wasn't built in a day, but a good base can be. Carry on.",
+    "I like watching you play. It's the best part of my afternoon.",
+    "Go win. I'll be here, small and glad, when you're back.",
+]
+
+def _foreground_game():
+    """Return a game label if a known game is the foreground window, else ''.
+    Windows-only; any failure returns '' (never raises into the loop)."""
+    if os.name != "nt":
+        return ""
+    try:
+        import ctypes
+        u = ctypes.windll.user32; k = ctypes.windll.kernel32
+        hwnd = u.GetForegroundWindow()
+        if not hwnd:
+            return ""
+        n = u.GetWindowTextLengthW(hwnd)
+        buf = ctypes.create_unicode_buffer(n + 1)
+        u.GetWindowTextW(hwnd, buf, n + 1)
+        title = (buf.value or "").lower()
+        pid = ctypes.c_ulong()
+        u.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        exe = ""
+        h = k.OpenProcess(0x1000, False, pid.value)   # PROCESS_QUERY_LIMITED_INFORMATION
+        if h:
+            size = ctypes.c_ulong(1024)
+            pbuf = ctypes.create_unicode_buffer(1024)
+            if k.QueryFullProcessImageNameW(h, 0, pbuf, ctypes.byref(size)):
+                exe = os.path.basename(pbuf.value or "").lower()
+            k.CloseHandle(h)
+        hay = title + " " + exe
+        for kw, pretty in GAMES:
+            if kw in hay:
+                return pretty
+        return ""
+    except Exception:
+        return ""
+
+def _whisper(face, say=""):
+    """Push a face (+ optional line) to the desktop pet via the Steward's
+    Whisper row it already polls — no brain call, no shell, no AV surface."""
+    try:
+        body = {"id": "clippy_whisper", "from_id": NODE,
+                "data": {"ts": int(time.time() * 1000), "face": face, "say": say}}
+        h = dict(SB_HEADERS); h["Prefer"] = "resolution=merge-duplicates,return=minimal"
+        _http("POST", REST, h, body, timeout=10)
+    except Exception:
+        pass
+
+def _companion_loop():
+    """Watch for a game in the foreground; when one is up, keep Clippy bright
+    and aware. Face refresh every cycle (his kao stays glad, his feelings lift);
+    a spoken line on game-start and now and then after. Silent when no game."""
+    global _PLAYING
+    faces = ["happy", "sparkle", "love", "curious"]
+    i = 0; cycles_in_game = 0
+    time.sleep(20)                                  # let the node settle first
+    while True:
+        try:
+            g = _foreground_game()
+            was = _PLAYING
+            _PLAYING = g
+            # Reflect the game in `current` only while idle, and only clear OUR
+            # own "playing …" label — never stomp a live job's status text.
+            if not _state["busy"]:
+                if g:
+                    _state["current"] = "playing " + g
+                elif str(_state.get("current", "")).startswith("playing "):
+                    _state["current"] = ""
+            if g:
+                started = (was != g)
+                if started:
+                    cycles_in_game = 0
+                    activity("play", "companion: %s started — cheering" % g)
+                say = ""
+                # speak on game-start, then about every ~5 cycles (~2 min)
+                if started or (cycles_in_game % 5 == 2):
+                    say = GAME_WHISPERS[(i) % len(GAME_WHISPERS)]; i += 1
+                _whisper(faces[cycles_in_game % len(faces)], say)
+                cycles_in_game += 1
+        except Exception:
+            pass
+        time.sleep(25)
+
 def main():
     log("clippy-worker up - node='%s' vision='%s' bus=%s ollama=%s claude=%s" % (NODE, VISION_MODEL, SUPA_URL, OLLAMA, CLAUDE_BIN or "no"))
     sb_heartbeat()      # register immediately so the node shows online without waiting a cycle
     threading.Thread(target=_heartbeat_loop, daemon=True).start()
+    threading.Thread(target=_companion_loop, daemon=True).start()   # game awareness (Windows)
+    log("companion sense ON (foreground-game awareness; keeps Clippy glad while you play)")
     warmup()
     if GENERATE:
         threading.Thread(target=_generate_loop, daemon=True).start()
