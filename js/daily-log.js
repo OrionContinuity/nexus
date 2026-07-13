@@ -3330,9 +3330,15 @@ function collectMaintDue(eqAll) {
     seenBooked.add(String(s.equipment_id));
     const d = new Date(String(s.scheduled_date).slice(0, 10) + 'T00:00:00');
     if (isNaN(d)) return;
-    // If an equipment-derived PM item already covers this unit near this
-    // date, annotate it as booked/rescheduled rather than duplicate it.
-    const existing = pmItems.find(x => String(x.id) === String(s.equipment_id) && Math.abs(x.date - d) < 2 * 86400000);
+    // v287 — de-dupe by the UNIT, not by date proximity. A unit gets ONE
+    // PM-due row. The v286 bug: the equipment path already surfaced these
+    // ice machines (computed due ~Jul 14, annotated "confirmed schedule on
+    // 7/28"), but the booked visit (7/28) was 14 days from the computed
+    // date — outside the old 2-day window — so each unit was listed twice.
+    // If the equipment path already covered this unit, just make sure the
+    // booking shows and move on; only push a NEW row for units it MISSED
+    // (a booking with no computed due — e.g. beyond the 14-day window).
+    const existing = pmItems.find(x => String(x.id) === String(s.equipment_id));
     const eq = eqAll.find(e => String(e.id) === String(s.equipment_id));
     const days = Math.round((d - todayD) / 86400000);
     const overdue = d < todayD;
@@ -3340,7 +3346,7 @@ function collectMaintDue(eqAll) {
     const vn = v ? (v.company || v.name || '') : (s.contractor_name || '');
     const when = (d.getMonth() + 1) + '/' + d.getDate();
     const schedLabel = (overdue ? 'rescheduled ' : 'scheduled ') + when + (vn ? ' (' + vn + ')' : '');
-    if (existing) { existing.sched = schedLabel; existing.booked = true; return; }
+    if (existing) { if (!existing.sched) existing.sched = schedLabel; existing.booked = true; return; }
     pmItems.push({
       id: s.equipment_id,
       loc: (eq && eq.location) || '',
