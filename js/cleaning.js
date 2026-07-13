@@ -1055,7 +1055,17 @@
   // ~91d. Daily tasks never auto-escalate (manual is fine).
   const AUTO_ESCALATE_OVERDUE_RATIO = 0.25;
 
+  // v288 — Alfredo (2026-07-13): "do away with repeat tickets… auto tickets.
+  // don't delete the function. just remove the tickets prompting it." The
+  // auto-escalation kept spawning "Cleaning · EVERY … (auto)" board cards
+  // that cluttered the board and read as noise. The whole mechanism below is
+  // KEPT INTACT (so it can be turned back on by flipping this one flag), but
+  // it no longer runs: cleaning cadence lives on the Cleaning screen, not as
+  // auto work-order cards. Manual "Send to board" is unaffected.
+  const AUTO_ESCALATE_ENABLED = false;
+
   async function runAutoEscalations() {
+    if (!AUTO_ESCALATE_ENABLED) return;   // v288 — disabled by keeper's request
     if (!NX.sb) return;
     // Once per location per shift-day per session. Two timers used to race
     // here (init + tab handler), both passing the linkedBoardCards check

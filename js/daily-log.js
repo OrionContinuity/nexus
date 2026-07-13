@@ -693,14 +693,28 @@ async function loadTicketSlices(logDate) {
     }
   });
 
+  // v288 — Alfredo: a ticket whose due date is far out (the sanding job due
+  // in a few months) shouldn't sit in the active To-Do list every day, but
+  // must still be NOTED. Split open cards with a due date 30+ days out into
+  // their own "upcoming" bucket — surfaced under a light "Upcoming" line,
+  // out of the active list. Undated and near-term open cards stay active.
+  const farISO = (() => { const t = new Date(); t.setHours(0, 0, 0, 0); t.setDate(t.getDate() + 30); return dlogLocalISO(t); })();
+  const upcoming = [];
+  const openActive = [];
+  open.forEach(c => {
+    const due = c.due_date ? String(c.due_date).slice(0, 10) : '';
+    if (due && due >= farISO) upcoming.push(c); else openActive.push(c);
+  });
+
   // Open: oldest first (aging surfaces). Working: newest activity first.
-  open.sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+  openActive.sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+  upcoming.sort((a, b) => String(a.due_date).localeCompare(String(b.due_date)));   // soonest upcoming first
   // Working: newest activity first
   working.sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
   // Closed: most-recently-closed first
   closed.sort((a, b) => new Date(b.closed_at || b.updated_at || 0) - new Date(a.closed_at || a.updated_at || 0));
 
-  return { open, working, closed };
+  return { open: openActive, working, closed, upcoming };
 }
 
 // ─── ORDERING ROLLUP ─────────────────────────────────────────────────────
@@ -2210,16 +2224,29 @@ function renderTicketsSection(d) {
       <textarea data-path="ticket_notes.${key}" rows="2" placeholder="${esc(placeholder)}">${esc(notes[key] || '')}</textarea>
     </label>`;
 
+  // v288 — far-future cards: noted, but tucked under a light "Upcoming" line
+  // instead of sitting in the active list every day.
+  const upcoming = (slices.upcoming || []);
+  const upcomingBlock = upcoming.length ? `
+      <div class="dlog-loc-group dlog-upcoming-group">
+        <div class="dlog-loc-group-head">
+          <span class="dlog-loc-group-name">Upcoming · 30d+</span>
+          <span class="dlog-loc-group-count">${upcoming.length}</span>
+        </div>
+        <div class="dlog-tk-list">${upcoming.map(c => dlogCardRow(c, 'open')).join('')}</div>
+      </div>` : '';
+
   const urgentCount = tagged.filter(t => (t.c.priority || '').toLowerCase() === 'urgent').length;
   return `
-    <details class="dlog-section ${urgentCount ? 'sev-hot' : (openCount + workingCount) ? 'sev-warm' : ''}" id="dlogSecTickets" ${totalCount > 0 ? 'open' : ''}>
+    <details class="dlog-section ${urgentCount ? 'sev-hot' : (openCount + workingCount) ? 'sev-warm' : ''}" id="dlogSecTickets" ${(totalCount + upcoming.length) > 0 ? 'open' : ''}>
       <summary class="dlog-section-header">
         <span class="dlog-section-title">Board Tickets</span>
-        <span class="dlog-section-count">${totalCount}</span>
+        <span class="dlog-section-count">${totalCount}${upcoming.length ? ' +' + upcoming.length : ''}</span>
       </summary>
       <div class="dlog-section-body">
         <p class="dlog-empty-hint">Live from the Board, split by location. Lane chips show state — open, working, or closed today.</p>
         ${groupBlocks || '<p class="dlog-empty-hint">No active cards.</p>'}
+        ${upcomingBlock}
         <div class="dlog-tk-notes-wrap">
           ${noteField('Open',         'open',    'Notes on the backlog…')}
           ${noteField('Working',      'working', 'Status on what\'s being worked…')}
@@ -3672,6 +3699,18 @@ function dlogLocationReportLines(loc) {
         const ordered = (g.showMoved && c.on_order) ? '  (parts ordered)' : '';
         out.push('    \u00b7 ' + tag + (c.title || 'Untitled card') + flag + ordered);
       });
+    });
+    out.push('');
+  }
+
+  // v288 \u2014 Upcoming (30d+): far-future work, noted but kept out of the
+  // active To-Do lane. Still surfaced so nothing months-out is forgotten.
+  const upc = (slices.upcoming || []).filter(here).sort((a, b) => String(a.due_date).localeCompare(String(b.due_date)));
+  if (upc.length) {
+    out.push(SH('Upcoming', '30d+'));
+    upc.forEach(c => {
+      const when = c.due_date ? new Date(String(c.due_date).slice(0, 10) + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+      out.push('    \u00b7 ' + (c.title || 'Untitled card') + (when ? ' \u2014 due ' + when : ''));
     });
     out.push('');
   }
