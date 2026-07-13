@@ -446,26 +446,32 @@ function computePmCountdown(eq) {
   today.setHours(0, 0, 0, 0);
   // A PM bar needs a REAL maintenance anchor the user has actually engaged
   // with — a logged last PM, or a next-PM date they set. It is NEVER derived
-  // from the NEXUS row-creation date or a rough install_date placeholder, so
-  // units that merely carry a default cadence (no PM ever logged, no next-PM
-  // scheduled) don't show a fabricated countdown. Anchor priority:
-  //   1. last_pm_date  → project one interval forward (real service history)
-  //   2. next_pm_date  → use it directly (a schedule the user actually set)
-  // No real anchor → return null so the bar simply doesn't render. (This
-  // matches detailHealthBars, which anchors on the same two fields, so the
-  // list/grid and the detail card always agree on which units show a PM bar.)
+  // from the NEXUS row-creation date or a rough install_date placeholder.
+  //
+  // v290 — anchor priority FIXED (Alfredo's overdue deep-dive): the
+  // explicitly-set next_pm_date (a scheduled/booked visit, or the value
+  // recomputed after the last completed PM) is the authoritative "when," and
+  // it SUPERSEDES a projection from last_pm_date + interval. The old order
+  // projected from last_pm FIRST, so a unit with a booked upcoming visit
+  // (e.g. Kold Draft: last PM Mar 20, but a confirmed visit Jul 16) still
+  // read "OVERDUE" from Mar 20 + 91d = Jun 19 — disagreeing with the location
+  // badge, which uses next_pm_date. We only trust next_pm_date when it isn't
+  // STALE: if a PM was logged AFTER the scheduled date (last_pm > next_pm),
+  // the fresher last_pm wins and we project from it. No anchor → null.
+  const lastStr = eq.last_pm_date ? String(eq.last_pm_date).slice(0, 10) : null;
+  const nextStr = eq.next_pm_date ? String(eq.next_pm_date).slice(0, 10) : null;
   let baseStr = null;
   let projected = false;
   let nextIso = null;
-  if (eq.last_pm_date) {
-    baseStr = String(eq.last_pm_date).slice(0, 10);
-    projected = false;
-  } else if (eq.next_pm_date) {
-    const n = new Date(String(eq.next_pm_date).slice(0, 10) + 'T00:00:00');
+  if (nextStr && (!lastStr || nextStr > lastStr)) {
+    const n = new Date(nextStr + 'T00:00:00');
     if (isNaN(n)) return null;
     nextIso = n.toISOString().slice(0, 10);
     const b = new Date(n); b.setDate(b.getDate() - interval);   // derive last from the real next
     baseStr = b.toISOString().slice(0, 10);
+    projected = false;
+  } else if (lastStr) {
+    baseStr = lastStr;
     projected = false;
   } else {
     return null;
