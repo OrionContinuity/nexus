@@ -4023,11 +4023,36 @@ async function createFromEquipment(equipment, prefilledIssue){
 async function getOpenCardsForEquipment(equipmentId){
   try{
     const { data } = await NX.sb.from('kanban_cards')
-      .select('id, title, priority, status, list_id, due_date, created_at')
+      .select('id, title, priority, status, column_name, list_id, closed_at, due_date, created_at')
       .eq('equipment_id', equipmentId)
       .eq('archived', false)
       .order('created_at', { ascending: false });
-    return data || [];
+    const rows = data || [];
+    // v289 — return only cards that are genuinely OPEN. The old query
+    // filtered on `archived` alone, so a card sitting in the DONE lane with
+    // a closed_at stamp but an empty column_name (an older card moved to
+    // Done before the column/status sync existed — e.g. #943 "Service call
+    // to R4") counted as "1 open card on the board" on the equipment page.
+    // A card is DONE if ANY done-signal is present: a closed_at stamp, a
+    // done-ish column_name/status, OR membership in a Done-type board list.
+    let doneListIds = new Set();
+    try{
+      const ids = Array.from(new Set(rows.map(c => c.list_id).filter(v => v != null)));
+      if (ids.length){
+        const { data: ls } = await NX.sb.from('board_lists').select('id, name').in('id', ids);
+        (ls || []).forEach(l => { if (/(done|closed|resolved|complete|archived?)/i.test(l.name || '')) doneListIds.add(l.id); });
+      }
+    }catch(_){ /* if lists can't load, fall back to the card-level signals */ }
+    const isDoneCard = c => {
+      if (c.closed_at) return true;
+      const cn = String(c.column_name || '').toLowerCase();
+      if (/^(done|closed|resolved|complete|completed|archived?)$/.test(cn)) return true;
+      const st = String(c.status || '').toLowerCase();
+      if (['done','closed','resolved','complete','completed'].includes(st)) return true;
+      if (c.list_id != null && doneListIds.has(c.list_id)) return true;
+      return false;
+    };
+    return rows.filter(c => !isDoneCard(c));
   }catch(e){
     console.error('[board] getOpenCardsForEquipment:', e);
     return [];

@@ -4883,11 +4883,21 @@ async function loadOpenCardsForEquipment(eq) {
       openCards = await NX.modules.board.getOpenCardsForEquipment(eq.id);
     } else {
       const { data } = await NX.sb.from('kanban_cards')
-        .select('id, title, priority, status, due_date, created_at')
+        .select('id, title, priority, status, column_name, closed_at, due_date, created_at')
         .eq('equipment_id', eq.id)
         .eq('archived', false)
         .order('created_at', { ascending: false });
-      openCards = (data || []).filter(c => !['closed', 'done'].includes((c.status || '').toLowerCase()));
+      // v289 — a card is done if it carries a closed_at stamp OR a done-ish
+      // column_name/status (mirrors getOpenCardsForEquipment). Status alone
+      // missed cards closed before the column sync existed (e.g. #943).
+      openCards = (data || []).filter(c => {
+        if (c.closed_at) return false;
+        const cn = String(c.column_name || '').toLowerCase();
+        const st = String(c.status || '').toLowerCase();
+        if (/^(done|closed|resolved|complete|completed|archived?)$/.test(cn)) return false;
+        if (['closed', 'done', 'resolved', 'complete', 'completed'].includes(st)) return false;
+        return true;
+      });
     }
   } catch (e) {
     console.warn('[equipment] open cards load failed:', e);
