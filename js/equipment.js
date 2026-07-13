@@ -2516,19 +2516,14 @@ async function openScheduleEditor(equipId) {
           service_contractor_name: selectedVendorName,  // display
           service_contractor_phone: selectedVendorPhone || null, // keeps Call Service working
         };
-        // Infer pm_interval_days only when there's a prior PM to measure
-        // from. Brand-new units with no last_pm_date will populate it on
-        // the first completed PM via approvePmLog.
-        const { data: priorEq } = await NX.sb.from('equipment')
-          .select('last_pm_date').eq('id', equipId).maybeSingle();
-        if (priorEq?.last_pm_date) {
-          const days = Math.round(
-            (new Date(earliestDate) - new Date(priorEq.last_pm_date)) / 86400000
-          );
-          if (days > 0 && days <= 3650) {
-            eqUpdate.pm_interval_days = days;
-          }
-        }
+        // v286 — DO NOT touch pm_interval_days here. Scheduling the NEXT
+        // visit is not the same as redefining the RECURRING cadence. The old
+        // code inferred the interval from (scheduled_date − last_pm_date), so
+        // rescheduling an overdue PM to a near date silently rewrote "PM every
+        // 90 days" into whatever the gap happened to be (e.g. 119) — Alfredo
+        // saw the overdue item change cadence and slip out of view. The
+        // interval is owned only by completed PMs (approvePmLog); a schedule
+        // just sets next_pm_date (the concrete date of the booked visit).
         await NX.sb.from('equipment').update(eqUpdate).eq('id', equipId);
       } catch (e) {
         console.warn('[scheduleEditor] equipment sync (non-fatal):', e);

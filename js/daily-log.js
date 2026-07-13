@@ -2282,6 +2282,14 @@ function wireForm() {
   if (!state._dlogNavWired) {
     state._dlogNavWired = true;
     document.addEventListener('click', (e) => {
+      // v286 — inline PM note add/edit on Maintenance-due rows.
+      const noteBtn = e.target.closest && e.target.closest('#dailylogView [data-pmnote]');
+      if (noteBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        dlogEditPmNote(noteBtn.getAttribute('data-pmnote'));
+        return;
+      }
       const go = e.target.closest && e.target.closest('#dailylogView [data-go]');
       if (go) {
         e.preventDefault();
@@ -3307,29 +3315,39 @@ function collectMaintDue(eqAll) {
     const dcNext = nextOf(eq.last_deep_clean_date, eq.deep_clean_interval_days);
     if (dcNext) { if (dcNext < todayD) dcO++; else if (dcNext <= soonD) dcS++; }
   });
-  // v284 — fold in OVERDUE scheduled PMs straight from pm_schedules (a
-  // service placed in the Schedule PM sheet whose date has passed and was
-  // never completed). Scoped to the equipment in this view, and de-duped
-  // against any equipment-derived PM item already covering the same unit
-  // near the same date, so a single overdue visit never doubles up.
+  // v284/v286 — fold in BOOKED PM visits straight from pm_schedules (a
+  // service placed in the Schedule PM sheet), whether overdue OR upcoming,
+  // and show them ALWAYS — even beyond the 14-day window the equipment
+  // path uses. Alfredo: a rescheduled PM must not vanish; it should read
+  // "PM due" with the rescheduled date. De-duped against any equipment-
+  // derived item already covering the same unit near the same date.
   const eqIds = new Set(eqAll.map(e => String(e.id)));
-  (state.pmOverdueSchedules || []).forEach(s => {
-    if (!s.equipment_id || !eqIds.has(String(s.equipment_id))) return;
+  const booked = (state.pmOverdueSchedules || []).concat(Object.values(state.pmScheduleByEq || {}));
+  const seenBooked = new Set();
+  booked.forEach(s => {
+    if (!s || !s.equipment_id || !eqIds.has(String(s.equipment_id))) return;
+    if (seenBooked.has(String(s.equipment_id))) return;   // one row per unit
+    seenBooked.add(String(s.equipment_id));
     const d = new Date(String(s.scheduled_date).slice(0, 10) + 'T00:00:00');
     if (isNaN(d)) return;
-    if (pmItems.some(x => String(x.id) === String(s.equipment_id) && Math.abs(x.date - d) < 2 * 86400000)) return;
+    // If an equipment-derived PM item already covers this unit near this
+    // date, annotate it as booked/rescheduled rather than duplicate it.
+    const existing = pmItems.find(x => String(x.id) === String(s.equipment_id) && Math.abs(x.date - d) < 2 * 86400000);
     const eq = eqAll.find(e => String(e.id) === String(s.equipment_id));
     const days = Math.round((d - todayD) / 86400000);
+    const overdue = d < todayD;
     const v = s.vendor_id != null && (state.vendors || []).find(x => String(x.id) === String(s.vendor_id));
     const vn = v ? (v.company || v.name || '') : (s.contractor_name || '');
     const when = (d.getMonth() + 1) + '/' + d.getDate();
+    const schedLabel = (overdue ? 'rescheduled ' : 'scheduled ') + when + (vn ? ' (' + vn + ')' : '');
+    if (existing) { existing.sched = schedLabel; existing.booked = true; return; }
     pmItems.push({
       id: s.equipment_id,
       loc: (eq && eq.location) || '',
       name: (eq && eq.name) || s.title || 'Equipment',
-      date: d, overdue: true, days,
-      sched: vn ? ('scheduled ' + when + ' (' + vn + ')') : ('scheduled ' + when),
-      note: (s.phase_label || '').trim(),
+      date: d, overdue, days, booked: true,
+      sched: schedLabel,
+      note: (eq && (eq.pm_note || '').trim()) || (s.phase_label || '').trim(),
     });
   });
   pmItems.sort((a, b) => a.date - b.date);
@@ -3339,6 +3357,29 @@ function collectMaintDue(eqAll) {
 
 // One maintenance-due row for the daily notes SCREEN — [overdue]/[due] pill,
 // the when, the booking, and the 📝 note in gold. › jumps to the unit.
+// v286 — add/edit a PM note from the daily log's Maintenance-due row.
+// Writes equipment.pm_note (the same field the PM screen shows), then
+// re-renders so the note appears immediately. supabase-js resolves with
+// {error} — check it, don't try/catch alone.
+async function dlogEditPmNote(eqId) {
+  if (!eqId || !NX.sb) return;
+  const eq = (state.equipmentHealth || []).find(e => String(e.id) === String(eqId));
+  const current = (eq && (eq.pm_note || '')) || '';
+  let next;
+  if (NX.prompt) {
+    next = await NX.prompt('PM note', { value: current, placeholder: 'e.g. rescheduled — rep’s mistake; parts on order', okLabel: 'Save', multiline: true });
+  } else {
+    next = window.prompt('PM note for ' + ((eq && eq.name) || 'this unit'), current);
+  }
+  if (next == null) return;                       // cancelled
+  next = String(next).trim();
+  const { error } = await NX.sb.from('equipment').update({ pm_note: next || null }).eq('id', eqId);
+  if (error) { if (NX.toast) NX.toast('Could not save note — ' + error.message, 'error', 4000); return; }
+  if (eq) eq.pm_note = next;                       // keep local state in sync
+  if (NX.toast) NX.toast(next ? 'Note saved 📝' : 'Note cleared', 'success', 1800);
+  try { render(); } catch (_) {}
+}
+
 function dlogMaintRow(x, kind, showLoc) {
   const shortD = d => d.toLocaleDateString([], { month: 'short', day: 'numeric' });
   const when = x.overdue
@@ -3348,13 +3389,22 @@ function dlogMaintRow(x, kind, showLoc) {
   if (x.sched) bits.push(esc(x.sched));
   if (!x.sched && x.vendor) bits.push('call ' + esc(x.vendor));
   if (showLoc && x.loc) bits.push(esc(x.loc));
+  // v286 — the note is now editable right here (Alfredo: "with option of
+  // adding a note"). Tap the 📝 line to edit, or "+ note" when none exists.
+  // Writes to equipment.pm_note (PM kind only — inspections keep the same
+  // field for now); the PM screen reads the same field.
+  const noteBtn = (kind === 'PM' && x.id)
+    ? (x.note
+        ? `<button type="button" class="dlog-maint-note dlog-pmnote-edit" data-pmnote="${esc(String(x.id))}" title="Edit note">📝 ${esc(x.note)}</button>`
+        : `<button type="button" class="dlog-maint-note dlog-pmnote-add" data-pmnote="${esc(String(x.id))}" title="Add a note" style="opacity:.6">＋ note</button>`)
+    : (x.note ? `<div class="dlog-maint-note">📝 ${esc(x.note)}</div>` : '');
   return `
     <div class="dlog-tk-row dlog-maint-row">
       <span class="bw-pri-pill ${x.overdue ? 'bw-pri-urgent' : 'bw-pri-normal'}">${x.overdue ? 'overdue' : 'due'}</span>
       <div class="dlog-tk-main">
         <div class="dlog-tk-title">${esc(x.name)} <span class="dlog-maint-kind">· ${kind}</span></div>
         <div class="dlog-tk-loc">${bits.join(' · ')}</div>
-        ${x.note ? `<div class="dlog-maint-note">📝 ${esc(x.note)}</div>` : ''}
+        ${noteBtn}
       </div>
       ${x.id ? `<button type="button" class="dlog-row-go" data-go="eq:${esc(String(x.id))}" title="Open in Equipment" aria-label="Open ${esc(x.name)} in Equipment">›</button>` : ''}
     </div>`;
