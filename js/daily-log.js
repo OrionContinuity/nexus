@@ -154,6 +154,7 @@ let state = {
   // in every daily log until fixed.
   equipmentDown: [],
   pmScheduleByEq: {},   // equipment_id → earliest upcoming pm_schedules row
+  pmOverdueSchedules: [], // v284 — past-due, still-open pm_schedules rows
   // v18.32 — full non-archived fleet (all statuses), for the daily-log
   // Maintenance-health + Warranty stats. Populated by loadEquipmentDown.
   equipmentHealth: [],
@@ -874,21 +875,31 @@ async function loadEquipmentDown() {
     // down units, because PM-overdue lines cover operational equipment
     // too. Best-effort: on any error the notes just omit the suffix.
     state.pmScheduleByEq = {};
+    state.pmOverdueSchedules = [];
     try {
       const { data: scheds } = await NX.sb.from('pm_schedules').select('*');
       const tIso = todayISO();
-      (scheds || [])
-        .filter(s => {
-          const st = String(s.status || '').toLowerCase();
-          return st !== 'cancelled' && st !== 'completed' &&
-                 String(s.scheduled_date || '').slice(0, 10) >= tIso;
-        })
+      const open = (scheds || []).filter(s => {
+        const st = String(s.status || '').toLowerCase();
+        return st !== 'cancelled' && st !== 'completed' && !s.completed_at && s.scheduled_date;
+      });
+      // Upcoming (today or later) → the "confirmed schedule on 7/22" suffix.
+      open
+        .filter(s => String(s.scheduled_date).slice(0, 10) >= tIso)
         .sort((a, b) => String(a.scheduled_date).localeCompare(String(b.scheduled_date)))
         .forEach(s => {
           if (s.equipment_id && !state.pmScheduleByEq[s.equipment_id]) {
             state.pmScheduleByEq[s.equipment_id] = s;
           }
         });
+      // v284 — OVERDUE (dated before today, still not completed). Alfredo:
+      // "a service scheduled for the 16… should be noted on daily log if
+      // something is placed here and overdue." These surface as their own
+      // overdue Maintenance-due rows even when the equipment.next_pm_date
+      // mirror doesn't carry them (later phases, or a cleared mirror).
+      state.pmOverdueSchedules = open
+        .filter(s => String(s.scheduled_date).slice(0, 10) < tIso)
+        .sort((a, b) => String(a.scheduled_date).localeCompare(String(b.scheduled_date)));
     } catch (e) { console.warn('[daily-log] pm schedules:', e); }
     // Repair spend this month — invoice amounts captured on the completion
     // sheet, summed per unit for issues repaired since the 1st. Feeds the
@@ -3295,6 +3306,31 @@ function collectMaintDue(eqAll) {
     }
     const dcNext = nextOf(eq.last_deep_clean_date, eq.deep_clean_interval_days);
     if (dcNext) { if (dcNext < todayD) dcO++; else if (dcNext <= soonD) dcS++; }
+  });
+  // v284 — fold in OVERDUE scheduled PMs straight from pm_schedules (a
+  // service placed in the Schedule PM sheet whose date has passed and was
+  // never completed). Scoped to the equipment in this view, and de-duped
+  // against any equipment-derived PM item already covering the same unit
+  // near the same date, so a single overdue visit never doubles up.
+  const eqIds = new Set(eqAll.map(e => String(e.id)));
+  (state.pmOverdueSchedules || []).forEach(s => {
+    if (!s.equipment_id || !eqIds.has(String(s.equipment_id))) return;
+    const d = new Date(String(s.scheduled_date).slice(0, 10) + 'T00:00:00');
+    if (isNaN(d)) return;
+    if (pmItems.some(x => String(x.id) === String(s.equipment_id) && Math.abs(x.date - d) < 2 * 86400000)) return;
+    const eq = eqAll.find(e => String(e.id) === String(s.equipment_id));
+    const days = Math.round((d - todayD) / 86400000);
+    const v = s.vendor_id != null && (state.vendors || []).find(x => String(x.id) === String(s.vendor_id));
+    const vn = v ? (v.company || v.name || '') : (s.contractor_name || '');
+    const when = (d.getMonth() + 1) + '/' + d.getDate();
+    pmItems.push({
+      id: s.equipment_id,
+      loc: (eq && eq.location) || '',
+      name: (eq && eq.name) || s.title || 'Equipment',
+      date: d, overdue: true, days,
+      sched: vn ? ('scheduled ' + when + ' (' + vn + ')') : ('scheduled ' + when),
+      note: (s.phase_label || '').trim(),
+    });
   });
   pmItems.sort((a, b) => a.date - b.date);
   insItems.sort((a, b) => a.date - b.date);
