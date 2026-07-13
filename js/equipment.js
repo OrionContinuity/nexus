@@ -2580,7 +2580,14 @@ async function openScheduleEditor(equipId) {
 // is in scope regardless of position. The two local `const fmtDate` inside
 // other functions still shadow this within their own scopes (intentional).
 function fmtDate(iso) {
-  return iso ? new Date(iso).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
+  if (!iso) return '—';
+  // v285 — date-only strings ('2026-07-17') parse as UTC midnight in JS, which
+  // renders a day EARLIER in Central time (the "07/17 in the picker shows as
+  // Jul 16 on the card" drift). Pin them to LOCAL midnight so the day never
+  // shifts. Full timestamps (with a time part) are left alone.
+  const s = String(iso);
+  const d = new Date(s.length <= 10 ? s + 'T00:00:00' : s);
+  return isNaN(d) ? '—' : d.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 function renderPmScheduledValue(equipId) {
@@ -9339,15 +9346,19 @@ async function printServiceLog(id) {
   const coinUrl = `${window.location.origin}${window.location.pathname.replace(/[^/]*$/, '')}assets/coin-providentia.png`;
 
   // Format helpers
+  // v285 — parse date-only strings as LOCAL midnight (see fmtDate above) so a
+  // 'YYYY-MM-DD' never renders a day early in Central time.
+  const _toDate = (d) => (d instanceof Date) ? d
+    : new Date(String(d).length <= 10 ? String(d) + 'T00:00:00' : String(d));
   const fmtDate = (d) => {
     if (!d) return '—';
-    const dt = (d instanceof Date) ? d : new Date(d);
+    const dt = _toDate(d);
     if (isNaN(dt)) return '—';
     return dt.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
   };
   const fmtDateShort = (d) => {
     if (!d) return '—';
-    const dt = (d instanceof Date) ? d : new Date(d);
+    const dt = _toDate(d);
     if (isNaN(dt)) return '—';
     return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
   };
