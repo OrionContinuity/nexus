@@ -3189,7 +3189,7 @@ function ensureClippyDailyQuote(d, dateStr) {
   return state._cqPromise;
 }
 
-function buildDailyLogEmailBody(d, dateStr, extraLines) {
+function buildDailyLogEmailBody(d, dateStr, sinceISO) {
   const SH = (l, s) => (window.NX && NX.email) ? NX.email.sectionHeader(l, s) : ('--- ' + String(l).toUpperCase() + ' ---');
   const RULE = () => (window.NX && NX.email) ? NX.email.rule() : '-----------------------------------';
   const clean = s => String(s == null ? '' : s).trim();
@@ -3222,7 +3222,7 @@ function buildDailyLogEmailBody(d, dateStr, extraLines) {
   }
 
   (d.locations || []).forEach(loc => {
-    const lines = dlogLocationReportLines(loc);
+    const lines = dlogLocationReportLines(loc, sinceISO);
     if (!lines.length) return;     // skip empty location
     out.push(SH(loc.label || 'Location'));
     lines.forEach(l => out.push(l));
@@ -3275,13 +3275,6 @@ function buildDailyLogEmailBody(d, dateStr, extraLines) {
     out.push('');
   }
 
-  // v291 — accumulated board movements (days you didn't email) ride under a
-  // Work orders activity line here, in relative time. No "Catching up" block.
-  if (extraLines && extraLines.length) {
-    out.push(SH('Work orders', 'since your last email'));
-    extraLines.forEach(l => out.push('· ' + l));
-    out.push('');
-  }
 
   // Empty-day friendliness — if no section produced content, say so plainly
   // instead of sending an email that's just a header and a signature.
@@ -3504,7 +3497,7 @@ function renderMaintDueSection() {
 }
 
 // empty. Shared by the per-location email and the full-day digest.
-function dlogLocationReportLines(loc, accumMovements) {
+function dlogLocationReportLines(loc, sinceISO) {
   const clean = s => String(s == null ? '' : s).trim();
   const SH = l => (window.NX && NX.email) ? NX.email.sectionHeader(l) : ('--- ' + String(l).toUpperCase() + ' ---');
   const out = [];
@@ -3693,8 +3686,12 @@ function dlogLocationReportLines(loc, accumMovements) {
     { label: 'In Progress', cards: (slices.working || []).filter(here).sort(byPri), showMoved: true },
     { label: 'Done today',  cards: (slices.closed  || []).filter(here).sort(byPri), showMoved: false },
   ].filter(g => g.cards.length);
-  const accum = accumMovements || [];
-  if (woGroups.length || accum.length) {
+  // v292 \u2014 Alfredo: drop the "Since your last email" block; a card that's
+  // NEW since the last email just gets a "new" pill inline. `sinceISO` is
+  // the start of the unsent-email window (or null \u2192 new-today only). A card
+  // created on/after that date shows "(new)".
+  const newSince = sinceISO || todayISO();
+  if (woGroups.length) {
     out.push(SH('Work orders'));
     woGroups.forEach((g, gi) => {
       // Blank line between lanes so To Do / In Progress / Done today read as
@@ -3702,20 +3699,13 @@ function dlogLocationReportLines(loc, accumMovements) {
       if (gi > 0) out.push('');
       out.push(g.label + ' (' + g.cards.length + ')');
       g.cards.forEach(c => {
-        // Front-load an uppercase priority tag on every card so the priority
-        // reads at a glance and the tags line up into a scannable column.
-        // Status is the group header; "moved today" is omitted from Done (the
-        // "Done today" header already implies it moved today).
         const pri = (c.priority || 'normal').toLowerCase();
         const tag = '[' + pri.toUpperCase() + '] ';
-        // "new today" beats "moved today" (a card created today obviously
-        // also arrived in its lane today). Done lane shows neither. Moves
-        // carry their ROUTE when the board recorded one: "To Do \u2192 In
-        // Progress". Today's moves only \u2014 _movedToday is gated to the
-        // log's own date window.
-        const isNew = String(c.created_at || '').slice(0, 10) === todayISO();
-        const route = (c.last_move_from && c.last_move_to) ? ': ' + c.last_move_from + ' \u2192 ' + c.last_move_to : '';
-        const flag = (g.showMoved && isNew) ? '  (new today)'
+        // "new" beats "moved" (a fresh card is obviously in its lane). Done
+        // lane shows neither. Moves carry their route when recorded.
+        const isNew = String(c.created_at || '').slice(0, 10) >= newSince;
+        const route = (c.last_move_from && c.last_move_to) ? ': ' + c.last_move_from + ' -> ' + c.last_move_to : '';
+        const flag = (g.showMoved && isNew) ? '  (new)'
                    : (g.showMoved && c._movedToday) ? '  (moved today' + route + ')' : '';
         // Parts on order rides as its own trailing marker (becomes a gold
         // PARTS ORDERED pill in the styled email, next to NEW). Not on Done.
@@ -3723,14 +3713,6 @@ function dlogLocationReportLines(loc, accumMovements) {
         out.push('    ' + tag + (c.title || 'Untitled card') + flag + ordered);
       });
     });
-    // v291 \u2014 accumulated activity from days you didn't send an email, in
-    // relative time ("closed 2 days ago", "new 1 day ago"). Lives here under
-    // Work Orders rather than a separate "Board activity" block.
-    if (accum.length) {
-      if (woGroups.length) out.push('');
-      out.push('Since your last email:');
-      accum.forEach(l => out.push('    ' + l));
-    }
     out.push('');
   }
 
@@ -3767,7 +3749,7 @@ function dlogLocationReportLines(loc, accumMovements) {
   return out;
 }
 
-function buildLocationEmailBody(loc, dateStr, d, accumMovements) {
+function buildLocationEmailBody(loc, dateStr, d, sinceISO) {
   const clean = s => String(s == null ? '' : s).trim();
   const SH = l => (window.NX && NX.email) ? NX.email.sectionHeader(l) : ('--- ' + String(l).toUpperCase() + ' ---');
   const RULE = () => (window.NX && NX.email) ? NX.email.rule() : '-----------------------------------';
@@ -3790,7 +3772,7 @@ function buildLocationEmailBody(loc, dateStr, d, accumMovements) {
   }
 
   // v291 — accumulated board movements ride INSIDE Work Orders now.
-  const lines = dlogLocationReportLines(loc, accumMovements);
+  const lines = dlogLocationReportLines(loc, sinceISO);
   lines.forEach(l => out.push(l));
 
   // Empty-day friendliness — a clear note beats a header-and-signature email.
@@ -4185,25 +4167,25 @@ async function openDailyLogEmail() {
   // v282 \u2014 "since last send" window + everything unsent rides this email.
   const scopeKey = (locKey && locKey !== 'all') ? locKey : 'all';
   const win = await dlogUnsentWindow(scopeKey, dateStr);
-  const extraLines = await dlogAccumulatedMovements(scopeKey, win, dateStr);
-  const subjTail = (win && extraLines.length)
+  // v292 \u2014 new-since-last-email window start (drives the inline "new" pill).
+  const sinceISO = win ? win.fromDate : null;
+  const subjTail = win
     ? ' (+' + win.days + ' unsent day' + (win.days === 1 ? '' : 's') + ')'
     : '';
   if (locKey && locKey !== 'all') {
     const loc = (d.locations || []).find(l => normLocKey(l.label) === locKey);
-    if (!loc && !extraLines.length) {
+    if (!loc) {
       if (window.NX && NX.alert) await NX.alert('That location has no notes yet.', { title: 'Nothing to send' });
       return;
     }
     const locLabel = (loc && loc.label) || (locKey.charAt(0).toUpperCase() + locKey.slice(1));
     subject = 'Daily Log \u2014 ' + locLabel + ' \u2014 ' + fmtLogDateLong(dateStr) + subjTail;
-    body = loc ? buildLocationEmailBody(loc, dateStr, d, extraLines)
-               : extraLines.join('\n');
+    body = buildLocationEmailBody(loc, dateStr, d, sinceISO);
     recipientsKey = 'dlog:' + locKey;
     title = 'Email \u2014 ' + locLabel;
   } else {
     subject = 'Daily Log \u2014 ' + fmtLogDateLong(dateStr) + subjTail;
-    body = buildDailyLogEmailBody(d, dateStr, extraLines);
+    body = buildDailyLogEmailBody(d, dateStr, sinceISO);
     recipientsKey = 'dlog:all';
     title = 'Email daily log';
   }
@@ -4426,8 +4408,8 @@ function dlogTextToHtml(text, meta) {
       // Markers can stack ("Title  (new today)  (parts ordered)") — peel
       // them off the tail one at a time.
       let mv;
-      while ((mv = rest2.match(/\s*\((new today|moved today[^)]*|parts ordered)\)\s*$/))) {
-        if (mv[1] === 'new today') isNewToday = true;
+      while ((mv = rest2.match(/\s*\((new today|new|moved today[^)]*|parts ordered)\)\s*$/))) {
+        if (mv[1] === 'new today' || mv[1] === 'new') isNewToday = true;
         else if (mv[1] === 'parts ordered') isOrdered = true;
         else movedNote = mv[1];
         rest2 = rest2.slice(0, mv.index);
@@ -4714,24 +4696,24 @@ async function openDailyLogStyledEmail() {
   // v282 — same "since last send" accumulation as the plain email.
   const scopeKey = (locKey && locKey !== 'all') ? locKey : 'all';
   const win = await dlogUnsentWindow(scopeKey, dateStr);
-  const extraLines = await dlogAccumulatedMovements(scopeKey, win, dateStr);
-  const subjTail = (win && extraLines.length)
+  const sinceISO = win ? win.fromDate : null;
+  const subjTail = win
     ? ' (+' + win.days + ' unsent day' + (win.days === 1 ? '' : 's') + ')'
     : '';
   if (locKey && locKey !== 'all') {
     const loc = (d.locations || []).find(l => normLocKey(l.label) === locKey);
-    if (!loc && !extraLines.length) {
+    if (!loc) {
       if (window.NX && NX.alert) await NX.alert('That location has no notes yet.', { title: 'Nothing to send' });
       return;
     }
     locLabel = (loc && loc.label) || (locKey.charAt(0).toUpperCase() + locKey.slice(1));
     subject = 'Daily Log — ' + locLabel + ' — ' + fmtLogDateLong(dateStr) + subjTail;
-    body = loc ? buildLocationEmailBody(loc, dateStr, d, extraLines) : extraLines.join('\n');
+    body = buildLocationEmailBody(loc, dateStr, d, sinceISO);
     recipientsKey = 'dlog:' + locKey;
     title = 'Styled — ' + locLabel;
   } else {
     subject = 'Daily Log — ' + fmtLogDateLong(dateStr) + subjTail;
-    body = buildDailyLogEmailBody(d, dateStr, extraLines);
+    body = buildDailyLogEmailBody(d, dateStr, sinceISO);
     recipientsKey = 'dlog:all';
     title = 'Styled daily log';
   }
