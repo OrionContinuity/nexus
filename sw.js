@@ -217,7 +217,7 @@
    - composer onSend now reports method: 'gmail-api' | 'draft'.
    - Empty ledger (first use) = exactly the old today-only behavior.
 */
-const CACHE_NAME = 'nexus-v293-new-pill';
+const CACHE_NAME = 'nexus-v293-new-pill-drop-kind';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
@@ -334,7 +334,6 @@ const APP_SHELL = [
   './js/money.js',
   './js/brief.js',
   './js/home-rm.js',
-  './js/kind-notes.js',
 
   // Data + audio
   './clippy-dialog.json',
