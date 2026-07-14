@@ -5915,8 +5915,12 @@
     const m = String(s).match(/<svg[\s\S]*?<\/svg>/i);
     let svg = m ? m[0] : '';
     return svg.replace(/<script[\s\S]*?<\/script>/gi, '')
-              .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
+              .replace(/<foreignObject[\s\S]*?<\/foreignObject>/gi, '')      // can embed arbitrary HTML/JS
+              .replace(/<style[\s\S]*?<\/style>/gi, '')                      // CSS can url()-exfiltrate
+              .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')                        // inline event handlers
               .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
+              .replace(/\s(?:xlink:href|href)\s*=\s*"(?!#)[^"]*"/gi, '')     // keep only local #refs; drop external/data/js
+              .replace(/\s(?:xlink:href|href)\s*=\s*'(?!#)[^']*'/gi, '')
               .replace(/javascript:/gi, '');
   }
   function showArt(innerHtml, caption) {

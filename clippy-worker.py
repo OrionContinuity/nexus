@@ -90,6 +90,12 @@ NODE       = os.environ.get("CLIPPY_NODE_NAME", socket.gethostname())
 # code execution for anyone. Set CLIPPY_CMD_TOKEN on the node and include the
 # same token in a cmd job to enable it. Empty = command jobs are refused.
 CMD_TOKEN  = os.environ.get("CLIPPY_CMD_TOKEN", "")
+# SECURITY (2026-07): the plaintext token path is now DEFAULT-OFF. The bus is
+# world-readable with the public anon key, so a token carried in a job row is only
+# as private as that job — anyone reading the bus can lift it and push commands.
+# The Steward's Seal (HMAC, below) is the real command channel. Re-enable the
+# legacy plaintext token ONLY if you must, with CLIPPY_ALLOW_PLAINTEXT_CMD=1.
+ALLOW_PLAINTEXT_CMD = os.environ.get("CLIPPY_ALLOW_PLAINTEXT_CMD", "").strip().lower() in ("1", "true", "yes", "on")
 # THE STEWARD'S SEAL — a signed command channel. The bus is world-readable with
 # the public anon key, so a plaintext token is only as private as the last job
 # that carried it. A seal fixes that: each command is signed HMAC-SHA256 over
@@ -824,9 +830,11 @@ def run_command(job_id, data):
     now_ms = lambda: int(time.time() * 1000)
     if not CMD_TOKEN and not STEWARD_SECRET:
         sb_finish(job_id, {"status": "error", "error": "command exec disabled on this node (set CLIPPY_STEWARD_SECRET or CLIPPY_CMD_TOKEN)", "node": NODE, "ts": now_ms()}); return
-    # A valid seal (preferred) OR the legacy shared token authorizes the command.
-    if not (_seal_ok(data) or (CMD_TOKEN and data.get("token") == CMD_TOKEN)):
-        sb_finish(job_id, {"status": "error", "error": "unauthorized: need a valid steward seal or the command token", "node": NODE, "ts": now_ms()}); return
+    # A valid seal authorizes the command. The legacy plaintext token is accepted
+    # ONLY when explicitly re-enabled (CLIPPY_ALLOW_PLAINTEXT_CMD=1) — see SECURITY note above.
+    plaintext_ok = ALLOW_PLAINTEXT_CMD and CMD_TOKEN and data.get("token") == CMD_TOKEN
+    if not (_seal_ok(data) or plaintext_ok):
+        sb_finish(job_id, {"status": "error", "error": "unauthorized: a valid steward seal is required (plaintext token disabled; set CLIPPY_ALLOW_PLAINTEXT_CMD=1 to re-enable it)", "node": NODE, "ts": now_ms()}); return
     cmd = (data.get("cmd") or "").strip()
     if not cmd:
         sb_finish(job_id, {"status": "error", "error": "empty command", "node": NODE, "ts": now_ms()}); return
