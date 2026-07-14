@@ -585,27 +585,48 @@ function renderPmProgressBar(eq, compact) {
 // {last_*_date} + {*_interval_days} pair. No install/created projection
 // here (inspection/deep-clean have no natural baseline), so it needs a
 // real last-done date. Returns null when not trackable → caller skips it.
-function computeCadenceCountdown(eq, lastField, intervalField) {
+function computeCadenceCountdown(eq, lastField, intervalField, nextField) {
   if (!eq) return null;
   const interval = parseInt(eq[intervalField], 10);
   if (!interval || interval <= 0) return null;
-  const baseStr = eq[lastField];
-  if (!baseStr) return null;
-  const last = new Date(baseStr + 'T00:00:00');
-  if (isNaN(last)) return null;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  // v291 — honor an explicitly-BOOKED next date (e.g. next_inspection_date)
+  // over the last+interval projection, mirroring computePmCountdown. This is
+  // what lets a scheduled inspection show a real countdown to the booked
+  // visit. Only trust it when it isn't stale (a done date more recent wins).
+  const lastStr = eq[lastField] ? String(eq[lastField]).slice(0, 10) : null;
+  const nextStr = (nextField && eq[nextField]) ? String(eq[nextField]).slice(0, 10) : null;
+  let baseStr = null;
+  let nextIso = null;
+  if (nextStr && (!lastStr || nextStr > lastStr)) {
+    const n = new Date(nextStr + 'T00:00:00');
+    if (isNaN(n)) return null;
+    nextIso = n.toISOString().slice(0, 10);
+    const b = new Date(n); b.setDate(b.getDate() - interval);
+    baseStr = b.toISOString().slice(0, 10);
+  } else if (lastStr) {
+    baseStr = lastStr;
+  } else {
+    return null;
+  }
+  const last = new Date(baseStr + 'T00:00:00');
+  if (isNaN(last)) return null;
   const elapsedDays = Math.floor((today - last) / 86400000);
   const remainingDays = interval - elapsedDays;
   const pctRemaining = Math.max(0, Math.min(1, remainingDays / interval));
-  const next = new Date(last);
-  next.setDate(next.getDate() + interval);
+  if (!nextIso) {
+    const next = new Date(last);
+    next.setDate(next.getDate() + interval);
+    nextIso = next.toISOString().slice(0, 10);
+  }
   return {
     elapsedDays, remainingDays, pctRemaining,
     intervalDays: interval,
-    nextDate: next.toISOString().slice(0, 10),
+    nextDate: nextIso,
     isOverdue: remainingDays < 0,
     projected: false,
+    booked: !!nextIso && !!nextStr,
   };
 }
 
@@ -633,7 +654,7 @@ function toggleEqHealthBar(key) {
 function _eqCadenceCountdowns(eq) {
   return [
     { key: 'pm',         label: 'PM',    cd: computePmCountdown(eq) },
-    { key: 'inspection', label: 'INSP',  cd: computeCadenceCountdown(eq, 'last_inspection_date', 'inspection_interval_days') },
+    { key: 'inspection', label: 'INSP',  cd: computeCadenceCountdown(eq, 'last_inspection_date', 'inspection_interval_days', 'next_inspection_date') },
     { key: 'deep_clean', label: 'CLEAN', cd: computeCadenceCountdown(eq, 'last_deep_clean_date', 'deep_clean_interval_days') },
   ];
 }
@@ -2573,6 +2594,24 @@ async function openScheduleEditor(equipId) {
    1. Nothing scheduled → "Not scheduled" (tap to schedule)
    2. Phases scheduled, none missed → "Tyler · Jun 18" or multi-line
    3. Any phase missed (scheduled_date passed) → red flashing pill */
+// v291 — the "Inspection scheduled" detail value: the booked next inspection
+// with a countdown (like PMs), the inspector, and the note. "Not scheduled"
+// (tap to schedule) when none. No emojis.
+function renderInspectionScheduledValue(eq) {
+  if (!eq || !eq.next_inspection_date) return '<span style="opacity:0.6">Not scheduled</span>';
+  const d = new Date(String(eq.next_inspection_date).slice(0, 10) + 'T00:00:00');
+  if (isNaN(d)) return '<span style="opacity:0.6">Not scheduled</span>';
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const days = Math.round((d - today) / 86400000);
+  const when = d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  const cd = days < 0
+    ? `<span style="color:#d24b4b">${when} · ${Math.abs(days)}d overdue</span>`
+    : `${when} · ${days === 0 ? 'today' : 'in ' + days + 'd'}`;
+  const vendor = eq._inspectionVendor ? ` · ${esc(eq._inspectionVendor.company || eq._inspectionVendor.name || '')}` : '';
+  const note = eq.inspection_note ? `<div class="eq-hbar-note">${esc(eq.inspection_note)}</div>` : '';
+  return cd + vendor + note;
+}
+
 // Module-level date formatter. renderPmScheduledValue (and any other
 // module-scope caller) needs this; previously `fmtDate` only existed as a
 // local const inside two render functions, so calls from here threw
@@ -4708,6 +4747,7 @@ async function openDetail(id) {
             <div class="eq-overflow-section-label">Manage</div>
             <button class="eq-overflow-item" onclick="NX.modules.equipment.openFullEditor('${eq.id}')">${uiSvg('settings', '14px')}<span>Edit Everything</span></button>
             <button class="eq-overflow-item" onclick="NX.modules.equipment.schedulePmFromOverflow('${eq.id}')">${uiSvg('clipboard', '14px')}<span>Schedule PM</span></button>
+            <button class="eq-overflow-item" onclick="NX.modules.equipment.scheduleInspectionFromOverflow('${eq.id}')">${uiSvg('clipboard', '14px')}<span>Schedule inspection</span></button>
             <button class="eq-overflow-item" onclick="NX.modules.equipment.quickReplacePhoto('${eq.id}')">${uiSvg('camera', '14px')}<span>${eq.photo_url ? 'Replace Photo' : 'Add Photo'}</span></button>
             <button class="eq-overflow-item" onclick="NX.modules.equipment.quickPrint('${eq.id}')">${uiSvg('printer', '14px')}<span>Print Label</span></button>
             <div class="eq-overflow-divider"></div>
@@ -5047,7 +5087,7 @@ function renderDetailHealth(eq) {
       <div class="eq-hbar-top"><span class="eq-hbar-label">${esc(b.label)}</span><span class="eq-hbar-pct" style="color:${b.cd.color}">${b.cd.overdue ? 'OVERDUE' : b.cd.pct + '%'}</span></div>
       <div class="eq-hbar-track"><div class="eq-hbar-fill" style="width:${b.cd.pct}%;--bar:${b.cd.color}"></div></div>
       <div class="eq-hbar-sub">${esc(b.cd.dueText)}</div>
-      ${b.key === 'pm' && eq.pm_note ? `<div class="eq-hbar-note">📝 ${esc(eq.pm_note)}${eq.pm_note_by ? ` — ${esc(eq.pm_note_by)}` : ''}</div>` : ''}
+      ${b.key === 'pm' && eq.pm_note ? `<div class="eq-hbar-note">${esc(eq.pm_note)}${eq.pm_note_by ? ` — ${esc(eq.pm_note_by)}` : ''}</div>` : ''}
     </div>`).join('');
   return `
     <div class="eq-detail-card eq-health-card">
@@ -5358,7 +5398,7 @@ function renderOverview(eq, attachments, customFields, maintenance) {
       : '<span class="eq-detail-card-unit">not tracked</span>';
   };
   const _pmCd  = computePmCountdown(eq);
-  const _insCd = computeCadenceCountdown(eq, 'last_inspection_date', 'inspection_interval_days');
+  const _insCd = computeCadenceCountdown(eq, 'last_inspection_date', 'inspection_interval_days', 'next_inspection_date');
   const _dcCd  = computeCadenceCountdown(eq, 'last_deep_clean_date', 'deep_clean_interval_days');
   // "Last service" reflects real service/PM/repair work — NOT anonymous
   // public status flips (event_type 'status_change', performed_by 'QR scan'),
@@ -5384,6 +5424,7 @@ function renderOverview(eq, attachments, customFields, maintenance) {
     { label: 'Inspection',    value: _cadSummary(_insCd, eq.last_inspection_date, eq.inspection_interval_days, 'an inspection'),         edit: 'last_inspection_date',   type: 'date' },
     { label: 'Inspect every', value: eq.inspection_interval_days ? `${eq.inspection_interval_days} days` : '—',                          edit: 'inspection_interval_days', type: 'number', min: 1, max: 3650 },
     { label: 'Inspected by',  value: eq._inspectionVendor ? esc(eq._inspectionVendor.company || eq._inspectionVendor.name || 'Vendor') : ((eq.last_inspection_date || eq.inspection_interval_days) ? '<span style="color:#d24b4b">required — tap to pick</span>' : '—'), edit: 'inspection_vendor_id', type: 'inspection_vendor' },
+    { label: 'Inspection scheduled', value: renderInspectionScheduledValue(eq), edit: null, action: `NX.modules.equipment.openInspectionScheduler('${eq.id}')` },
     { label: 'Deep clean',    value: _cadSummary(_dcCd, eq.last_deep_clean_date, eq.deep_clean_interval_days, 'a deep clean'),           edit: 'last_deep_clean_date',   type: 'date' },
     { label: 'Clean every',   value: eq.deep_clean_interval_days ? `${eq.deep_clean_interval_days} days` : '—',                          edit: 'deep_clean_interval_days', type: 'number', min: 1, max: 3650 },
     { label: 'Last service',  value: _lastSvc ? `${_lastSvcVal}<span class="eq-detail-card-unit"> · tap for all</span>` : 'No service logged yet<span class="eq-detail-card-unit"> · tap to log</span>', edit: null, action: `NX.modules.equipment.showDetailTab('timeline')` },
@@ -6204,6 +6245,83 @@ function schedulePmFromOverflow(equipId) {
   document.body.classList.add('eq-bulk-mode');
   if (typeof renderBulkToolbar === 'function') renderBulkToolbar();
   if (typeof openBulkPmSchedule === 'function') openBulkPmSchedule();
+}
+
+// ═══ v291 — SCHEDULE INSPECTION ═════════════════════════════════════════
+// Alfredo: "give me a button to give the dates for scheduled inspection a
+// countdown like PMs … allow me to also make a note." Mirrors Schedule PM
+// but single-visit: pick a vendor + a date + an optional note. Writes
+// next_inspection_date / inspection_vendor_id / inspection_note on the unit.
+// The countdown (computeCadenceCountdown w/ next_inspection_date) and the
+// daily-log inspection lines both honor next_inspection_date automatically.
+async function openInspectionScheduler(equipId) {
+  const eq = equipment.find(e => String(e.id) === String(equipId));
+  if (!eq) { NX.toast?.('Equipment not found', 'error', 1500); return; }
+  const vendors = await loadVendorsForPicker();
+  let selVendorId = eq.inspection_vendor_id || null;
+  let theDate = eq.next_inspection_date ? String(eq.next_inspection_date).slice(0, 10) : '';
+  let note = eq.inspection_note || '';
+
+  const overlay = document.createElement('div');
+  overlay.className = 'eq-bulk-sheet-overlay';
+  overlay.style.zIndex = '9100';
+  const esc2 = s => esc(String(s == null ? '' : s));
+
+  const render = () => {
+    const rows = vendors.map(c => `
+      <button class="eq-sched-contractor-row${selVendorId == c.id ? ' is-selected' : ''}" data-c-id="${esc2(c.id)}" type="button">
+        <span class="eq-sched-contractor-name">${esc2(c.name)}${c.category ? ` <span style="opacity:.5;font-size:11px">- ${esc2(c.category)}</span>` : ''}</span>
+        ${selVendorId == c.id ? `<span class="eq-sched-check">${uiSvg('check', '14px')}</span>` : ''}
+      </button>`).join('');
+    overlay.innerHTML = `
+      <div class="eq-bulk-sheet-backdrop"></div>
+      <div class="eq-bulk-sheet" style="max-height:92vh; overflow-y:auto">
+        <div class="eq-bulk-sheet-handle"></div>
+        <div class="eq-bulk-sheet-title">Schedule inspection for ${esc2(eq.name)}</div>
+        <div class="eq-sched-section-label">INSPECTOR</div>
+        <div class="eq-sched-contractor-list">${rows || '<div style="opacity:.6;padding:10px">No vendors yet — add one in Vendors.</div>'}</div>
+        <div class="eq-sched-section-label" style="margin-top:14px">DATE</div>
+        <input type="date" id="insDate" class="eq-sched-phase-date" value="${esc2(theDate)}" required>
+        <div class="eq-sched-section-label" style="margin-top:14px">NOTE (optional)</div>
+        <textarea id="insNote" class="b-field" rows="2" placeholder="e.g. alarm in test mode 90 min; roof-top check too">${esc2(note)}</textarea>
+        <button class="eq-btn eq-btn-primary" id="insSave" style="width:100%;margin-top:16px">${eq.next_inspection_date ? 'Update inspection' : 'Save inspection'}</button>
+        ${eq.next_inspection_date ? '<button class="eq-btn eq-btn-secondary" id="insClear" style="width:100%;margin-top:8px;color:var(--red)">Clear scheduled inspection</button>' : ''}
+        <button class="eq-btn eq-btn-secondary" id="insCancel" style="width:100%;margin-top:8px">Cancel</button>
+      </div>`;
+    overlay.querySelectorAll('.eq-sched-contractor-row').forEach(b =>
+      b.addEventListener('click', () => { selVendorId = b.getAttribute('data-c-id'); render(); }));
+    overlay.querySelector('.eq-bulk-sheet-backdrop').addEventListener('click', () => overlay.remove());
+    overlay.querySelector('#insCancel').addEventListener('click', () => overlay.remove());
+    const clr = overlay.querySelector('#insClear');
+    if (clr) clr.addEventListener('click', async () => {
+      const { error } = await NX.sb.from('equipment').update({ next_inspection_date: null }).eq('id', equipId);
+      if (error) { NX.toast?.('Clear failed: ' + error.message, 'error'); return; }
+      eq.next_inspection_date = null;
+      NX.toast?.('Scheduled inspection cleared', 'info', 1800);
+      overlay.remove();
+      if (typeof openDetail === 'function') openDetail(equipId);
+    });
+    overlay.querySelector('#insSave').addEventListener('click', async () => {
+      const dv = overlay.querySelector('#insDate').value;
+      const nv = overlay.querySelector('#insNote').value.trim();
+      if (!dv) { NX.toast?.('Pick a date', 'error', 1500); return; }
+      const vn = (vendors.find(v => String(v.id) === String(selVendorId)) || {});
+      const upd = { next_inspection_date: dv, inspection_note: nv || null };
+      if (selVendorId) upd.inspection_vendor_id = selVendorId;
+      const { error } = await NX.sb.from('equipment').update(upd).eq('id', equipId);
+      if (error) { NX.toast?.('Save failed: ' + error.message, 'error'); return; }
+      Object.assign(eq, upd);
+      NX.toast?.('Inspection scheduled' + (vn.name ? ' with ' + vn.name : ''), 'success', 2000);
+      overlay.remove();
+      if (typeof openDetail === 'function') openDetail(equipId);
+    });
+  };
+  render();
+  document.body.appendChild(overlay);
+}
+
+function scheduleInspectionFromOverflow(equipId) {
+  openInspectionScheduler(equipId);
 }
 
 // Programmatically switch the open equipment detail modal to a tab
@@ -18754,7 +18872,7 @@ function openDuplicateMergeOverlay() {
                         ${emails.length ? `<div>✉ ${emails.length} ${emails.length === 1 ? 'email' : 'emails'}</div>` : ''}
                         ${tags.length   ? `<div>🏷 ${tags.slice(0, 3).map(esc).join(', ')}</div>` : ''}
                         ${equipCount    ? `<div>🔧 ${equipCount} equipment linked</div>` : ''}
-                        ${c.notes       ? `<div>📝 has notes</div>` : ''}
+                        ${c.notes       ? `<div>has notes</div>` : ''}
                         ${c._lastActivity ? `<div>🕒 active ${fmtContractorSince(c._lastActivity)}</div>` : ''}
                       </div>
                     </div>
@@ -21221,6 +21339,8 @@ const __nxeExports = {
   openBulkContractorAssign,
   openBulkPmSchedule,
   schedulePmFromOverflow,
+  scheduleInspectionFromOverflow,
+  openInspectionScheduler,
 
   // Manufacturers / brand library
   loadManufacturers,

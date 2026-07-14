@@ -1324,7 +1324,7 @@ function render() {
   const emailLocLabel = (state.activeLoc && state.activeLoc !== 'all')
     ? (((d.locations || []).find(l => normLocKey(l.label) === state.activeLoc) || {}).label || '')
     : '';
-  const emailBtnLabel = emailLocLabel ? ('✉ Email ' + emailLocLabel) : '✉ Email day';
+  const emailBtnLabel = emailLocLabel ? ('Email ' + emailLocLabel) : 'Email day';
   const emailBtnTitle = emailLocLabel
     ? ('Compose an email of just ' + emailLocLabel + '\u2019s notes')
     : 'Compose an email of the full day';
@@ -1377,13 +1377,13 @@ function render() {
 
         <div class="dlog-actions">
           <span class="dlog-autosend-wrap">
-            <button type="button" class="eq-btn eq-btn-secondary dlog-autosend-toggle ${dlogAutoSendOn() ? 'is-on' : ''}" id="dlogAutoSendBtn" title="When on, this log auto-uploads to Drive when you leave the screen — and, if still not sent by the time on the right, it sends automatically. Edits autosave continuously so nothing is lost.">${dlogAutoSendOn() ? '🔁 Auto-send: On' : '🔁 Auto-send: Off'}</button>
+            <button type="button" class="eq-btn eq-btn-secondary dlog-autosend-toggle ${dlogAutoSendOn() ? 'is-on' : ''}" id="dlogAutoSendBtn" title="When on, this log auto-uploads to Drive when you leave the screen — and, if still not sent by the time on the right, it sends automatically. Edits autosave continuously so nothing is lost.">${dlogAutoSendOn() ? 'Auto-send: On' : 'Auto-send: Off'}</button>
             <input type="time" id="dlogAutoSendTime" class="dlog-autosend-time" value="${esc(dlogAutoSendTime())}" title="If not sent by this time, send automatically" ${dlogAutoSendOn() ? '' : 'style="display:none"'}>
             <span class="dlog-autosend-days" id="dlogAutoSendDays" title="Days auto-send is allowed" ${dlogAutoSendOn() ? '' : 'style="display:none"'}>${['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((dd, i) => `<button type="button" class="dlog-day-pill ${dlogAutoSendDays().indexOf(i + 1) !== -1 ? 'is-on' : ''}" data-day="${i + 1}">${dd}</button>`).join('')}</span>
           </span>
           <button type="button" class="eq-btn eq-btn-secondary" id="dlogEmailBtn" title="${esc(emailBtnTitle)}">${esc(emailBtnLabel)}</button>
-          <button type="button" class="eq-btn eq-btn-secondary" id="dlogStyledEmailBtn" title="Same report, same recipients, same Send — delivered as a styled email. First use asks for one Google permission. Falls back to the plain draft if anything fails.">✨ Styled email</button>
-          <button type="button" class="eq-btn eq-btn-secondary" id="dlogEmailEachBtn" title="Open one Gmail draft per location at once — just hit Send on each">✉️ Email each location</button>
+          <button type="button" class="eq-btn eq-btn-secondary" id="dlogStyledEmailBtn" title="Same report, same recipients, same Send — delivered as a styled email. First use asks for one Google permission. Falls back to the plain draft if anything fails.">Styled email</button>
+          <button type="button" class="eq-btn eq-btn-secondary" id="dlogEmailEachBtn" title="Open one Gmail draft per location at once — just hit Send on each">Email each location</button>
           <button type="button" class="eq-btn eq-btn-secondary" id="dlogSaveDraftBtn">Save</button>
           <button type="button" class="eq-btn eq-btn-primary"   id="dlogSubmitBtn">${esc(uploadBtnLabel)}</button>
         </div>
@@ -1481,7 +1481,7 @@ function renderHeaderSection(d) {
           <span class="dlog-field-label">Weather</span>
           <div class="dlog-weather-row">
             <input type="text" data-path="header.weather" value="${esc(d.header.weather)}" placeholder="e.g. Sunny, 78°F, evening showers">
-            <button type="button" class="dlog-weather-refresh" id="dlogWeatherRefresh" title="Fetch today's weather now">↻</button>
+            <button type="button" class="dlog-weather-refresh" id="dlogWeatherRefresh" title="Fetch today's weather now">Refresh</button>
           </div>
         </label>
         <label class="dlog-field">
@@ -1718,7 +1718,7 @@ function renderEquipmentStatusSection(d) {
           <span class="dlog-section-count">0</span>
         </summary>
         <div class="dlog-section-body">
-          <p class="dlog-empty-hint">All equipment is operational. 🎉</p>
+          <p class="dlog-empty-hint">All equipment is operational. </p>
         </div>
       </details>`;
   }
@@ -1856,7 +1856,7 @@ function renderVendorActivitySection(d) {
     // space). "Austin Industrial" matches "Austin Industrial Inc."
     const matched = findVendorMatch(m.display, state.vendors || []);
     const phoneHref = matched && matched.phone
-      ? `<a class="dlog-vd-phone" href="tel:${esc(String(matched.phone).replace(/[^\d+]/g, ''))}">📞 ${esc(matched.phone)}</a>`
+      ? `<a class="dlog-vd-phone" href="tel:${esc(String(matched.phone).replace(/[^\d+]/g, ''))}">${esc(matched.phone)}</a>`
       : '';
     const openCount = matched ? (state.vendorOpenIssues[matched.id] || 0) : 0;
     const openBadge = openCount > 0
@@ -2125,7 +2125,7 @@ function dlogCardRow(c, bucket) {
   }
   if (lane) metaBits.push(`<span class="dlog-tk-lane dlog-tk-lane-${bucket}">${esc(lane)}</span>`);
   if (c.repeat_every && bucket !== 'closed') {
-    metaBits.push(`<span class="dlog-tk-repeat">↻ ${esc(c.repeat_every)}</span>`);
+    metaBits.push(`<span class="dlog-tk-repeat">${esc(c.repeat_every)}</span>`);
   }
   return `
     <div class="dlog-tk-row">
@@ -2135,7 +2135,7 @@ function dlogCardRow(c, bucket) {
         <div class="dlog-tk-loc">${metaBits.join(' · ')}</div>
         ${detail ? `<div class="dlog-tk-detail">${esc(detail)}</div>` : ''}
       </div>
-      ${c.on_order && bucket !== 'closed' ? `<span class="dlog-tk-onorder">📦 PARTS ORDERED</span>` : ''}
+      ${c.on_order && bucket !== 'closed' ? `<span class="dlog-tk-onorder">PARTS ORDERED</span>` : ''}
       ${c.id != null ? `<button type="button" class="dlog-row-go" data-go="card:${esc(String(c.id))}" title="Open on Board" aria-label="Open card on board">›</button>` : ''}
     </div>`;
 }
@@ -2310,11 +2310,11 @@ function wireForm() {
     state._dlogNavWired = true;
     document.addEventListener('click', (e) => {
       // v286 — inline PM note add/edit on Maintenance-due rows.
-      const noteBtn = e.target.closest && e.target.closest('#dailylogView [data-pmnote]');
+      const noteBtn = e.target.closest && e.target.closest('#dailylogView [data-note-eq]');
       if (noteBtn) {
         e.preventDefault();
         e.stopPropagation();
-        dlogEditPmNote(noteBtn.getAttribute('data-pmnote'));
+        dlogEditMaintNote(noteBtn.getAttribute('data-note-eq'), noteBtn.getAttribute('data-note-field'));
         return;
       }
       const go = e.target.closest && e.target.closest('#dailylogView [data-go]');
@@ -2565,7 +2565,7 @@ function wireForm() {
   if (autoSendBtn) autoSendBtn.addEventListener('click', () => {
     const on = !dlogAutoSendOn();
     try { localStorage.setItem('nexus_dlog_autosend', on ? '1' : '0'); } catch (_) {}
-    autoSendBtn.textContent = on ? '🔁 Auto-send: On' : '🔁 Auto-send: Off';
+    autoSendBtn.textContent = on ? 'Auto-send: On' : 'Auto-send: Off';
     autoSendBtn.classList.toggle('is-on', on);
     if (autoSendTime) autoSendTime.style.display = on ? '' : 'none';
     if (autoSendDays) autoSendDays.style.display = on ? '' : 'none';
@@ -2595,7 +2595,7 @@ function fmtLogDateLong(dateStr) {
 
 // Clippy opens the emailed daily log with a one-line quote in his voice —
 // restaurant, wine, Roman, Greek, and just-plain-funny, all the way he'd say it.
-// Signed with his 👋. The line is picked deterministically from the date so the
+// Signed with his. The line is picked deterministically from the date so the
 // same day's report stays stable, but it rotates day to day.
 // (Add more freely — this list is meant to grow.)
 const CLIPPY_QUOTES = [
@@ -2962,16 +2962,16 @@ function renderOpenerPreview(dateStr) {
   return `
     <div class="dlog-opener" id="dlogOpener">
       <div class="dlog-opener-head">
-        <span class="dlog-opener-label">✉ Email opener</span>
+        <span class="dlog-opener-label">Email opener</span>
         <span class="dlog-opener-src" id="dlogOpenerSrc">${isLLM ? 'Clippy wrote this' : 'from the pool'}</span>
       </div>
       <div class="dlog-opener-body">
         ${dlogClippyAvatar()}
-        <p class="dlog-opener-text" id="dlogOpenerText">${esc(cur)} — Clippy 👋</p>
+        <p class="dlog-opener-text" id="dlogOpenerText">${esc(cur)} — Clippy</p>
       </div>
       <div class="dlog-opener-btns">
-        <button type="button" class="eq-btn eq-btn-secondary" id="dlogOpenerLLM" title="Clippy writes a fresh one — drafts three and keeps the most him">↻ New from Clippy</button>
-        <button type="button" class="eq-btn eq-btn-secondary" id="dlogOpenerPool" title="Pick a different line from the quote pool">↻ From the pool</button>
+        <button type="button" class="eq-btn eq-btn-secondary" id="dlogOpenerLLM" title="Clippy writes a fresh one — drafts three and keeps the most him">New from Clippy</button>
+        <button type="button" class="eq-btn eq-btn-secondary" id="dlogOpenerPool" title="Pick a different line from the quote pool">From the pool</button>
       </div>
     </div>`;
 }
@@ -3000,7 +3000,7 @@ function dlogEmailGreeting(label, dateStr) {
     : dlogStaticQuote(dateStr);
   // Signature rides at the END of the quote line, not under it.
   return [
-    quote + ' — Clippy 👋',
+    quote + ' — Clippy',
     '',
   ];
 }
@@ -3268,8 +3268,13 @@ function buildDailyLogEmailBody(d, dateStr, extraLines) {
     out.push('');
   }
 
-  // v282 — everything that accumulated since the last send rides along here.
-  if (extraLines && extraLines.length) { extraLines.forEach(l => out.push(l)); out.push(''); }
+  // v291 — accumulated board movements (days you didn't email) ride under a
+  // Work orders activity line here, in relative time. No "Catching up" block.
+  if (extraLines && extraLines.length) {
+    out.push(SH('Work orders', 'since your last email'));
+    extraLines.forEach(l => out.push('· ' + l));
+    out.push('');
+  }
 
   // Empty-day friendliness — if no section produced content, say so plainly
   // instead of sending an email that's just a header and a signature.
@@ -3323,20 +3328,28 @@ function collectMaintDue(eqAll) {
       const days = Math.round((pmNext - todayD) / 86400000);
       pmItems.push({ id: eq.id, loc: eq.location || '', name: eq.name || 'Equipment', date: pmNext, overdue, days, sched: pmConfirmNote(eq.id), note: (eq.pm_note || '').trim() });
     }
-    const insNext = nextOf(eq.last_inspection_date, eq.inspection_interval_days);
-    if (insNext && !isNaN(insNext) && insNext <= soonInsD) {
+    // v291 — a BOOKED inspection (next_inspection_date, set via Schedule
+    // inspection) wins over the last+interval projection, mirroring PMs. Its
+    // own note (inspection_note) rides along, editable inline from here.
+    let insNext = null, insBooked = false;
+    if (eq.next_inspection_date) {
+      const nb = new Date(String(eq.next_inspection_date).slice(0, 10) + 'T00:00:00');
+      const lb = eq.last_inspection_date ? new Date(String(eq.last_inspection_date).slice(0, 10) + 'T00:00:00') : null;
+      if (!isNaN(nb) && (!lb || nb > lb)) { insNext = nb; insBooked = true; }
+    }
+    if (!insNext) insNext = nextOf(eq.last_inspection_date, eq.inspection_interval_days);
+    if (insNext && !isNaN(insNext) && (insBooked || insNext <= soonInsD)) {
       const overdue = insNext < todayD;
       const days = Math.round((insNext - todayD) / 86400000);
-      const sched = pmConfirmNote(eq.id);
-      // The unit's assigned inspection vendor (pool-picked in Equipment)
-      // rides along so the note says who to call.
       let vendor = '';
       if (eq.inspection_vendor_id) {
         const v = (state.vendors || []).find(x => String(x.id) === String(eq.inspection_vendor_id));
         vendor = v ? (v.company || v.name || '') : '';
       }
-      if (overdue || !sched) {
-        insItems.push({ id: eq.id, loc: eq.location || '', name: eq.name || 'Equipment', date: insNext, overdue, days, sched, vendor, note: (eq.pm_note || '').trim() });
+      const when = (insNext.getMonth() + 1) + '/' + insNext.getDate();
+      const sched = insBooked ? ('scheduled ' + when + (vendor ? ' (' + vendor + ')' : '')) : pmConfirmNote(eq.id);
+      if (insBooked || overdue || !sched) {
+        insItems.push({ id: eq.id, loc: eq.location || '', name: eq.name || 'Equipment', date: insNext, overdue, days, sched, vendor, note: (eq.inspection_note || '').trim(), kind: 'inspection' });
       }
     }
     const dcNext = nextOf(eq.last_deep_clean_date, eq.deep_clean_interval_days);
@@ -3394,22 +3407,25 @@ function collectMaintDue(eqAll) {
 // Writes equipment.pm_note (the same field the PM screen shows), then
 // re-renders so the note appears immediately. supabase-js resolves with
 // {error} — check it, don't try/catch alone.
-async function dlogEditPmNote(eqId) {
+async function dlogEditMaintNote(eqId, field) {
   if (!eqId || !NX.sb) return;
+  field = (field === 'inspection_note') ? 'inspection_note' : 'pm_note';
+  const label = field === 'inspection_note' ? 'Inspection note' : 'PM note';
   const eq = (state.equipmentHealth || []).find(e => String(e.id) === String(eqId));
-  const current = (eq && (eq.pm_note || '')) || '';
+  const current = (eq && (eq[field] || '')) || '';
   let next;
   if (NX.prompt) {
-    next = await NX.prompt('PM note', { value: current, placeholder: 'e.g. rescheduled — rep’s mistake; parts on order', okLabel: 'Save', multiline: true });
+    next = await NX.prompt(label, { value: current, placeholder: 'e.g. rescheduled — rep’s mistake; parts on order', okLabel: 'Save', multiline: true });
   } else {
-    next = window.prompt('PM note for ' + ((eq && eq.name) || 'this unit'), current);
+    next = window.prompt(label + ' for ' + ((eq && eq.name) || 'this unit'), current);
   }
   if (next == null) return;                       // cancelled
   next = String(next).trim();
-  const { error } = await NX.sb.from('equipment').update({ pm_note: next || null }).eq('id', eqId);
+  const patch = {}; patch[field] = next || null;
+  const { error } = await NX.sb.from('equipment').update(patch).eq('id', eqId);
   if (error) { if (NX.toast) NX.toast('Could not save note — ' + error.message, 'error', 4000); return; }
-  if (eq) eq.pm_note = next;                       // keep local state in sync
-  if (NX.toast) NX.toast(next ? 'Note saved 📝' : 'Note cleared', 'success', 1800);
+  if (eq) eq[field] = next;                        // keep local state in sync
+  if (NX.toast) NX.toast(next ? 'Note saved' : 'Note cleared', 'success', 1800);
   try { render(); } catch (_) {}
 }
 
@@ -3422,15 +3438,14 @@ function dlogMaintRow(x, kind, showLoc) {
   if (x.sched) bits.push(esc(x.sched));
   if (!x.sched && x.vendor) bits.push('call ' + esc(x.vendor));
   if (showLoc && x.loc) bits.push(esc(x.loc));
-  // v286 — the note is now editable right here (Alfredo: "with option of
-  // adding a note"). Tap the 📝 line to edit, or "+ note" when none exists.
-  // Writes to equipment.pm_note (PM kind only — inspections keep the same
-  // field for now); the PM screen reads the same field.
-  const noteBtn = (kind === 'PM' && x.id)
+  // v286/v291 — inline note, editable right here. PM rows write pm_note;
+  // inspection rows write inspection_note. No emoji.
+  const noteField = (kind === 'inspection') ? 'inspection_note' : 'pm_note';
+  const noteBtn = x.id
     ? (x.note
-        ? `<button type="button" class="dlog-maint-note dlog-pmnote-edit" data-pmnote="${esc(String(x.id))}" title="Edit note">📝 ${esc(x.note)}</button>`
-        : `<button type="button" class="dlog-maint-note dlog-pmnote-add" data-pmnote="${esc(String(x.id))}" title="Add a note" style="opacity:.6">＋ note</button>`)
-    : (x.note ? `<div class="dlog-maint-note">📝 ${esc(x.note)}</div>` : '');
+        ? `<button type="button" class="dlog-maint-note dlog-pmnote-edit" data-note-eq="${esc(String(x.id))}" data-note-field="${noteField}" title="Edit note">${esc(x.note)}</button>`
+        : `<button type="button" class="dlog-maint-note dlog-pmnote-add" data-note-eq="${esc(String(x.id))}" data-note-field="${noteField}" title="Add a note" style="opacity:.6">+ note</button>`)
+    : (x.note ? `<div class="dlog-maint-note">${esc(x.note)}</div>` : '');
   return `
     <div class="dlog-tk-row dlog-maint-row">
       <span class="bw-pri-pill ${x.overdue ? 'bw-pri-urgent' : 'bw-pri-normal'}">${x.overdue ? 'overdue' : 'due'}</span>
@@ -3482,7 +3497,7 @@ function renderMaintDueSection() {
 }
 
 // empty. Shared by the per-location email and the full-day digest.
-function dlogLocationReportLines(loc) {
+function dlogLocationReportLines(loc, accumMovements) {
   const clean = s => String(s == null ? '' : s).trim();
   const SH = l => (window.NX && NX.email) ? NX.email.sectionHeader(l) : ('--- ' + String(l).toUpperCase() + ' ---');
   const out = [];
@@ -3592,7 +3607,7 @@ function dlogLocationReportLines(loc) {
         // vendor is in fact confirmed for the 22nd.
         // v267 — the human note rides last: "scheduled for the 30th",
         // "overdue — rep's mistake, rebooked". Set from the PM screen's 📝.
-        const noteSuffix = x.note ? ' — 📝 ' + x.note : '';
+        const noteSuffix = x.note ? ' — note: ' + x.note : '';
         out.push('    ' + (x.overdue
           ? ('[OVERDUE] ' + x.name + ' — was due ' + shortDate2(x.date) + (x.days <= -1 ? ' (' + Math.abs(x.days) + 'd overdue)' : '') + (x.sched ? ' — ' + x.sched : '') + noteSuffix)
           : ('[DUE] ' + x.name + ' — ' + shortDate2(x.date) + (x.days <= 14 ? ' (in ' + x.days + 'd)' : '') + (x.sched ? ' — ' + x.sched : '') + noteSuffix)));
@@ -3606,7 +3621,7 @@ function dlogLocationReportLines(loc) {
       const overdueN = insItems.filter(x => x.overdue).length;
       out.push('· Inspections due: ' + insItems.length + (overdueN ? ' (' + overdueN + ' overdue)' : ''));
       insItems.slice(0, 12).forEach(x => {
-        const noteSuffix2 = x.note ? ' — 📝 ' + x.note : '';
+        const noteSuffix2 = x.note ? ' — note: ' + x.note : '';
         out.push('    ' + (x.overdue
           ? ('[OVERDUE] ' + x.name + ' — was due ' + shortDate2(x.date) + (x.days <= -1 ? ' (' + Math.abs(x.days) + 'd overdue)' : '') + (x.sched ? ' — ' + x.sched : (x.vendor ? ' — call ' + x.vendor : '')) + noteSuffix2)
           : ('[DUE] ' + x.name + ' — ' + shortDate2(x.date) + ' (in ' + x.days + 'd)' + (x.vendor ? ' — ' + x.vendor : '') + noteSuffix2)));
@@ -3671,7 +3686,8 @@ function dlogLocationReportLines(loc) {
     { label: 'In Progress', cards: (slices.working || []).filter(here).sort(byPri), showMoved: true },
     { label: 'Done today',  cards: (slices.closed  || []).filter(here).sort(byPri), showMoved: false },
   ].filter(g => g.cards.length);
-  if (woGroups.length) {
+  const accum = accumMovements || [];
+  if (woGroups.length || accum.length) {
     out.push(SH('Work orders'));
     woGroups.forEach((g, gi) => {
       // Blank line between lanes so To Do / In Progress / Done today read as
@@ -3697,9 +3713,17 @@ function dlogLocationReportLines(loc) {
         // Parts on order rides as its own trailing marker (becomes a gold
         // PARTS ORDERED pill in the styled email, next to NEW). Not on Done.
         const ordered = (g.showMoved && c.on_order) ? '  (parts ordered)' : '';
-        out.push('    \u00b7 ' + tag + (c.title || 'Untitled card') + flag + ordered);
+        out.push('    ' + tag + (c.title || 'Untitled card') + flag + ordered);
       });
     });
+    // v291 \u2014 accumulated activity from days you didn't send an email, in
+    // relative time ("closed 2 days ago", "new 1 day ago"). Lives here under
+    // Work Orders rather than a separate "Board activity" block.
+    if (accum.length) {
+      if (woGroups.length) out.push('');
+      out.push('Since your last email:');
+      accum.forEach(l => out.push('    ' + l));
+    }
     out.push('');
   }
 
@@ -3736,7 +3760,7 @@ function dlogLocationReportLines(loc) {
   return out;
 }
 
-function buildLocationEmailBody(loc, dateStr, d, extraLines) {
+function buildLocationEmailBody(loc, dateStr, d, accumMovements) {
   const clean = s => String(s == null ? '' : s).trim();
   const SH = l => (window.NX && NX.email) ? NX.email.sectionHeader(l) : ('--- ' + String(l).toUpperCase() + ' ---');
   const RULE = () => (window.NX && NX.email) ? NX.email.rule() : '-----------------------------------';
@@ -3758,11 +3782,9 @@ function buildLocationEmailBody(loc, dateStr, d, extraLines) {
     out.push('');
   }
 
-  const lines = dlogLocationReportLines(loc);
+  // v291 — accumulated board movements ride INSIDE Work Orders now.
+  const lines = dlogLocationReportLines(loc, accumMovements);
   lines.forEach(l => out.push(l));
-
-  // v282 — this location's accumulated unsent days ride along here.
-  if (extraLines && extraLines.length) { out.push(''); extraLines.forEach(l => out.push(l)); out.push(''); }
 
   // Empty-day friendliness — a clear note beats a header-and-signature email.
   while (out.length > _bodyStart && out[out.length - 1] === '') out.pop();
@@ -3783,7 +3805,7 @@ function buildLocationEmailBody(loc, dateStr, d, extraLines) {
 // pre-filled with that location's recap + its saved recipients). The user just
 // hits Send on each tab. Browsers may block multiple pop-ups the first time —
 // allow pop-ups for the site once and they'll all open thereafter.
-// ── ✉️ Email each location ──────────────────────────────────────────────
+// ── Email each location ──────────────────────────────────────────────
 // Full styled batch (v209): one sheet listing every location with its
 // saved recipients; per-row Send or one "Send all" — each goes out as the
 // SAME styled multipart the ✨ button sends (typesetter + theme + deep
@@ -3832,10 +3854,10 @@ async function emailEachLocation() {
   overlay.innerHTML = `
     <div class="dlog-batch">
       <div class="dlog-batch-head">
-        <div class="dlog-batch-title">✉️ Email each location</div>
+        <div class="dlog-batch-title">Email each location</div>
         <button type="button" class="dlog-batch-close">Close</button>
       </div>
-      <div class="dlog-batch-sub">Each sends the same ✨ styled email as the single button — theme: ${esc(theme)}. Recipients are the ones saved per location.</div>
+      <div class="dlog-batch-sub">Each sends the same styled email as the single button — theme: ${esc(theme)}. Recipients are the ones saved per location.</div>
       <div class="dlog-batch-list">
         ${rows.map((r, i) => `
           <div class="dlog-batch-row" data-i="${i}">
@@ -3848,7 +3870,7 @@ async function emailEachLocation() {
           </div>`).join('')}
       </div>
       <div class="dlog-batch-foot">
-        <button type="button" class="dlog-batch-all">✨ Send all (${rows.filter(r => r.to).length})</button>
+        <button type="button" class="dlog-batch-all">Send all (${rows.filter(r => r.to).length})</button>
       </div>
     </div>`;
   if (!document.getElementById('dlogBatchStyles')) {
@@ -3922,7 +3944,7 @@ async function emailEachLocation() {
       (await sendOne(i)) ? sent++ : failed++;
     }
     btn.disabled = false;
-    btn.textContent = failed ? `✨ Send all — ${sent} sent, ${failed} failed (retry)` : `✓ All sent (${sent})`;
+    btn.textContent = failed ? `Send all — ${sent} sent, ${failed} failed (retry)` : `✓ All sent (${sent})`;
     if (NX.toast) NX.toast(failed ? `${sent} sent · ${failed} failed` : `${sent} location email${sent === 1 ? '' : 's'} sent`, failed ? 'error' : 'success', 5000);
   });
 }
@@ -3956,7 +3978,7 @@ function _openerDateStr() {
 }
 function _paintOpener(text, source) {
   const t = document.getElementById('dlogOpenerText');
-  if (t) t.textContent = text + ' — Clippy 👋';   // sign rides at the end of the line
+  if (t) t.textContent = text + ' — Clippy';   // sign rides at the end of the line
   const s = document.getElementById('dlogOpenerSrc');
   if (s) s.textContent = source === 'llm' ? 'Clippy wrote this' : 'from the pool';
 }
@@ -3966,7 +3988,7 @@ function refreshOpenerPool() {
   const curEl = document.getElementById('dlogOpenerText');
   // Strip the trailing signature before comparing against pool entries, or
   // the "never the same line twice" exclusion would never match.
-  const curText = curEl ? curEl.textContent.replace(/\s*— Clippy 👋\s*$/, '') : null;
+  const curText = curEl ? curEl.textContent.replace(/\s*— Clippy\s*$/, '') : null;
   const next = dlogRandomPoolQuote(curText);
   state.clippyQuoteText = next;
   state.clippyQuoteDate = dateStr;
@@ -4044,73 +4066,53 @@ async function dlogUnsentWindow(scope, dateStr) {
   } catch (_) { return null; }
 }
 
-// Lines for the "since the last send" email section: unsent days' notes
-// (day by day, oldest first) + board activity since the window opened.
-async function dlogAccumulatedLines(scopeKey, win, dateStr) {
+// v291 — Alfredo reworked this: the separate "Catching up" and "Board
+// activity since last send" sections are GONE. Instead, accumulated card
+// movements ride INSIDE the Work Orders section, each tagged with relative
+// time ("closed 2 days ago", "new 1 day ago", "moved 1 day ago"). This
+// returns those movement lines; no header, no per-day note dumps.
+function dlogRelDays(iso) {
+  if (!iso) return '';
+  const d = new Date(String(iso).slice(0, 10) + 'T00:00:00');
+  if (isNaN(d)) return '';
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const n = Math.round((today - d) / 86400000);
+  if (n <= 0) return 'today';
+  if (n === 1) return '1 day ago';
+  return n + ' days ago';
+}
+
+async function dlogAccumulatedMovements(scopeKey, win, dateStr) {
   if (!win || !NX.sb) return [];
-  const SH = (l, s) => (window.NX && NX.email) ? NX.email.sectionHeader(l, s) : ('--- ' + String(l).toUpperCase() + ' ---');
   const clean = s => String(s == null ? '' : s).trim();
-  const dayName = ds => new Date(ds + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
   const out = [];
-  out.push(SH('Catching up', win.days + ' unsent day' + (win.days === 1 ? '' : 's')));
-  out.push('Nothing was lost — everything below accumulated since the last email went out.');
-  out.push('');
-  const headerLen = out.length;
-
-  // 1. Each unsent day's notes, in its own dated block.
-  try {
-    const { data: logs, error } = await NX.sb.from('daily_logs')
-      .select('log_date, data')
-      .gte('log_date', win.fromDate).lt('log_date', dateStr)
-      .order('log_date', { ascending: true });
-    if (!error) (logs || []).forEach(row => {
-      const dd = hydrateData(row.data);
-      const lines = [];
-      if (clean(dd.header && dd.header.significant_events)) lines.push('Events: ' + clean(dd.header.significant_events));
-      (dd.locations || []).forEach(loc => {
-        if (scopeKey !== 'all' && normLocKey(loc.label) !== scopeKey) return;
-        const ls = dlogLocationReportLines(loc);
-        if (ls.length) { lines.push((loc.label || 'Location') + ':'); ls.forEach(l => lines.push('  ' + l)); }
-      });
-      if (scopeKey === 'all' && clean(dd.vendor_activity_notes)) lines.push('Vendor activity: ' + clean(dd.vendor_activity_notes));
-      if (lines.length) {
-        out.push('— ' + dayName(row.log_date) + ' —');
-        lines.forEach(l => out.push(l));
-        out.push('');
-      }
-    });
-  } catch (_) {}
-
-  // 2. Board tickets since the window opened: closed / new / moved.
   try {
     const sinceMs = new Date(win.fromDate + 'T00:00:00').getTime();
     const { data: cards, error } = await NX.sb.from('kanban_cards').select('*').limit(500);
-    if (!error) {
-      const inScope = c => !c.is_deleted && (scopeKey === 'all' || normLocKey(c.location) === scopeKey);
-      const isClosedish = c => /^(done|closed|resolved|complete|completed)$/i.test(String(c.column_name || c.status || ''));
-      const dayTag = ts => ts ? new Date(ts).toLocaleDateString('en-US', { weekday: 'short' }) : '';
-      const closed = [], fresh = [], moved = [];
-      (cards || []).forEach(c => {
-        if (!inScope(c)) return;
-        const closeMs = c.closed_at ? new Date(c.closed_at).getTime() : 0;
-        if (closeMs >= sinceMs) { closed.push(c); return; }
-        if (c.archived || c.is_archived || isClosedish(c)) return;
-        const crt = c.created_at ? new Date(c.created_at).getTime() : 0;
-        const chg = c.last_status_change_at ? new Date(c.last_status_change_at).getTime() : 0;
-        if (crt >= sinceMs) fresh.push(c);
-        else if (chg >= sinceMs && (chg - crt) > 60000 && c.last_move_from && c.last_move_to) moved.push(c);
-      });
-      if (closed.length || fresh.length || moved.length) {
-        out.push(SH('Board activity since last send'));
-        closed.forEach(c => out.push('· closed ' + dayTag(c.closed_at) + ' — ' + clean(c.title) + (scopeKey === 'all' && c.location ? ' @ ' + c.location : '')));
-        fresh.forEach(c => out.push('· NEW ' + dayTag(c.created_at) + ' — ' + clean(c.title) + (scopeKey === 'all' && c.location ? ' @ ' + c.location : '') + (c.priority && c.priority !== 'normal' ? ' [' + c.priority + ']' : '')));
-        moved.forEach(c => out.push('· moved ' + dayTag(c.last_status_change_at) + ' — ' + clean(c.title) + ' (' + c.last_move_from + ' → ' + c.last_move_to + ')'));
-        out.push('');
+    if (error) return [];
+    const inScope = c => !c.is_deleted && (scopeKey === 'all' || normLocKey(c.location) === scopeKey);
+    const isClosedish = c => /^(done|closed|resolved|complete|completed)$/i.test(String(c.column_name || c.status || ''));
+    const closed = [], fresh = [], moved = [];
+    (cards || []).forEach(c => {
+      if (!inScope(c)) return;
+      const closeMs = c.closed_at ? new Date(c.closed_at).getTime() : 0;
+      if (closeMs >= sinceMs) {
+        if (String(c.closed_at).slice(0, 10) !== dateStr) closed.push(c);   // exclude today (already in Done lane)
+        return;
       }
-    }
+      if (c.archived || c.is_archived || isClosedish(c)) return;
+      const crt = c.created_at ? new Date(c.created_at).getTime() : 0;
+      const chg = c.last_status_change_at ? new Date(c.last_status_change_at).getTime() : 0;
+      if (crt >= sinceMs && String(c.created_at).slice(0, 10) !== dateStr) fresh.push(c);
+      else if (chg >= sinceMs && (chg - crt) > 60000 && c.last_move_from && c.last_move_to
+               && String(c.last_status_change_at).slice(0, 10) !== dateStr) moved.push(c);
+    });
+    const loc = c => (scopeKey === 'all' && c.location) ? ' @ ' + c.location : '';
+    closed.forEach(c => out.push('closed ' + dlogRelDays(c.closed_at) + ' - ' + clean(c.title) + loc(c)));
+    fresh.forEach(c => out.push('new ' + dlogRelDays(c.created_at) + ' - ' + clean(c.title) + loc(c) + (c.priority && c.priority !== 'normal' ? ' [' + c.priority + ']' : '')));
+    moved.forEach(c => out.push('moved ' + dlogRelDays(c.last_status_change_at) + ' - ' + clean(c.title) + ' (' + c.last_move_from + ' -> ' + c.last_move_to + ')'));
   } catch (_) {}
-
-  return out.length > headerLen ? out : [];   // header alone → nothing real
+  return out;
 }
 
 // Stamp a confirmed send; the window resets from here.
@@ -4138,7 +4140,7 @@ function dlogOfferSentConfirm(scopeKey, dateStr, win) {
   const chip = document.createElement('button');
   chip.type = 'button';
   chip.className = 'dlog-sent-chip';
-  chip.textContent = '✉ Draft opened in Gmail — tap here once it’s sent ✓';
+  chip.textContent = 'Draft opened in Gmail — tap here once it’s sent ✓';
   chip.style.cssText = 'position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:9999;'
     + 'padding:10px 18px;border-radius:22px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;'
     + 'background:var(--card,#1c2333);color:var(--text,#efe9dc);border:1px solid var(--accent,#d4a44e);box-shadow:0 4px 18px rgba(0,0,0,.4)';
@@ -4156,7 +4158,7 @@ async function dlogFillAccumBanner() {
   const win = await dlogUnsentWindow(scopeKey, dateStr);
   if (!win) { el.style.display = 'none'; el.textContent = ''; return; }
   const from = new Date(win.fromDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-  el.textContent = '✉ carrying ' + win.days + ' unsent day' + (win.days === 1 ? '' : 's') + ' (since ' + from + ') — the next email includes them';
+  el.textContent = 'Carrying ' + win.days + ' unsent day' + (win.days === 1 ? '' : 's') + ' (since ' + from + ') — the next email includes them';
   el.style.display = '';
 }
 
@@ -4176,7 +4178,7 @@ async function openDailyLogEmail() {
   // v282 \u2014 "since last send" window + everything unsent rides this email.
   const scopeKey = (locKey && locKey !== 'all') ? locKey : 'all';
   const win = await dlogUnsentWindow(scopeKey, dateStr);
-  const extraLines = await dlogAccumulatedLines(scopeKey, win, dateStr);
+  const extraLines = await dlogAccumulatedMovements(scopeKey, win, dateStr);
   const subjTail = (win && extraLines.length)
     ? ' (+' + win.days + ' unsent day' + (win.days === 1 ? '' : 's') + ')'
     : '';
@@ -4312,14 +4314,14 @@ function dlogHtmlChip(text, P) {
 // cloudy" must win over "cloudy", storms over rain.
 function dlogWeatherIcon(s) {
   const t = String(s || '').toLowerCase();
-  if (/thunder|storm/.test(t)) return '⛈️';
-  if (/snow|sleet|ice pellet|freez/.test(t)) return '❄️';
-  if (/rain|shower|drizzle/.test(t)) return '🌧️';
-  if (/fog|mist|haze/.test(t)) return '🌫️';
-  if (/partly/.test(t)) return '⛅';
-  if (/cloud|overcast/.test(t)) return '☁️';
-  if (/sunny|clear/.test(t)) return '☀️';
-  return '🌤️';
+  if (/thunder|storm/.test(t)) return '';
+  if (/snow|sleet|ice pellet|freez/.test(t)) return '';
+  if (/rain|shower|drizzle/.test(t)) return '';
+  if (/fog|mist|haze/.test(t)) return '';
+  if (/partly/.test(t)) return '';
+  if (/cloud|overcast/.test(t)) return '';
+  if (/sunny|clear/.test(t)) return '';
+  return '';
 }
 
 // ── The typesetter ─────────────────────────────────────────────────────────
@@ -4328,7 +4330,7 @@ function dlogWeatherIcon(s) {
 // devices produce):
 //   section headers, closing rule → signature, "At a glance" → chips,
 //   "· bullet — detail", "    [TAG] name — detail", "    key: value",
-//   "Key: value" paragraphs, "<quote> — Clippy 👋" opener.
+//   "Key: value" paragraphs, "<quote> — Clippy" opener.
 function dlogTextToHtml(text, meta) {
   meta = meta || {};
   // Theme: 'light' (default), 'dark' (designed dark palette), or 'auto'
@@ -4435,7 +4437,7 @@ function dlogTextToHtml(text, meta) {
       // the explanation is the good news; the due-text above it stays muted
       // and honest.
       let noteTail = '';
-      const noteIx = tail.indexOf('📝');
+      const noteIx = tail.indexOf('note:');
       if (noteIx !== -1) {
         noteTail = tail.slice(noteIx).trim();
         tail = tail.slice(0, noteIx).replace(/[\s—·]+$/, '').trim();
@@ -4690,7 +4692,7 @@ function dlogBuildEmailLinks() {
   return links;
 }
 
-// ✨ Styled email — the ORIGINAL email flow end to end: same body builders,
+// Styled email — the ORIGINAL email flow end to end: same body builders,
 // same composer sheet, same remembered To/CC/BCC, same Send button. The only
 // difference is opts.htmlRender: the composer sends the typed text plus its
 // styled render via the Gmail API (classic plain draft on any failure).
@@ -4705,7 +4707,7 @@ async function openDailyLogStyledEmail() {
   // v282 — same "since last send" accumulation as the plain email.
   const scopeKey = (locKey && locKey !== 'all') ? locKey : 'all';
   const win = await dlogUnsentWindow(scopeKey, dateStr);
-  const extraLines = await dlogAccumulatedLines(scopeKey, win, dateStr);
+  const extraLines = await dlogAccumulatedMovements(scopeKey, win, dateStr);
   const subjTail = (win && extraLines.length)
     ? ' (+' + win.days + ' unsent day' + (win.days === 1 ? '' : 's') + ')'
     : '';
@@ -4719,12 +4721,12 @@ async function openDailyLogStyledEmail() {
     subject = 'Daily Log — ' + locLabel + ' — ' + fmtLogDateLong(dateStr) + subjTail;
     body = loc ? buildLocationEmailBody(loc, dateStr, d, extraLines) : extraLines.join('\n');
     recipientsKey = 'dlog:' + locKey;
-    title = '✨ Styled — ' + locLabel;
+    title = 'Styled — ' + locLabel;
   } else {
     subject = 'Daily Log — ' + fmtLogDateLong(dateStr) + subjTail;
     body = buildDailyLogEmailBody(d, dateStr, extraLines);
     recipientsKey = 'dlog:all';
-    title = '✨ Styled daily log';
+    title = 'Styled daily log';
   }
 
   if (!body || body.split('\n').filter(l => l.trim()).length < 2) {
@@ -4744,8 +4746,8 @@ async function openDailyLogStyledEmail() {
     NX.composeEmail({
       recipientsKey, subject, body, title, onSend,
       htmlVariants: [
-        { key: 'light', label: '☀ Light' },
-        { key: 'dark', label: '🌙 Dark' },
+        { key: 'light', label: 'Light' },
+        { key: 'dark', label: 'Dark' },
         { key: 'auto', label: 'Auto (reader)' },
       ],
       htmlVariant: theme,
