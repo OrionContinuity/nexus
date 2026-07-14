@@ -864,7 +864,14 @@ async function loadEquipmentDown() {
       console.warn('[daily-log] loadEquipmentDown:', error.message);
       return [];
     }
-    const all = (data || []).filter(eq => eq.archived !== true);
+    // v292 — exclude SOFT-DELETED units. Equipment has no boolean `archived`
+    // column (soft-delete is archived_at / is_deleted / deleted_at), so the
+    // old `archived !== true` check filtered NOTHING — every deleted or
+    // retired unit leaked into the daily-notes maintenance section (Alfredo:
+    // "why am I seeing 2 Kold Draft Ice machines — I deleted 1"). Mirror the
+    // equipment list: hide archived_at / is_deleted / deleted_at rows.
+    const all = (data || []).filter(eq =>
+      eq && !eq.archived_at && !eq.is_deleted && !eq.deleted_at && eq.archived !== true);
     state.equipmentHealth = all;       // full fleet → health/warranty stats
     const rows = all.filter(eq => NON_OPERATIONAL_STATUSES.indexOf((eq.status || '').toLowerCase()) !== -1);
     rows.sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
