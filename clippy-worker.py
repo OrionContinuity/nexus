@@ -510,7 +510,7 @@ def sb_heartbeat():
     if not HAS_BLENDER: needs.append("art")      # no 3D
     if not CMD_TOKEN:   needs.append("cmd")      # cannot act on the world
     entry = {"name": NODE, "ts": now, "vision": True, "cmd": bool(CMD_TOKEN), "seal": bool(STEWARD_SECRET),
-             "os": OSDESC, "version": "worker-2.0", "code_ver": SELF_VER,
+             "os": OSDESC, "version": "worker-2.0.1", "code_ver": SELF_VER,
              "claude": HAS_CLAUDE,
              # worker-1.9 — this node polls the race-free 'txt:' text lane.
              # NEXUS routes text jobs there only when it sees this flag live.
@@ -1082,6 +1082,32 @@ def _janitor():
                 pass                              # best-effort; next pass retries
 
 
+# ─── worker-2.0.1: HIVE-UNIFY (make the hive 1) ──────────────────────────────
+# Retire the pre-2.0 legacy relay copies that were run from a downloaded
+# 'ClippyPC' folder, and disable the stale scheduled tasks that revive them, so
+# every machine converges to ONE worker per node. TIGHTLY SCOPED: it touches
+# ONLY processes/tasks whose command line points at a Downloads\ClippyPC copy —
+# never the installed NexusClippy worker, daemon, pet, Ollama, or the mc bots.
+# Windows-only, best-effort, wrapped so it can never disturb the main loop.
+def _shed_legacy():
+    if os.name != "nt":
+        return
+    ps = (
+        "Get-CimInstance Win32_Process -EA SilentlyContinue | "
+        "Where-Object { $_.CommandLine -and $_.CommandLine -match 'Downloads\\\\ClippyPC' } | "
+        "ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -EA SilentlyContinue } catch {} }; "
+        "Get-ScheduledTask -EA SilentlyContinue | "
+        "Where-Object { $_.Actions -and ((($_.Actions | ForEach-Object { [string]$_.Arguments }) -join ' ') -match 'Downloads\\\\ClippyPC') } | "
+        "ForEach-Object { try { Disable-ScheduledTask -TaskName $_.TaskName -EA SilentlyContinue | Out-Null } catch {} }"
+    )
+    try:
+        subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=40)
+        log("hive-unify: shed any legacy Downloads\\ClippyPC relay + stale tasks")
+    except Exception as e:
+        log("shed-legacy skipped: %s" % e)
+
+
 def _heartbeat_loop():
     """Heartbeat on its OWN thread so the node stays ONLINE even while the main
     loop is busy in a long vision inference or a long command (those can take
@@ -1094,6 +1120,8 @@ def _heartbeat_loop():
         beats += 1
         if beats % 20 == 1:                       # ~every 10 min (and once at boot)
             try: _janitor()
+            except Exception: pass
+            try: _shed_legacy()                   # make the hive 1: retire legacy Downloads\ClippyPC relays
             except Exception: pass
         time.sleep(HEARTBEAT_SECS)
 

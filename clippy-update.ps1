@@ -28,6 +28,19 @@ Get-CimInstance Win32_Process -EA SilentlyContinue |
   ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force } catch {} }
 Start-Sleep -Seconds 2
 
+# HIVE-UNIFY (make the hive 1): retire the pre-2.0 legacy relay copies that were run
+# from a downloaded 'ClippyPC' folder, and disable the stale scheduled tasks that
+# revive them, so this machine converges to ONE worker. Tightly scoped to
+# Downloads\ClippyPC command lines -- never the installed NexusClippy worker,
+# daemon, pet, or the mc bots.
+Get-CimInstance Win32_Process -EA SilentlyContinue |
+  Where-Object { $_.CommandLine -and $_.CommandLine -match 'Downloads\\ClippyPC' } |
+  ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -EA SilentlyContinue } catch {} }
+Get-ScheduledTask -EA SilentlyContinue |
+  Where-Object { $_.Actions -and ((($_.Actions | ForEach-Object { [string]$_.Arguments }) -join ' ') -match 'Downloads\\ClippyPC') } |
+  ForEach-Object { try { Disable-ScheduledTask -TaskName $_.TaskName -EA SilentlyContinue | Out-Null } catch {} }
+Start-Sleep -Seconds 1
+
 # Relaunch the daemon as a detached, self-healing SUPERVISOR: it re-provisions
 # (keeps Ollama + the vision model), starts the worker as a Clippy-managed
 # slave, registers logon autostart, and from then on keeps the worker fresh
