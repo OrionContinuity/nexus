@@ -5889,8 +5889,15 @@ Thanks for your help sorting this out.`;
     // Re-render only the items list portion. Used by the catalog editor.
     const list = document.getElementById('catItemsList');
     if (list) {
+      // v294 — preserve scroll position. Replacing innerHTML resets the
+      // scroller to the top, which threw the user back up the list on
+      // every inline edit (par, unit, area change, drag). Snapshot the
+      // scroll offset and restore it after the re-render.
+      const scroller = list.closest('.ord-cat-list') || list.parentElement;
+      const prevTop = scroller ? scroller.scrollTop : 0;
       list.innerHTML = renderItemsList();
       wireItemListHandlers();
+      if (scroller) scroller.scrollTop = prevTop;
       return;
     }
     // Fallback: full catalog editor re-render so toolbar/state stays correct
@@ -6152,8 +6159,28 @@ Thanks for your help sorting this out.`;
     const unitVal = item.unit || 'ea';
     const hasPar  = Number(parVal) > 0;
 
+    // v294 — inline "area" (section) picker on the row. Lists every known
+    // section plus a "＋ New section…" escape hatch; changing it reassigns
+    // the item's area via moveItemToSection without opening the edit form.
+    const curSec = item.section || '';
+    const allSecs = collectAllSectionNames().filter(Boolean).sort((a, b) => a.localeCompare(b));
+    const secOpts = allSecs.map(s =>
+      `<option value="${esc(s)}"${s === curSec ? ' selected' : ''}>${esc(s)}</option>`).join('');
+    const uncatOpt = `<option value=""${curSec === '' ? ' selected' : ''}>Uncategorized</option>`;
+    const sectionSelect = `
+      <div class="ved-item-area" title="Area / section">
+        <select class="ved-item-area-select" data-item-id="${esc(item.id)}" aria-label="Section for this item">
+          ${uncatOpt}${secOpts}
+          <option value="__new__">＋ New section…</option>
+        </select>
+      </div>`;
+
     return `
       <div class="ved-item-row${hasPar ? ' has-par' : ''}" data-item-id="${esc(item.id)}">
+        <!-- v294 — drag handle: hold and drag to reorder / move between areas -->
+        <button class="ved-item-drag-handle" data-drag-item="${esc(item.id)}" type="button" aria-label="Drag to reorder" title="Drag to reorder">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg>
+        </button>
         <!-- Name area is the tap target that opens the full edit form -->
         <button class="ved-item-tap" data-item-id="${esc(item.id)}" type="button">
           <div class="ved-item-main">
@@ -6190,17 +6217,10 @@ Thanks for your help sorting this out.`;
                  spellcheck="false" maxlength="8" aria-label="Unit">
         </div>
 
-        <!-- Combined move column. Up/down kept for single-tap reorder;
-             tap row name to open the edit form for advanced fields
-             (section change, day-of-week pars, notes, rename). -->
-        <div class="ved-item-move-stack" role="group" aria-label="Reorder this item">
-          <button type="button" class="ved-item-move-btn" data-row-move="up" data-item-id="${esc(item.id)}" aria-label="Move up">
-            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="18 15 12 9 6 15"/></svg>
-          </button>
-          <button type="button" class="ved-item-move-btn" data-row-move="down" data-item-id="${esc(item.id)}" aria-label="Move down">
-            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-        </div>
+        <!-- v294 — the up/down stack is replaced by drag (handle on the
+             left) + this inline area picker. Tap the row name to open the
+             edit form for advanced fields (day-of-week pars, notes, rename). -->
+        ${sectionSelect}
       </div>
     `;
   }
@@ -6240,8 +6260,15 @@ Thanks for your help sorting this out.`;
           </div>
           <div class="ord-form-field">
             <label class="ord-form-label">Section</label>
-            <input type="text" class="ord-form-input ied-section" value="${esc(item.section || '')}" placeholder="e.g. Dairy" autocomplete="off" list="${datalistId}">
-            ${datalistHTML}
+            <!-- v294 — proper dropdown of areas; "＋ New section…" reveals a
+                 text input (.ied-section-new) handled in wireItemListHandlers. -->
+            <select class="ord-form-input ied-section">
+              <option value=""${(item.section || '') === '' ? ' selected' : ''}>Uncategorized</option>
+              ${Array.from(knownSections).sort((a, b) => a.localeCompare(b)).map(s =>
+                `<option value="${esc(s)}"${s === (item.section || '') ? ' selected' : ''}>${esc(s)}</option>`).join('')}
+              <option value="__new__">＋ New section…</option>
+            </select>
+            <input type="text" class="ord-form-input ied-section-new" value="" placeholder="New section name" autocomplete="off" spellcheck="false" style="display:none;margin-top:6px;">
           </div>
         </div>
         <div class="ord-form-row-2">
@@ -6317,6 +6344,22 @@ Thanks for your help sorting this out.`;
     // Save
     list.querySelectorAll('.ord-vitem-save-btn').forEach(b => {
       b.addEventListener('click', () => saveItemFromForm(b.dataset.itemId));
+    });
+    // v294 — edit-form Section dropdown: "＋ New section…" reveals a text
+    // input for the new name; any other choice hides it again.
+    list.querySelectorAll('select.ied-section').forEach(sel => {
+      sel.addEventListener('change', () => {
+        const form = sel.closest('.ord-vitem-editing');
+        const newInp = form && form.querySelector('.ied-section-new');
+        if (!newInp) return;
+        if (sel.value === '__new__') {
+          newInp.style.display = '';
+          newInp.focus();
+        } else {
+          newInp.style.display = 'none';
+          newInp.value = '';
+        }
+      });
     });
     // Delete
     list.querySelectorAll('.ord-vitem-delete-btn').forEach(b => {
@@ -6631,8 +6674,116 @@ Thanks for your help sorting this out.`;
       });
     });
 
+    // ─── v294 — Inline area (section) dropdown on each row ─────────────
+    // Changing it reassigns the item's section. "＋ New section…" prompts
+    // for a name and moves the item there (creating the section).
+    list.querySelectorAll('.ved-item-area-select').forEach(sel => {
+      sel.addEventListener('click', e => e.stopPropagation());
+      sel.addEventListener('pointerdown', e => e.stopPropagation());
+      sel.addEventListener('change', async (e) => {
+        e.stopPropagation();
+        const itemId = sel.dataset.itemId;
+        if (!itemId) return;
+        let target = sel.value;
+        if (target === '__new__') {
+          let name = '';
+          try { name = window.prompt('New section name:') || ''; } catch (_) { name = ''; }
+          name = name.trim();
+          if (!name) { renderItemsAreaOnly(); return; }   // cancelled — restore
+          target = name;
+        }
+        await moveItemToSection(itemId, target);
+      });
+    });
+
+    // ─── v294 — Drag-to-reorder from the per-row handle ────────────────
+    enableCatalogDrag(list);
+
     // ─── Drag handlers (long-press to activate, single delegated listener) ──
     wireDragHandlers(list);
+  }
+
+  /* v294 — pointer drag for catalog rows. Grab the ⠿ handle and move a
+     row anywhere in the list; it re-seats live (across sections too),
+     and on drop we rebuild the full order from the DOM and persist it via
+     persistItemReorder (which writes sort_order + section and re-renders).
+     Deliberately simpler than the order-entry clone/RAF drag — no floating
+     clone, just live DOM reseating, which is robust inside the scroller. */
+  function enableCatalogDrag(list) {
+    let dragging = null;
+    let active = false;
+    const scroller = list.closest('.ord-cat-list') || list.parentElement;
+
+    const onMove = (e) => {
+      if (!active || !dragging) return;
+      e.preventDefault();
+      const y = e.clientY;
+      if (scroller) {
+        const r = scroller.getBoundingClientRect();
+        const EDGE = 56;
+        if (y < r.top + EDGE) scroller.scrollTop -= 10;
+        else if (y > r.bottom - EDGE) scroller.scrollTop += 10;
+      }
+      const el = document.elementFromPoint(e.clientX, y);
+      if (!el) return;
+      const overRow = el.closest('.ved-item-row');
+      if (overRow && overRow !== dragging) {
+        const rect = overRow.getBoundingClientRect();
+        const before = y < rect.top + rect.height / 2;
+        const parent = overRow.parentNode;
+        if (before) parent.insertBefore(dragging, overRow);
+        else parent.insertBefore(dragging, overRow.nextSibling);
+        return;
+      }
+      // Over an empty/So-far-item-less section body → append there.
+      const overItems = el.closest('.ved-section-items');
+      if (overItems && dragging.parentNode !== overItems && !overItems.querySelector('.ved-item-row:not(.is-dragging)')) {
+        overItems.appendChild(dragging);
+      }
+    };
+
+    const onUp = async () => {
+      if (!active) return;
+      active = false;
+      document.removeEventListener('pointermove', onMove);
+      const moved = dragging;
+      if (moved) moved.classList.remove('is-dragging');
+      dragging = null;
+      if (!moved) return;
+      // Rebuild the whole order from the DOM: each section block in order,
+      // each row within it in order. data-section carries the section name
+      // ('' for Uncategorized).
+      const finalOrder = [];
+      list.querySelectorAll('.ved-section-block').forEach(block => {
+        const sec = block.getAttribute('data-section') || '';
+        block.querySelectorAll('.ved-item-row[data-item-id]').forEach(r => {
+          finalOrder.push({ id: r.dataset.itemId, section: sec });
+        });
+      });
+      if (finalOrder.length) await persistItemReorder(finalOrder);
+    };
+
+    list.addEventListener('pointerdown', (e) => {
+      const handle = e.target.closest('.ved-item-drag-handle');
+      if (!handle) return;
+      const row = handle.closest('.ved-item-row');
+      if (!row) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dragging = row;
+      active = true;
+      row.classList.add('is-dragging');
+      try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+      try { navigator.vibrate?.(10); } catch (_) {}
+      document.addEventListener('pointermove', onMove, { passive: false });
+      document.addEventListener('pointerup', onUp, { once: true });
+      document.addEventListener('pointercancel', onUp, { once: true });
+    });
+    // Swallow the click that follows a handle press so it doesn't open the
+    // edit form.
+    list.addEventListener('click', (e) => {
+      if (e.target.closest('.ved-item-drag-handle')) { e.preventDefault(); e.stopPropagation(); }
+    }, true);
   }
 
   /* CSS escape for use in querySelector attribute selectors. The
@@ -6818,7 +6969,7 @@ Thanks for your help sorting this out.`;
       // so tapping the chevron also opens the edit form, and that button
       // IS the long-press target. The specific selectors below cover the
       // controls that genuinely need their own click semantics.
-      if (e.target.closest('input, textarea, select, .ord-vitem-editing, .ved-section-rename-input, .ved-section-rename-btn, .ved-section-collapse, .ved-item-move-stack, .ved-section-move-stack')) {
+      if (e.target.closest('input, textarea, select, .ord-vitem-editing, .ved-section-rename-input, .ved-section-rename-btn, .ved-section-collapse, .ved-item-move-stack, .ved-section-move-stack, .ved-item-drag-handle, .ved-item-area')) {
         return;
       }
       // Only items get the picker; sections already have rename + ↑/↓
@@ -7324,7 +7475,12 @@ Thanks for your help sorting this out.`;
     }
     const sku  = formRow.querySelector('.ied-sku').value.trim();
     const house = (formRow.querySelector('.ied-house')?.value || '').trim();
-    const sec  = formRow.querySelector('.ied-section').value.trim();
+    // v294 — section is now a <select>; "＋ New section…" (__new__) reveals
+    // the .ied-section-new text input whose value we take instead.
+    let sec = (formRow.querySelector('.ied-section')?.value || '').trim();
+    if (sec === '__new__') {
+      sec = (formRow.querySelector('.ied-section-new')?.value || '').trim();
+    }
     const unit = formRow.querySelector('.ied-unit').value.trim() || 'ea';
     const parRaw = formRow.querySelector('.ied-par').value.trim();
     const note = formRow.querySelector('.ied-note').value.trim();

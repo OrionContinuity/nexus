@@ -721,6 +721,13 @@ body.ord-overlay-open .nav {
   padding: 12px 12px calc(120px + env(safe-area-inset-bottom, 0px));
   -webkit-overflow-scrolling: touch;
 }
+/* v294 — cap the reading width on wide/desktop screens so the list stops
+   spanning the whole monitor and reads as a tidy centered column. Full
+   width still on phones (the max-width simply never binds there). */
+.ord-entry-list > * {
+  max-width: 780px;
+  margin-inline: auto;
+}
 
 /* ─── Section card (matches catalog aesthetic) ────────────────────────
    Each section is a bordered card with a gold-tinted header bar. The
@@ -840,7 +847,7 @@ body.ord-overlay-open .nav {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 14px 16px;
+  padding: 9px 14px;   /* v294 — tightened from 14px 16px so rows read denser */
   border-bottom: 1px solid var(--nx-gold-line);
   background: transparent;
   transition: background .18s;
@@ -4817,6 +4824,12 @@ body.ord-overlay-open .nav {
   -webkit-overflow-scrolling: touch;
   padding: 8px 14px calc(40px + env(safe-area-inset-bottom, 0px));
 }
+/* v294 — cap reading width on desktop so the catalog reads as a centered
+   column instead of stretching across the whole monitor. */
+.ord-cat-list > * {
+  max-width: 780px;
+  margin-inline: auto;
+}
 
 /* ─── Empty section placeholder (pending sections + emptied groups) ── */
 .ved-section-empty {
@@ -5057,10 +5070,11 @@ body.ord-overlay-open .nav {
   background: var(--nx-gold-mist);
 }
 
-/* Drag handle on each item — always present */
+/* Drag handle on each item — always present (v294) */
 .ord-catalog-overlay .ved-item-drag-handle {
   flex-shrink: 0;
-  width: 40px;
+  width: 26px;
+  align-self: stretch;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -5071,10 +5085,47 @@ body.ord-overlay-open .nav {
   user-select: none;
   background: transparent;
   border: 0;
+  padding: 0;
 }
+.ord-catalog-overlay .ved-item-drag-handle:hover { color: var(--nx-text, var(--text)); }
 .ord-catalog-overlay .ved-item-drag-handle:active {
   cursor: grabbing;
   color: var(--accent);
+}
+
+/* v294 — inline area (section) picker on each row */
+.ord-catalog-overlay .ved-item-area {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  max-width: 130px;
+}
+.ord-catalog-overlay .ved-item-area-select {
+  max-width: 130px;
+  font-family: inherit;
+  font-size: 11.5px;
+  color: var(--nx-faint, var(--muted));
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 6px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  appearance: auto;
+  text-overflow: ellipsis;
+}
+.ord-catalog-overlay .ved-item-area-select:hover {
+  border-color: var(--nx-gold-line, var(--accent));
+  color: var(--nx-text, var(--text));
+}
+.ord-catalog-overlay .ved-item-area-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+@media (max-width: 500px) {
+  .ord-catalog-overlay .ved-item-area,
+  .ord-catalog-overlay .ved-item-area-select { max-width: 92px; }
+  .ord-catalog-overlay .ved-item-drag-handle { width: 22px; }
 }
 
 /* Tap area — fills the rest of the row, opens the edit form */
@@ -5083,7 +5134,7 @@ body.ord-overlay-open .nav {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 14px 12px 14px 4px;
+  padding: 9px 10px 9px 2px;   /* v294 — tightened from 14px…4px for denser rows */
   background: transparent;
   border: 0;
   text-align: left;
