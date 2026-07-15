@@ -182,14 +182,14 @@
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.12em;
-  color: var(--fg-dim, #9a978c);
+  color: var(--nx-muted);   /* v299 — --fg-dim was never defined; fell back to grey (invisible in light theme) */
   text-transform: uppercase;
   margin-bottom: 10px;
 }
 
 .prefs-section-meta {
   font-weight: 400;
-  color: var(--fg, #e8e6df);
+  color: var(--nx-text);   /* v299 — --fg was never defined; fell back to near-white (invisible in light theme) */
   text-transform: none;
   letter-spacing: 0.02em;
 }
@@ -208,7 +208,7 @@
   border: 1px solid var(--nx-gold-line);
   border-radius: 16px;
   background: transparent;
-  color: var(--fg, #e8e6df);
+  color: var(--nx-text);   /* v299 — --fg was never defined; fell back to near-white (invisible in light theme) */
   cursor: pointer;
   text-align: left;
   transition: all 180ms ease;
@@ -232,7 +232,7 @@
 .prefs-persona-sub {
   margin-top: 4px;
   font-size: 12px;
-  color: var(--fg-dim, #9a978c);
+  color: var(--nx-muted);   /* v299 — --fg-dim was never defined; fell back to grey (invisible in light theme) */
   letter-spacing: 0.02em;
 }
 
@@ -249,7 +249,7 @@
   border: 1px solid var(--nx-gold-haze);
   border-radius: 14px;
   background: transparent;
-  color: var(--fg, #e8e6df);
+  color: var(--nx-text);   /* v299 — --fg was never defined; fell back to near-white (invisible in light theme) */
   cursor: pointer;
   font-family: inherit;
   font-size: 13.5px;
@@ -278,7 +278,7 @@
 }
 .prefs-theme-sub {
   font-size: 10.5px;
-  color: var(--fg-dim, #9a978c);
+  color: var(--nx-muted);   /* v299 — --fg-dim was never defined; fell back to grey (invisible in light theme) */
   margin-top: 2px;
   font-family: 'JetBrains Mono', monospace;
   letter-spacing: 0.06em;

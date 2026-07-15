@@ -217,7 +217,7 @@
    - composer onSend now reports method: 'gmail-api' | 'draft'.
    - Empty ledger (first use) = exactly the old today-only behavior.
 */
-const CACHE_NAME = 'nexus-v298-cleanup';
+const CACHE_NAME = 'nexus-v299-css-consistency';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [

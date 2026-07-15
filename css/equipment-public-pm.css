@@ -463,7 +463,7 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
 /* ─── ADMIN REVIEW SCREEN (dark NEXUS theme) ──────────────────────────── */
 .pm-review-card {
   background: rgba(18, 15, 22, 0.97) !important;
-  color: var(--nx-gold-faint);
+  color: var(--nx-text);   /* v299 — was --nx-gold-faint (8% gold), invisible text on the dark review card */
 }
 .pm-review-card .pm-logger-header {
   background: rgba(0, 0, 0, 0.3);
@@ -499,7 +499,7 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
 }
 .pm-review-eq {
   font-size: 15px;
-  color: var(--nx-gold-faint);
+  color: var(--nx-text);   /* v299 — was --nx-gold-faint (8% gold), invisible text on the dark review card */
   margin-bottom: 6px;
 }
 .pm-review-eq strong { color: var(--accent); }
@@ -510,7 +510,7 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
 }
 .pm-review-contractor {
   font-size: 13px;
-  color: var(--nx-gold-faint);
+  color: var(--nx-text);   /* v299 — was --nx-gold-faint (8% gold), invisible text on the dark review card */
   margin-bottom: 4px;
   padding: 6px 10px;
   background: var(--nx-gold-faint);
@@ -540,7 +540,7 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
   padding: 10px 12px;
   border-radius: 12px;
   font-size: 13px;
-  color: var(--nx-gold-faint);
+  color: var(--nx-text);   /* v299 — was --nx-gold-faint (8% gold), invisible text on the dark review card */
   line-height: 1.5;
   margin-bottom: 8px;
   white-space: pre-wrap;

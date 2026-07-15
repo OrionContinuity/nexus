@@ -944,7 +944,11 @@
   opacity: 0; transition: opacity 220ms ease;
 }
 .nxrm-overlay.is-visible { opacity: 1; }
-.nxrm-card {
+/* v299 — scope the MODAL card to the overlay. As a bare `.nxrm-card` this
+   duplicated (and overrode) the inbox/list card at line ~107, capping list
+   cards at 520px with the heavy modal border/shadow. Modal cards are always
+   built inside .nxrm-overlay (core.js), so this still matches them. */
+.nxrm-overlay .nxrm-card {
   background: var(--nx-bg, #0e1320);
   border: 1.5px solid var(--nx-gold);
   border-radius: 20px; padding: 20px;

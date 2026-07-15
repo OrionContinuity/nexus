@@ -4349,7 +4349,7 @@
 }
 
 .pm-public-btn-tertiary .pm-public-btn-title {
-  color: var(--nx-gold-faint) !important;
+  color: var(--nx-text) !important;   /* v299 — was --nx-gold-faint (8% gold), invisible button text on the dark public-scan buttons */
 }
 
 .pm-public-btn-tertiary .pm-public-btn-sub {
@@ -5259,11 +5259,11 @@ button.eq-close {
 .pm-public-actions .pm-public-btn-secondary {
   background: var(--bg) !important;
   border-color: var(--surface) !important;
-  color: var(--nx-gold-faint) !important;
+  color: var(--nx-text) !important;   /* v299 — was --nx-gold-faint (8% gold), invisible button text on the dark public-scan buttons */
 }
 .public-scan-actions .pm-public-btn-secondary .pm-public-btn-title,
 .pm-public-actions .pm-public-btn-secondary .pm-public-btn-title {
-  color: var(--nx-gold-faint) !important;
+  color: var(--nx-text) !important;   /* v299 — was --nx-gold-faint (8% gold), invisible button text on the dark public-scan buttons */
 }
 .public-scan-actions .pm-public-btn-secondary .pm-public-btn-sub,
 .pm-public-actions .pm-public-btn-secondary .pm-public-btn-sub {
@@ -5275,11 +5275,11 @@ button.eq-close {
 .pm-public-actions .pm-public-btn-call {
   background: var(--bg) !important;
   border-color: var(--surface) !important;
-  color: var(--nx-gold-faint) !important;
+  color: var(--nx-text) !important;   /* v299 — was --nx-gold-faint (8% gold), invisible button text on the dark public-scan buttons */
 }
 .public-scan-actions .pm-public-btn-call .pm-public-btn-title,
 .pm-public-actions .pm-public-btn-call .pm-public-btn-title {
-  color: var(--nx-gold-faint) !important;
+  color: var(--nx-text) !important;   /* v299 — was --nx-gold-faint (8% gold), invisible button text on the dark public-scan buttons */
 }
 .public-scan-actions .pm-public-btn-call .pm-public-btn-sub,
 .pm-public-actions .pm-public-btn-call .pm-public-btn-sub {
@@ -5293,11 +5293,11 @@ button.eq-close {
 .pm-public-actions .pm-public-btn-tertiary {
   background: var(--bg) !important;
   border-color: var(--surface) !important;
-  color: var(--nx-gold-faint) !important;
+  color: var(--nx-text) !important;   /* v299 — was --nx-gold-faint (8% gold), invisible button text on the dark public-scan buttons */
 }
 .public-scan-actions .pm-public-btn-tertiary .pm-public-btn-title,
 .pm-public-actions .pm-public-btn-tertiary .pm-public-btn-title {
-  color: var(--nx-gold-faint) !important;
+  color: var(--nx-text) !important;   /* v299 — was --nx-gold-faint (8% gold), invisible button text on the dark public-scan buttons */
 }
 .public-scan-actions .pm-public-btn-tertiary .pm-public-btn-sub,
 .pm-public-actions .pm-public-btn-tertiary .pm-public-btn-sub {
