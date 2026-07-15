@@ -136,10 +136,29 @@ function Start-PetProc {
   Log "[ok] clippy pet (GhostGlass) started" 'Green'
   return $true
 }
+function Get-GrokProc {
+  Get-CimInstance Win32_Process -Filter "Name='python.exe'" -EA SilentlyContinue |
+    Where-Object { $_.CommandLine -and $_.CommandLine -match 'grok_bridge\.py' }
+}
+function Stop-GrokProc { Get-GrokProc | ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force } catch {} } }
+function Start-GrokProc {
+  # Persistent headless-Chrome daemon that serves Grok answers from Alfredo's grok.com subscription
+  # (file-queue at ~/.clippy/grok). Opt-in per node via ~/.clippy/grok.on - only the box with the
+  # logged-in grok.com profile should run it.
+  $gb = Join-Path $HOMEDIR 'grok_bridge.py'
+  if (-not (Test-Path $gb)) { Log "[..] grok bridge not present yet" 'Yellow'; return $false }
+  $py = (Get-Command python -EA SilentlyContinue).Source; if (-not $py) { $py = (Get-Command py -EA SilentlyContinue).Source }
+  if (-not $py) { Log "[..] grok: python not found on PATH" 'Yellow'; return $false }
+  $gl = Join-Path $env:USERPROFILE '.clippy\grok_bridge_out.log'
+  New-Item -ItemType Directory -Force -Path (Join-Path $env:USERPROFILE '.clippy\grok') | Out-Null
+  Start-Process -FilePath $py -ArgumentList ('-u "' + $gb + '"') -WorkingDirectory (Join-Path $env:USERPROFILE '.clippy') -WindowStyle Hidden -RedirectStandardOutput $gl -RedirectStandardError ($gl + '.err') | Out-Null
+  Log "[ok] grok bridge started" 'Green'
+  return $true
+}
 function Update-NodeFromGitHub {
   # Pull the latest node scripts into $HOMEDIR. Returns which ones changed.
-  $res = @{ worker = $false; daemon = $false; pet = $false }
-  foreach ($f in 'clippy-worker.py', 'clippy-daemon.ps1', 'clippy-update.ps1', 'clippy-character.json', 'clippy-dialog.json', 'clippy-pet-comp.ps1') {
+  $res = @{ worker = $false; daemon = $false; pet = $false; grok = $false }
+  foreach ($f in 'clippy-worker.py', 'clippy-daemon.ps1', 'clippy-update.ps1', 'clippy-character.json', 'clippy-dialog.json', 'clippy-pet-comp.ps1', 'grok_bridge.py') {
     $dst = Join-Path $HOMEDIR $f
     $tmp = Join-Path $env:TEMP ('nx_' + $f)
     try {
@@ -151,6 +170,7 @@ function Update-NodeFromGitHub {
         if ($f -eq 'clippy-worker.py')  { $res.worker = $true }
         if ($f -eq 'clippy-daemon.ps1') { $res.daemon = $true }
         if ($f -eq 'clippy-pet-comp.ps1') { $res.pet = $true }
+        if ($f -eq 'grok_bridge.py') { $res.grok = $true }
         # Character/dialog are data the worker reads at startup - restart it to reload.
         if ($f -eq 'clippy-character.json' -or $f -eq 'clippy-dialog.json') { $res.worker = $true }
         Log "[upd] refreshed $f" 'Green'
@@ -245,6 +265,12 @@ function Invoke-Supervisor {
       Log "[supervise] pet down - (re)starting" 'Yellow'
       Start-PetProc | Out-Null
     }
+    # Grok bridge - opt-in per node via ~/.clippy/grok.on (only the box with the grok.com login runs it)
+    if (Test-Path (Join-Path $env:USERPROFILE '.clippy\grok.on')) {
+      if (-not (Get-GrokProc)) { Log "[supervise] grok bridge down - (re)starting" 'Yellow'; Start-GrokProc | Out-Null }
+    } elseif (Get-GrokProc) {
+      Log "[supervise] grok.on not set - stopping grok bridge" 'Yellow'; Stop-GrokProc
+    }
     # Peer nudge: at most every 3 min, ask the hive if anyone runs a different
     # code version. If so, pull forward NOW instead of waiting out the timer -
     # this is how nodes update each other rather than each drifting on its own.
@@ -276,6 +302,10 @@ function Invoke-Supervisor {
         Stop-PetProc
         Start-Sleep -Seconds 2
         Start-PetProc | Out-Null
+      }
+      if ($u.grok -and (Test-Path (Join-Path $env:USERPROFILE '.clippy\grok.on'))) {
+        Log "[supervise] new grok bridge pulled - restarting it" 'Green'
+        Stop-GrokProc; Start-Sleep -Seconds 2; Start-GrokProc | Out-Null
       }
     }
     # deep heartbeat every ~5 min: proves the loop is alive and captures node state for post-mortems
