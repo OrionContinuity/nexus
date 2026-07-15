@@ -422,7 +422,7 @@
     let eqId = equipmentId;
     if (!eqId) {
       const { data: eq } = await NX.sb.from('equipment')
-        .select('id, name, restaurant').order('name');
+        .select('id, name, restaurant:location').order('name');   // v295: real column is `location`; alias keeps e.restaurant working
       if (!eq || !eq.length) { alert('No equipment.'); return; }
       const pick = prompt('Pick equipment:\n\n' + eq.map((e, i) =>
         `${i + 1}. ${e.name} (${e.restaurant})`).join('\n'));

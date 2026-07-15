@@ -725,13 +725,17 @@
        current user. The pills render with skeletons until this lands. */
     async loadDailyOps() {
       if (!NX.sb) return;
-      const today = new Date().toISOString().slice(0, 10);
+      // v295 tz fix: facility_logs.log_date is written from LOCAL date parts
+      // (daily-log todayISO), so a UTC slice missed today's row after ~6pm
+      // local — the pill read "Not started" and the nudge fired falsely.
+      const _n = new Date();
+      const today = `${_n.getFullYear()}-${String(_n.getMonth() + 1).padStart(2, '0')}-${String(_n.getDate()).padStart(2, '0')}`;
       const userId = NX.currentUser?.id;
 
       try {
         // Daily log for today (scoped to user)
         let dailyQ = NX.sb.from('facility_logs')
-          .select('id, log_date, drive_upload_status, submitted_at, drive_uploaded_at, data')
+          .select('id, log_date, drive_upload_status, submitted_at, drive_uploaded_at, updated_at, data')
           .eq('log_type', 'daily')
           .eq('log_date', today)
           .order('id', { ascending: false })
@@ -1318,7 +1322,8 @@
     try {
       const now = new Date();
       if (now.getHours() >= 14) {  // 2pm or later
-        const todayISO = now.toISOString().slice(0, 10);
+        // v295 tz fix: local date parts, not UTC slice (see loadDailyOps).
+        const todayISO = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
         const userId = NX.currentUser?.id;
         let q = NX.sb.from('facility_logs')
           .select('id, submitted_at, drive_upload_status')

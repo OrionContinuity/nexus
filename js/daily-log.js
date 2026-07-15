@@ -3821,9 +3821,12 @@ async function emailEachLocation() {
   // Build the batch: one entry per location with content.
   const rows = [];
   for (const loc of d.locations) {
-    const body = buildLocationEmailBody(loc, dateStr, d);
-    if (!body || body.split('\n').filter(l => l.trim()).length < 2) continue;
     const locKey = normLocKey(loc.label);
+    // v295 — mirror the single-send paths: mark cards new since the last
+    // email for this location (not just new-today).
+    const win = await dlogUnsentWindow(locKey, dateStr);
+    const body = buildLocationEmailBody(loc, dateStr, d, win ? win.fromDate : null);
+    if (!body || body.split('\n').filter(l => l.trim()).length < 2) continue;
     const recip = await T.recallRecipients('dlog:' + locKey).catch(() => null) || {};
     rows.push({
       key: locKey,

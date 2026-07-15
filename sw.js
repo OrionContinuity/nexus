@@ -217,7 +217,7 @@
    - composer onSend now reports method: 'gmail-api' | 'draft'.
    - Empty ledger (first use) = exactly the old today-only behavior.
 */
-const CACHE_NAME = 'nexus-v295-ordering-compact-drag';
+const CACHE_NAME = 'nexus-v296-audit-fixes';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
@@ -260,9 +260,7 @@ const APP_SHELL = [
   './css/ordering-system.css',
   './css/public-views.css',
   './css/preferences.css',
-  // NOTE: css/daily-card.css is referenced by index.html but does not
-  // exist on disk (404). Intentionally NOT precached. Fix the <link>
-  // in index.html (remove it or add the file) — see review notes.
+  './css/daily-card.css',   // v295 audit — file DOES exist and is linked; stale "404" note removed
 
   // NEXUS · R&M — single stylesheet for the whole module
   './css/home-soft.css',
@@ -318,9 +316,17 @@ const APP_SHELL = [
   './js/clippy-games.js',
   './js/clippy-tour.js',
   './js/record-editor.js',
-  './js/daily-card.js',
   './js/daily-log.js',
   './js/biweekly-log.js',
+  // v295 audit — eagerly loaded in index.html but were missing from the shell
+  // (daily-card.js removed — the file no longer exists, replaced by library.js)
+  './js/email-composer.js',
+  './js/hideaway.js',
+  './js/moneta-mind.js',
+  './js/nexus-qr.js',
+  './js/notifications-bell.js',
+  './js/seance.js',
+  './js/tools.js',
 
   // Lazy-loaded on demand via NX.app.loadScript (moduleMap + chains) —
   // precached so first offline open of these views still works

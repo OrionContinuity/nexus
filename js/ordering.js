@@ -6696,11 +6696,19 @@ Thanks for your help sorting this out.`;
       });
     });
 
-    // ─── v294 — Drag-to-reorder from the per-row handle ────────────────
-    enableCatalogDrag(list);
-
-    // ─── Drag handlers (long-press to activate, single delegated listener) ──
-    wireDragHandlers(list);
+    // ─── List-level DELEGATED handlers — attach ONCE ───────────────────
+    // v295 fix: wireItemListHandlers re-runs on every renderItemsAreaOnly
+    // (search, inline par/unit edit, area change, drag drop), which only
+    // replaces #catItemsList's innerHTML — the list element itself persists.
+    // Binding the delegated pointer/drag listeners to `list` each time stacked
+    // duplicates, so a later long-press fired N openItemMovePicker modals.
+    // The per-row handlers above re-bind fine (their elements are recreated);
+    // only these list-level ones must be guarded.
+    if (!list._nxDelegatedWired) {
+      list._nxDelegatedWired = true;
+      enableCatalogDrag(list);   // v294 — drag-to-reorder from the per-row handle
+      wireDragHandlers(list);    // long-press → move-to-section picker
+    }
   }
 
   /* v294 — pointer drag for catalog rows. Grab the ⠿ handle and move a

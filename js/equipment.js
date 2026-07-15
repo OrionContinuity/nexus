@@ -2175,7 +2175,11 @@ async function loadPmSchedules() {
     // the row stays as 'scheduled' in DB until either marked completed
     // via an actual PM event, or explicitly cancelled. Keeps the DB
     // honest and avoids a server-side cron.
-    const todayIso = new Date().toISOString().slice(0, 10);
+    // v295 tz fix: local date parts, not a UTC slice — after ~6pm local the
+    // UTC date rolls to tomorrow, which falsely flagged a PM scheduled for
+    // TODAY as "missed".
+    const _tn = new Date();
+    const todayIso = `${_tn.getFullYear()}-${String(_tn.getMonth() + 1).padStart(2, '0')}-${String(_tn.getDate()).padStart(2, '0')}`;
     for (const eqId in pmSchedulesByEquipment) {
       for (const row of pmSchedulesByEquipment[eqId]) {
         if (row.status === 'scheduled' && row.scheduled_date < todayIso) {
@@ -9955,7 +9959,7 @@ async function printServiceLog(id) {
 function printQRSheet() {
   // Build a small modal with location chips + "all locations" + a count
   // preview per location. No heavy modal infra — vanilla overlay.
-  const all = equipment.filter(e => !e.archived && e.qr_code);
+  const all = equipment.filter(e => !e.archived_at && !e.is_deleted && !e.deleted_at && !e.archived && e.qr_code);
   if (!all.length) {
     NX.toast && NX.toast('No equipment to print', 'info');
     return;
@@ -10315,7 +10319,7 @@ function exportToResQ() {
   const all = (typeof equipment !== 'undefined' && Array.isArray(equipment)) ? equipment : [];
   const SKIP_STATUSES = new Set(['retired', 'missing', 'relocated', 'loaned']);
   const rows = all.filter(eq =>
-    !eq.archived &&
+    !eq.archived_at && !eq.is_deleted && !eq.deleted_at && !eq.archived &&
     !SKIP_STATUSES.has(String(eq.status || '').toLowerCase()) &&
     (!loc || eq.location === loc)
   );
@@ -10445,7 +10449,10 @@ async function exportResQTemplate() {
 
   // Only live assets — drop archived + out-of-service so ResQ doesn't get junk.
   const SKIP = new Set(['retired', 'missing', 'relocated', 'loaned']);
-  const rows = data.filter(e => !e.archived && !SKIP.has(String(e.status || '').toLowerCase()));
+  // v295: equipment soft-delete is archived_at / is_deleted / deleted_at —
+  // there is no boolean `archived`, so `!e.archived` alone leaked every
+  // soft-deleted unit into the ResQ import.
+  const rows = data.filter(e => !e.archived_at && !e.is_deleted && !e.deleted_at && !e.archived && !SKIP.has(String(e.status || '').toLowerCase()));
   if (!rows.length) { NX.toast && NX.toast('No active equipment to export', 'warn', 2500); return; }
 
   // Facility → clean Title Case so legacy "SUERTE"/"suerte" land identically.

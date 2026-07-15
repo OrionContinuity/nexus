@@ -389,7 +389,10 @@ function isOverdue(card){
   // Terminal-state cards are never overdue regardless of due_date. A ticket
   // marked done yesterday with a due_date last week is resolved, not overdue.
   if (isDone(card)) return false;
-  return card.due_date && new Date(card.due_date) < new Date(new Date().toDateString());
+  // v295 tz fix: parse due_date as LOCAL midnight (bare 'YYYY-MM-DD' parses as
+  // UTC, which made a card due *today* read overdue all day in the Americas).
+  // Compare against local midnight today so "due today" is not yet overdue.
+  return card.due_date && new Date(card.due_date + 'T00:00:00') < new Date(new Date().setHours(0, 0, 0, 0));
 }
 
 // Sanitize for tel: / href injection
@@ -1651,7 +1654,6 @@ function createCardEl(card){
   // Long-press on Android fires contextmenu — that must open OUR sheet,
   // never the browser's selection/search UI.
   el.addEventListener('contextmenu', e => { e.preventDefault(); if (!P || !P.dragging) openQuickActions(card, el); });
-  el.addEventListener('contextmenu', e => { e.preventDefault(); openQuickActions(card, el); });
 
   return el;
 }

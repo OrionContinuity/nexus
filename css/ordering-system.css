@@ -9128,8 +9128,8 @@ body.ord-overlay-open .nav {
    ──────────────────────────────────────────────────────────────────────────── */
 
 .ved-item-row {
-  gap: 8px !important;
-  padding: 10px 10px !important;
+  gap: 6px !important;                    /* v295 — tightened with the v294 density pass */
+  padding: 2px 8px !important;            /* was 10px 10px; row height now comes from the tap's own padding */
   background: transparent !important;
   box-shadow: none !important;
 }
