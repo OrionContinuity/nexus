@@ -40,7 +40,7 @@
   --pm-gold-on:      var(--nx-gold-on);          /* text on gold pill */
   --pm-gold-soft:    var(--nx-gold-faint);          /* gold-tinted fill */
   --pm-gold-line:    rgba(184, 147, 66, 0.30);
-  --pm-text:         var(--nx-gold-on);          /* primary text — warm near-black */
+  --pm-text:         var(--nx-text);          /* v296 — follow theme (was --nx-gold-on near-black, unreadable on dark surfaces in dark theme) */
   --pm-text-muted:   var(--muted);          /* secondary text */
   --pm-text-faint:   var(--muted);          /* tertiary text, captions */
   --pm-red:          var(--red);

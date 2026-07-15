@@ -386,6 +386,7 @@
     await loadLinkedCards();
     await loadGuideLinks();
     await loadTaskNotes();
+    await loadCosts();      // v296 — costsByKey is keyed by section+task_order (not location); without this the prior location's completion costs lingered into the emailed COSTS section
     await loadWeekStats();
   }
 
@@ -2692,17 +2693,21 @@
       input.style.display = 'none';
       document.body.appendChild(input);
       let settled = false;
+      let fileChosen = false;   // v296 — set the moment a file is picked
       const finish = (val) => { if (!settled) { settled = true; input.remove(); resolve(val); } };
       input.addEventListener('change', async () => {
         const f = input.files && input.files[0];
         if (!f) { finish(false); return; }
+        fileChosen = true;
         try {
           const url = await uploadCleaningPhoto(f, t);
           finish(!!url);
         } catch (_) { finish(false); }
       });
-      // Cancelled pickers fire no event — sweep up when focus returns.
-      window.addEventListener('focus', () => setTimeout(() => finish(false), 1200), { once: true });
+      // Cancelled pickers fire no event — sweep up when focus returns. v296:
+      // only resolve false if NO file was chosen; a slow (>1.2s) upload of a
+      // real photo must not lose this race and abort a successful capture.
+      window.addEventListener('focus', () => setTimeout(() => { if (!fileChosen) finish(false); }, 1200), { once: true });
       input.click();
     });
   }

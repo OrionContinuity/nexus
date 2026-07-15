@@ -503,7 +503,14 @@
     woClicksBound = true;
     document.addEventListener('click', (e) => {
       const viewAll = e.target.closest('.home-rm-wo-viewall');
-      if (viewAll) { NXRM.view.switchTo('issues'); return; }
+      if (viewAll) {
+        // v296 — prefer the standalone work-orders loader; the internal
+        // NXRM 'issues' view renders blank on some devices (same guard the
+        // decision-row taps use at ~240/424).
+        if (NX.modules?.workOrders?.open) NX.modules.workOrders.open();
+        else NXRM.view.switchTo('issues');
+        return;
+      }
 
       const item = e.target.closest('.home-rm-wo-item');
       if (!item) return;

@@ -2506,11 +2506,15 @@ async function openScheduleEditor(equipId) {
       const rescheduleCount = current.length > 0 ? 1 : 0;
 
       if (current.length > 0) {
-        // Mark prior scheduled rows as cancelled — provides reschedule trail
-        await NX.sb.from('pm_schedules').update({
+        // Mark prior scheduled rows as cancelled — provides reschedule trail.
+        // v296: check the error (supabase-js resolves with {error}, never
+        // throws) — a silent cancel failure left the old 'scheduled' rows in
+        // place and the insert below then created DUPLICATE phases.
+        const { error: cancelErr } = await NX.sb.from('pm_schedules').update({
           status: 'cancelled',
           updated_at: new Date().toISOString(),
         }).eq('equipment_id', equipId).eq('status', 'scheduled');
+        if (cancelErr) throw cancelErr;
       }
 
       const rows = validPhases.map((p, i) => ({
@@ -2574,9 +2578,10 @@ async function openScheduleEditor(equipId) {
   const clearAll = async () => {
     if (!confirm('Cancel all scheduled phases for this equipment? The countdown stays anchored to the last completed PM.')) return;
     try {
-      await NX.sb.from('pm_schedules').update({
+      const { error: clrErr } = await NX.sb.from('pm_schedules').update({
         status: 'cancelled', updated_at: new Date().toISOString(),
       }).eq('equipment_id', equipId).eq('status', 'scheduled');
+      if (clrErr) throw clrErr;   // v296 — don't falsely report "cleared" on a failed update
       NX.toast?.('Schedule cleared', 'info', 1500);
       await loadPmSchedules();
       overlay.remove();

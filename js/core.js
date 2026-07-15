@@ -613,7 +613,12 @@
       return v;
     },
     switchTo(name) {
-      if (window.NX?.switchTo) NX.switchTo(name);
+      // v296 fix: switchTo lives on the LEXICAL/global-script NX (app.js sets
+      // `NX.switchTo = switchTo`), NOT on window.NX (a separate object created
+      // by the early public pages). Guarding on `window.NX?.switchTo` was
+      // always undefined, so every R&M "View all / go to" tap silently
+      // no-oped. Guard on the bare NX that actually carries it.
+      if (typeof NX !== 'undefined' && NX && typeof NX.switchTo === 'function') NX.switchTo(name);
     },
     onSwitch(handler) {
       document.addEventListener('nx-view-changed', handler);

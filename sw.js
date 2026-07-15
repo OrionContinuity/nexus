@@ -217,7 +217,7 @@
    - composer onSend now reports method: 'gmail-api' | 'draft'.
    - Empty ledger (first use) = exactly the old today-only behavior.
 */
-const CACHE_NAME = 'nexus-v296-audit-fixes';
+const CACHE_NAME = 'nexus-v297-audit-fixes-2';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
@@ -327,6 +327,7 @@ const APP_SHELL = [
   './js/notifications-bell.js',
   './js/seance.js',
   './js/tools.js',
+  './js/library.js',
 
   // Lazy-loaded on demand via NX.app.loadScript (moduleMap + chains) —
   // precached so first offline open of these views still works

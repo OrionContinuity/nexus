@@ -281,7 +281,7 @@
   box-shadow: 0 0 0 2px var(--nx-bg), 0 0 6px rgba(212, 164, 78, 0.45);
 }
 .eq-lc-dot.is-missing {
-  background: var(--nx-gold);
+  background: #b58fd6;   /* v296 — match the purple .eq-lc-pill.is-missing (was gold, mislabeling the "missing" state) */
   box-shadow: 0 0 0 2px var(--nx-bg);
   opacity: 0.6;
 }
