@@ -6237,12 +6237,9 @@ Thanks for your help sorting this out.`;
     if (catalogState && Array.isArray(catalogState.pendingSections)) {
       catalogState.pendingSections.forEach(s => knownSections.add(s));
     }
-    const datalistId = 'sectionList-' + (isNew ? 'new' : esc(item.id));
-    const datalistHTML = knownSections.size ? `
-      <datalist id="${datalistId}">
-        ${Array.from(knownSections).sort().map(s => `<option value="${esc(s)}">`).join('')}
-      </datalist>
-    ` : '';
+    // v296 cleanup: the old free-text section field used a <datalist>; the
+    // field is now a <select> (built from knownSections below), so the
+    // datalist markup is gone.
     return `
       <div class="ord-vitem-row ord-vitem-editing" data-item-id="${esc(item.id)}">
         <div class="ord-form-field">
@@ -6395,18 +6392,8 @@ Thanks for your help sorting this out.`;
       btn.addEventListener('click', () => toggleCollapseSection(btn.dataset.section));
     });
 
-    // ─── Item move (up/down arrows on each row) ───────────────────────
-    // Always-visible reorder controls. Stop propagation so these don't
-    // also fire the ved-item-tap edit handler.
-    list.querySelectorAll('.ved-item-move-btn[data-row-move]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        e.preventDefault();
-        const dir = btn.dataset.rowMove;
-        const itemId = btn.dataset.itemId;
-        if (itemId && (dir === 'up' || dir === 'down')) moveItemByOne(itemId, dir);
-      });
-    });
+    // (v294 removed the per-row up/down move-stack — reordering is now the
+    // drag handle. moveItemByOne is still used by the edit-form move buttons.)
 
     // ─── v18.28 — Inline par stepper (+/-) ─────────────────────────────
     // Updates default_par_qty without opening the full edit form.
@@ -7178,13 +7165,6 @@ Thanks for your help sorting this out.`;
     }
   }
 
-
-  /* CSS.escape polyfill — kept for any future selector that needs the
-   * actual section name. Not used by the simplified .is-dragging path. */
-  function cssEsc(s) {
-    if (typeof CSS !== 'undefined' && CSS.escape) return CSS.escape(s);
-    return String(s).replace(/[^a-zA-Z0-9_-]/g, ch => '\\' + ch);
-  }
 
   /* ── Persist item reorder ────────────────────────────────────────
    * Walks the final liveOrder and writes the new sort_order (and
