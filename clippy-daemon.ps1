@@ -208,15 +208,34 @@ function Invoke-Supervisor {
   Log "[supervise] up - parent=$ParentPid, self-heal every ${UpdateEveryMin}m, code $(Get-SelfCodeVer)" 'Cyan'
   $lastUpd = Get-Date
   $lastPeerCheck = Get-Date
+  # deep-logging + crash-loop guard (2026-07: an unstable worker was respawning every 30s and
+  # stealing focus off Alfredo's fullscreen game). Track restarts; back off if it crash-loops.
+  $wRestarts = @(); $wBackoffUntil = $null; $loopN = 0
   while ($true) {
+    $loopN++
     if ($ParentPid -gt 0 -and -not (Get-Process -Id $ParentPid -EA SilentlyContinue)) {
       Log "[supervise] master (pid $ParentPid) exited - stopping worker" 'Yellow'
       Stop-WorkerProc
       break
     }
     if (-not (Get-WorkerProc)) {
-      Log "[supervise] worker down - (re)starting" 'Yellow'
-      Start-WorkerProc | Out-Null
+      $nowT = Get-Date
+      if ($wBackoffUntil -and $nowT -lt $wBackoffUntil) {
+        if ($loopN % 4 -eq 0) { Log "[supervise] worker crash-looping - in backoff until $($wBackoffUntil.ToString('HH:mm:ss')); not restarting (keeps focus off the game)" 'Red' }
+      } else {
+        $wRestarts = @($wRestarts | Where-Object { ($nowT - $_).TotalMinutes -lt 5 }) + $nowT
+        $errTail = ''
+        try { $errTail = ((Get-Content (Join-Path $env:USERPROFILE '.clippy\worker.err.log') -Tail 2 -EA SilentlyContinue) -join ' | ') } catch {}
+        Log "[supervise] worker down - restart #$($wRestarts.Count)/5m | last err: $errTail" 'Yellow'
+        Start-WorkerProc | Out-Null
+        if ($wRestarts.Count -ge 4) {
+          $wBackoffUntil = $nowT.AddMinutes(3)
+          Log "[supervise] worker CRASH-LOOPING ($($wRestarts.Count)x in 5m) - backing off restarts until $($wBackoffUntil.ToString('HH:mm:ss')). Inspect ~/.clippy/worker.err.log" 'Red'
+        }
+      }
+    } elseif ($wRestarts.Count -gt 0) {
+      Log "[supervise] worker stable again - clearing crash-loop state" 'Green'
+      $wRestarts = @(); $wBackoffUntil = $null
     }
     if (Test-Path (Join-Path $env:USERPROFILE '.clippy\pet-off')) {
       # User chose Quit from the tray. Honour it: stop the pet if it's up and don't
@@ -237,6 +256,7 @@ function Invoke-Supervisor {
     if ($peerNewer -or ((Get-Date) - $lastUpd).TotalMinutes -ge $UpdateEveryMin) {
       $lastUpd = Get-Date
       $u = Update-NodeFromGitHub
+      Log "[update] github check - worker=$($u.worker) daemon=$($u.daemon) pet=$($u.pet)" 'DarkGray'
       if ($u.daemon) {
         # The daemon itself changed - apply it by relaunching through the updater
         # (it kills leftovers and starts a fresh supervisor from the new file),
@@ -257,6 +277,13 @@ function Invoke-Supervisor {
         Start-Sleep -Seconds 2
         Start-PetProc | Out-Null
       }
+    }
+    # deep heartbeat every ~5 min: proves the loop is alive and captures node state for post-mortems
+    if ($loopN % 10 -eq 1) {
+      $wp = (Get-WorkerProc | Select-Object -First 1).ProcessId
+      $pp = (Get-PetProc | Select-Object -First 1).ProcessId
+      $freeMB = 0; try { $freeMB = [int]((Get-CimInstance Win32_OperatingSystem -EA SilentlyContinue).FreePhysicalMemory / 1024) } catch {}
+      Log "[loop $loopN] alive | worker=$(if($wp){"pid $wp"}else{'DOWN'}) | pet=$(if($pp){"pid $pp"}else{'DOWN'}) | freeMem=${freeMB}MB | last update $([int]((Get-Date)-$lastUpd).TotalMinutes)m ago" 'DarkGray'
     }
     Start-Sleep -Seconds 30
   }
