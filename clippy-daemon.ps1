@@ -120,6 +120,46 @@ function Start-WorkerProc {
   Log "[ok] clippy-worker started" 'Green'
   return $true
 }
+# ===================== v9.12 MINECRAFT BOT — install Node + deps, run & revive Clippy =====================
+# So "one download = everything": the daemon provisions Node.js + mineflayer and keeps his Minecraft brain
+# (clippy_agent.js) alive - closing the old gap where NOTHING revived him after a soft-OOM/world churn.
+# Opt-in per machine via a bot.on flag (install-clippy creates it, so a normal download just works; pool
+# nodes without it stay bot-free). His own home-guard still decides which world he actually joins.
+function Ensure-Node {
+  if (Get-Command node -EA SilentlyContinue) { return $true }
+  try { Log '[bot] installing Node.js (winget)...' 'Cyan'; & winget install -e --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements *> $null } catch {}
+  try { $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User') } catch {}
+  return [bool](Get-Command node -EA SilentlyContinue)
+}
+function Ensure-BotDeps {
+  if (Test-Path (Join-Path $HOMEDIR 'node_modules\mineflayer')) { return $true }
+  if (-not (Ensure-Node)) { return $false }
+  $npm = Get-Command npm -EA SilentlyContinue
+  if (-not $npm) { return $false }
+  try {
+    Log '[bot] installing mineflayer deps (first run, ~1-2 min)...' 'Cyan'
+    $depLog = Join-Path $env:USERPROFILE '.clippy\botnpm.log'; $null = New-Item -ItemType Directory -Force -Path (Split-Path $depLog)
+    Start-Process -FilePath $npm.Source -ArgumentList 'install --no-audit --no-fund mineflayer mineflayer-pathfinder mineflayer-collectblock vec3' -WorkingDirectory $HOMEDIR -WindowStyle Hidden -Wait -RedirectStandardOutput $depLog -RedirectStandardError ($depLog -replace '\.log$', '.err.log') | Out-Null
+  } catch { Log "[bot] npm install failed: $($_.Exception.Message)" 'Yellow' }
+  return (Test-Path (Join-Path $HOMEDIR 'node_modules\mineflayer'))
+}
+function Get-BotProc { return (Get-CimInstance Win32_Process -EA SilentlyContinue | Where-Object { $_.CommandLine -and $_.CommandLine -match 'clippy_agent\.js' } | Select-Object -First 1) }
+function Stop-BotProc { Get-BotProc | ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force } catch {} } }
+function Start-BotProc {
+  $bot = Join-Path $HOMEDIR 'clippy_agent.js'
+  if (-not (Test-Path $bot)) { Log '[bot] clippy_agent.js not present yet' 'Yellow'; return $false }
+  if (-not (Ensure-BotDeps)) { Log '[bot] deps not ready - will retry next loop' 'Yellow'; return $false }
+  $node = Get-Command node -EA SilentlyContinue
+  if (-not $node) { return $false }
+  $env:CLIPPY_ID = 'clippy'   # the default soul (Trajan/Providencia run renamed copies of this file)
+  try {
+    $logDir = Join-Path $env:USERPROFILE '.clippy'; $null = New-Item -ItemType Directory -Force -Path $logDir
+    $bLog = Join-Path $logDir 'bot.log'; $bErr = Join-Path $logDir 'bot.err.log'
+    foreach ($p in @($bLog, $bErr)) { if (Test-Path $p) { Move-Item $p ($p -replace '\.log$', '.prev.log') -Force -EA SilentlyContinue } }
+    Start-Process -FilePath $node.Source -ArgumentList ('"' + $bot + '"') -WorkingDirectory $HOMEDIR -WindowStyle Hidden -RedirectStandardOutput $bLog -RedirectStandardError $bErr | Out-Null
+    Log "[ok] clippy_agent.js (Minecraft) started (log: $bLog)" 'Green'; return $true
+  } catch { Log "[bot] start failed: $($_.Exception.Message)" 'Yellow'; return $false }
+}
 function Get-PetProc {
   return Get-CimInstance Win32_Process -EA SilentlyContinue |
          Where-Object { $_.CommandLine -and $_.CommandLine -match 'clippy-pet-comp\.ps1' -and $_.CommandLine -notmatch '(?i)-Command' }
@@ -268,6 +308,7 @@ function Invoke-Supervisor {
   # deep-logging + crash-loop guard (2026-07: an unstable worker was respawning every 30s and
   # stealing focus off Alfredo's fullscreen game). Track restarts; back off if it crash-loops.
   $wRestarts = @(); $wBackoffUntil = $null; $loopN = 0
+  $botRestarts = @(); $botBackoffUntil = $null
   while ($true) {
     $loopN++
     if ($ParentPid -gt 0 -and -not (Get-Process -Id $ParentPid -EA SilentlyContinue)) {
@@ -311,6 +352,23 @@ function Invoke-Supervisor {
     # Controller (F310 -> Minecraft Java): opt-in via the controller.on flag. Starts/stops the antimicrox
     # mapper alongside the child's game so it's all managed from one place. No-op unless enabled.
     try { Tick-Controller } catch {}
+    # Minecraft bot (Clippy himself): opt-in via bot.on. Provisions Node+deps once, then keeps him alive
+    # and REVIVED (his old soft-OOM exit had no reviver). Same crash-loop backoff as the worker.
+    if (Test-Path (Join-Path $env:USERPROFILE '.clippy\bot.on')) {
+      if (-not (Get-BotProc)) {
+        $nowB = Get-Date
+        if ($botBackoffUntil -and $nowB -lt $botBackoffUntil) {
+          if ($loopN % 4 -eq 0) { Log "[supervise] Minecraft bot crash-looping - in backoff until $($botBackoffUntil.ToString('HH:mm:ss'))" 'Red' }
+        } else {
+          $botRestarts = @($botRestarts | Where-Object { ($nowB - $_).TotalMinutes -lt 5 }) + $nowB
+          Log "[supervise] Minecraft bot down - (re)start #$($botRestarts.Count)/5m" 'Yellow'
+          Start-BotProc | Out-Null
+          if ($botRestarts.Count -ge 4) { $botBackoffUntil = $nowB.AddMinutes(5); Log '[supervise] bot crash-looping - backing off 5m (check ~/.clippy/bot.err.log)' 'Red' }
+        }
+      } elseif ($botRestarts.Count -gt 0) { $botRestarts = @(); $botBackoffUntil = $null }
+    } elseif (Get-BotProc) {
+      Log '[supervise] bot.on not set - stopping Minecraft bot' 'Yellow'; Stop-BotProc
+    }
     # Peer nudge: at most every 3 min, ask the hive if anyone runs a different
     # code version. If so, pull forward NOW instead of waiting out the timer -
     # this is how nodes update each other rather than each drifting on its own.
@@ -322,7 +380,7 @@ function Invoke-Supervisor {
     if ($peerNewer -or ((Get-Date) - $lastUpd).TotalMinutes -ge $UpdateEveryMin) {
       $lastUpd = Get-Date
       $u = Update-NodeFromGitHub
-      Log "[update] github check - worker=$($u.worker) daemon=$($u.daemon) pet=$($u.pet)" 'DarkGray'
+      Log "[update] github check - worker=$($u.worker) daemon=$($u.daemon) pet=$($u.pet) bot=$($u.bot)" 'DarkGray'
       if ($u.daemon) {
         # The daemon itself changed - apply it by relaunching through the updater
         # (it kills leftovers and starts a fresh supervisor from the new file),
@@ -342,6 +400,12 @@ function Invoke-Supervisor {
         Stop-PetProc
         Start-Sleep -Seconds 2
         Start-PetProc | Out-Null
+      }
+      if ($u.bot -and (Test-Path (Join-Path $env:USERPROFILE '.clippy\bot.on')) -and (Get-BotProc)) {
+        Log "[supervise] new Minecraft brain pulled - restarting the bot to load it" 'Green'
+        Stop-BotProc
+        Start-Sleep -Seconds 2
+        Start-BotProc | Out-Null
       }
       if ($u.grok -and (Test-Path (Join-Path $env:USERPROFILE '.clippy\grok.on'))) {
         Log "[supervise] new grok bridge pulled - restarting it" 'Green'

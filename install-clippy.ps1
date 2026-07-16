@@ -69,6 +69,16 @@ if ($got -lt 2) {
   return
 }
 
+# 2b. Enable his Minecraft self so a plain download runs EVERYTHING. The daemon
+#     will provision Node.js + mineflayer and keep the bot alive. Delete
+#     %USERPROFILE%\.clippy\bot.on on a pool/render-only node if you don't want it.
+try {
+  $flagDir = Join-Path $env:USERPROFILE '.clippy'
+  $null = New-Item -ItemType Directory -Force -Path $flagDir
+  New-Item -ItemType File -Force -Path (Join-Path $flagDir 'bot.on') -EA SilentlyContinue | Out-Null
+  Say '  [ok] Minecraft bot enabled — daemon will install Node + mineflayer and run Clippy.' 'Green'
+} catch {}
+
 # 3. Hand over to the daemon — IT is the installer ---------------------------
 Say ''
 Say '  handing over to clippy-daemon (provisions tools incl. Claude Code,' 'Cyan'
