@@ -173,6 +173,28 @@ CLAUDE_BIN = None if os.environ.get("CLIPPY_NO_CLAUDE", "") == "1" else _find_cl
 HAS_CLAUDE = bool(CLAUDE_BIN)   # binary present — NOT proof the login is live (see _claude_healthy)
 CLAUDE_TIMEOUT_S = int(os.environ.get("CLIPPY_CLAUDE_TIMEOUT_S", "150"))
 
+
+def _ensure_claude_bin():
+    """CLAUDE_BIN is resolved ONCE at import — but a node very often installs and
+    logs into Claude WHILE the worker is already running (the installer does
+    exactly this: provision Claude, THEN `claude /login`). Without re-resolving,
+    such a node keeps advertising claude:false until its next respawn — the bug
+    seen on the companion laptops 2026-07-16 (re-ran installer, logged in, still
+    false on the bus). Re-resolve lazily while we still have nothing, so a fresh
+    install/login flips the node to claude:true within one health cycle — no
+    worker restart needed."""
+    global CLAUDE_BIN, HAS_CLAUDE, _claude_ok_ts
+    if CLAUDE_BIN:
+        return CLAUDE_BIN
+    if os.environ.get("CLIPPY_NO_CLAUDE", "") == "1":
+        return None
+    found = _find_claude()
+    if found:
+        CLAUDE_BIN = found
+        HAS_CLAUDE = True
+        _claude_ok_ts = 0.0   # newly found — probe the login NOW, don't wait out a stale cache
+    return CLAUDE_BIN
+
 # ─── worker-2.1: CLAUDE = AUTH HEALTH, not binary presence ───────────────────
 # HAS_CLAUDE only says "the binary is on disk". A node whose subscription login
 # has LAPSED still had the binary — so it advertised Claude, took every text
@@ -194,7 +216,7 @@ def _claude_auth_ok():
     caches the answer for CLAUDE_HEALTH_TTL_S so heartbeats don't re-probe. Any
     failure → treated as not-logged-in (Ollama serves instead). Best-effort."""
     global _claude_ok, _claude_ok_ts, _claude_unhealthy_until
-    if not CLAUDE_BIN:
+    if not _ensure_claude_bin():
         return False
     now = time.time()
     # Fresh cache → reuse it (set ts BEFORE the subprocess so a concurrent caller
@@ -209,7 +231,7 @@ def _claude_auth_ok():
         proc = subprocess.run(
             args, input="ok", capture_output=True, text=True,
             encoding="utf-8", errors="replace",
-            timeout=int(os.environ.get("CLIPPY_CLAUDE_PROBE_S", "15")),
+            timeout=int(os.environ.get("CLIPPY_CLAUDE_PROBE_S", "25")),
             cwd=_claude_cwd(), creationflags=_NO_WINDOW,
         )
         _claude_ok = (proc.returncode == 0 and bool((proc.stdout or "").strip()))
@@ -224,7 +246,7 @@ def _claude_healthy():
     """True only when Claude can serve RIGHT NOW: binary present, not inside a
     lapse cooldown, and the cached auth probe is good. This — not raw HAS_CLAUDE
     — gates advertising Claude and routing text jobs to it."""
-    if not CLAUDE_BIN:
+    if not _ensure_claude_bin():
         return False
     if time.time() < _claude_unhealthy_until:
         return False
