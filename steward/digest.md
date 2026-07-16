@@ -145,8 +145,8 @@ All fresh-session-per-fire, notifications off, bound by the laws:
 - **Cloud brain fallback:** `clippy-brain` edge function (Anthropic key server-side) → LLM available even when the PC pool is asleep. Order: PC pool → cloud brain → direct key → soft error.
 
 ## DEPLOY PATTERN (muscle memory)
-- Work on branch `claude/vendor-addition-function-ikngsy`. Commit. `git push -u origin <branch>`, then `git push origin <branch>:main` (Pages serves main). **NEVER `git checkout main`** (local main is a divergent stale snapshot → "unrelated histories").
-- Every web deploy: bump `sw.js` `CACHE_NAME` (currently `nexus-v272-hideaway`). clippy.js/clippy.css have NO `?v=` stamp — the SW cache bump busts them. `.ps1`/worker files are pulled by the node from GitHub raw (not web assets).
+- Work on the session's `claude/*` branch (this arc: `claude/nexus-agents-investigation-fhogse`). Commit. `git push -u origin <branch>`, then `git push origin <branch>:main` (Pages serves main). **NEVER `git checkout main`** (local main is a divergent stale snapshot → "unrelated histories").
+- Every web deploy: bump `sw.js` `CACHE_NAME` (currently `nexus-v306-two-nx-invpn`; `SW_VERSION` now derives from it — single source of truth). clippy.js/clippy.css have NO `?v=` stamp — the SW cache bump busts them. `.ps1`/worker files are pulled by the node from GitHub raw (not web assets).
 - Always `node --check` touched JS; run the boot smoke (scratchpad/boot-smoke.cjs, `NODE_PATH=/opt/node22/lib/node_modules PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`). Harnesses live in the scratchpad.
 - git identity for verified commits: `user.email noreply@anthropic.com`, `user.name Claude` (set). No signing key here, so GitHub shows "Unverified" regardless — cosmetic.
 
@@ -157,6 +157,12 @@ All fresh-session-per-fire, notifications off, bound by the laws:
 - The local sandbox Bash CANNOT reach supabase.co or CDNs; its classifier DENIES python that computes an HMAC for a remote command (reads as malicious) — that's WHY signing in-DB via pgcrypto is correct. `py_compile` is also denied; use `ast.parse` to syntax-check python.
 - Supabase MCP sometimes 502s / the permission stream sometimes drops — just retry.
 - The pet loads `github.io/nexus/clippy-pet.html` → js/clippy.js, so a clippy.js change needs a **pet restart** (kill clippy-pet-comp.ps1; the supervisor revives it) and WebView2 may still serve cached JS for a few minutes.
+
+## HELD FOR ALFREDO'S DECISION (do NOT apply unasked)
+- **Clippy soul-RLS** — clippy_cloud_state/clippy_memories/clippy_sync are world-writable to the public anon key. Full analysis + 3 options in `docs/CLIPPY-SOUL-RLS-PROPOSAL.md`; recommended B (tighten WITH CHECK, no code change) now / A (signed edge-function write lane) later, paired with the reviver/KILLDESK live-PC pass. Hard constraint: the browser pet is public code and can't hold a secret.
+- **Cron jobs 7/8** (pattern-detect / weekly-reflect) target undeployed functions → 404 weekly. Drop or build — his call.
+- **loadNodes server-side scoping** + **bulk perf cleanup** (180 permissive policies, 138 unused indexes) — need DB sign-off; scoping could lock users out under the shared-anon-key model.
+- **PC verification** — the Clippy/daemon/controller/single-download work is staged but needs a live PC pass (F310 controller, one-download install, reviver). Alfredo cancelled the 4pm launch: "I will let you know."
 
 ## OPEN THREADS / WISHES
 - **Gaming companion + work buddy** (Alfredo's active wish). Clippy already IS a work buddy (MENS/MANUS ground him in the real restaurants) and has games + a leaderboard; grow the *companionship* — reactions during play, cheers, banter, presence. The Vigil + this memory are the substrate.
