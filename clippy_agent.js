@@ -3471,7 +3471,7 @@ async function companionEat() {
 // events (things the friend does + things that happen to IT), buffers them with a 1-10 priority,
 // and on a calm cooldown reacts holistically via the LLM (speech + optional commands), or stays
 // silent. Kind, child-safe voice is preserved (SYSTEM persona); it NEVER acts against the player.
-let _events = [], _lastAutoResp = 0, _senseTimer = null, _summTimer = null, _lastFood = 20
+let _events = [], _lastAutoResp = 0, _senseTimer = null, _summTimer = null, _lastFood = 20, _lastFriendMine = 0
 function pushEvent(pri, text) {
   if (!text) return
   _events.push({ t: Date.now(), p: Math.max(1, Math.min(10, pri || 3)), x: String(text).slice(0, 120) })
@@ -3482,7 +3482,10 @@ function startCompanionSense() {
   if (!bot._senseHooked) {
     bot._senseHooked = true
     try {
-      bot.on('playerCollect', function (c, i) { try { if (c && c.username && owner && c.username === owner) { let n = 'an item'; try { const d = i && i.getDroppedItem && i.getDroppedItem(); if (d && d.name) n = d.name.replace(/_/g, ' ') } catch (e) {} pushEvent(3, 'my friend picked up ' + n) } } catch (e) {} })
+      bot.on('playerCollect', function (c, i) { try { if (c && c.username && owner && c.username === owner) { let n = 'an item'; try { const d = i && i.getDroppedItem && i.getDroppedItem(); if (d && d.name) n = d.name.replace(/_/g, ' ') } catch (e) {} pushEvent(3, 'my friend picked up ' + n); feel({ affection: 2, excitement: 2 }) } } catch (e) {} })   // v9.12: he shares the little joy of watching his friend gather
+      // v9.12 FRIEND-PERCEPTION (from the AI-Companion mod's example_events): notice what his friend DOES,
+      // not only what happens to Clippy. Mineflayer is a client, so this is what he can reliably observe.
+      bot.on('blockBreakProgressObserved', function (block, stage, entity) { try { if (!owner || !entity || entity.username !== owner || !block) return; const now = Date.now(); if (now - _lastFriendMine < 15000) return; _lastFriendMine = now; pushEvent(3, 'my friend is mining ' + String(block.name || 'a block').replace(/_/g, ' ')); feel({ affection: 3, excitement: 2, curiosity: 2 }) } catch (e) {} })
       bot.on('entityHurt', function (e) { try { if (!e) return; if (e === bot.entity) pushEvent(8, 'I got hurt!'); else if (owner && e.username === owner) pushEvent(6, 'my friend got hurt!') } catch (e2) {} })
       bot.on('entityDead', function (e) { try { if (e && (e.mobType || e.name)) pushEvent(4, 'a ' + (e.name || e.mobType) + ' died') } catch (x) {} })
       bot.on('death', function () { try { pushEvent(10, 'I DIED and lost my things!') } catch (x) {} })
