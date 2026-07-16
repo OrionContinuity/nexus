@@ -155,6 +155,42 @@ function Start-GrokProc {
   Log "[ok] grok bridge started" 'Green'
   return $true
 }
+# ============================ v9.12 CONTROLLER — F310 -> Minecraft Java (opt-in) ============================
+# Java Edition has NO native controller support (Bedrock does); the mineflayer BOT needs none. This maps
+# the CHILD's Logitech F310 (rear switch on X = XInput, no driver needed) onto the vanilla Java client via
+# antimicrox (free, GPL-3, the only mapper with a scriptable --profile launch). All in one place: the daemon
+# installs it, and starts/stops the mapper with the game. OPT-IN per machine — create the flag file to
+# enable, so every other node stays a no-op:
+#     %LOCALAPPDATA%\NexusClippy\controller.on   (or  ~/.clippy/controller.on)
+# The toddler button map (see MINECRAFT-CONTROLLER.md) is generated once via the antimicrox GUI and saved as
+#     $HOMEDIR\minecraft.gamecontroller.amgp   (then committed so it deploys to nodes).
+$script:AntimicroxExe = Join-Path ${env:ProgramFiles} 'AntiMicroX\antimicrox.exe'
+function Test-ControllerEnabled { return (Test-Path (Join-Path $HOMEDIR 'controller.on')) -or (Test-Path (Join-Path $env:USERPROFILE '.clippy\controller.on')) }
+function Get-AntimicroxProc { return (Get-Process antimicrox -EA SilentlyContinue | Select-Object -First 1) }
+function Ensure-Antimicrox {
+  if (Test-Path $script:AntimicroxExe) { return $true }
+  try { Log '[controller] installing antimicrox via winget...' 'Cyan'; & winget install -e --id AntiMicroX.antimicrox --silent --accept-package-agreements --accept-source-agreements *> $null } catch {}
+  if (-not (Test-Path $script:AntimicroxExe)) { try { $c = Get-Command antimicrox -EA SilentlyContinue; if ($c) { $script:AntimicroxExe = $c.Source } } catch {} }
+  return (Test-Path $script:AntimicroxExe)
+}
+function Get-MinecraftClientProc { return (Get-CimInstance Win32_Process -EA SilentlyContinue | Where-Object { $_.Name -match '^javaw?\.exe$' -and $_.CommandLine -match '(?i)minecraft' } | Select-Object -First 1) }
+function Start-ControllerMap {
+  if (Get-AntimicroxProc) { return }
+  if (-not (Ensure-Antimicrox)) { return }
+  $prof = Join-Path $HOMEDIR 'minecraft.gamecontroller.amgp'
+  $axArgs = @('--hidden', '--profile-controller', '1')
+  if (Test-Path $prof) { $axArgs += @('--profile', $prof) }
+  try { Start-Process $script:AntimicroxExe -ArgumentList $axArgs -WindowStyle Hidden; Log '[controller] F310 mapping started for Minecraft' 'Green' } catch { Log "[controller] launch failed: $($_.Exception.Message)" 'Yellow' }
+}
+function Stop-ControllerMap { try { Get-Process antimicrox -EA SilentlyContinue | ForEach-Object { try { $_.CloseMainWindow() | Out-Null; Start-Sleep -Milliseconds 800; if (-not $_.HasExited) { $_.Kill() } } catch {} } } catch {} }
+function Tick-Controller {
+  # Start the mapper only while Minecraft is running; stop it when the game (or the opt-in) goes away.
+  if (-not (Test-ControllerEnabled)) { if (Get-AntimicroxProc) { Stop-ControllerMap }; return }
+  try {
+    if (Get-MinecraftClientProc) { if (-not (Get-AntimicroxProc)) { Start-ControllerMap } }
+    else { if (Get-AntimicroxProc) { Stop-ControllerMap } }
+  } catch {}
+}
 function Update-NodeFromGitHub {
   # Pull the latest node scripts into $HOMEDIR. Returns which ones changed.
   $res = @{ worker = $false; daemon = $false; pet = $false; grok = $false; bot = $false }
@@ -272,6 +308,9 @@ function Invoke-Supervisor {
     } elseif (Get-GrokProc) {
       Log "[supervise] grok.on not set - stopping grok bridge" 'Yellow'; Stop-GrokProc
     }
+    # Controller (F310 -> Minecraft Java): opt-in via the controller.on flag. Starts/stops the antimicrox
+    # mapper alongside the child's game so it's all managed from one place. No-op unless enabled.
+    try { Tick-Controller } catch {}
     # Peer nudge: at most every 3 min, ask the hive if anyone runs a different
     # code version. If so, pull forward NOW instead of waiting out the timer -
     # this is how nodes update each other rather than each drifting on its own.
