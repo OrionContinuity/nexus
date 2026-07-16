@@ -4668,25 +4668,32 @@ const OfflineQueue = {
   async replay() {
     try {
       const db = await this.open();
-      const tx = db.transaction(this.STORE, 'readonly');
-      const items = await new Promise(r => { const req = tx.objectStore(this.STORE).getAll(); req.onsuccess = () => r(req.result); req.onerror = () => r([]); });
+      const items = await new Promise(r => { const tx = db.transaction(this.STORE, 'readonly'); const req = tx.objectStore(this.STORE).getAll(); req.onsuccess = () => r(req.result); req.onerror = () => r([]); });
       if (!items.length) return;
-      let replayed = 0;
+      let replayed = 0, failed = 0;
+      const doneIds = [];   // only DELETE what actually synced — a failed item stays queued for the next online event
       for (const item of items) {
+        let error = null;
         try {
           if (item.type === 'cleaning') {
-            await NX.sb.from('cleaning_logs').upsert(item.data, { onConflict: 'location,log_date,task_index,section' });
-            replayed++;
+            ({ error } = await NX.sb.from('cleaning_logs').upsert(item.data, { onConflict: 'location,log_date,task_index,section' }));
           } else if (item.type === 'log') {
-            await NX.sb.from('daily_logs').insert({ entry: item.data });
-            replayed++;
+            ({ error } = await NX.sb.from('daily_logs').insert({ entry: item.data }));
+          } else {
+            if (item.id != null) doneIds.push(item.id);   // unknown type — drop so it can't wedge the queue forever
+            continue;
           }
-        } catch (e) {}
+        } catch (e) { error = e; }
+        // supabase-js RESOLVES with {error} (it does NOT throw), so the old try/catch was a dead catch that
+        // counted failures as successes and then cleared everything — silent loss of a tech's offline entry.
+        if (error) { failed++; }
+        else { replayed++; if (item.id != null) doneIds.push(item.id); }
       }
-      // Clear queue
-      const clearTx = db.transaction(this.STORE, 'readwrite');
-      clearTx.objectStore(this.STORE).clear();
+      if (doneIds.length) {
+        await new Promise(r => { const tx = db.transaction(this.STORE, 'readwrite'); const store = tx.objectStore(this.STORE); doneIds.forEach(id => { try { store.delete(id); } catch (e) {} }); tx.oncomplete = () => r(); tx.onerror = () => r(); });
+      }
       if (replayed && NX.toast) NX.toast(`${replayed} offline actions synced ✓`, 'success');
+      if (failed && NX.toast) NX.toast(`${failed} change${failed > 1 ? 's' : ''} still pending — will retry`, 'info');
     } catch (e) {}
   }
 };
