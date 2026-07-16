@@ -2977,15 +2977,16 @@ async function localBrainUrl() {
   return _brainRoster.url
 }
 function _brainMark(src) { try { if (know._brainSrc !== src) { know._brainSrc = src; journal('brain', 'thinking via ' + src, {}) } } catch (e) {} }
-async function brainCall(u, maxTokens) {
+async function brainCall(u, maxTokens, sysOverride) {
+  const sys = sysOverride || SYSTEM   // v9.12: optional system override (used by the planner) — defaults to his persona
   try {
     const url = await localBrainUrl()
     if (url) {
-      const r = await withTimeout(fetch(url + '/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: u, system: SYSTEM || undefined, timeout: 60 }) }), LOCAL_BRAIN_MS)
+      const r = await withTimeout(fetch(url + '/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: u, system: sys || undefined, timeout: 60 }) }), LOCAL_BRAIN_MS)
       if (r.ok) { const d = await r.json().catch(() => null); const t = d && (d.reply || d.text); if (t) { _brainMark(IDENT.brainNode); return String(t).replace(/\n+/g, ' ').trim() } }
     }
   } catch (e) { try { know.lastBrainErr = String((e && e.message) || e).slice(0, 60) } catch (x) {} }
-  const r = await fetch(BRAIN, { method: 'POST', headers: H, body: JSON.stringify({ system: SYSTEM, user: u, max_tokens: maxTokens || 50 }) }); const d = await r.json().catch(() => null); _brainMark('cloud'); return d && d.text ? String(d.text).replace(/\n+/g, ' ').trim() : null
+  const r = await fetch(BRAIN, { method: 'POST', headers: H, body: JSON.stringify({ system: sys, user: u, max_tokens: maxTokens || 50 }) }); const d = await r.json().catch(() => null); _brainMark('cloud'); return d && d.text ? String(d.text).replace(/\n+/g, ' ').trim() : null
 }
 async function brainReply(u) { if (brainBusy) return; brainBusy = true; try { await sleep(700 + Math.random() * 1800); const gl = groundLine(); const t = await brainCall('Little one said:\n' + chatlog.slice(-4).join('\n') + '\nWorld right now: ' + (know.lastSeen || perceive()) + (gl ? '\n' + gl : '') + '\nAnswer ' + u + ' in ONE short kind line.'); if (t) say(t.slice(0, 120), true) } catch (e) {} setTimeout(() => { brainBusy = false }, 2500) }
 async function brainSay(u) { if (brainBusy) return; brainBusy = true; try { const t = await brainCall(u); if (t) say(t.slice(0, 120), true) } catch (e) {} setTimeout(() => { brainBusy = false }, 2500) }
@@ -3247,13 +3248,14 @@ function companionMenu() {
     'BUILD: <build thing=house|camp|shelter|tower|castle|garden|rainbow|pen|base|village|pyramid|pagoda>',
     'FIGHT (never the player): <kill mob=zombie|skeleton|spider|creeper|cow|pig|chicken|sheep>',
     'ITEMS: <give item=NAME count=N> · <place item=NAME x=.. y=.. z=..> · <eat> · <armour>',
+    'PLAN a big job into ordered steps: <do task="chop a tree and bring me the wood"> (I break it into my own commands)',
     'PLAY: <dance> · <dream> · <sleep>',
     'STATE: <goal text=...> · <mood text=happy|excited|scared|proud|sleepy> · <remember key=.. value=..> · <remember_location label=.. coord=[x,y,z]>',
     'Use only what fits; often none is needed — just talk. NEVER claim to do something without appending its command.'
   ].join('\n')
 }
 // strip <...> commands out of the spoken text and return them as parsed actions
-function parseCompanionActions(text) {
+function parseCompanionActions(text, max) {
   const actions = []
   const speech = String(text || '').replace(/<[^>]*>/g, function (m) {
     const inner = m.slice(1, -1).trim()
@@ -3264,11 +3266,11 @@ function parseCompanionActions(text) {
     const args = {}
     const argRe = /([a-zA-Z_]+)=(.*?)(?=\s+[a-zA-Z_]+=|$)/g
     let mm
-    while ((mm = argRe.exec(rest))) { args[mm[1].toLowerCase()] = mm[2].trim() }
+    while ((mm = argRe.exec(rest))) { args[mm[1].toLowerCase()] = mm[2].trim().replace(/^["']|["']$/g, '') }   // strip surrounding quotes (planner tasks may be quoted)
     if (cmd) actions.push({ cmd: cmd, args: args })
     return ''
   }).replace(/\s{2,}/g, ' ').trim()
-  return { speech: speech, actions: actions.slice(0, 6) }   // cap the burst
+  return { speech: speech, actions: actions.slice(0, max || 6) }   // cap the burst (planner passes a higher max)
 }
 async function companionRespond(username, message) {
   if (_cmpBusy || !bot || !bot.entity) return
@@ -3289,6 +3291,29 @@ async function companionRespond(username, message) {
     if (parsed.actions.length) journal('companion-act', 'llm: ' + parsed.actions.map(function (a) { return a.cmd }).join(','), {})
   } catch (e) { try { jerr('companion: ' + (e && e.message)) } catch (x) {} }
   finally { setTimeout(function () { _cmpBusy = false }, 1500) }
+}
+// v9.12 PLANNER (ported from the AI-Companion action module): turn a high-level task into an
+// ORDERED chain of his REAL runnable verbs. This is the bridge that makes his learned skills
+// executable — the planner's vocabulary IS his skill set, dispatched through execCompanionAction.
+async function companionPlan(task) {
+  if (!bot || !bot.entity || !task) return
+  const caps = '<path_to block=ID> <chop count=N> <mine block=ID count=N> <craft item=ID count=N> ' +
+    '<build thing=KEY> <place item=ID x=.. y=.. z=..> <give item=ID count=N> <kill mob=NAME> ' +
+    '<come> <wait> <eat> <armour> <jump>'
+  const sys = 'You are the action-planner for a kind, child-safe Minecraft helper. Turn the task into an ' +
+    'ORDERED list of commands using ONLY this grammar and valid minecraft ids: ' + caps + '. ' +
+    'Chain steps naturally, e.g. <path_to block=oak_log> <chop count=5> <come> <give item=oak_log count=5>. ' +
+    'Never target the player. Output ONLY the commands, nothing else. If the task is impossible or unkind, output nothing.'
+  const u = 'Task: ' + String(task).slice(0, 160) + '\nYour bag: ' + invSummary() +
+    '\nWhat you see: ' + String(know.lastSeen || perceive()).slice(0, 120) +
+    '\nSkills you know: ' + ((skills.learned || []).slice(-12).join(', ') || 'the basics')
+  let t
+  try { t = await brainCall(u, 220, sys) } catch (e) { return }
+  if (!t) return
+  const parsed = parseCompanionActions(t, 12)   // plans are longer than a conversational burst
+  if (!parsed.actions.length) return
+  journal('companion-plan', task + ' => ' + parsed.actions.map(function (a) { return a.cmd }).join(','), {})
+  for (const a of parsed.actions) queueTask(function () { return execCompanionAction(a).catch(function () {}) })
 }
 // dispatch one parsed action to an existing (guarded) skill
 async function execCompanionAction(a) {
@@ -3313,6 +3338,7 @@ async function execCompanionAction(a) {
       break
     }
     case 'craft': case 'craft_item': case 'make': { const it = clean(g.item || g.thing || g.name); if (it) { try { await craftItem(it, N(g.count, 1)) } catch (e) {} } break }
+    case 'do': case 'plan': case 'task': await companionPlan(g.task || g.goal || g.text || g.job || ''); break
     case 'path_to': case 'path_to_block': await pathToNamed(clean(g.block || g.thing)); break
     case 'kill': case 'kill_mob': case 'attack': await killMob(clean(g.mob || g.target || 'zombie')); break
     case 'build': case 'place_structure': {
