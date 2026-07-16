@@ -973,6 +973,20 @@ const NX = {
           };
           waitForMod();
         }, 300);
+      } else if (urlParams.get('view')) {
+        // Notification / cold-open deep-link: ?view=<v> (with optional
+        // ?id=). Push notifications and email links point back as
+        // ...?view=board&id=1234 — after login, land the user directly on
+        // that view instead of Home. switchTo() already permission-gates
+        // denied views back to Home, so no extra guard is needed here. The
+        // entity id is stashed under the same key the in-app notification
+        // tap uses (see nx_notif_entity), for the target view to pick up.
+        const viewQr = urlParams.get('view');
+        const idQr = urlParams.get('id');
+        const cleanUrl = window.location.origin + window.location.pathname;
+        window.history.replaceState({}, '', cleanUrl);
+        if (idQr) { try { sessionStorage.setItem('nx_notif_entity', String(idQr)); } catch (_) {} }
+        setTimeout(() => { if (this.switchTo) this.switchTo(viewQr); }, 300);
       }
     } catch (e) {
       console.warn('[app] post-login equip redirect failed:', e);
@@ -1778,10 +1792,17 @@ td.check{background:#F0EDE6 !important}
         try { tpRef.call(window.NX.tr, savedLang, { root: activeView }).catch(() => {}); }
         catch(_) {}
       };
+      // Collapse rapid nav: every activation schedules TWO full-DOM passes,
+      // so tapping through views quickly stacks stale passes over the wrong
+      // view. Cancel any still-pending passes from a prior activation (timer
+      // handles hung on NX) before scheduling this view's, so only the
+      // latest view's two passes ever run.
+      clearTimeout(NX._retransT1);
+      clearTimeout(NX._retransT2);
       // First pass — catches initial render
-      setTimeout(fire, 400);
+      NX._retransT1 = setTimeout(fire, 400);
       // Second pass — catches async-loaded content (priority feed, etc.)
-      setTimeout(fire, 1500);
+      NX._retransT2 = setTimeout(fire, 1500);
     };
 
     if (view === 'brain') { 
@@ -2300,6 +2321,7 @@ td.check{background:#F0EDE6 !important}
         p_role: role,
         p_location: loc,
         p_language: lang,
+        p_actor_pin: this._sessionPin,
       });
       if (error) {
         if (error.code === '23505' || /duplicate|unique/i.test(error.message)) {
@@ -2815,7 +2837,7 @@ td.check{background:#F0EDE6 !important}
     try {
       // Phase B: nexus_users direct select is locked down. list_users()
       // RPC returns a JSON array via SECURITY DEFINER.
-      const { data, error } = await this.sb.rpc('list_users');
+      const { data, error } = await this.sb.rpc('list_users', { p_actor_pin: this._sessionPin });
       if (error || !data) return;
       el.innerHTML = data.map(u => {
         // v18.9 — show admin-assigned interest chips inline (max 3)
@@ -2846,7 +2868,7 @@ td.check{background:#F0EDE6 !important}
           if (!(await NX.confirm('Remove this user?', { danger: true, okLabel: 'Remove' }))) return;
           // Phase B: direct delete locked down. delete_user RPC runs
           // SECURITY DEFINER and returns true if a row was removed.
-          await this.sb.rpc('delete_user', { p_id: btn.dataset.id });
+          await this.sb.rpc('delete_user', { p_id: btn.dataset.id, p_actor_pin: this._sessionPin });
           this.loadUserList();
           this.loadPermsMatrix();
         });
@@ -2973,7 +2995,7 @@ td.check{background:#F0EDE6 !important}
       return;
     }
     try {
-      const { data, error } = await this.sb.rpc('list_users_with_perms');
+      const { data, error } = await this.sb.rpc('list_users_with_perms', { p_actor_pin: this._sessionPin });
       if (error || !data) {
         el.innerHTML = '<div style="color:var(--red);font-size:11px;padding:12px">Could not load permissions. Did you run permissions_phase_d.sql?</div>';
         return;
@@ -3099,6 +3121,7 @@ td.check{background:#F0EDE6 !important}
             const { data: ok, error } = await this.sb.rpc('update_user_permissions', {
               p_user_id: userId,
               p_permissions: newPerms,
+              p_actor_pin: this._sessionPin,
             });
             if (error || ok === false) throw error || new Error('update failed');
             // Update saved state to current → row is now clean

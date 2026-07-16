@@ -82,10 +82,11 @@
       const patch = { status: 'repaired', repaired_at: now };
       if (extras.invoiceUrl) { patch.invoice_url = extras.invoiceUrl; patch.invoice_received_at = now; }
       if (extras.cost) { patch.invoice_amount = extras.cost; patch.total_cost = extras.cost; }
-      await NX.sb.from('equipment_issues')
+      const { error } = await NX.sb.from('equipment_issues')
         .update(patch)
         .eq('equipment_id', equipmentId)
         .not('status', 'in', '(repaired,closed,resolved)');
+      if (error) NX.toast?.('Issue may not be marked repaired — ' + error.message, 'warn', 3600);
     } catch (_) {}
     // 2. The card rides to the board's DONE list (visible, not archived);
     //    the ticket mirror closes.
@@ -127,7 +128,10 @@
       const st = extras.restoreStatus || (card && card.prior_eq_status) || 'operational';
       const { error } = await NX.sb.from('equipment')
         .update({ status: st, status_note: null }).eq('id', equipmentId);
-      if (error) await NX.sb.from('equipment').update({ status: st }).eq('id', equipmentId);
+      if (error) {
+        const { error: err2 } = await NX.sb.from('equipment').update({ status: st }).eq('id', equipmentId);
+        if (err2) NX.toast?.('Equipment status may not be updated — ' + err2.message, 'warn', 3600);
+      }
     } catch (_) {}
     // 4. Audit trail, invoice attached
     try {
@@ -139,7 +143,8 @@
       };
       if (extras.invoiceUrl) { row.receipt_url = extras.invoiceUrl; row.photos = [extras.invoiceUrl]; }
       if (extras.cost) row.cost = extras.cost;
-      await NX.sb.from('equipment_maintenance').insert(row);
+      const { error } = await NX.sb.from('equipment_maintenance').insert(row);
+      if (error) console.warn('[workOrders] audit-trail insert failed:', error.message);
     } catch (_) {}
     try { if (NX.modules?.board?.reload) NX.modules.board.reload(); } catch (_) {}
     // Clippy celebrates a fixed machine (self-guarded: enabled/DND).

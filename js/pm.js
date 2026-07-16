@@ -339,7 +339,11 @@
   async function markScheduleDone(scheduleId) {
     const s = state.schedules.find(x => x.id === scheduleId);
     if (!s) return;
-    if (!confirm(`Mark "${s.title}" complete?\n\nThis creates a pm_log entry and advances the next due date by ${s.frequency_days} days.`)) return;
+    // themed dialogs mark themselves via confirm.__nx (core.js); native fallback
+    const sure = (NX.confirm && NX.confirm.__nx)
+      ? await NX.confirm(`Mark "${s.title}" complete? This creates a pm_log entry and advances the next due date by ${s.frequency_days} days.`, { okLabel: 'Mark complete' })
+      : confirm(`Mark "${s.title}" complete?\n\nThis creates a pm_log entry and advances the next due date by ${s.frequency_days} days.`);
+    if (!sure) return;
     if (!NX?.sb) return;
 
     // Single completion path — shared with the board's drag-to-Done
@@ -361,46 +365,88 @@
     renderPMView();
   }
 
+  // Single-unit PM creation via the themed sheet (was a native prompt() chain:
+  // pick-by-number → title → days → who). Same fields, same insert, same
+  // post-create hooks — just the themed modal pattern the rest of pm.js uses.
   async function createSchedule() {
     if (!NX?.sb) return;
     await loadEquipment();
-    if (!state.equipment.length) { alert('No equipment found.'); return; }
+    if (!state.equipment.length) { NX.toast('No equipment found.', 'error'); return; }
+    injectBulkStyles();
 
-    const eqOpts = state.equipment.map((e, i) => `${i + 1}. ${e.name} (${e.restaurant})`).join('\n');
-    const pick = prompt('Pick equipment by number:\n\n' + eqOpts);
-    if (pick === null) return;
-    const idx = parseInt(pick, 10) - 1;
-    if (isNaN(idx) || !state.equipment[idx]) { alert('Invalid pick.'); return; }
-    const eq = state.equipment[idx];
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:1000;display:flex;align-items:flex-end;justify-content:center';
 
-    const title = prompt('What is this PM? (e.g., "Hood cleaning", "Filter change")');
-    if (!title) return;
-    const freq = prompt('How often (in days)? (e.g., 30, 90, 180)');
-    const freqNum = parseInt(freq, 10);
-    if (isNaN(freqNum) || freqNum < 1) { alert('Invalid frequency.'); return; }
-    const assignedTo = prompt('Who handles this? (optional)') || null;
+    const eqRows = state.equipment.map(e => {
+      const meta = [e.restaurant, e.category].filter(Boolean).join(' · ') || '—';
+      return `<option value="${esc(e.id)}">${esc(e.name || 'Unnamed')} — ${esc(meta)}</option>`;
+    }).join('');
 
-    const { error } = await NX.sb.from('pm_schedules').insert({
-      equipment_id: eq.id,
-      title,
-      frequency_days: freqNum,
-      assigned_to: assignedTo,
-      active: true,
-    });
-    if (error) { alert('Failed: ' + error.message); return; }
-    NXRM.notify.bubble(`Bzzt — new PM schedule for ${eq.name}. Every ${freqNum} days.`,
-      { autoHide: 3500, eyebrow: '✓ SCHEDULED' });
+    overlay.innerHTML = `
+      <div class="pm-bulk-backdrop" style="position:absolute;inset:0;background:rgba(0,0,0,.5)"></div>
+      <div class="pm-bulk-sheet" style="position:relative;width:100%;max-width:560px;max-height:92vh;overflow-y:auto;background:var(--nx-surface-solid,#1b1b24);border:1px solid var(--nx-gold-line);border-radius:16px 16px 0 0;padding:20px 18px 28px">
+        <div style="font-size:18px;font-weight:700;color:var(--nx-text)">New PM schedule</div>
+        <div style="font-size:12.5px;color:var(--nx-muted);margin-bottom:6px">Schedule a recurring preventive-maintenance task for one unit.</div>
+        <label class="pm-bulk-lbl">Equipment</label>
+        <select id="pmcEq" class="pm-bulk-input">${eqRows}</select>
+        <label class="pm-bulk-lbl">Task</label>
+        <input id="pmcTitle" class="pm-bulk-input" placeholder="e.g. Hood cleaning, Filter change" autocomplete="off">
+        <div style="display:flex;gap:10px">
+          <div style="flex:1"><label class="pm-bulk-lbl">Every (days)</label>
+            <input id="pmcFreq" type="number" min="1" inputmode="numeric" class="pm-bulk-input" placeholder="e.g. 30, 90, 180"></div>
+          <div style="flex:1"><label class="pm-bulk-lbl">Who handles this <span style="text-transform:none;letter-spacing:0;opacity:.6">— optional</span></label>
+            <input id="pmcWho" class="pm-bulk-input" placeholder="vendor / person" autocomplete="off"></div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:16px">
+          <button id="pmcCancel" class="pm-bulk-btn-ghost">Cancel</button>
+          <button id="pmcSave" class="pm-bulk-btn-gold">Create</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
 
-    // If this schedule is already past due, create a board card now.
-    // Force the throttle since this is a deliberate user action.
-    if (NX.domain?.checkPMsDue) {
-      NX.domain.checkPMsDue({ force: true }).catch(e => {
-        console.warn('[pm createSchedule] checkPMsDue hook failed:', e);
+    const $ = s => overlay.querySelector(s);
+    const close = () => overlay.remove();
+    const saveBtn = $('#pmcSave');
+
+    $('.pm-bulk-backdrop').addEventListener('click', close);
+    $('#pmcCancel').addEventListener('click', close);
+
+    saveBtn.addEventListener('click', async () => {
+      const eq = state.equipment.find(e => String(e.id) === String($('#pmcEq').value));
+      const title = $('#pmcTitle').value.trim();
+      const freqNum = parseInt($('#pmcFreq').value, 10);
+      const assignedTo = $('#pmcWho').value.trim() || null;
+      if (!eq) { NX.toast('Pick a unit.', 'error'); return; }
+      if (!title) { $('#pmcTitle').focus(); $('#pmcTitle').style.borderColor = 'var(--nx-red)'; return; }
+      if (isNaN(freqNum) || freqNum < 1) { $('#pmcFreq').focus(); $('#pmcFreq').style.borderColor = 'var(--nx-red)'; NX.toast('Invalid frequency.', 'error'); return; }
+
+      saveBtn.disabled = true; saveBtn.textContent = 'Creating…';
+      const { error } = await NX.sb.from('pm_schedules').insert({
+        equipment_id: eq.id,
+        title,
+        frequency_days: freqNum,
+        assigned_to: assignedTo,
+        active: true,
       });
-    }
+      if (error) { NX.toast('Failed: ' + error.message, 'error'); saveBtn.disabled = false; saveBtn.textContent = 'Create'; return; }
 
-    await loadSchedules();
-    renderPMView();
+      close();
+      NXRM.notify.bubble(`Bzzt — new PM schedule for ${eq.name}. Every ${freqNum} days.`,
+        { autoHide: 3500, eyebrow: '✓ SCHEDULED' });
+
+      // If this schedule is already past due, create a board card now.
+      // Force the throttle since this is a deliberate user action.
+      if (NX.domain?.checkPMsDue) {
+        NX.domain.checkPMsDue({ force: true }).catch(e => {
+          console.warn('[pm createSchedule] checkPMsDue hook failed:', e);
+        });
+      }
+
+      await loadSchedules();
+      renderPMView();
+    });
+
+    requestAnimationFrame(() => $('#pmcTitle')?.focus());
   }
 
   // Bulk PM creation — pick a task + cadence once, then check every unit it
@@ -434,7 +480,7 @@
     if (!NX?.sb) return;
     await loadEquipment();
     await loadVendors();
-    if (!state.equipment.length) { alert('No equipment found.'); return; }
+    if (!state.equipment.length) { NX.toast('No equipment found.', 'error'); return; }
     injectBulkStyles();
 
     const sel = new Set();
@@ -550,7 +596,7 @@
         active: true,
       }));
       const { error } = await NX.sb.from('pm_schedules').insert(rowsToInsert);
-      if (error) { alert('Failed: ' + error.message); saveBtn.disabled = false; updateCount(); return; }
+      if (error) { NX.toast('Failed: ' + error.message, 'error'); saveBtn.disabled = false; updateCount(); return; }
 
       // Communicate the PM to each equipment record so the unit itself reflects
       // its service vendor + next PM + cadence (mirrors the per-vendor scheduler).
@@ -749,7 +795,7 @@
       const list = filterCategory && state.equipment.some(e => e.category === filterCategory)
         ? state.equipment.filter(e => e.category === filterCategory)
         : state.equipment;
-      if (!list.length) { alert('No equipment found.'); resolve(null); return; }
+      if (!list.length) { NX.toast('No equipment found.', 'error'); resolve(null); return; }
 
       const html = `
         <div class="nxrm-card-head">
@@ -811,7 +857,7 @@
     };
     const { data, error } = await NX.sb.from('equipment_issues')
       .insert(insert).select('*').single();
-    if (error) { alert('Failed to create: ' + error.message); return; }
+    if (error) { NX.toast('Failed to create: ' + error.message, 'error'); return; }
 
     NXRM.notify.bubble(`Bzzt — work order opened: ${payload.title}`,
       { autoHide: 3500, eyebrow: '🔴 NEW' });
@@ -924,7 +970,7 @@
     const matching = equipmentCategory
       ? findMatchingSteps(equipmentCategory, null)
       : state.troubleSteps;
-    if (!matching.length) { alert('No troubleshooting guides available yet.'); return; }
+    if (!matching.length) { NX.toast('No troubleshooting guides available yet.', 'info'); return; }
 
     const html = `
       <div class="nxrm-card-head">

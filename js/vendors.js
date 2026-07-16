@@ -21,6 +21,7 @@
   const state = {
     vendors:       [],
     perfRows:      [],
+    perfStale:     false,
     filtered:      [],
     activeVendor:  null,
     filter: {
@@ -39,16 +40,30 @@
   async function loadVendors() {
     if (!NX?.sb) return;
     try {
-      const [{ data: vendors }, { data: perf }] = await Promise.all([
+      // supabase-js RESOLVES with {error} — a failed perf read does NOT throw,
+      // it hands back {data:null,error}. If we blindly `perf || []` that, every
+      // vendor renders as "New / no history" and the whole scorecard silently
+      // lies. So destructure {data,error} from each result and check both.
+      const [vRes, pRes] = await Promise.all([
         NX.sb.from('vendors').select('*').eq('active', true).order('company'),
         NX.sb.from('v_vendor_performance').select('*'),
       ]);
-      state.vendors = vendors || [];
-      state.perfRows = perf || [];
+      if (vRes.error) throw vRes.error;              // vendor list is load-bearing
+      state.vendors = vRes.data || [];
+      if (pRes.error) {
+        console.warn('[vendors] performance read failed', pRes.error);
+        state.perfRows = [];
+        state.perfStale = true;                       // grades unavailable, not zero
+      } else {
+        state.perfRows = pRes.data || [];
+        state.perfStale = false;
+      }
     } catch (e) {
       console.warn('[vendors] load failed', e);
+      state.perfStale = true;
       try {
-        const { data } = await NX.sb.from('vendors').select('*').eq('active', true);
+        const { data, error } = await NX.sb.from('vendors').select('*').eq('active', true);
+        if (error) throw error;
         state.vendors = data || [];
         state.perfRows = [];
       } catch (_) {}
@@ -118,12 +133,25 @@
     const emerg = merged.filter(v => v.is_emergency).length;
     const totalSpend = merged.reduce((s, v) => s + v.total_spend, 0);
 
+    // Freshness + reliability of the performance layer. `asOf` = the most
+    // recent job any vendor was touched (max last_job_at across perf rows).
+    // `perfUnavailable` = the read errored (perfStale) OR came back empty; in
+    // either case the A-F scorecards would be fabricated from all-zeros, so we
+    // surface a banner instead of silently grading everyone "New".
+    const asOf = state.perfRows.reduce((mx, p) => {
+      const d = p && p.last_job_at;
+      if (!d) return mx;
+      return (!mx || new Date(d) > new Date(mx)) ? d : mx;
+    }, null);
+    const perfUnavailable = state.perfStale || state.perfRows.length === 0;
+
     view.innerHTML = `
       <div class="nxrm-page">
         <div class="nxrm-masthead">
           <div>
             <div class="nxrm-eyebrow">CONTRACTORS &amp; TRADES</div>
             <h1 class="nxrm-h1">Vendors</h1>
+            ${asOf ? `<div class="nxrm-masthead-asof" style="margin-top:2px;font-size:12px;color:var(--nx-faint,#9a9081)">Performance as of ${esc(fmt.date(asOf))}</div>` : ''}
           </div>
           <div style="display:flex;gap:8px;flex:0 0 auto">
             <button class="nxrm-btn-pill" data-act="resq-export"
@@ -151,6 +179,13 @@
             <div class="nxrm-tile-lbl">Total&nbsp;Spend</div>
           </div>
         </div>
+
+        ${perfUnavailable ? `
+        <div class="nxrm-perf-banner" role="status"
+             style="display:flex;align-items:flex-start;gap:8px;margin:0 0 14px;padding:11px 14px;border:1px solid var(--nx-gold-line,rgba(212,164,78,.4));border-radius:12px;background:rgba(212,164,78,.08);color:var(--nx-text,#f3ede1);font-size:13px;line-height:1.45">
+          <span aria-hidden="true" style="color:var(--nx-gold,#d4a44e);font-weight:700">⚠</span>
+          <span><strong style="color:var(--nx-gold,#d4a44e)">Performance view unavailable</strong> — showing directory only; grades hidden.</span>
+        </div>` : ''}
 
         <div class="nxrm-filters">
           <div class="nxrm-chip-row">

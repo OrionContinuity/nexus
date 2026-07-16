@@ -2483,7 +2483,7 @@ async function generateDigest(){
       NX.sb.from('nodes').select('name,category,created_at').gte('created_at',weekAgo),
       NX.sb.from('kanban_cards').select('title,column_name,due_date,location').limit(50),
       NX.sb.from('daily_logs').select('entry,created_at').gte('created_at',weekAgo).like('entry','%Cleaning%'),
-      NX.sb.rpc('get_chat_history_admin', { p_since: weekAgo, p_limit: 50 })
+      NX.sb.rpc('get_chat_history_admin', { p_since: weekAgo, p_limit: 50, p_actor_pin: NX._sessionPin })
     ]);
 
     const hours=hoursR.status==='fulfilled'?hoursR.value.data||[]:[];
@@ -2574,7 +2574,7 @@ async function smartReminders(){
     const twoWeeks=new Date(Date.now()-14*86400000).toISOString();
 
     // Get recent chats
-    const{data:chats}=await NX.sb.rpc('get_chat_history_admin', { p_since: twoWeeks, p_limit: 100 });
+    const{data:chats}=await NX.sb.rpc('get_chat_history_admin', { p_since: twoWeeks, p_limit: 100, p_actor_pin: NX._sessionPin });
 
     // Get existing cards and tickets
     const{data:cards}=await NX.sb.from('kanban_cards').select('title').limit(200);
@@ -2722,7 +2722,7 @@ async function scanSensitive(){
   let deletePatterns=[];
   let customRules=[];
   try{
-    const{data}=await NX.sb.rpc('get_admin_privacy_rules');
+    const{data}=await NX.sb.rpc('get_admin_privacy_rules', { p_actor_pin: NX._sessionPin });
     safePatterns=data?.privacy_safe||[];
     deletePatterns=data?.privacy_deleted||[];
     customRules=data?.privacy_custom_rules||[];
@@ -2798,6 +2798,7 @@ If nothing sensitive: {"flagged":[]}`,
       // RPC does a proper jsonb merge — won't wipe gmail_refresh_token,
       // VAPID key, or any other field stored alongside in config.
       await NX.sb.rpc('save_admin_privacy_rules', {
+        p_actor_pin:    NX._sessionPin,
         p_safe:         safePatterns.slice(-50),
         p_deleted:      deletePatterns.slice(-30),
         p_custom_rules: customRules,

@@ -2624,6 +2624,7 @@
         const { error } = await NX.sb.rpc('add_user', {
           p_name: name, p_pin: p, p_role: (role || 'staff').trim() || 'staff',
           p_location: activeLoc, p_language: 'en',
+          p_actor_pin: NX._sessionPin,   // the logged-in manager is the actor
         });
         if (error) {
           toast(/duplicate|unique|23505/i.test(error.code + error.message) ? 'That PIN is taken — pick another' : ('Error: ' + error.message), 'error');
@@ -2748,7 +2749,12 @@
   // AM/PM shift filter for the daily checklist. Tasks carry an optional
   // shift_pattern ('am' | 'pm' | anything else = both); untagged tasks show
   // in every shift. Defaults to the shift we're currently in (3pm boundary).
-  let liteShift = (new Date().getHours() < 15) ? 'am' : 'pm';
+  // Default AM/PM by the Chicago wall clock (matches getCleaningDate's
+  // America/Chicago pin) so a device on another timezone still opens on the
+  // right shift. Re-parsing the Chicago locale string yields a Date whose
+  // local getHours() equals Chicago's wall-clock hour.
+  const chiHour = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Chicago' })).getHours();
+  let liteShift = (chiHour < 15) ? 'am' : 'pm';
   function liteShiftMatch(t) {
     if (liteShift === 'all') return true;
     const p = (t.shift_pattern || '').toLowerCase();
@@ -3125,6 +3131,12 @@
         const overdue = next && next < today;
         const due = !last ? 'Due now · never done'
           : (overdue ? `Overdue · was due ${pShortDate(next)}` : `Last ${pShortDate(last)} → due ${pShortDate(next)}`);
+        // Plain-words explainer for the 0-100 freshness bar (presentation
+        // only — does not touch the metric). N = days since last done.
+        const dSince = last ? daysBetween(last, today) : null;
+        const freshTip = last
+          ? `${pct}% fresh — last done ${pShortDate(last)}, ${dSince}d into a ${freqLabelFor(t).toLowerCase()} cycle; 0% = due`
+          : `${pct}% fresh — never done; 0% = due now`;
         const people = periodicAssignees(t);
         const avs = people.length
           ? people.slice(0, 3).map(p => `<span class="cleanlite-pav" style="--av-hue:${liteHue(p.id)}" title="${esc(p.name)}">${esc(liteInitials(p.name))}</span>`).join('') + (people.length > 3 ? `<span class="cleanlite-pav is-more">+${people.length - 3}</span>` : '')
@@ -3133,7 +3145,7 @@
           <button class="cleanlite-pcheck" data-pdone="${esc(t.id)}" title="Mark done — restarts the cycle">${svg('check', 13)}</button>
           <div class="cleanlite-ptask-main">
             <div class="cleanlite-ptask-top"><span class="cleanlite-ptask-name">${esc(t.name_en || t.name_es || '')}</span><span class="cleanlite-pfreq">${esc(freqLabelFor(t))}</span></div>
-            <div class="cleanlite-pbar"><div class="cleanlite-pbar-fill ${cls}" style="width:${pct}%"></div></div>
+            <div class="cleanlite-pbar" title="${esc(freshTip)}"><div class="cleanlite-pbar-fill ${cls}" style="width:${pct}%"></div></div>
             <div class="cleanlite-ptask-sub ${overdue ? 'is-overdue' : ''}">${esc(due)}</div>
           </div>
           <button class="cleanlite-ppeople" data-passign="${esc(t.id)}" title="Assign people">${avs}</button>
