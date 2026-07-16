@@ -68,21 +68,13 @@
   var api = { recall: recall, embedNode: embedNode, ensureEmbedded: ensureEmbedded };
   T.moneta = api;
   if (L && L !== W) {
+    // Only reached if the lexical NX and window.NX are still DISTINCT objects
+    // (e.g. moneta-mind somehow loaded before app.js). Normally app.js has
+    // already run its bridge (`window.NX = NX` right after the const literal),
+    // so window.NX IS the lexical NX and this branch is skipped. The former
+    // `window.NX.sb` defineProperty getter that lived here is now redundant:
+    // with the two NX objects unified, `window.NX.sb === NX.sb` by identity.
     W.moneta = api;
-    // THE BRIDGE. The clippy-* modules read `window.NX.sb` (their IIFE-local
-    // `var NX = window.NX` shadows the lexical NX where app.js actually puts
-    // the client), but nothing ever assigned it — those reads found the
-    // client only by luck of load order, or not at all. Forward it with a
-    // getter (sb is created later, in NX.init()); a setter keeps any future
-    // explicit assignment working.
-    if (!Object.getOwnPropertyDescriptor(W, 'sb')) {
-      var _sbOverride = null;
-      Object.defineProperty(W, 'sb', {
-        get: function () { return _sbOverride || L.sb; },
-        set: function (v) { _sbOverride = v; },
-        configurable: true,
-      });
-    }
   }
   console.log('[moneta-mind] client ready — the galaxy can recall by meaning');
 })();

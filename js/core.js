@@ -999,10 +999,12 @@
    NX.pm — single source of truth for "a PM visit happened, advance the
    equipment's PM cadence."  (consolidated — was js/pm-core.js)
 
-   Defined here in core.js because core.js loads AFTER app.js (which does
-   `const NX = {…}; window.NX = NX`, replacing the namespace) — so attaching
-   NX.pm earlier (e.g. in domain.js) gets wiped. By call time (a PM-log user
-   action) NX.pm is always present.
+   Defined here in core.js because core.js loads AFTER app.js. app.js sets
+   `window.NX = NX` right after its `const NX = {…}` literal — first folding
+   in (via Object.assign) anything an earlier IIFE already attached, then
+   pointing window.NX at the lexical binding, so the two are the SAME object.
+   Nothing gets wiped; attach freely to either handle. By call time (a PM-log
+   user action) NX.pm is always present.
 
    The cadence-advance logic used to be copy-pasted (and DRIFTED) across
    applyApprovalEffects (equipment-public-pm.js), the internal PM logger

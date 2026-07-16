@@ -4461,6 +4461,18 @@ td.check{background:#F0EDE6 !important}
   }
 };
 
+// ─── THE ONE NX BRIDGE ───────────────────────────────────────────────
+// app.js's `const NX` above is the global LEXICAL binding (bare `NX`
+// everywhere in this file + page.evaluate). A SEPARATE `window.NX`
+// grab-bag is assembled by ~30 IIFE modules via `window.NX = window.NX || {}`
+// (and inside them `var NX = window.NX` deliberately SHADOWS this lexical
+// binding — that shadowing is load-bearing). This line unifies the two:
+// first fold in anything an earlier-loaded IIFE already attached to
+// window.NX, then make window.NX and the lexical NX the SAME object so
+// later `window.NX = window.NX || {}` IIFEs augment this one object and
+// their `var NX = window.NX` shadowing keeps working unchanged.
+if (typeof window !== 'undefined') { if (window.NX) Object.assign(NX, window.NX); window.NX = NX; }
+
 document.addEventListener('DOMContentLoaded', () => NX.init());
 
 // ─── PIN SCREEN DATE TICKER ──────────────────────────────────────────
