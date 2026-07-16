@@ -103,23 +103,42 @@ if ($CmdToken) { $dArgs += @('-CmdToken', $CmdToken) }
 & powershell.exe @dArgs
 
 # 4. The one human step ------------------------------------------------------
-$claude = Get-Command claude -EA SilentlyContinue
-if (-not $claude -and (Test-Path (Join-Path $env:USERPROFILE '.local\bin\claude.exe'))) {
-  $claude = @{ Source = (Join-Path $env:USERPROFILE '.local\bin\claude.exe') }
+# Resolve claude across EVERY install path — winget drops it in the WinGet Links
+# dir, which Get-Command misses (it's not on the running shell's PATH). Without
+# this, the daemon installs Claude but the login is never offered and the node
+# stays claude:false — the exact bug on the companion laptops (2026-07-16).
+$wingetLinks = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links'
+if ((Test-Path $wingetLinks) -and ($env:PATH -notlike "*$wingetLinks*")) { $env:PATH = "$wingetLinks;$env:PATH" }
+$claudeExe = $null
+$c = Get-Command claude -EA SilentlyContinue
+if ($c) { $claudeExe = $c.Source }
+if (-not $claudeExe) {
+  foreach ($p in @(
+      (Join-Path $env:USERPROFILE '.local\bin\claude.exe'),
+      (Join-Path $env:APPDATA 'npm\claude.cmd'),
+      (Join-Path $wingetLinks 'claude.exe'),
+      (Join-Path $wingetLinks 'claude.cmd'),
+      (Join-Path $env:LOCALAPPDATA 'Programs\claude\claude.exe'))) {
+    if ($p -and (Test-Path $p)) { $claudeExe = $p; break }
+  }
 }
 $loggedIn = Test-Path (Join-Path $env:USERPROFILE '.claude')
-if (-not $NoLogin -and $claude -and -not $loggedIn) {
+if (-not $claudeExe) {
+  Say '  [!!] Claude Code was not detected after the daemon ran. Re-run this' 'Red'
+  Say '       installer, or install manually: winget install Anthropic.ClaudeCode' 'Red'
+} elseif (-not $NoLogin -and -not $loggedIn) {
   Say ''
   Say '  Last step — log this node into the Claude subscription so it' 'Yellow'
   Say '  thinks with Claude (chat, diary, the gods). Interactive, ~30s.' 'Yellow'
   $ans = Read-Host '  Run `claude /login` now? [Y/n]'
   if ($ans -eq '' -or $ans -match '^[Yy]') {
-    & $claude.Source /login
+    & $claudeExe /login
+    if (Test-Path (Join-Path $env:USERPROFILE '.claude')) { Say '  [ok] logged in — this node now thinks with Claude, same as the others.' 'Green' }
   } else {
     Say '  Skipped. Run `claude /login` any time — the node upgrades itself the minute you do.' 'DarkGray'
   }
 } elseif ($loggedIn) {
-  Say '  [ok] Claude subscription already logged in on this machine.' 'Green'
+  Say '  [ok] Claude subscription already logged in — this node thinks with Claude.' 'Green'
 }
 
 Say ''

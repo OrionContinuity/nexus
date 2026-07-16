@@ -552,7 +552,7 @@ $tools = @(
   # [next] hint after provisioning): a seat is granted, never taken.
   @{ Name = 'Claude Code';  EstGB = 0.4; Winget = 'Anthropic.ClaudeCode';
      Direct = { Invoke-Expression (Invoke-RestMethod -Uri 'https://claude.ai/install.ps1' -UseBasicParsing) };
-     Test = { [bool](Get-Command claude -EA SilentlyContinue) -or (Test-Path (Join-Path $env:USERPROFILE '.local\bin\claude.exe')) } }
+     Test = { [bool](Resolve-ClaudeExe) } }
   @{ Name = 'Ollama';       EstGB = 1.5; Winget = 'Ollama.Ollama';
      Test = { [bool](Get-Command ollama -EA SilentlyContinue) -or (Test-Path (Join-Path $ProgRoot 'Ollama\ollama.exe')) } }
   @{ Name = 'Blender';      EstGB = 4; Winget = 'BlenderFoundation.Blender';
@@ -573,6 +573,28 @@ function Install-RenderDeps {
   & $py.Source -m pip install "git+https://github.com/VAST-AI-Research/TripoSR.git"
   $null = New-Item -ItemType Directory -Force -Path (Join-Path $HOMEDIR 'brain')
   '' | Set-Content (Join-Path $HOMEDIR 'brain\.render_ready')
+}
+
+function Resolve-ClaudeExe {
+  # Find the claude-code binary across EVERY install location. winget installs
+  # Anthropic.ClaudeCode into %LOCALAPPDATA%\Microsoft\WinGet\Links but does NOT
+  # add that dir to an already-running process's PATH — so Get-Command alone
+  # misses it and the node falsely reports "Claude not installed", skips the
+  # login prompt, and heartbeats claude:false forever. Mirrors the worker's
+  # _find_claude(). Returns the full path, or $null. (Alfredo, 2026-07-16:
+  # "make it also install claude. i want all clippys to be the same.")
+  $c = Get-Command claude -EA SilentlyContinue
+  if ($c) { return $c.Source }
+  $cands = @(
+    (Join-Path $env:USERPROFILE '.local\bin\claude.exe'),
+    (Join-Path $env:USERPROFILE '.local\bin\claude'),
+    (Join-Path $env:APPDATA 'npm\claude.cmd'),
+    (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links\claude.exe'),
+    (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links\claude.cmd'),
+    (Join-Path $env:LOCALAPPDATA 'Programs\claude\claude.exe')
+  )
+  foreach ($p in $cands) { if ($p -and (Test-Path $p)) { return $p } }
+  return $null
 }
 
 function Install-One($tool) {
@@ -611,14 +633,19 @@ Log "provision summary - present:$present installed:$installed skipped:$skipped 
 # interactive by design: the seat is Alfredo's to grant, never a machine's to
 # take. Until a human runs the login once, the worker heartbeats claude:false
 # and text jobs fall back to Ollama — nothing breaks, it just thinks smaller.
-$claudeCmd = Get-Command claude -EA SilentlyContinue
-if (-not $claudeCmd -and (Test-Path (Join-Path $env:USERPROFILE '.local\bin\claude.exe'))) {
-  $claudeCmd = @{ Source = (Join-Path $env:USERPROFILE '.local\bin\claude.exe') }
-}
-if ($claudeCmd -and -not (Test-Path (Join-Path $env:USERPROFILE '.claude'))) {
+# Make a just-winget-installed claude resolvable in THIS session (winget edits
+# the persisted user PATH, but the running process still has the old one).
+$wingetLinks = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links'
+if ((Test-Path $wingetLinks) -and ($env:PATH -notlike "*$wingetLinks*")) { $env:PATH = "$wingetLinks;$env:PATH" }
+$claudeExe = Resolve-ClaudeExe
+if ($claudeExe -and -not (Test-Path (Join-Path $env:USERPROFILE '.claude'))) {
   Log "[next] Claude Code is installed but NOT logged in. Run once in any terminal:" 'Yellow'
   Log "         claude /login" 'Yellow'
   Log "       (subscription auth; within a minute of login the worker advertises claude:true and this node thinks with Claude)" 'Yellow'
+} elseif ($claudeExe) {
+  Log "[power] Claude Code installed and logged in - this node thinks at full power." 'Green'
+} else {
+  Log "[!!] Claude Code not detected after provisioning - a new shell / PATH refresh may be needed, or winget failed." 'Yellow'
 }
 
 # --- Make the function go: (re)deploy clippy-pool if we can ------------------
