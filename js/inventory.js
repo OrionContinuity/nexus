@@ -1929,6 +1929,7 @@
           NX.toast?.('Saved', 'success');
         } else {
           const nextSeq = await getNextAssetSeq();
+          if (nextSeq == null) return; // PN reservation failed; toast already shown, abort insert
           const pn = `NEXUS-A-${String(nextSeq).padStart(4, '0')}`;
           data.internal_pn = pn;
           data.qr_code = pn;
@@ -2065,6 +2066,7 @@
           NX.toast?.('Saved', 'success');
         } else {
           const nextSeq = await getNextStockSeq();
+          if (nextSeq == null) return; // PN reservation failed; toast already shown, abort insert
           const pn = `NEXUS-S-${String(nextSeq).padStart(4, '0')}`;
           data.internal_pn = pn;
           data.qr_code = pn;
@@ -2103,15 +2105,29 @@
   }
 
   async function getNextAssetSeq() {
-    const { data } = await NX.sb.from('inventory_assets')
+    // supabase-js RESOLVES with {error}; a query error here must NOT silently
+    // fall through to seq 1 (would mint a duplicate NEXUS-A-#### part number).
+    const { data, error } = await NX.sb.from('inventory_assets')
       .select('internal_pn').order('id', { ascending: false }).limit(1);
+    if (error) {
+      console.warn('[inventory] getNextAssetSeq failed:', error.message);
+      NX.toast?.("Couldn't reserve a part number — check connection and retry", 'error');
+      return null; // caller must abort the insert
+    }
     if (!data?.length) return 1;
     const m = data[0].internal_pn.match(/NEXUS-A-(\d+)/);
     return m ? parseInt(m[1]) + 1 : 1;
   }
   async function getNextStockSeq() {
-    const { data } = await NX.sb.from('inventory_stock')
+    // See getNextAssetSeq — never default to 1 on error, or we risk a
+    // duplicate NEXUS-S-#### part number.
+    const { data, error } = await NX.sb.from('inventory_stock')
       .select('internal_pn').order('id', { ascending: false }).limit(1);
+    if (error) {
+      console.warn('[inventory] getNextStockSeq failed:', error.message);
+      NX.toast?.("Couldn't reserve a part number — check connection and retry", 'error');
+      return null; // caller must abort the insert
+    }
     if (!data?.length) return 1;
     const m = data[0].internal_pn.match(/NEXUS-S-(\d+)/);
     return m ? parseInt(m[1]) + 1 : 1;
@@ -2148,7 +2164,11 @@
               }],
               updated_at: new Date().toISOString(),
             };
-        await NX.sb.from('inventory_assets').update(updates).eq('id', asset.id);
+        const { error: updErr } = await NX.sb.from('inventory_assets').update(updates).eq('id', asset.id);
+        if (updErr) {
+          console.warn('[inventory] photo update failed:', updErr.message);
+          NX.toast?.('Photo uploaded but saving to item failed — retry', 'error');
+        }
         const { error: evErr } = await NX.sb.from('inventory_asset_events').insert({
           asset_id: asset.id, event_type: 'photo_added',
           by_user_id: NX.currentUser?.id, by_user_name: NX.currentUser?.name,
@@ -2594,11 +2614,21 @@ Suggested order: ${(stock.par_level - currentCount) * 2} units (rebuild buffer)`
     openPmCompletionModal,
     getPmPartsForEquipment,
     openAssetDetailById: async (id) => {
-      const { data } = await NX.sb.from('inventory_assets').select('*').eq('id', id).maybeSingle();
+      const { data, error } = await NX.sb.from('inventory_assets').select('*').eq('id', id).maybeSingle();
+      if (error) {
+        console.warn('[inventory] openAssetDetailById failed:', error.message);
+        NX.toast?.('Failed to load item — check connection and retry', 'error');
+        return;
+      }
       if (data) openAssetDetail(data);
     },
     openStockDetailById: async (id) => {
-      const { data } = await NX.sb.from('inventory_stock_with_status').select('*').eq('id', id).maybeSingle();
+      const { data, error } = await NX.sb.from('inventory_stock_with_status').select('*').eq('id', id).maybeSingle();
+      if (error) {
+        console.warn('[inventory] openStockDetailById failed:', error.message);
+        NX.toast?.('Failed to load item — check connection and retry', 'error');
+        return;
+      }
       if (data) openStockDetail(data);
     },
   };

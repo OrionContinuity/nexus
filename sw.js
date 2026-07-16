@@ -1,4 +1,4 @@
-/* NEXUS Service Worker — v36
+/* NEXUS Service Worker — version lives in CACHE_NAME below (single source of truth) — do not hand-edit a version here.
    Strategy: network-first for JS/CSS/HTML (always fresh code),
              cache-first for fonts, images, icons, assets.
    Version bumped = full re-cache on next load.
@@ -218,6 +218,7 @@
    - Empty ledger (first use) = exactly the old today-only behavior.
 */
 const CACHE_NAME = 'nexus-v305-ops-security';
+const SW_VERSION = CACHE_NAME.replace(/^nexus-/, '');
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
@@ -368,11 +369,11 @@ const CDN_CACHE = [
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
-      console.log('[SW v26] Caching app shell');
+      console.log('[SW ' + SW_VERSION + '] Caching app shell');
       // Use allSettled so one bad file doesn't poison the whole install
       return Promise.allSettled(
         APP_SHELL.map(url => cache.add(url).catch(err => {
-          console.warn('[SW v26] Skip:', url, err.message);
+          console.warn('[SW ' + SW_VERSION + '] Skip:', url, err.message);
         }))
       ).then(() =>
         Promise.allSettled(
@@ -388,7 +389,7 @@ self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys =>
       Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => {
-        console.log('[SW v26] Deleting old cache:', k);
+        console.log('[SW ' + SW_VERSION + '] Deleting old cache:', k);
         return caches.delete(k);
       }))
     ).then(() => self.clients.claim())
