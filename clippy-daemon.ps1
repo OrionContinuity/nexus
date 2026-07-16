@@ -210,21 +210,32 @@ function Start-GrokProc {
 #     %LOCALAPPDATA%\NexusClippy\controller.on   (or  ~/.clippy/controller.on)
 # The toddler button map (see MINECRAFT-CONTROLLER.md) is generated once via the antimicrox GUI and saved as
 #     $HOMEDIR\minecraft.gamecontroller.amgp   (then committed so it deploys to nodes).
-$script:AntimicroxExe = Join-Path ${env:ProgramFiles} 'AntiMicroX\antimicrox.exe'
+$script:AntimicroxExe = $null
+function Resolve-AntimicroxExe {
+  # winget installs antimicrox MACHINE-scope (NSIS) to Program Files (x86); it does NOT add itself to PATH.
+  foreach ($p in @((Join-Path ${env:ProgramFiles(x86)} 'AntiMicroX\antimicrox.exe'), (Join-Path ${env:ProgramFiles} 'AntiMicroX\antimicrox.exe'))) {
+    if ($p -and (Test-Path $p)) { return $p }
+  }
+  $c = Get-Command antimicrox -EA SilentlyContinue; if ($c) { return $c.Source }
+  return $null
+}
 function Test-ControllerEnabled { return (Test-Path (Join-Path $HOMEDIR 'controller.on')) -or (Test-Path (Join-Path $env:USERPROFILE '.clippy\controller.on')) }
 function Get-AntimicroxProc { return (Get-Process antimicrox -EA SilentlyContinue | Select-Object -First 1) }
 function Ensure-Antimicrox {
-  if (Test-Path $script:AntimicroxExe) { return $true }
-  try { Log '[controller] installing antimicrox via winget...' 'Cyan'; & winget install -e --id AntiMicroX.antimicrox --silent --accept-package-agreements --accept-source-agreements *> $null } catch {}
-  if (-not (Test-Path $script:AntimicroxExe)) { try { $c = Get-Command antimicrox -EA SilentlyContinue; if ($c) { $script:AntimicroxExe = $c.Source } } catch {} }
-  return (Test-Path $script:AntimicroxExe)
+  if (-not $script:AntimicroxExe) { $script:AntimicroxExe = Resolve-AntimicroxExe }
+  if ($script:AntimicroxExe) { return $true }
+  try { Log '[controller] installing antimicrox via winget (machine scope, one-time UAC)...' 'Cyan'; & winget install -e --id AntiMicroX.antimicrox --scope machine --silent --accept-package-agreements --accept-source-agreements *> $null } catch {}
+  $script:AntimicroxExe = Resolve-AntimicroxExe
+  return [bool]$script:AntimicroxExe
 }
 function Get-MinecraftClientProc { return (Get-CimInstance Win32_Process -EA SilentlyContinue | Where-Object { $_.Name -match '^javaw?\.exe$' -and $_.CommandLine -match '(?i)minecraft' } | Select-Object -First 1) }
 function Start-ControllerMap {
   if (Get-AntimicroxProc) { return }
   if (-not (Ensure-Antimicrox)) { return }
   $prof = Join-Path $HOMEDIR 'minecraft.gamecontroller.amgp'
-  $axArgs = @('--hidden', '--profile-controller', '1')
+  # --profile applies to ALL controllers (only the F310 is attached); --profile-controller alone is a
+  # no-op and is flaky even with --profile (antimicrox issue #1114), so we ship the committed profile.
+  $axArgs = @('--hidden')
   if (Test-Path $prof) { $axArgs += @('--profile', $prof) }
   try { Start-Process $script:AntimicroxExe -ArgumentList $axArgs -WindowStyle Hidden; Log '[controller] F310 mapping started for Minecraft' 'Green' } catch { Log "[controller] launch failed: $($_.Exception.Message)" 'Yellow' }
 }
@@ -240,7 +251,7 @@ function Tick-Controller {
 function Update-NodeFromGitHub {
   # Pull the latest node scripts into $HOMEDIR. Returns which ones changed.
   $res = @{ worker = $false; daemon = $false; pet = $false; grok = $false; bot = $false }
-  foreach ($f in 'clippy-worker.py', 'clippy-daemon.ps1', 'clippy-update.ps1', 'clippy-character.json', 'clippy-dialog.json', 'clippy-pet-comp.ps1', 'grok_bridge.py', 'clippy_agent.js') {
+  foreach ($f in 'clippy-worker.py', 'clippy-daemon.ps1', 'clippy-update.ps1', 'clippy-character.json', 'clippy-dialog.json', 'clippy-pet-comp.ps1', 'grok_bridge.py', 'clippy_agent.js', 'minecraft.gamecontroller.amgp') {
     $dst = Join-Path $HOMEDIR $f
     $tmp = Join-Path $env:TEMP ('nx_' + $f)
     try {
@@ -699,7 +710,7 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
         $self = $PSCommandPath; if (-not $self) { $self = $MyInvocation.MyCommand.Path }
         $stable = Join-Path $env:LOCALAPPDATA 'NexusClippy'
         New-Item -ItemType Directory -Force -Path $stable | Out-Null
-        foreach ($f in 'clippy-daemon.ps1', 'clippy-worker.py', 'clippy-update.ps1', 'clippy-character.json', 'clippy-dialog.json', 'clippy-pet-comp.ps1', 'clippy_agent.js') {
+        foreach ($f in 'clippy-daemon.ps1', 'clippy-worker.py', 'clippy-update.ps1', 'clippy-character.json', 'clippy-dialog.json', 'clippy-pet-comp.ps1', 'clippy_agent.js', 'minecraft.gamecontroller.amgp') {
           $src = Join-Path $HOMEDIR $f
           if (Test-Path $src) { Copy-Item $src (Join-Path $stable $f) -Force -EA SilentlyContinue }
         }

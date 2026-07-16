@@ -80,15 +80,21 @@ they grow.
 
 ## Bring-up steps (do these live on the PC — e.g. the 4pm session)
 
+The button map is **already committed** as `minecraft.gamecontroller.amgp` (repo
+root → pulled to `%LOCALAPPDATA%\NexusClippy` by the daemon), so this is a
+**verify**, not a build.
+
 1. F310 rear switch → **X**. Plug in; confirm Windows sees "Xbox 360 Controller".
 2. `New-Item "$env:LOCALAPPDATA\NexusClippy\controller.on" -Force` (enables the
    daemon integration).
-3. Launch Minecraft once — the daemon installs antimicrox and starts it hidden.
-4. Open the antimicrox GUI, build the map above, **Save** (set it as the
-   controller's default so the daemon's default launch uses it). Optionally
-   `Save As` → `%LOCALAPPDATA%\NexusClippy\minecraft.gamecontroller.amgp` and
-   commit it + add to the install/daemon pull lists so other machines inherit it.
-5. Test in-game with the child; tune stick sensitivity in the GUI.
+3. Launch Minecraft once — the daemon installs antimicrox (**machine-scope: accept
+   the one-time UAC prompt**) and starts it hidden with the committed profile.
+4. In-game, spot-check the map: **left stick walks, right stick looks, A jumps,
+   RT breaks, LT places, B sneaks.** If a control is off, it's a one-index tweak
+   in the antimicrox GUI (the indices were derived from a reference Xbox 360
+   profile, not this exact F310) — then `Save` over the same file.
+5. Tune stick sensitivity (`mousespeed`/`deadZone`) in the GUI if the camera
+   feels too fast/slow for the child.
 
 ## Sources
 - Controllable — mrcrayfish.com/mods/controllable · MidnightControls — github.com/TeamMidnightDust/MidnightControls

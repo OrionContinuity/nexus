@@ -55,7 +55,8 @@ $null = New-Item -ItemType Directory -Force -Path $stable
 # 2. Core files from canon ---------------------------------------------------
 $files = @('clippy-daemon.ps1','clippy-worker.py','clippy-update.ps1',
            'clippy-character.json','clippy-dialog.json','clippy-pet-comp.ps1',
-           'clippy_agent.js')   # his Minecraft brain — pulled so a fresh install has the current MC bot too
+           'clippy_agent.js',                    # his Minecraft brain — pulled so a fresh install has the current MC bot too
+           'minecraft.gamecontroller.amgp')      # the F310 controller map (deployed by the daemon when controller.on)
 $got = 0
 foreach ($f in $files) {
   try {
