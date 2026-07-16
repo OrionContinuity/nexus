@@ -20,15 +20,18 @@
       5-minute self-heal Scheduled Task; starts the worker and the pet.
       From then on the node keeps ITSELF current (worker-2.0 self-update,
       15-min idle loop, compile()-gated, from GitHub raw).
-   4. Offers `claude /login` right here in the terminal — the one step
-      that stays human: the subscription seat is granted, never taken.
-      Skip it (-NoLogin or just decline) and the node still runs; it
-      answers with Ollama until someone logs Claude in.
+   4. FORCES `claude /login` here and VERIFIES it with a real probe (the
+      ~/.claude folder can exist without a valid session — that fooled us
+      once). The one human step: the subscription seat is granted, never
+      taken. It loops until the login truly completes; type `skip` to
+      defer, or pass -NoLogin for a headless install. Until a real login
+      lands the node answers with Ollama (claude:false on the bus).
 
  Optional params (only when invoked as a file, not via `| iex`):
    -CmdToken <tok>   enable remote "Push update" for this node (kept
                      PRIVATE in this PC's user env; never published)
-   -NoLogin          don't offer claude /login at the end
+   -NoLogin          skip the FORCED claude /login (headless installs);
+                     node stays claude:false until you log in manually
 
  Verify from anywhere afterwards: the node appears in clippy_sync row
  'clippy_nodes' within a minute; claude:true once logged in.
@@ -146,23 +149,34 @@ if (-not $claudeExe) {
   Say '       installer, or install manually: winget install Anthropic.ClaudeCode' 'Red'
 } elseif ($loggedIn) {
   Say '  [ok] Claude subscription verified logged in — this node thinks with Claude.' 'Green'
-} elseif (-not $NoLogin) {
-  Say ''
-  Say '  Last step — log this node into the Claude subscription so it' 'Yellow'
-  Say '  thinks with Claude (chat, diary, the gods). A browser opens; you MUST' 'Yellow'
-  Say '  finish the sign-in until the terminal says logged in. ~30s.' 'Yellow'
-  $ans = Read-Host '  Run claude /login now? [Y/n]'
-  if ($ans -eq '' -or $ans -match '^[Yy]') {
+} elseif ($NoLogin) {
+  Say '  [i] -NoLogin set — skipping the forced login. This node stays claude:false' 'Yellow'
+  Say '      (Ollama only) until you run:  claude /login' 'Yellow'
+} else {
+  # FORCED LOGIN — a Clippy node that never logs in is only half a Clippy, and a
+  # folder check gave a false "logged in" before (the laptops, 2026-07-16: .claude
+  # existed, claude -p still said "Not logged in"). Loop until a REAL login is
+  # verified by probe, or the operator explicitly types skip. (Alfredo: "make
+  # login forced when installing clippy. fix it all.")
+  $verified = $false
+  for ($attempt = 1; -not $verified; $attempt++) {
+    Say ''
+    Say "  Claude login REQUIRED (attempt $attempt) — this node thinks with Ollama" 'Yellow'
+    Say '  only until it is done. A browser opens; COMPLETE the sign-in until the' 'Yellow'
+    Say '  terminal confirms. This is the one human step, and it is required.' 'Yellow'
+    $ans = Read-Host '  Press Enter to run claude /login now (or type skip to defer)'
+    if ($ans -match '^\s*(skip|s|n|no|q|quit)\s*$') {
+      Say '  [!!] Skipped. This node stays claude:false until you run:  claude /login' 'Red'
+      break
+    }
     & $claudeExe /login
-    if (Test-ClaudeAuth $claudeExe) {
+    $verified = Test-ClaudeAuth $claudeExe
+    if ($verified) {
       Say '  [ok] verified — this node now thinks with Claude, same as the others.' 'Green'
     } else {
-      Say '  [!!] still not logged in. The folder can exist without a valid session —' 'Red'
-      Say '       run `claude /login` again and COMPLETE the browser sign-in. Until then' 'Red'
-      Say '       this node answers with Ollama (claude:false on the bus).' 'Red'
+      Say '  [..] not logged in yet — the browser sign-in did not complete. Trying' 'Yellow'
+      Say '       again (or type skip to defer).' 'Yellow'
     }
-  } else {
-    Say '  Skipped. Run claude /login any time — the node upgrades itself once the login truly completes.' 'DarkGray'
   }
 }
 
