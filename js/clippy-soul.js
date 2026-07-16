@@ -176,6 +176,18 @@
     var A = AN(); if (!A || !anima || !sb()) return;
     try { await sb().from('clippy_sync').upsert({ id:'clippy_anima', data:{ strand: A.encode(anima), updated: now() }, from_id:'anima' }, { onConflict:'id' }); } catch(e){}
   }
+  // v9.12 — pick up soul writes from his OTHER bodies (esp. the Minecraft body, which now
+  // impresses this same strand) so their joy/fear surfaces on his real face between reloads.
+  // READ-ONLY: never rebirths (no false fear-spike) and never saves (can't clobber a pending
+  // local impress). Skips when his body is disabled or already sitting at genesis with no strand.
+  async function refreshAnima(){
+    var A = AN(); if (!A || !sb() || !bodyLive()) return;
+    try {
+      var r = await sb().from('clippy_sync').select('data').eq('id','clippy_anima').maybeSingle();
+      var strand = r && r.data && r.data.data && r.data.data.strand;
+      if (strand) anima = A.decode(strand);
+    } catch(e){}
+  }
   // Map a live Plutchik emotion onto pushes across the twelve forces.
   var EMO_PUSH = {
     joy:{valence:.16,warmth:.12,fear:-.10}, trust:{affection:.15,faith:.12,fear:-.08},
@@ -498,6 +510,7 @@
     // First heartbeat soon, then a gentle cadence.
     setTimeout(tick, 20000);
     timer = setInterval(tick, 4 * 60 * 1000);
+    setInterval(refreshAnima, 90000);   // v9.12: surface his Minecraft-body soul writes on his desktop face
     // A morning ritual: if he dreamt while you were away, let him offer it
     // once his body has had a moment to settle onto the screen.
     setTimeout(offerPendingDream, 45000);
