@@ -40,6 +40,7 @@ param(
   [switch]$IncludeHeavy,        # also provision the large GPU model-gen deps (multi-GB)
   [string]$VisionModel = 'qwen2.5vl:7b',  # Ollama vision model for Scan Plate. qwen2.5-VL transcribes invoice text character-perfect on an 8GB 3070 (llava hallucinated every number; 'llama3.2-vision'='mllama' won't load on the shipped Ollama build). ~6GB, fits 8GB. The worker auto-falls-back to moondream if a node can't load it.
   [string]$CmdToken = $env:CLIPPY_CMD_TOKEN, # enables "Push update" / remote commands; persisted for the user
+  [string]$StewardSecret = $env:CLIPPY_STEWARD_SECRET, # the shared Steward's Seal secret (signed command lane); persisted for the user, NEVER published. Give every node the SAME value to make them uniform (seal:true, cmd:true).
   [switch]$NoAutostart,         # skip registering the logon Scheduled Task
   [switch]$Supervise,           # run as a persistent supervisor (Clippy launches this): keep the worker alive + self-heal from GitHub
   [int]$ParentPid = 0,          # if > 0, exit (and stop the worker) when this process dies - makes Clippy the master of its slave worker
@@ -738,6 +739,16 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
       } else {
         Log "[ok] command token kept PRIVATE (not published to bus). Set CLIPPY_PUBLISH_TOKEN=1 to opt in." 'DarkGray'
       }
+    }
+    # Persist the Steward's Seal secret (the signed command lane) for the user so
+    # this node can VERIFY signed commands (seal:true -> cmd:true). Give every
+    # node the SAME secret and they become uniform on the command channel. The
+    # secret lives ONLY in this PC's user env + the RLS-locked steward_seal table;
+    # it is NEVER written to the world-readable bus.
+    if ($StewardSecret) {
+      try { [Environment]::SetEnvironmentVariable('CLIPPY_STEWARD_SECRET', $StewardSecret, 'User') } catch {}
+      $env:CLIPPY_STEWARD_SECRET = $StewardSecret
+      Log "[ok] steward seal set - this node now verifies signed commands (cmd/seal enabled), uniform with the others" 'Green'
     }
     # Coexist with the legacy v2.4.4 poller: it keeps answering TEXT (qwen3:8b)
     # while the worker specializes in VISION on its own 'vis:' lane. We never

@@ -39,6 +39,7 @@
 #>
 param(
   [string]$CmdToken = '',
+  [string]$StewardSecret = '',  # the shared Steward's Seal secret — give EVERY node the same value for a uniform command channel (seal:true, cmd:true). Kept private in this PC's env, never published.
   [switch]$NoLogin,
   [switch]$MakeHome   # claim THIS machine as Clippy's Minecraft home (writes clippy_home.txt so the bot's home-guard lets it run here)
 )
@@ -120,6 +121,7 @@ Say '  registers autostart, starts the worker + pet)…' 'Cyan'
 $daemon = Join-Path $stable 'clippy-daemon.ps1'
 $dArgs = @('-ExecutionPolicy','Bypass','-File',$daemon)
 if ($CmdToken) { $dArgs += @('-CmdToken', $CmdToken) }
+if ($StewardSecret) { $dArgs += @('-StewardSecret', $StewardSecret) }
 & powershell.exe @dArgs
 
 # 4. The one human step ------------------------------------------------------
