@@ -118,6 +118,57 @@
   NXRM.esc = fmt.esc;
 
   // ─────────────────────────────────────────────────────────────────────
+  // NX.date — Chicago-pinned date helpers (shared, single source of truth)
+  // ─────────────────────────────────────────────────────────────────────
+  // The three restaurants are all in Austin (US Central), so "today" and the
+  // wall-clock hour must be pinned to America/Chicago, NOT the device's local
+  // timezone. Modules (e.g. daily-log auto-send) delegate here so a device set
+  // to another zone doesn't roll the day or trigger sends at the wrong hour.
+  // Attached to the window.NX grab-bag; guarded so we never redefine it.
+  (function () {
+    const NX = window.NX = window.NX || {};
+    if (NX.date && typeof NX.date.today === 'function') return;   // already defined — leave it
+    const TZ = 'America/Chicago';
+    // iso(d) — "YYYY-MM-DD" for the given Date, read in Chicago wall-clock.
+    // en-CA formats as ISO (2026-07-16); pinning timeZone gives the Chicago day.
+    function iso(d) {
+      try {
+        return new Intl.DateTimeFormat('en-CA', {
+          timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+        }).format(d instanceof Date ? d : new Date(d));
+      } catch (_) {
+        // Intl/timezone unavailable — fall back to device-local calendar date.
+        const x = d instanceof Date ? d : new Date(d);
+        return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') +
+               '-' + String(x.getDate()).padStart(2, '0');
+      }
+    }
+    // today() — Chicago "YYYY-MM-DD" right now.
+    function today() { return iso(new Date()); }
+    // addDays(iso, n) — calendar arithmetic on a plain Y-M-D string. Done in
+    // UTC so it's DST-agnostic (adding a day to a date is timezone-free).
+    function addDays(isoStr, n) {
+      const parts = String(isoStr).split('-').map(Number);
+      if (parts.length !== 3 || parts.some(isNaN)) return isoStr;
+      const base = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+      base.setUTCDate(base.getUTCDate() + (Number(n) || 0));
+      return base.toISOString().slice(0, 10);
+    }
+    // chiHour() — current Chicago wall-clock hour (0–23).
+    function chiHour() {
+      try {
+        const h = new Intl.DateTimeFormat('en-US', {
+          timeZone: TZ, hour: '2-digit', hour12: false,
+        }).format(new Date());
+        return parseInt(h, 10) % 24;    // "24" at midnight → 0
+      } catch (_) {
+        return new Date().getHours();
+      }
+    }
+    NX.date = { today, iso, addDays, chiHour };
+  })();
+
+  // ─────────────────────────────────────────────────────────────────────
   // STATUS + PRIORITY METADATA — used by inbox, brief, detail
   // ─────────────────────────────────────────────────────────────────────
 

@@ -3530,6 +3530,8 @@ Thanks for your help sorting this out.`;
     el.innerHTML = `<div class="ord-entry-loading">Loading…</div>`;
     document.body.appendChild(el);
     document.body.classList.add('ord-overlay-open');
+    // Entry overlay opening — replay any drafts queued while offline.
+    replayDraftQueue().catch(() => {});
     return el;
   }
   function showEntryLoadingShell() {
@@ -4346,12 +4348,148 @@ Thanks for your help sorting this out.`;
     if (!el) return;
     if (state === 'saving') el.textContent = 'Saving…';
     else if (state === 'saved') el.textContent = 'Draft saved';
+    else if (state === 'offline') el.textContent = 'Saved offline — will sync';
     else if (state === 'error') el.textContent = 'Save failed (will retry)';
     else el.textContent = '';
     if (state === 'saved') setTimeout(() => {
       if (el.textContent === 'Draft saved') el.textContent = '';
     }, 2000);
   }
+  /* ─── OFFLINE DRAFT QUEUE (IndexedDB) ─────────────────────────────
+     A dropped kitchen wifi must not lose the in-memory order lines.
+     When persistDraft() fails on the network, the draft is stashed here
+     and replayed on the next 'online' event and whenever the entry
+     overlay opens. Keyed by the draft key — draftOrderId for a draft
+     that already has a row, or "new:"+vendorId+":"+location for one that
+     never got an id — so a newer autosave overwrites the older queued
+     copy (newest ts per key wins). Purely transport resilience: no par
+     logic, nothing auto-closes or auto-fills. */
+  const ORD_DB_NAME  = 'nexus_ord';
+  const ORD_DB_STORE = 'draft_queue';
+  let   _ordDbPromise = null;
+  function ordQueueDb() {
+    if (_ordDbPromise) return _ordDbPromise;
+    _ordDbPromise = new Promise((resolve, reject) => {
+      let req;
+      try { req = indexedDB.open(ORD_DB_NAME, 1); }
+      catch (e) { reject(e); return; }
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(ORD_DB_STORE)) {
+          db.createObjectStore(ORD_DB_STORE, { keyPath: 'key' });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror   = () => reject(req.error);
+    });
+    // A failed open shouldn't poison every later attempt.
+    _ordDbPromise.catch(() => { _ordDbPromise = null; });
+    return _ordDbPromise;
+  }
+  function ordQueuePut(entry) {
+    return ordQueueDb().then(db => new Promise((resolve, reject) => {
+      const tx = db.transaction(ORD_DB_STORE, 'readwrite');
+      tx.objectStore(ORD_DB_STORE).put(entry);
+      tx.oncomplete = () => resolve();
+      tx.onerror    = () => reject(tx.error);
+      tx.onabort    = () => reject(tx.error);
+    }));
+  }
+  function ordQueueDelete(key) {
+    if (key == null) return Promise.resolve();
+    return ordQueueDb().then(db => new Promise((resolve, reject) => {
+      const tx = db.transaction(ORD_DB_STORE, 'readwrite');
+      tx.objectStore(ORD_DB_STORE).delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror    = () => reject(tx.error);
+      tx.onabort    = () => reject(tx.error);
+    }));
+  }
+  function ordQueueGet(key) {
+    if (key == null) return Promise.resolve(null);
+    return ordQueueDb().then(db => new Promise((resolve, reject) => {
+      const tx = db.transaction(ORD_DB_STORE, 'readonly');
+      const req = tx.objectStore(ORD_DB_STORE).get(key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror   = () => reject(req.error);
+    }));
+  }
+  function ordQueueGetAll() {
+    return ordQueueDb().then(db => new Promise((resolve, reject) => {
+      const tx = db.transaction(ORD_DB_STORE, 'readonly');
+      const req = tx.objectStore(ORD_DB_STORE).getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror   = () => reject(req.error);
+    }));
+  }
+  function draftQueueKeyFor(vendorId, location, orderId) {
+    return orderId || ('new:' + vendorId + ':' + location);
+  }
+
+  /* Drain the offline queue: re-run the same insert/update + the atomic
+     replace_order_lines RPC for every stashed draft. Successful entries
+     are removed; anything that fails again is left for the next attempt.
+     Newest ts per key wins (keyPath already dedupes, but we're defensive). */
+  let _ordReplayInFlight = false;
+  async function replayDraftQueue() {
+    if (_ordReplayInFlight) return;
+    if (!NX || !NX.sb) return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+    _ordReplayInFlight = true;
+    try {
+      let entries = [];
+      try { entries = await ordQueueGetAll(); } catch (_) { return; }
+      if (!entries.length) return;
+      const byKey = {};
+      entries.forEach(e => {
+        if (e && e.key != null && (!byKey[e.key] || (e.ts || 0) > (byKey[e.key].ts || 0))) {
+          byKey[e.key] = e;
+        }
+      });
+      for (const entry of Object.values(byKey)) {
+        try {
+          const isNew  = typeof entry.key === 'string' && entry.key.indexOf('new:') === 0;
+          let   orderId = isNew ? null : entry.key;
+          const payload = Object.assign({}, entry.payload || {}, { status: 'draft' });
+          if (!orderId) {
+            const { data, error } = await NX.sb.from('orders').insert(payload).select('id').single();
+            if (error) throw error;
+            orderId = data.id;
+            // If the live overlay is still on this same new draft, adopt the
+            // freshly-minted id so subsequent saves target the row (and the
+            // "new:" key won't spawn a second order).
+            if (entryState && !entryState.draftOrderId && entryState.vendor &&
+                ('new:' + entryState.vendor.id + ':' + entryState.location) === entry.key) {
+              entryState.draftOrderId = orderId;
+            }
+          } else {
+            const { error } = await NX.sb.from('orders').update(payload).eq('id', orderId);
+            if (error) throw error;
+          }
+          const lineRows = (entry.lineRows || []).map((r, i) =>
+            Object.assign({}, r, { order_id: orderId, sort_order: i }));
+          const { error: rpcErr } = await NX.sb.rpc('replace_order_lines', {
+            p_order_id: orderId, p_lines: lineRows,
+          });
+          if (rpcErr) throw rpcErr;
+          await ordQueueDelete(entry.key);
+          // A "new:" entry that just synced clears any stale real-id twin too.
+          if (isNew) { try { await ordQueueDelete(orderId); } catch (_) {} }
+        } catch (e) {
+          console.warn('[ordering] draft replay deferred:', e);
+          // Leave this entry queued for the next 'online' / overlay open.
+        }
+      }
+    } finally {
+      _ordReplayInFlight = false;
+    }
+  }
+
+  // Replay the moment connectivity returns.
+  if (typeof window !== 'undefined' && window.addEventListener) {
+    window.addEventListener('online', () => { replayDraftQueue().catch(() => {}); });
+  }
+
   async function persistDraft() {
     if (!entryState || entryState.readOnly || !NX.sb) return;
     // If a save is already running, DON'T silently drop this one — mark it
@@ -4361,8 +4499,11 @@ Thanks for your help sorting this out.`;
     if (entryState.saveInFlight) { entryState.saveQueued = true; return; }
     entryState.saveInFlight = true;
     const stateAtStart = entryState;
+    // Hoisted to function scope so the catch can queue them offline.
+    let orderId = null;
+    let payload = null;
     try {
-      const payload = {
+      payload = {
         vendor_id:       entryState.vendor.id,
         location:        entryState.location,
         delivery_date:   entryState.delivery_date || null,
@@ -4371,7 +4512,7 @@ Thanks for your help sorting this out.`;
         created_by:      NX.user && NX.user.id   ? NX.user.id   : null,
         created_by_name: NX.user && NX.user.name ? NX.user.name : null,
       };
-      let orderId = entryState.draftOrderId;
+      orderId = entryState.draftOrderId;
       if (!orderId) {
         const { data, error } = await NX.sb.from('orders').insert(payload).select('id').single();
         if (error) throw error;
@@ -4396,10 +4537,33 @@ Thanks for your help sorting this out.`;
         p_lines: lineRows,
       });
       if (rpcErr) throw rpcErr;
+      // Success — drop any offline-queued copy of this draft. Clear both the
+      // real-id key and the pre-id "new:" key, since a first failed save may
+      // have queued under "new:" before the order row existed.
+      try {
+        await ordQueueDelete(orderId);
+        await ordQueueDelete('new:' + stateAtStart.vendor.id + ':' + stateAtStart.location);
+      } catch (_) {}
       setSaveStatus('saved');
     } catch (e) {
       console.error('[ordering] persistDraft:', e);
-      setSaveStatus('error');
+      // Offline resilience — stash the draft so dropped wifi doesn't lose the
+      // in-memory lines. Replayed on 'online' and on the next overlay open.
+      try {
+        const qKey = draftQueueKeyFor(stateAtStart.vendor.id, stateAtStart.location, orderId);
+        const qLines = Object.entries(stateAtStart.lines)
+          .filter(([_id, l]) => l && l.qty > 0)
+          .map(([item_id, l], i) => ({
+            order_id: orderId || null, item_id,
+            item_name: l.item_name, house_name: l.house_name || null, vendor_sku: l.vendor_sku,
+            qty: l.qty, unit: l.unit, note: l.note, sort_order: i,
+          }));
+        await ordQueuePut({ key: qKey, payload, lineRows: qLines, ts: Date.now() });
+        setSaveStatus('offline');
+      } catch (qErr) {
+        console.error('[ordering] draft queue failed:', qErr);
+        setSaveStatus('error');
+      }
     } finally {
       stateAtStart.saveInFlight = false;
       // A save requested while this one was in flight — run it now so the
@@ -4431,6 +4595,27 @@ Thanks for your help sorting this out.`;
       await new Promise(r => setTimeout(r, 25));
       guard++;
     }
+    // Offline-queue safety. Try to drain anything stashed (wifi may be back),
+    // then report whether THIS draft still has unsynced lines. An operator must
+    // never email an order whose lines never reached Supabase — the send path
+    // checks this return and aborts. Returns true when it's safe to proceed.
+    try { await replayDraftQueue(); } catch (_) {}
+    if (entryState) {
+      let stillQueued = false;
+      try {
+        const k1 = entryState.draftOrderId || null;
+        const k2 = entryState.vendor
+          ? ('new:' + entryState.vendor.id + ':' + entryState.location) : null;
+        const [q1, q2] = await Promise.all([ordQueueGet(k1), ordQueueGet(k2)]);
+        stillQueued = !!(q1 || q2);
+      } catch (_) { stillQueued = false; }
+      if (stillQueued) {
+        if (NX.toast) NX.toast(
+          'This order hasn’t synced yet — check your connection before sending', 'warn', 4000);
+        return false;
+      }
+    }
+    return true;
   }
 
   async function cloneAsNewDraft() {
@@ -4941,7 +5126,10 @@ Thanks for your help sorting this out.`;
 
     // Persist as 'sent' BEFORE opening mailto (mobile may background JS)
     try {
-      await flushDraftIfPending();
+      // Block the send if the draft's lines never reached Supabase — flush
+      // returns false when this order is still sitting in the offline queue.
+      const synced = await flushDraftIfPending();
+      if (synced === false) return;
       const sentPayload = {
         status:         'sent',
         email_to:       vendor.email,

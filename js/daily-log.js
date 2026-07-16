@@ -184,6 +184,11 @@ function locationIdFromLabel(label) {
 }
 
 const todayISO = () => {
+  // Prefer the shared Chicago-pinned util (core.js NX.date) so a device set to
+  // another timezone doesn't roll the log day. Fall back to device-local date.
+  try {
+    if (window.NX && NX.date && typeof NX.date.today === 'function') return NX.date.today();
+  } catch (_) {}
   const d = new Date();
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 };
@@ -1381,6 +1386,11 @@ function render() {
 
         <!-- v282 — what the next email will carry beyond today (filled async) -->
         <div id="dlogAccumBanner" style="display:none;font-size:12px;color:var(--text-dim,#9a9aa5);margin:2px 2px 6px;"></div>
+
+        <!-- Clock-sanity warning (filled async): auto-send trusts the DEVICE
+             clock, so if it's badly off vs Supabase's server time we warn here.
+             WARN ONLY — nothing is auto-corrected. -->
+        <div id="dlogClockBanner" style="display:none;font-size:12px;color:var(--warn,#e0a33a);margin:2px 2px 6px;"></div>
 
         <div class="dlog-actions">
           <span class="dlog-autosend-wrap">
@@ -4141,6 +4151,61 @@ function dlogOfferSentConfirm(scopeKey, dateStr, win) {
   setTimeout(() => { try { chip.remove(); } catch (_) {} }, 120000);
 }
 
+// Clock-sanity: the auto-send safety net (wireDlogLifecycle) fires on the
+// DEVICE clock — new Date() hours/minutes vs the cutoff time — so if the tablet's
+// clock is wrong, the day's log sends at the wrong hour or (if the clock reads
+// before the cutoff forever) never sends at all. We can't trust the device to
+// self-diagnose, so ask Supabase: a REST response carries a `Date` header
+// (server UTC). Compute the skew once; if it's large, warn near the auto-send
+// toggle. WARN ONLY — never auto-correct, never touch send behavior. If the
+// server clock is unavailable (header not exposed / offline), we silently skip.
+let _dlogClockChecked = false;
+async function dlogCheckClockSkew() {
+  if (_dlogClockChecked) return;
+  _dlogClockChecked = true;
+  let serverMs = null;
+  try {
+    const cfg = window.NEXUS_CONFIG || {};
+    const base = (cfg.SUPABASE_URL || 'https://oprsthfxqrdbwdvommpw.supabase.co').replace(/\/$/, '');
+    const t0 = Date.now();
+    // HEAD /rest/v1/ — cheap; any HTTP response includes a Date header. The
+    // apikey keeps it a clean authorized hit (no CORS/401 noise).
+    const res = await fetch(base + '/rest/v1/', {
+      method: 'HEAD',
+      headers: cfg.SUPABASE_ANON ? { apikey: cfg.SUPABASE_ANON } : {},
+      cache: 'no-store',
+    });
+    const t1 = Date.now();
+    const hdr = res && res.headers && res.headers.get('date');
+    if (hdr) {
+      const parsed = Date.parse(hdr);
+      // Add back half the round-trip so we compare the server instant to the
+      // device instant at the same moment (not skewed by network latency).
+      if (!isNaN(parsed)) serverMs = parsed + Math.round((t1 - t0) / 2);
+    }
+  } catch (_) { /* offline / header not exposed — skip silently */ }
+  if (serverMs == null) return;          // couldn't read a server clock — no warning
+  const skewMin = Math.round((Date.now() - serverMs) / 60000);
+  if (Math.abs(skewMin) <= 10) return;   // within tolerance — nothing to warn about
+  const el = document.getElementById('dlogClockBanner');
+  if (!el) return;
+  const dir = skewMin > 0 ? 'ahead of' : 'behind';
+  el.innerHTML = '';
+  const msg = document.createElement('span');
+  msg.textContent = '⚠ This device’s clock looks off — about '
+    + Math.abs(skewMin) + ' min ' + dir + ' the server. Auto-send uses this clock, '
+    + 'so it may send at the wrong time. Check the device date & time.';
+  const x = document.createElement('button');
+  x.type = 'button';
+  x.textContent = '×';
+  x.setAttribute('aria-label', 'Dismiss');
+  x.style.cssText = 'margin-left:8px;background:none;border:none;color:inherit;font-size:14px;line-height:1;cursor:pointer;padding:0 2px;';
+  x.addEventListener('click', () => { el.style.display = 'none'; });
+  el.appendChild(msg);
+  el.appendChild(x);
+  el.style.display = '';
+}
+
 // The quiet banner on the Daily Log: what the next email will carry.
 async function dlogFillAccumBanner() {
   const el = document.getElementById('dlogAccumBanner');
@@ -5069,6 +5134,11 @@ let _dlogLifecycleWired = false;
 function wireDlogLifecycle() {
   if (_dlogLifecycleWired) return;
   _dlogLifecycleWired = true;
+  // One-time clock-sanity check: auto-send (below) trusts the DEVICE clock, so
+  // a wrong device time silently sends at the wrong hour — or never. Compare
+  // device time against Supabase's server clock once and WARN if badly off.
+  // Best-effort, never blocks, never changes send behavior.
+  try { dlogCheckClockSkew(); } catch (_) {}
   // Time-based safety net: if auto-send is on and today's log still isn't
   // uploaded by the cutoff time, send it automatically. Runs every 3 min while
   // the app is open. (A fully-closed app can't fire this — a true unattended
