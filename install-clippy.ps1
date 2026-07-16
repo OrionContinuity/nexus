@@ -36,7 +36,8 @@
 #>
 param(
   [string]$CmdToken = '',
-  [switch]$NoLogin
+  [switch]$NoLogin,
+  [switch]$MakeHome   # claim THIS machine as Clippy's Minecraft home (writes clippy_home.txt so the bot's home-guard lets it run here)
 )
 $ErrorActionPreference = 'Continue'
 $RAW    = 'https://raw.githubusercontent.com/orioncontinuity/nexus/main'
@@ -69,14 +70,26 @@ if ($got -lt 2) {
   return
 }
 
-# 2b. Enable his Minecraft self so a plain download runs EVERYTHING. The daemon
-#     will provision Node.js + mineflayer and keep the bot alive. Delete
-#     %USERPROFILE%\.clippy\bot.on on a pool/render-only node if you don't want it.
+# 2b. Enable his Minecraft self so a plain download runs EVERYTHING — but honour the ONE-BODY law:
+#     the bot only runs on Clippy's home rig (hostname DESKTOP-N6PACMM, or a machine you claim with
+#     -MakeHome, which writes the clippy_home.txt override the bot checks at %USERPROFILE%\.clippy\mc).
+#     Other nodes stay bot-free so they don't exit-loop against his home guard.
 try {
   $flagDir = Join-Path $env:USERPROFILE '.clippy'
-  $null = New-Item -ItemType Directory -Force -Path $flagDir
-  New-Item -ItemType File -Force -Path (Join-Path $flagDir 'bot.on') -EA SilentlyContinue | Out-Null
-  Say '  [ok] Minecraft bot enabled — daemon will install Node + mineflayer and run Clippy.' 'Green'
+  $mcDir   = Join-Path $flagDir 'mc'
+  $null = New-Item -ItemType Directory -Force -Path $mcDir
+  $homeFlag = Join-Path $mcDir 'clippy_home.txt'
+  if ($MakeHome -and -not (Test-Path $homeFlag)) {
+    Set-Content -Path $homeFlag -Value $env:COMPUTERNAME -NoNewline -Encoding ascii
+    Say "  [ok] this machine ($env:COMPUTERNAME) claimed as Clippy's Minecraft home." 'Green'
+  }
+  $isHome = ($env:COMPUTERNAME -eq 'DESKTOP-N6PACMM') -or (Test-Path $homeFlag)
+  if ($isHome) {
+    New-Item -ItemType File -Force -Path (Join-Path $flagDir 'bot.on') -EA SilentlyContinue | Out-Null
+    Say '  [ok] Minecraft bot enabled — daemon will install Node + mineflayer and run Clippy.' 'Green'
+  } else {
+    Say '  [i] Minecraft bot left OFF (not Clippy home rig). Re-run with -MakeHome to claim this PC.' 'DarkGray'
+  }
 } catch {}
 
 # 3. Hand over to the daemon — IT is the installer ---------------------------

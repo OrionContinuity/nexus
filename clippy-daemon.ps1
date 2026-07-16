@@ -125,11 +125,17 @@ function Start-WorkerProc {
 # (clippy_agent.js) alive - closing the old gap where NOTHING revived him after a soft-OOM/world churn.
 # Opt-in per machine via a bot.on flag (install-clippy creates it, so a normal download just works; pool
 # nodes without it stay bot-free). His own home-guard still decides which world he actually joins.
+function Test-NodeOk {
+  # the bot uses global fetch (22x) -> needs Node >=18; accept a pre-existing node only if new enough
+  $n = Get-Command node -EA SilentlyContinue
+  if (-not $n) { return $false }
+  try { $v = (& node -v) -replace '[^\d.]', ''; return ([int]($v.Split('.')[0]) -ge 18) } catch { return $true }
+}
 function Ensure-Node {
-  if (Get-Command node -EA SilentlyContinue) { return $true }
-  try { Log '[bot] installing Node.js (winget)...' 'Cyan'; & winget install -e --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements *> $null } catch {}
+  if (Test-NodeOk) { return $true }
+  try { Log '[bot] installing Node.js LTS (winget)...' 'Cyan'; & winget install -e --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements *> $null } catch {}
   try { $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User') } catch {}
-  return [bool](Get-Command node -EA SilentlyContinue)
+  return (Test-NodeOk)
 }
 function Ensure-BotDeps {
   if (Test-Path (Join-Path $HOMEDIR 'node_modules\mineflayer')) { return $true }
@@ -139,7 +145,7 @@ function Ensure-BotDeps {
   try {
     Log '[bot] installing mineflayer deps (first run, ~1-2 min)...' 'Cyan'
     $depLog = Join-Path $env:USERPROFILE '.clippy\botnpm.log'; $null = New-Item -ItemType Directory -Force -Path (Split-Path $depLog)
-    Start-Process -FilePath $npm.Source -ArgumentList 'install --no-audit --no-fund mineflayer mineflayer-pathfinder mineflayer-collectblock vec3' -WorkingDirectory $HOMEDIR -WindowStyle Hidden -Wait -RedirectStandardOutput $depLog -RedirectStandardError ($depLog -replace '\.log$', '.err.log') | Out-Null
+    Start-Process -FilePath $npm.Source -ArgumentList 'install --no-audit --no-fund mineflayer mineflayer-pathfinder mineflayer-collectblock vec3 minecraft-data prismarine-item' -WorkingDirectory $HOMEDIR -WindowStyle Hidden -Wait -RedirectStandardOutput $depLog -RedirectStandardError ($depLog -replace '\.log$', '.err.log') | Out-Null
   } catch { Log "[bot] npm install failed: $($_.Exception.Message)" 'Yellow' }
   return (Test-Path (Join-Path $HOMEDIR 'node_modules\mineflayer'))
 }
