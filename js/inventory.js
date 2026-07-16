@@ -831,33 +831,58 @@
 
   async function fetchAssetByQr(qr) {
     if (!NX.sb || !qr) return null;
-    const { data } = await NX.sb.from('inventory_assets').select('*')
+    const { data, error } = await NX.sb.from('inventory_assets').select('*')
       .eq('qr_code', qr).maybeSingle();
+    if (error) {
+      console.warn('[inventory] fetchAssetByQr failed:', error.message);
+      NX.toast?.('Could not load asset: ' + error.message, 'error');
+      return null;
+    }
     return data;
   }
   async function fetchStockByQr(qr) {
     if (!NX.sb || !qr) return null;
-    const { data } = await NX.sb.from('inventory_stock_with_status').select('*')
+    const { data, error } = await NX.sb.from('inventory_stock_with_status').select('*')
       .eq('qr_code', qr).maybeSingle();
+    if (error) {
+      console.warn('[inventory] fetchStockByQr failed:', error.message);
+      NX.toast?.('Could not load stock item: ' + error.message, 'error');
+      return null;
+    }
     return data;
   }
   async function fetchAssetEvents(assetId) {
     if (!NX.sb || !assetId) return [];
-    const { data } = await NX.sb.from('inventory_asset_events').select('*')
+    const { data, error } = await NX.sb.from('inventory_asset_events').select('*')
       .eq('asset_id', assetId).order('created_at', { ascending: false }).limit(50);
+    if (error) {
+      console.warn('[inventory] fetchAssetEvents failed:', error.message);
+      NX.toast?.('Could not load asset history: ' + error.message, 'error');
+      return [];
+    }
     return data || [];
   }
   async function fetchStockEvents(stockId) {
     if (!NX.sb || !stockId) return [];
-    const { data } = await NX.sb.from('inventory_stock_events').select('*')
+    const { data, error } = await NX.sb.from('inventory_stock_events').select('*')
       .eq('stock_id', stockId).order('created_at', { ascending: false }).limit(50);
+    if (error) {
+      console.warn('[inventory] fetchStockEvents failed:', error.message);
+      NX.toast?.('Could not load stock history: ' + error.message, 'error');
+      return [];
+    }
     return data || [];
   }
   async function fetchEquipmentUsingStock(stockId) {
     if (!NX.sb || !stockId) return [];
-    const { data } = await NX.sb.from('equipment_parts')
+    const { data, error } = await NX.sb.from('equipment_parts')
       .select('id, equipment_id, part_name, pm_required, equipment:equipment_id(id, name, location)')
       .eq('stock_id', stockId);
+    if (error) {
+      console.warn('[inventory] fetchEquipmentUsingStock failed:', error.message);
+      NX.toast?.('Could not load linked equipment: ' + error.message, 'error');
+      return [];
+    }
     return data || [];
   }
 
@@ -1251,7 +1276,7 @@
         if (type === 'relocated') updates.home_location = toLoc;
         const { error } = await NX.sb.from('inventory_assets').update(updates).eq('id', asset.id);
         if (error) { NX.toast?.('Failed: ' + error.message, 'error'); return; }
-        await NX.sb.from('inventory_asset_events').insert({
+        const { error: evErr } = await NX.sb.from('inventory_asset_events').insert({
           asset_id: asset.id,
           event_type: type === 'relocated' ? 'relocate' : 'check_out',
           by_user_id: NX.currentUser?.id, by_user_name: NX.currentUser?.name,
@@ -1260,6 +1285,7 @@
             : { custodian_user_id: userId, custodian_name: user?.name, to_location: toLoc, return_by_date: returnBy },
           notes: note || null,
         });
+        if (evErr) console.warn('[inventory] audit-trail insert failed:', evErr.message);
         overlay.remove();
         NX.toast?.(`${asset.name} ${type === 'relocated' ? 'relocated' : 'checked out'}`, 'success');
         onDone?.();
@@ -1275,11 +1301,12 @@
     };
     const { error } = await NX.sb.from('inventory_assets').update(updates).eq('id', asset.id);
     if (error) { NX.toast?.('Failed: ' + error.message, 'error'); return; }
-    await NX.sb.from('inventory_asset_events').insert({
+    const { error: evErr } = await NX.sb.from('inventory_asset_events').insert({
       asset_id: asset.id, event_type: 'check_in',
       by_user_id: NX.currentUser?.id, by_user_name: NX.currentUser?.name,
       payload: { from_location: asset.current_location || asset.home_location },
     });
+    if (evErr) console.warn('[inventory] audit-trail insert failed:', evErr.message);
     NX.toast?.(`${asset.name} checked in`, 'success');
     onDone?.();
   }
@@ -1293,11 +1320,12 @@
     }
     const { error } = await NX.sb.from('inventory_assets').update(updates).eq('id', asset.id);
     if (error) { NX.toast?.('Failed: ' + error.message, 'error'); return; }
-    await NX.sb.from('inventory_asset_events').insert({
+    const { error: evErr } = await NX.sb.from('inventory_asset_events').insert({
       asset_id: asset.id, event_type: 'status_change',
       by_user_id: NX.currentUser?.id, by_user_name: NX.currentUser?.name,
       payload: { from_status: asset.status, to_status: newStatus },
     });
+    if (evErr) console.warn('[inventory] audit-trail insert failed:', evErr.message);
     NX.toast?.(`${asset.name} → ${newStatus}`, 'success');
     onDone?.();
   }
@@ -1529,11 +1557,12 @@
           updated_at: new Date().toISOString(),
         }).eq('id', stock.id);
         if (error) { NX.toast?.('Failed: ' + error.message, 'error'); return; }
-        await NX.sb.from('inventory_stock_events').insert({
+        const { error: evErr } = await NX.sb.from('inventory_stock_events').insert({
           stock_id: stock.id, event_type: 'count', delta: delta, count_after: newCount,
           by_user_id: NX.currentUser?.id, by_user_name: NX.currentUser?.name,
           reason: 'manual count',
         });
+        if (evErr) console.warn('[inventory] audit-trail insert failed:', evErr.message);
         if (newCount < stock.reorder_threshold) {
           await createReorderCard({ ...stock, count_on_hand: newCount }, newCount);
         }
@@ -1583,11 +1612,12 @@
           updated_at: new Date().toISOString(),
         }).eq('id', stock.id);
         if (error) { NX.toast?.('Failed: ' + error.message, 'error'); return; }
-        await NX.sb.from('inventory_stock_events').insert({
+        const { error: evErr } = await NX.sb.from('inventory_stock_events').insert({
           stock_id: stock.id, event_type: 'receive', delta: qty, count_after: newCount,
           by_user_id: NX.currentUser?.id, by_user_name: NX.currentUser?.name,
           reason: note || null,
         });
+        if (evErr) console.warn('[inventory] audit-trail insert failed:', evErr.message);
         overlay.remove();
         NX.toast?.(`Received ${qty} × ${stock.name}`, 'success');
         onDone?.();
@@ -1626,10 +1656,11 @@
           count_on_hand: newCount, updated_at: new Date().toISOString(),
         }).eq('id', stock.id);
         if (error) { NX.toast?.('Failed: ' + error.message, 'error'); return; }
-        await NX.sb.from('inventory_stock_events').insert({
+        const { error: evErr } = await NX.sb.from('inventory_stock_events').insert({
           stock_id: stock.id, event_type: 'adjust', delta: delta, count_after: newCount,
           by_user_id: NX.currentUser?.id, by_user_name: NX.currentUser?.name, reason: reason,
         });
+        if (evErr) console.warn('[inventory] audit-trail insert failed:', evErr.message);
         overlay.remove();
         NX.toast?.(`Adjusted ${stock.name}: ${stock.count_on_hand} → ${newCount}`, 'success');
         onDone?.();
@@ -1904,10 +1935,11 @@
           data.status = 'on_shelf';
           const { data: inserted, error } = await NX.sb.from('inventory_assets').insert(data).select().single();
           if (error) { NX.toast?.('Failed: ' + error.message, 'error'); return; }
-          await NX.sb.from('inventory_asset_events').insert({
+          const { error: evErr } = await NX.sb.from('inventory_asset_events').insert({
             asset_id: inserted.id, event_type: 'created',
             by_user_id: NX.currentUser?.id, by_user_name: NX.currentUser?.name,
           });
+          if (evErr) console.warn('[inventory] audit-trail insert failed:', evErr.message);
           NX.toast?.(`Added ${pn}`, 'success');
         }
         overlay.remove();
@@ -2039,12 +2071,13 @@
           const { data: inserted, error } = await NX.sb.from('inventory_stock').insert(data).select().single();
           if (error) { NX.toast?.('Failed: ' + error.message, 'error'); return; }
           if (data.count_on_hand > 0) {
-            await NX.sb.from('inventory_stock_events').insert({
+            const { error: evErr } = await NX.sb.from('inventory_stock_events').insert({
               stock_id: inserted.id, event_type: 'receive',
               delta: data.count_on_hand, count_after: data.count_on_hand,
               by_user_id: NX.currentUser?.id, by_user_name: NX.currentUser?.name,
               reason: 'initial stock',
             });
+            if (evErr) console.warn('[inventory] audit-trail insert failed:', evErr.message);
           }
           NX.toast?.(`Added ${pn}`, 'success');
         }
@@ -2116,11 +2149,12 @@
               updated_at: new Date().toISOString(),
             };
         await NX.sb.from('inventory_assets').update(updates).eq('id', asset.id);
-        await NX.sb.from('inventory_asset_events').insert({
+        const { error: evErr } = await NX.sb.from('inventory_asset_events').insert({
           asset_id: asset.id, event_type: 'photo_added',
           by_user_id: NX.currentUser?.id, by_user_name: NX.currentUser?.name,
           photo_url: photoUrl,
         });
+        if (evErr) console.warn('[inventory] audit-trail insert failed:', evErr.message);
         NX.toast?.('Photo added', 'success');
         onDone?.();
       } catch (e) {
@@ -2249,12 +2283,13 @@
         .eq('archived', false)
         .limit(1);
       if (existing?.length) {
-        await NX.sb.from('inventory_stock_events').insert({
+        const { error: evErr } = await NX.sb.from('inventory_stock_events').insert({
           stock_id: stock.id, event_type: 'reorder_card', delta: 0,
           count_after: currentCount,
           related_card_id: existing[0].id,
           reason: 'card already exists',
         });
+        if (evErr) console.warn('[inventory] audit-trail insert failed:', evErr.message);
         return;
       }
 
@@ -2284,10 +2319,11 @@ Suggested order: ${(stock.par_level - currentCount) * 2} units (rebuild buffer)`
         console.warn('[inventory] reorder card not created (NX.work unavailable)');
         return;
       }
-      await NX.sb.from('inventory_stock_events').insert({
+      const { error: evErr } = await NX.sb.from('inventory_stock_events').insert({
         stock_id: stock.id, event_type: 'reorder_card', delta: 0,
         count_after: currentCount, related_card_id: newCardId,
       });
+      if (evErr) console.warn('[inventory] audit-trail insert failed:', evErr.message);
     } catch (e) {
       console.warn('[inventory] createReorderCard', e);
     }

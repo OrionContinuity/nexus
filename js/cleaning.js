@@ -164,7 +164,11 @@
 
   // ─── DATE: 8AM rollover (a "cleaning shift" is 8am-to-8am) ────────────
   function getCleaningDate() {
-    const now = new Date();
+    // Pin to America/Chicago (US Central) so a device set to another
+    // timezone still writes cleaning to the correct 8am→8am shift date.
+    // Re-parsing the Chicago wall-clock string yields a Date whose LOCAL
+    // fields (getHours/getDate/…) equal Chicago's wall clock.
+    const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Chicago' }));
     if (now.getHours() < 8) now.setDate(now.getDate() - 1);
     const y = now.getFullYear();
     const m = String(now.getMonth() + 1).padStart(2, '0');
