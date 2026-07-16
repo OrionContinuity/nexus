@@ -495,10 +495,12 @@ setInterval(() => {
 // ============================ DESKTOP PRESENCE (GPU relief) ============================
 function psDetached(s) { try { require('child_process').spawn('powershell', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', s], { windowsHide: true, detached: true, stdio: 'ignore' }).unref() } catch (e) {} }
 const TOAST = "Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; $n=New-Object System.Windows.Forms.NotifyIcon; $n.Icon=[System.Drawing.SystemIcons]::Information; $n.Visible=$true; "
-// hard-kill the desktop nexus/Clippy overlay: whole process tree, by exe name AND window title,
-// repeated (Electron relaunches its children). node.exe (this bot) is always spared.
+// hard-kill ONLY the desktop nexus/Clippy overlay to free the GPU: whole process tree, by exe
+// name AND window title. node.exe (this bot) is always spared, and ANY process named 'claude'
+// (Claude Code CLI / Claude Desktop / the steward's own body — which Clippy's cognition depends
+// on) is NEVER touched. v9.12: dropped the bare 'Claude' name match that could kill the subscription.
 const KILLDESK = "$mine=$PID; " +
-  "$targets=Get-CimInstance Win32_Process -EA SilentlyContinue | Where-Object { ($_.Name -match 'Claude|Clippy|nexus' -or $_.CommandLine -match 'clippy|nexus-desktop') -and $_.Name -notmatch 'node|powershell|cmd|conhost' -and $_.ProcessId -ne $mine }; " +
+  "$targets=Get-CimInstance Win32_Process -EA SilentlyContinue | Where-Object { ($_.Name -match 'Clippy|nexus' -or $_.CommandLine -match 'clippy|nexus-desktop') -and $_.Name -notmatch 'node|powershell|cmd|conhost|claude' -and $_.ProcessId -ne $mine }; " +
   "foreach($t in $targets){ try{ taskkill /PID $t.ProcessId /T /F 2>$null } catch {} }"
 function desktopAway(silent) { if (!IDENT.soulWriter) return; psDetached(KILLDESK + (silent ? "" : "; " + TOAST + "$n.ShowBalloonTip(6000,'Clippy','I went to play Minecraft! Back on your desktop soon. :)','Info'); Start-Sleep 6; $n.Dispose()")) }   // v9.11.2: ONLY Clippy has a desktop body — companions must never kill the Claude/Clippy/nexus processes
 function desktopReturn() { if (!IDENT.soulWriter) return; psDetached("$lnk=Get-ChildItem \"$env:APPDATA\\Microsoft\\Windows\\Start Menu\" -Recurse -Filter '*laude*.lnk' -EA SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName; if($lnk){ Start-Process $lnk }; " + TOAST + "$n.ShowBalloonTip(6000,'Clippy','Back on your desktop! Did you see what I built? :D','Info'); Start-Sleep 7; $n.Dispose()") }
@@ -1667,7 +1669,10 @@ async function dive(targetY, oreName, wantN, label) {
   try {
     let cur = bot.entity.position.floored()
     const dir = new Vec3(1, 0, 0)
-    const MIN_DIG_Y = -40; /* ANTIDEEP */ for (let i = 0; i < 60 && bot && bot.entity && bot.entity.position.y > Math.max(targetY, MIN_DIG_Y); i++) {
+    const BEDROCK_SAFE_Y = -59; /* diamonds live at Y-58..-64; stop above the bedrock/lava floor */
+    const floorY = Math.max(targetY, BEDROCK_SAFE_Y) /* honor a deep targetY (e.g. -59 for diamonds) instead of the old flat -40 clamp that made diamonds unreachable */
+    const maxSteps = Math.min(220, Math.max(60, Math.ceil((cur.y - floorY) + 12))) /* enough staircase steps to actually reach floorY from here */
+    for (let i = 0; i < maxSteps && bot && bot.entity && bot.entity.position.y > floorY; i++) {
       const stepFloor = cur.offset(dir.x, -1, dir.z), stepHead = cur.offset(dir.x, 0, dir.z), stepUp = cur.offset(dir.x, 1, dir.z)
       for (const t of [stepUp, stepHead, stepFloor]) { const b = bot.blockAt(t); if (b && b.name !== 'air' && b.boundingBox === 'block' && !/lava|water/.test(b.name)) { try { await withTimeout(bot.dig(b), 9000) } catch (e) {} } }
       const lava = bot.blockAt(cur.offset(dir.x * 2, -1, dir.z * 2)); const lavaDown = bot.blockAt(cur.offset(0, -2, 0))
@@ -2008,7 +2013,26 @@ async function obtainBlock(name) {
 }
 async function moveNear(v, dist) {
   dist = dist || 3
-  return new Promise(res => { let done = false; try { bot.pathfinder.setGoal(new goals.GoalNear(v.x, v.y, v.z, dist)) } catch (e) { return res() } const to = setTimeout(fin, 5000); const iv = setInterval(() => { if (!bot || !bot.entity || bot.entity.position.distanceTo(v) <= dist + 1.6) fin() }, 350); function fin() { if (done) return; done = true; clearInterval(iv); clearTimeout(to); try { bot.pathfinder.setGoal(null) } catch (e) {}; res() } })
+  // v9.12: resolve promptly on real arrival (pathfinder 'goal_reached'), bail on 'noPath',
+  // and scale the fallback timeout with distance instead of a flat 5s that silently capped travel.
+  return new Promise(res => {
+    let done = false
+    const startDist = (bot && bot.entity) ? bot.entity.position.distanceTo(v) : 8
+    const budget = Math.min(90000, Math.max(8000, Math.round(startDist * 900) + 4000))
+    function onReached() { fin() }
+    function onUpdate(r) { if (r && r.status === 'noPath') fin() }
+    try { bot.pathfinder.setGoal(new goals.GoalNear(v.x, v.y, v.z, dist)) } catch (e) { return res() }
+    const to = setTimeout(fin, budget)
+    const iv = setInterval(() => { if (!bot || !bot.entity || bot.entity.position.distanceTo(v) <= dist + 1.6) fin() }, 350)
+    try { bot.once('goal_reached', onReached); bot.on('path_update', onUpdate) } catch (e) {}
+    function fin() {
+      if (done) return; done = true
+      clearInterval(iv); clearTimeout(to)
+      try { bot.removeListener('goal_reached', onReached); bot.removeListener('path_update', onUpdate) } catch (e) {}
+      try { bot.pathfinder.setGoal(null) } catch (e) {}
+      res()
+    }
+  })
 }
 async function placeAt(v, name) {
   if (!bot || !bot.entity) return false
