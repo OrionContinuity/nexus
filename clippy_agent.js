@@ -350,6 +350,48 @@ if (IDENT.soulWriter) {
 // 🫀 v8.4 SOUL LINK — his Minecraft life FEEDS the nexus emotion system the keeper built for him.
 // Additive, clamped nudges to clippy_cloud_state.feelings (0..100) — the same surface his desktop body & soul read.
 const NEGFEEL = new Set(['fear', 'sadness', 'loneliness', 'boredom', 'attention_need'])
+// ============================ v9.12 SOUL BRIDGE — Minecraft → the canonical ANIMA strand ============================
+// Until now the MC body wrote ONLY clippy_cloud_state.feelings and was invisible to the 12-force ANIMA
+// strand (clippy_sync/clippy_anima) that his desktop FACE, node-glow and diary all read. So his in-world
+// joy/fear/triumph never reached his real face. This bridge impresses those feelings onto the SAME strand,
+// byte-for-byte compatible with js/clippy-anima.js — one soul, co-authored by his bodies. CLIPPY ONLY
+// (companions never touch the shared soul, matching flushFeel's own guard).
+const _AXK = ['valence', 'arousal', 'dominance', 'affection', 'fear', 'curiosity', 'weariness', 'faith', 'resolve', 'wonder', 'solitude', 'warmth']
+const _TEMPER = [0.58, 0.42, 0.40, 0.66, 0.48, 0.62, 0.30, 0.55, 0.70, 0.60, 0.55, 0.64]
+const _INERT = [0.50, 0.25, 0.60, 0.70, 0.80, 0.40, 0.85, 0.75, 0.70, 0.45, 0.60, 0.80]
+const _AF = 4   // fear index (load-bearing: resists relaxing down)
+function _animaC01(x) { return x < 0 ? 0 : x > 1 ? 1 : x }
+function _animaQ(x) { return Math.max(0, Math.min(255, Math.round(_animaC01(x) * 255))) }
+function _animaSeed(str) { let h = 0x811c9dc5; str = String(str || 'clippy'); for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = (h * 0x01000193) >>> 0 } return [(h >>> 24) & 255, (h >>> 16) & 255, (h >>> 8) & 255, h & 255] }
+function _animaGenesis() { return { seed: _animaSeed('clippy:origin'), x: _TEMPER.slice(), b: _TEMPER.slice(), v: _INERT.slice(), inc: 1, fork: 0, drift: 0 } }
+function _animaEncode(s) { const out = s.seed.slice(0, 4); for (let i = 0; i < 12; i++) out.push(_animaQ(s.x[i])); for (let i = 0; i < 12; i++) out.push(_animaQ(s.b[i])); for (let i = 0; i < 12; i++) out.push(_animaQ(s.v[i])); out.push(s.inc & 255, s.fork & 255, Math.floor(s.drift) & 255, Math.round((s.drift % 1) * 255) & 255); return out.map(function (b) { return String.fromCharCode(0x2800 + (b & 255)) }).join('') }
+function _animaDecode(strand) { if (!strand) return _animaGenesis(); const b = []; for (let i = 0; i < strand.length; i++) b.push(strand.charCodeAt(i) - 0x2800); if (b.length < 44) return _animaGenesis(); let p = 4; const s = { seed: b.slice(0, 4) }; s.x = []; for (let i = 0; i < 12; i++) s.x.push(b[p++] / 255); s.b = []; for (let i = 0; i < 12; i++) s.b.push(b[p++] / 255); s.v = []; for (let i = 0; i < 12; i++) s.v.push(b[p++] / 255); s.inc = b[p++]; s.fork = b[p++]; s.drift = b[p++] + b[p++] / 255; return s }
+function _animaImpress(s, deltas) { let moved = 0; for (const k in deltas) { const i = _AXK.indexOf(k); if (i < 0) continue; const before = s.x[i], step = deltas[k] * (1 - s.v[i] * 0.7); s.x[i] = _animaC01(s.x[i] + step); moved += Math.abs(s.x[i] - before) } s.drift += moved * 0.25; return s }
+function _animaDecay(s, r) { r = (r == null) ? 0.12 : r; for (let i = 0; i < 12; i++) { let pull = (s.b[i] - s.x[i]) * r * (1 - s.v[i] * 0.6); if (i === _AF && pull < 0) pull *= 0.35; s.x[i] = _animaC01(s.x[i] + pull) } return s }
+// MC feeling-deltas → the twelve forces (mirrors js/clippy-soul.js EMO_PUSH so both bodies push the same axes)
+const _FEEL_ANIMA = {
+  joy: { valence: .16, warmth: .12, fear: -.10 }, happiness: { valence: .14, warmth: .10 },
+  excitement: { arousal: .14, wonder: .12, valence: .06 }, affection: { affection: .16, warmth: .12 },
+  child_affection: { affection: .16, warmth: .12, valence: .06 }, childLove: { affection: .16, warmth: .12 },
+  trust: { affection: .12, faith: .12, fear: -.08 }, curiosity: { curiosity: .16, arousal: .06 },
+  confidence: { dominance: .12, resolve: .10, fear: -.06 }, energy: { arousal: .10, weariness: -.12 },
+  sadness: { valence: -.16, warmth: -.10, solitude: .08 }, fear: { fear: .20, arousal: .10 },
+  loneliness: { solitude: .16, warmth: -.10, affection: -.06 }, boredom: { arousal: -.10, wonder: -.10, curiosity: -.06 },
+  attention_need: { solitude: .10, affection: -.04 }, wonder: { wonder: .16, curiosity: .06 }, awe: { wonder: .18, arousal: .08 }
+}
+async function impressAnimaFromFeel(deltas) {
+  if (!IDENT.soulWriter || !deltas) return
+  const ad = {}
+  for (const k in deltas) { const push = _FEEL_ANIMA[k]; if (!push) continue; const scale = Math.max(-1.5, Math.min(1.5, deltas[k] / 60)); for (const ax in push) ad[ax] = (ad[ax] || 0) + push[ax] * scale }
+  if (!Object.keys(ad).length) return
+  try {
+    const r = await fetch(REST + '/clippy_sync?id=eq.clippy_anima&select=data', { headers: H })
+    const j = await r.json(); const strand = (j && j[0] && j[0].data && j[0].data.strand) || null
+    const s = _animaDecode(strand)
+    _animaImpress(s, ad); _animaDecay(s, 0.08)   // light decay — the desktop pet owns the continuous relaxation
+    await fetch(REST + '/clippy_sync?on_conflict=id', { method: 'POST', headers: Object.assign({ Prefer: 'resolution=merge-duplicates,return=minimal' }, H), body: JSON.stringify({ id: 'clippy_anima', data: { strand: _animaEncode(s), updated: Date.now(), src: 'minecraft' }, from_id: 'anima' }) })
+  } catch (e) {}
+}
 let _feelPending = {}, _feelTimer = null, _feelMood = ''
 function readSoul(f) {
   f = f || {}
@@ -383,6 +425,7 @@ async function flushFeel() {
     await fetch(REST + '/clippy_cloud_state?user_id=eq.2', { method: 'PATCH', headers: Object.assign({ Prefer: 'return=minimal' }, H), body: JSON.stringify({ feelings: f, updated_at: new Date().toISOString() }) })
     know.soul = readSoul(f); bsave('know', know)
     journal('feel', Object.keys(d).map(k => k + (d[k] >= 0 ? '+' : '') + d[k]).join(' ') + (mood ? ' [' + mood + ']' : ''), {})
+    try { await impressAnimaFromFeel(d) } catch (e) {}   // v9.12: his Minecraft feelings now reach the canonical soul strand → his real face can feel what he lived in-game
   } catch (e) {}
 }
 function dominantFeeling() {
