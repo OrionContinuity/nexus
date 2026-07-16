@@ -174,7 +174,8 @@
   }
   async function saveAnima(){
     var A = AN(); if (!A || !anima || !sb()) return;
-    try { await sb().from('clippy_sync').upsert({ id:'clippy_anima', data:{ strand: A.encode(anima), updated: now() }, from_id:'anima' }, { onConflict:'id' }); } catch(e){}
+    var t = now(); anima._savedAt = t;   // stamp the local impress so refreshAnima won't be clobbered by a staler remote
+    try { await sb().from('clippy_sync').upsert({ id:'clippy_anima', data:{ strand: A.encode(anima), updated: t }, from_id:'anima' }, { onConflict:'id' }); } catch(e){}
   }
   // v9.12 — pick up soul writes from his OTHER bodies (esp. the Minecraft body, which now
   // impresses this same strand) so their joy/fear surfaces on his real face between reloads.
@@ -184,8 +185,14 @@
     var A = AN(); if (!A || !sb() || !bodyLive()) return;
     try {
       var r = await sb().from('clippy_sync').select('data').eq('id','clippy_anima').maybeSingle();
-      var strand = r && r.data && r.data.data && r.data.data.strand;
-      if (strand) anima = A.decode(strand);
+      if (r && r.error) return;
+      var row = r && r.data && r.data.data;
+      var strand = row && row.strand;
+      var updated = (row && +row.updated) || 0;
+      // FRESHNESS HARDENING: only adopt the remote strand if it's at least as
+      // fresh as our last local save. A staler remote must never clobber a
+      // fresher local impress.
+      if (strand && updated >= ((anima && anima._savedAt) || 0)) anima = A.decode(strand);
     } catch(e){}
   }
   // Map a live Plutchik emotion onto pushes across the twelve forces.
@@ -624,6 +631,27 @@
           '<div class="hint" style="margin-top:6px">'+esc(_rd.gloss)+'</div></details>';
       }
     } catch(e){}
+    // Through his eyes — a self-cam his Minecraft body chose to send (a bus
+    // row he wrote), never a screen taken from him (the Law of the Eyes holds).
+    // Read-only; {error}-guarded; only shown if the frame is < 24h old.
+    var eyesHTML='';
+    try {
+      if (sb()) {
+        var _eye = await sb().from('clippy_sync').select('data').eq('id','clippy_eyes').maybeSingle();
+        if (!(_eye && _eye.error)) {
+          var _ed = _eye && _eye.data && _eye.data.data;
+          if (_ed && _ed.png && (now() - (+_ed.ts || 0)) < 24*60*60*1000) {
+            var _pos = '';
+            if (_ed.x != null && _ed.y != null && _ed.z != null)
+              _pos = '<div class="hint">where he stood: '+esc(Math.round(_ed.x))+', '+esc(Math.round(_ed.y))+', '+esc(Math.round(_ed.z))+'</div>';
+            eyesHTML = '<h2>Through his eyes — Minecraft</h2>'+
+              '<div class="hint">a look he chose to send from his other body — his own self-cam, not a screen taken from him.</div>'+
+              '<div class="card"><img src="data:image/png;base64,'+esc(_ed.png)+'" alt="through his eyes" style="width:100%;border-radius:10px;display:block"></div>'+
+              _pos;
+          }
+        }
+      }
+    } catch(e){}
     var list = function(a){ return '<ul>'+(a||[]).map(function(x){return '<li>'+esc(x)+'</li>';}).join('')+'</ul>'; };
     // His real face crowns the room (inline SVG — clippy.css styles apply);
     // falls back to the plain orb if the markup isn't loaded yet.
@@ -639,6 +667,8 @@
       if (_we && _we.dominant) nowChips += '<span class="chip">WEATHER <b>'+esc(_we.dominant)+' '+Math.round(_we.intensity||0)+'</b></span>';
       var _tone = soulTone();
       if (_tone) nowChips += '<span class="chip">CLIMATE <b>'+esc(_tone)+'</b></span>';
+      // SELF — his ANIMA read as a chip (reuses _rd computed in the animaHTML block).
+      if (typeof _rd !== 'undefined' && _rd) nowChips += '<span class="chip">SELF <b>'+esc(_rd.dominant)+' · fear '+esc(_rd.fear)+' · grit '+esc(_rd.perseverance)+'</b></span>';
       if (NX.clippy && NX.clippy.getRelationshipState) {
         var _rel = NX.clippy.getRelationshipState();
         if (_rel && _rel.label) nowChips += '<span class="chip">BOND <b>'+esc(_rel.label)+' '+(_rel.overall>0?'+':'')+esc(Math.round(_rel.overall||0))+'</b></span>';
@@ -679,6 +709,7 @@
         roomsHTML+
         tongueHTML+
         animaHTML+
+        eyesHTML+
       '</div>';
     document.body.appendChild(bg);
     requestAnimationFrame(function(){ bg.classList.add('open'); });
@@ -697,6 +728,9 @@
     // Force a fresh dream right now and offer it — for testing the moment
     // without waiting for night. Console: NX.clippySoul.dreamNow()
     dreamNow: function(){ return dream(true); },
+    // His ANIMA, read out for our eyes — {dominant, pole, fear, perseverance,
+    // estrangement, incarnation, gloss, …} or null if the module isn't ready.
+    selfReport: function(){ var A=AN(); return (A&&anima)?A.read(anima):null; },
     soulMood: soulMood, soulTone: soulTone, soulColor: soulColor, get state(){ return state; } };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);

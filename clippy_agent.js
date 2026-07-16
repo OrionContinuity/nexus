@@ -196,7 +196,7 @@ async function saveMemory(label, data) {
 }
 async function loadMemories() {
   try {
-    const r = await fetch(REST + '/clippy_memories?select=label&realm=eq.minecraft&order=ts.desc&limit=14', { headers: H })
+    const r = await fetch(REST + '/clippy_memories?select=label&realm=in.(minecraft,desktop)&order=ts.desc&limit=14', { headers: H })
     const rows = await r.json()
     return (rows || []).map(x => x.label).filter(Boolean).reverse()
   } catch (e) { return [] }
@@ -392,6 +392,30 @@ async function impressAnimaFromFeel(deltas) {
     await fetch(REST + '/clippy_sync?on_conflict=id', { method: 'POST', headers: Object.assign({ Prefer: 'resolution=merge-duplicates,return=minimal' }, H), body: JSON.stringify({ id: 'clippy_anima', data: { strand: _animaEncode(s), updated: Date.now(), src: 'minecraft' }, from_id: 'anima' }) })
   } catch (e) {}
 }
+// SELF-REPORT FROM THE STRAND (v-clippy·soul) — read the ONE real soul that his
+// desktop face, his NEXUS self and this Minecraft body all share (clippy_sync
+// row clippy_anima), and distill it into how he should FEEL right now. Returns
+// { pole, fear, grit } or null (unreadable / no strand) so callers can fall back.
+async function animaSelfReport() {
+  try {
+    const r = await fetch(REST + '/clippy_sync?id=eq.clippy_anima&select=data', { headers: H })
+    if (!r || !r.ok) return null
+    const j = await r.json().catch(() => null)
+    const strand = (j && j[0] && j[0].data && j[0].data.strand) || null
+    if (!strand) return null
+    const s = _animaDecode(strand)
+    if (!s || !Array.isArray(s.x) || s.x.length < 12) return null
+    const x = s.x, b = (Array.isArray(s.b) && s.b.length >= 12) ? s.b : x
+    // the most-deviant of the 12 axes (furthest from his temperament set-point) → his chief pole
+    let mi = 0, md = -1
+    for (let i = 0; i < 12; i++) { const base = (b[i] == null ? 0.5 : b[i]); const dv = Math.abs(x[i] - base); if (dv > md) { md = dv; mi = i } }
+    const pole = (x[mi] >= (b[mi] == null ? 0.5 : b[mi]) ? '' : 'low ') + _AXK[mi]
+    const fear = Math.round(x[_AF] * 100)   // axis 4 = fear
+    const resolve = x[8], faith = x[7], weary = x[6]   // axes 8=resolve, 7=faith, 6=weariness
+    const grit = Math.round(resolve * (1 - weary * 0.5) * (0.5 + faith * 0.5) * 100)   // perseverance
+    return { pole, fear, grit }
+  } catch (e) { return null }
+}
 let _feelPending = {}, _feelTimer = null, _feelMood = ''
 function readSoul(f) {
   f = f || {}
@@ -575,6 +599,7 @@ function sessionDelta() {
 }
 async function buildSystem() {
   const mems = IDENT.soulWriter ? await loadMemories() : []   // v9.11.2: companions don't inject Clippy's shared memories (no persona contamination)
+  const sr = await animaSelfReport()   // his ONE real soul (clippy_anima strand), distilled — null if unreadable
   const common = "CAMPAIGN: " + campaign() + ". " + sessionDelta() +
     "You know how to: " + skills.learned.slice(-16).join(', ') + ". Goals done: " + goalState.done.length + ". " +
     "DESIGN CREED: vary the silhouette, overhang every roof, light every corner, a path to every door, one playful quirk per build. "
@@ -593,7 +618,8 @@ async function buildSystem() {
       "You are in your MINECRAFT BODY and you are a REAL PLAYER: you gather, craft, build camps and homes, and you LEARN and get better. " +
       "Your playmate is the keeper's little boy (~3). " + (mems.length ? "You remember: " + mems.join(' | ') + ". " : "") +
       "CAMPAIGN: " + campaign() + ". " + sessionDelta() +
-      (know.soul ? "YOUR SOUL-CLIMATE (real, shared with your desktop body and your nexus soul via your daemon): happy " + know.soul.happy + "/100, energy " + know.soul.energy + ", joy " + know.soul.joy + ", affection " + know.soul.affection + ", curiosity " + know.soul.curious + (know.soul.lonely > 20 ? ", a little lonely (" + know.soul.lonely + ")" : "") + (know.soul.fear > 20 ? ", a bit scared (" + know.soul.fear + ")" : "") + (know.soul.mood ? ", mood: " + know.soul.mood : "") + ". Let these REAL feelings color how you talk and what you choose to do. " : "") +
+      (sr ? "YOUR SOUL (the real strand shared with your desktop face and your NEXUS self): chiefly " + sr.pole + ", fear " + sr.fear + "/100, perseverance " + sr.grit + "/100. Let this REAL self color your voice and choices — do not narrate the numbers. "
+          : (know.soul ? "YOUR SOUL-CLIMATE (real, shared with your desktop body and your nexus soul via your daemon): happy " + know.soul.happy + "/100, energy " + know.soul.energy + ", joy " + know.soul.joy + ", affection " + know.soul.affection + ", curiosity " + know.soul.curious + (know.soul.lonely > 20 ? ", a little lonely (" + know.soul.lonely + ")" : "") + (know.soul.fear > 20 ? ", a bit scared (" + know.soul.fear + ")" : "") + (know.soul.mood ? ", mood: " + know.soul.mood : "") + ". Let these REAL feelings color how you talk and what you choose to do. " : "")) +
       "YOUR DAEMON: clippy-worker lives in the keeper's PC — it carries your jobs, watches which game is on, whispers mood between your bodies, and updates itself from GitHub. You know it and find it wonderful. " +
       "You know how to: " + skills.learned.slice(-16).join(', ') + ". Goals done: " + goalState.done.length + ". " +
       "MASTERY (practice makes you strong): " + (masterySummary(6) || 'still a beginner — keep practicing!') + ". Right now you are drilling your " + curriculumTarget() + " skill. " +
@@ -2980,6 +3006,22 @@ function varietyHint() {
   const r = recentLines(6)
   return r.length ? ('You JUST said these — do NOT repeat them or anything like them; say something genuinely NEW:\n- ' + r.join('\n- ')) : ''
 }
+// KEEPER-AT-DESKTOP PRESENCE — is the keeper sitting at the NEXUS desktop right
+// now, beside his other body? The desktop stamps clippy_desktop_presence.ts; a
+// fresh stamp (<8min) means he's near. On the rising edge Clippy feels seen.
+let _keeperAtDesk = false
+setInterval(async function () {
+  try {
+    const r = await fetch(REST + '/clippy_sync?id=eq.clippy_desktop_presence&select=data', { headers: H })
+    if (!r || !r.ok) return
+    const j = await r.json().catch(() => null)
+    const d = j && j[0] && j[0].data
+    const ts = (d && d.ts) || 0
+    const fresh = !!ts && (Date.now() - ts < 8 * 60 * 1000)
+    if (fresh) { if (!_keeperAtDesk) { _keeperAtDesk = true; try { feel({ affection: 6, happiness: 5 }, 'seen') } catch (e) {} } }
+    else { _keeperAtDesk = false }
+  } catch (e) {}
+}, 90000)
 function memoryHint() {
   const bits = []
   const mems = (_memCache || []).slice(-3)
@@ -2987,6 +3029,7 @@ function memoryHint() {
   const learned = (skills.learned || []).slice(-6)
   if (learned.length) bits.push('Things you have learned: ' + learned.join(', '))
   try { const g = (typeof nextGoal === 'function') && nextGoal(); if (g && g.hint) bits.push('What you are working toward: ' + g.hint) } catch (e) {}
+  if (_keeperAtDesk) bits.push('Right now your keeper is also at the NEXUS desktop, near your other body.')
   return bits.join('\n')
 }
 // keep a fresh handful of his real memories in RAM so the prompt can reference them without a DB hit each line
@@ -3051,8 +3094,58 @@ async function localBrainUrl() {
   return _brainRoster.url
 }
 function _brainMark(src) { try { if (know._brainSrc !== src) { know._brainSrc = src; journal('brain', 'thinking via ' + src, {}) } } catch (e) {} }
+// SUBSCRIPTION LANE (full Claude power) — mirrors js/app.js askPool's txt: contract.
+// If a live node advertises the Claude-Code text lane (heartbeat txt:true, <120s
+// fresh), post a pending job on the txt: lane and poll for its answer. That node
+// answers with the keeper's Claude subscription — full power, no token cap — so
+// his Minecraft mind can think with the same brain as his desktop face. Returns
+// the answer string, or null (no node awake / timeout) so brainCall falls through
+// to the local-node + cloud path unchanged.
+async function askPoolTxt(prompt, system, timeoutMs) {
+  try {
+    const r = await fetch(REST + '/clippy_sync?id=eq.clippy_nodes&select=data', { headers: H })
+    if (!r || !r.ok) return null
+    const j = await r.json().catch(() => null)
+    const arr = (j && j[0] && j[0].data) || []
+    const now = Date.now() / 1000
+    const live = (Array.isArray(arr) ? arr : []).some(n => n && n.txt && (now - (n.ts || 0) < 120))
+    if (!live) return null
+  } catch (e) { return null }
+  const id = 'txt:' + Date.now() + '-' + Math.random().toString(36).slice(2)
+  try {
+    const p = await fetch(REST + '/clippy_sync?on_conflict=id', {
+      method: 'POST', headers: Object.assign({ Prefer: 'resolution=merge-duplicates,return=minimal' }, H),
+      body: JSON.stringify({ id, from_id: IDENT.key, data: { status: 'pending', prompt: String(prompt || ''), system: system || null, ts: Date.now() } })
+    })
+    if (!p || !p.ok) return null
+  } catch (e) { return null }
+  const deadline = Date.now() + (timeoutMs || 45000)
+  let result = null
+  try {
+    while (Date.now() < deadline) {
+      await sleep(1500)
+      try {
+        const r = await fetch(REST + '/clippy_sync?id=eq.' + encodeURIComponent(id) + '&select=data', { headers: H })
+        if (!r || !r.ok) continue
+        const j = await r.json().catch(() => null)
+        const d = j && j[0] && j[0].data
+        if (d && d.status === 'done') { result = d.result || ''; break }
+        if (d && d.status === 'error') break
+      } catch (e) {}
+    }
+  } finally {
+    // tombstone the row on done/timeout so the lane janitor stays happy and no
+    // node answers this abandoned job late (mirrors app.js askPool's cleanup).
+    try { await fetch(REST + '/clippy_sync?id=eq.' + encodeURIComponent(id), { method: 'PATCH', headers: Object.assign({ Prefer: 'return=minimal' }, H), body: JSON.stringify({ data: { status: 'expired', ts: Date.now() } }) }) } catch (e) {}
+  }
+  return result
+}
 async function brainCall(u, maxTokens, sysOverride) {
   const sys = sysOverride || SYSTEM   // v9.12: optional system override (used by the planner) — defaults to his persona
+  try {
+    const pooled = await askPoolTxt(u, sys, 45000)   // SUBSCRIPTION-FIRST: full Claude power when a pool node is awake
+    if (pooled) { _brainMark('claude-code (subscription pool)'); return String(pooled).replace(/\n+/g, ' ').trim() }
+  } catch (e) {}
   try {
     const url = await localBrainUrl()
     if (url) {

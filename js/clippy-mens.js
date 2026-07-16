@@ -19,7 +19,7 @@
    Read-only. MENS perceives; it does not act. (Action is a later faculty.)
    Exposed as NX.clippyMens.
    ═══════════════════════════════════════════════════════════════════════════ */
-(function () {
+(function (LEX) {
   'use strict';
   var NX = (window.NX = window.NX || {});
 
@@ -70,6 +70,25 @@
       domains = domains.filter(function (d) { return d !== 'ordering'; });
     }
     return { domains: domains, location: detectLoc(q) };
+  }
+
+  // ── isReport(): is this chat line a REPORT of something broken/needed? ────
+  // Not a build/insert itself — just the perception that his hand MIGHT offer
+  // to log a work order (the confirm UI in clippy.js is the conscience). We are
+  // deliberately conservative: a question is never a report; only 'work' or
+  // 'equipment' lines qualify; and it must actually ASSERT a fault or a need.
+  var REPORT_ASSERT_RX = /\b(broke|broken|down|out|leak(?:s|ing|ed)?|not\s+working|dead|failing|busted|jammed|stuck|tripped|off)\b/i;
+  var REPORT_NEED_RX = /\bneeds?\s+(?:fix(?:ing|ed)?|repair(?:s|ed|ing)?|replace(?:d|ment)?|attention|servic(?:e|ing|ed))\b/i;
+  function isReport(question) {
+    var q = String(question || '').trim();
+    if (!q) return false;
+    // Interrogative openings are asking, not reporting — never a report.
+    if (/^\s*(?:what|which|where|when|who|how|is|are|do|does|did|can|could|any|show|list|tell)\b/i.test(q)) return false;
+    // Only the two faculties a work order belongs to.
+    var d = classify(q).domains;
+    if (d.indexOf('work') < 0 && d.indexOf('equipment') < 0) return false;
+    // Must assert a broken thing OR a stated need.
+    return REPORT_ASSERT_RX.test(q) || REPORT_NEED_RX.test(q);
   }
 
   function sbClient() {
@@ -342,7 +361,11 @@
   NX.clippyMens = {
     ground: ground,
     classify: classify,
+    isReport: isReport,
     _locNorm: locNorm,
     _perceivers: PERCEIVERS,
   };
-})();
+  // DUAL-NX: also bind to app.js's lexical global so bare `NX.clippyMens`
+  // resolves there too (the Lexical-NX trap — see steward digest).
+  try { if (LEX && LEX !== NX) LEX.clippyMens = NX.clippyMens; } catch (_) {}
+})(typeof NX !== 'undefined' ? NX : null);

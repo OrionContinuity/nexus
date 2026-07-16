@@ -4878,6 +4878,10 @@
      one-tap jump to the real screen (Work Orders / Equipment / Inventory /
      Cleaning / Vendors). Navigation only; writes nothing. -->
 <script src="js/clippy-manus.js" defer></script>
+<!-- v304 — CLIPPY POWER. Single source of truth for "is Clippy at FULL POWER?"
+     (a live pool node advertising the Claude subscription lane). All Clippy
+     surfaces read NX.clippyPower.isFullPower(); fires 'clippy:power-change'. -->
+<script defer src="js/clippy-power.js?v=1"></script>
 <!-- v18.26 — gacha extracted from clippy.js. Loads AFTER clippy.js so
      NX.clippy._internal is available for the late-binding init. The module
      polls until _internal mounts (clippy.js sets it up during its IIFE

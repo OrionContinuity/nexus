@@ -315,6 +315,14 @@ function Test-HivePeerNewer {
   } catch { }
   return $false
 }
+function Test-ClaudeLoggedIn {
+  # A running node = FULL POWER: the Claude subscription seat is what upgrades every
+  # Clippy surface (chat, diary, the gods, the txt: lane) from the Ollama fallback to
+  # full Claude cognition. At the daemon level we detect a healthy seat the same way
+  # install-clippy.ps1's $loggedIn check does - the auth token dir exists. (The worker
+  # only advertises claude:true after a live probe; this is the coarse presence check.)
+  return (Test-Path (Join-Path $env:USERPROFILE '.claude'))
+}
 function Invoke-Supervisor {
   # Persistent loop: keep the slave worker alive and self-heal from GitHub.
   # This is what makes a bad worker version recover automatically instead of
@@ -326,8 +334,23 @@ function Invoke-Supervisor {
   # stealing focus off Alfredo's fullscreen game). Track restarts; back off if it crash-loops.
   $wRestarts = @(); $wBackoffUntil = $null; $loopN = 0
   $botRestarts = @(); $botBackoffUntil = $null
+  $lastPowerState = $null   # track Claude login so the [power] line logs at start + on change only (low-noise)
   while ($true) {
     $loopN++
+    # [power] A running node = FULL POWER. Surface whether this node has the Claude
+    # subscription seat (full cognition on the txt: lane) or is on the Ollama fallback.
+    # Logs once at supervisor start (state differs from $null) and only when it flips,
+    # so a logged-in node isn't spammed - and the moment a human runs `claude /login`
+    # mid-session, the next loop announces the upgrade in Green.
+    $powerNow = Test-ClaudeLoggedIn
+    if ($powerNow -ne $lastPowerState) {
+      if ($powerNow) {
+        Log '[power] Claude subscription LOGGED IN - Clippy runs at full power' 'Green'
+      } else {
+        Log '[power] Claude NOT logged in - run `claude /login` for full power (Ollama fallback active)' 'Yellow'
+      }
+      $lastPowerState = $powerNow
+    }
     if ($ParentPid -gt 0 -and -not (Get-Process -Id $ParentPid -EA SilentlyContinue)) {
       Log "[supervise] master (pid $ParentPid) exited - stopping worker" 'Yellow'
       Stop-WorkerProc

@@ -17,7 +17,7 @@
 
    Exposed as NX.clippyManus.
    ═══════════════════════════════════════════════════════════════════════════ */
-(function () {
+(function (LEX) {
   'use strict';
   var NX = (window.NX = window.NX || {});
 
@@ -82,9 +82,110 @@
     } catch (_) { return null; }
   }
 
+  // ── The writing hand, with a conscience. ─────────────────────────────────
+  // MENS perceives a report; MANUS proposes a work order; the confirm UI in
+  // clippy.js is the conscience (Alfredo's law: never modify records without
+  // asking). proposeWorkOrder() only DESCRIBES — it writes nothing.
+  // commitWorkOrder() performs the insert, and is called ONLY after the user
+  // has explicitly tapped confirm.
+
+  // Resolve clippyMens from whichever NX carries it (feature-detect window.NX).
+  function mens() {
+    return (NX && NX.clippyMens) || (window.NX && window.NX.clippyMens) || (LEX && LEX.clippyMens) || null;
+  }
+  function sbClient() {
+    return (NX && NX.sb) || (window.NX && window.NX.sb) || (LEX && LEX.sb) || null;
+  }
+  function currentUser() {
+    return (LEX && LEX.currentUser) || (NX && NX.currentUser) || (window.NX && window.NX.currentUser) || null;
+  }
+
+  // Given a chat line, if MENS reads it as a report of something broken/needed,
+  // return a draft work order for the confirm UI to show. Otherwise null.
+  function proposeWorkOrder(question) {
+    try {
+      var M = mens();
+      if (!M || typeof M.isReport !== 'function' || typeof M.classify !== 'function') return null;
+      if (!M.isReport(question)) return null;
+      var q = String(question || '').trim();
+      var c = M.classify(q);
+      var priority = /urgent|emergency|asap|now|flood|gas|fire|no\s+(?:heat|hot\s+water|power)/i.test(q) ? 'high' : 'normal';
+      return { title: q.slice(0, 80), location: c.location, priority: priority };
+    } catch (_) { return null; }
+  }
+
+  // Perform the insert. CALLED ONLY after explicit confirmation. Returns
+  // { ok:true, card } or { ok:false, error }. supabase-js resolves with
+  // {error} — every call is destructured and checked (no dead catch).
+  var LOC = { suerte: 'Suerte', este: 'Este', toti: 'Bar Toti' };
+  async function commitWorkOrder(order) {
+    try {
+      var sb = sbClient();
+      if (!sb) return { ok: false, error: 'no database connection' };
+      order = order || {};
+      var u = currentUser();
+      var who = (u && u.name) || 'someone';
+      var priority = order.priority || 'normal';
+      var locKey = order.location ? String(order.location).toLowerCase() : '';
+      var location = LOC[locKey] || order.location || null;
+      var desc = 'Logged from a Clippy chat, confirmed by ' + who + '.';
+
+      var row = {
+        title: order.title,
+        description: desc,
+        column_name: 'todo',
+        priority: priority,
+        location: location,
+        reported_by: who,
+        checklist: [],
+        comments: [],
+        labels: ['clippy-logged'],
+        photo_urls: [],
+        archived: false,
+      };
+
+      // Column-drift fallback: schemas differ across boards; if a column the
+      // payload names doesn't exist, drop it and retry (mirrors js/domain.js).
+      var payload = Object.assign({}, row);
+      var created = null;
+      for (var attempt = 0; attempt < 8; attempt++) {
+        var res = await sb.from('kanban_cards').insert(payload).select('*').single();
+        if (!res || !res.error) { created = res && res.data; break; }
+        var m = /column "?([a-z0-9_]+)"?.*does not exist/i.exec(res.error.message || '');
+        if (m && m[1] && Object.prototype.hasOwnProperty.call(payload, m[1])) { delete payload[m[1]]; continue; }
+        return { ok: false, error: res.error.message || 'insert failed' };
+      }
+      if (!created) return { ok: false, error: 'could not create card' };
+
+      // Mirror into tickets so it shows on the work-order surfaces too. A mirror
+      // failure does not undo the card — but we still {error}-check the call.
+      try {
+        var tRes = await sb.from('tickets').insert({
+          title: order.title,
+          notes: desc,
+          location: location,
+          priority: priority,
+          status: 'open',
+          reported_by: who,
+          board_card_id: created.id,
+        });
+        if (tRes && tRes.error) { /* card stands; mirror is best-effort */ }
+      } catch (_) {}
+
+      return { ok: true, card: created };
+    } catch (e) {
+      return { ok: false, error: (e && e.message) || 'error' };
+    }
+  }
+
   NX.clippyManus = {
     suggest: suggest,
     navigate: navigate,
+    proposeWorkOrder: proposeWorkOrder,
+    commitWorkOrder: commitWorkOrder,
     _viewFor: VIEW_FOR,
   };
-})();
+  // DUAL-NX: also bind to app.js's lexical global so bare `NX.clippyManus`
+  // resolves there too (the Lexical-NX trap — see steward digest).
+  try { if (LEX && LEX !== NX) LEX.clippyManus = NX.clippyManus; } catch (_) {}
+})(typeof NX !== 'undefined' ? NX : null);

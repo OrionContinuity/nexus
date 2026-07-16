@@ -261,6 +261,65 @@
     adjustFeeling('happiness', +4);
   }
 
+  // ─── Mid-game reaction (throttled, pool-driven) ────────────────
+  // He reacts DURING play, not only at the bookends (invite/result).
+  // A 6s throttle + milestone gating means he punctuates, never nags.
+  //
+  // Two channels, both feature-detected:
+  //   • processInteraction('game_flow' | 'game_clutch') nudges his
+  //     FEELING even when there's no line to say.
+  //   • pickFromPool(game_cheer | game_rally | game_clutch) draws a
+  //     line from HIS pools — never scripted here (the "don't invent"
+  //     law). A null pick simply means no bubble this beat; the feeling
+  //     nudge still lands, so he's present either way.
+  var _lastReact = 0;
+  function reactMidGame(kind, ctx) {
+    var t = Date.now();
+    if (t - _lastReact < 6000) return;
+    _lastReact = t;
+    try {
+      var api = window.NX && NX.clippy;
+      if (api && api.processInteraction) api.processInteraction(kind === 'clutch' ? 'game_clutch' : 'game_flow', ctx || {});
+    } catch (_) {}
+    try {
+      var pool = kind === 'clutch' ? 'game_clutch' : kind === 'rally' ? 'game_rally' : 'game_cheer';
+      var line = pickFromPool(pool);
+      if (line && state.gameOverlay) flashOverlayCheer(state.gameOverlay, line);
+    } catch (_) {}
+  }
+
+  // A ~1.4s fading cheer line over the game overlay. Self-contained:
+  // injects its CSS once, mirrors the canvas comboFlash look (gold text,
+  // dark halo). Never blocks or disturbs the running canvas/board.
+  var _cheerCSSInjected = false;
+  function flashOverlayCheer(overlay, line) {
+    if (!overlay || !line) return;
+    if (!_cheerCSSInjected) {
+      _cheerCSSInjected = true;
+      try {
+        var st = document.createElement('style');
+        st.textContent =
+          '.clippy-game-cheer{position:absolute;left:50%;top:24%;transform:translate(-50%,-50%);' +
+          'z-index:40;pointer-events:none;font:900 20px/1.2 "JetBrains Mono",monospace;' +
+          'color:#ffd870;text-shadow:0 2px 6px rgba(0,0,0,0.6),0 0 3px rgba(26,26,26,0.9);' +
+          'text-align:center;max-width:82%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;' +
+          'animation:clippyGameCheer 1.4s ease-out forwards;}' +
+          '@keyframes clippyGameCheer{0%{opacity:0;transform:translate(-50%,-32%) scale(0.85);}' +
+          '16%{opacity:1;transform:translate(-50%,-50%) scale(1);}' +
+          '68%{opacity:1;transform:translate(-50%,-56%) scale(1);}' +
+          '100%{opacity:0;transform:translate(-50%,-78%) scale(1);}}';
+        document.head.appendChild(st);
+      } catch (_) {}
+    }
+    try {
+      var el = document.createElement('div');
+      el.className = 'clippy-game-cheer';
+      el.textContent = String(line);
+      overlay.appendChild(el);
+      setTimeout(function () { try { el.remove(); } catch (_) {} }, 1500);
+    } catch (_) {}
+  }
+
   function showGameMenu() {
     const scores = getHighScores();
     const fmt = (id) => {
@@ -1565,6 +1624,7 @@
           if (level % 5 === 0 && level > 0) {
             spawnParticles({ count: 16, type: 'sparkle' });
             playTone('milestone');
+            reactMidGame('rally', { game: 'memory', level: level });
             setTimeout(() => {
               banner.textContent = `LEVEL ${level}! +1 orb...`;
             }, 600);
@@ -1854,6 +1914,8 @@
             const fy = c.gapY + c.gap / 2;
             juice.flyScore('+1', fx, fy, '#ffd870');
             juice.burst(fx, fy, 6, { colors: ['#ffd870', '#fffef6'], speed: 1.6, gravity: -0.02 });
+            // Generic progress milestone — every 10 columns cleared
+            if (score % 10 === 0) reactMidGame('flow', { game: 'flappy', score: score });
             // Combo milestone (5/10/15...)
             if (combo > 0 && combo % 5 === 0) {
               comboFlash = 1;
@@ -1867,6 +1929,7 @@
               setTimeout(() => playPitch(784, 0.14, 'triangle'), 120);
               // v18.11 — milestone = joy + excitement burst
               try { feel('joy', 0.10); feel('excitement', 0.08); } catch(_){}
+              reactMidGame('rally', { game: 'flappy', combo: combo });
             }
           }
           // Collision
@@ -1883,6 +1946,7 @@
               if (!faceFlash) faceFlash = { face: 'phew', t: 28 };
               // v18.11 — near miss = surprise spike (small, repeating)
               try { feel('surprise', 0.04); } catch(_){}
+              reactMidGame('clutch', { game: 'flappy' });
             }
           }
         }
@@ -1906,6 +1970,7 @@
             juice.flash('#fff4c8', 0.30, 8);
             playPitch(880, 0.18, 'triangle');
             setTimeout(() => playPitch(1320, 0.12, 'triangle'), 70);
+            reactMidGame('cheer', { game: 'flappy', pickup: 'star' });
           }
         }
 
@@ -3147,6 +3212,7 @@
                 juice.flyScore('×' + combo + ' STREAK', W / 2, H * 0.4, '#ffd870');
                 playPitch(660, 0.10, 'triangle');
                 setTimeout(() => playPitch(880, 0.12, 'triangle'), 60);
+                reactMidGame('rally', { game: 'coins', combo: combo });
               }
             } else {
               wrongCaught++;
@@ -3367,6 +3433,7 @@
             juice.flash('#fff4c8', 0.20, 6);
             const pitch = 660 + Math.min(880, starsCaught * 20);
             playPitch(pitch, 0.10, 'triangle');
+            reactMidGame('cheer', { game: 'asteroids', pickup: 'star', stars: starsCaught });
             starsFx.splice(i, 1);
           }
         }

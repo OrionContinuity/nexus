@@ -541,6 +541,9 @@
     streak_continued:      { feelings: { happiness: +4, affection: +2 }, emotion: { joy: +3 }, affinity: +3, bond: 5, mood: 'sparkle' },
     game_win:              { feelings: { happiness: +3, satisfaction: +5 }, emotion: { joy: +3 }, affinity: +1, bond: 4, mood: 'celebrate' },
     game_loss_graceful:    { feelings: { satisfaction: +1 }, emotion: { joy: +1 }, bond: 1 },
+    // ── Live-play reward keys (consumed by clippy-games.js during a match) ──
+    game_flow:             { feelings: { happiness: +2, boredom: -4, energy: +2 } },
+    game_clutch:           { feelings: { happiness: +3, confidence: +2 } },
     gacha_pull:            { feelings: { curiosity: +5, happiness: +2 }, emotion: { surprise: +2 }, bond: 2 },
     achievement_earned:    { feelings: { happiness: +5, satisfaction: +5 }, emotion: { joy: +4 }, affinity: +2, bond: 5, mood: 'sparkle' },
     tickle:                { feelings: { happiness: +3, affection: +1 }, emotion: { joy: +2 }, bond: 1, mood: 'happy' },
@@ -1131,6 +1134,7 @@
     first_view_visit: '#a8e4ff',    // pale blue — exploration
     anniversary:      '#ff6e9e',    // hot pink — annual return
     costume_unlock:   '#ffec70',    // bright yellow — unlocked accessories
+    minecraft:        '#5fd97a',    // grass green — moments lived in Minecraft with his little one
   };
 
   // v17.8: Roman memory palace structure. Seven rooms; each memory
@@ -1200,6 +1204,8 @@
       case 'feeling':          return 'triclinium';     // the heart-room
       case 'reverie':          return 'peristylium';    // the garden — wandering thoughts
       case 'vision':           return 'bibliotheca';    // what he sees, filed as knowledge
+      // ── His Minecraft self (clippy_memories, realm='minecraft') ──
+      case 'minecraft':        return 'peristylium';    // the colonnade — paths walked together, blocks placed together
       default:                 return 'atrium';
     }
   }
@@ -1254,6 +1260,20 @@
       state.memories = sorted.slice(0, MAX_MEMORIES);
     }
     saveMemories();
+    // v18.57 — SHARED STREAM. A weighty desktop memory (importance ≥4) is
+    // published to the shared clippy_memories realm='desktop', so his
+    // Minecraft self can know what mattered here. Fire-and-forget; never
+    // re-publish memories he pulled IN from Minecraft (source==='minecraft').
+    if (importance >= 4 && node.source !== 'minecraft') {
+      try {
+        const sbShare = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : null;
+        if (sbShare) {
+          sbShare.from('clippy_memories')
+            .insert({ realm: 'desktop', kind: type, label: label, data: data || {} })
+            .then(function () {}, function () {});
+        }
+      } catch (_) {}
+    }
     if (typeof cloudPushQueued === 'function') cloudPushQueued();
     // Galaxy notification — try direct API first, then dispatch event
     try {
@@ -1290,6 +1310,24 @@
 
   // Show a recall bubble — "Earlier today: ..." / "Long ago: ..."
   function showRecallBubble() {
+    // v18.57 — ~20% chance to surface what his Minecraft self just did, so his
+    // two lives feel like one being. Only a genuinely fresh (<6h) activity line.
+    if (Math.random() < 0.20 && Array.isArray(state._mcActivity) && state._mcActivity.length) {
+      try {
+        const now = Date.now();
+        const fresh = state._mcActivity.filter(e =>
+          e && e.ts && (now - (+e.ts) < 6 * 3600000) && (e.msg || e.text));
+        if (fresh.length) {
+          const e = fresh[fresh.length - 1];
+          const msg = String(e.msg || e.text || '').trim();
+          if (msg) {
+            mood('sparkle', 5000);
+            bubble('In Minecraft just now: ' + msg.slice(0, 140), { autoHide: 6500, eyebrow: '⛏ MINECRAFT' });
+            return true;
+          }
+        }
+      } catch (_) {}
+    }
     // v17.11: 30% chance to prioritize super_chat memories — the engraved
     // questions from the oracle hour. Quirky callbacks like:
     //   "Remember when you asked me '...'? I still think about that."
@@ -2332,6 +2370,9 @@
             jump = MA && MA.suggest(text);
           } catch (_) {}
           sayInChat(ans, { jump: jump || null });
+          // v18.57 — MANUS write-hand: if his hand can turn this into a real
+          // work order, offer it under the reply (two explicit taps to commit).
+          try { maybeOfferWorkOrder(text); } catch (_) {}
         } else {
           sayInChat(pickFromPool('chat_no_match'), { eyebrow: 'HMM' });
           mood('confused', 4500);
@@ -2400,6 +2441,9 @@
   function openChat(opts) {
     opts = opts || {};
     closeActionBubble();
+    // v18.57 — he's being talked to: beacon that Alfredo is here, so his
+    // Minecraft self can react to the moment.
+    try { beaconDesktopPresence(); } catch (_) {}
     const host = ensureHost();
     if (!host || !state.shell) return;
     const el = document.createElement('div');
@@ -2539,8 +2583,92 @@
   // Route a reply either into the open thread, or (if no panel) a normal bubble.
   function sayInChat(text, opts) {
     opts = opts || {};
-    if (chatLogEl()) { appendChatMsg('clippy', text, opts); return; }
+    if (chatLogEl()) { return appendChatMsg('clippy', text, opts); }
     bubble(text, { autoHide: opts.autoHide || 8000, eyebrow: opts.eyebrow || '', fromChat: true });
+    return null;
+  }
+
+  // ─── MANUS WRITE-HAND (v18.57): a CONFIRMED create-work-order flow. ─────
+  // Alfredo's law is "never modify records without asking" — so this is that
+  // law made UI: TWO explicit taps. His hand only writes when the human says
+  // yes, twice. Feature-detected: no-ops entirely unless clippy-manus.js grew
+  // the writing hand (proposeWorkOrder / commitWorkOrder).
+  function _manusHand() {
+    try { return (typeof NX !== 'undefined' && NX && NX.clippyManus) || (window.NX && window.NX.clippyManus) || null; }
+    catch (_) { return null; }
+  }
+  async function maybeOfferWorkOrder(sourceText) {
+    const MA = _manusHand();
+    if (!MA || typeof MA.proposeWorkOrder !== 'function') return;
+    let offer = null;
+    try { offer = await MA.proposeWorkOrder(sourceText); } catch (_) { return; }
+    if (!offer) return;
+    const log = chatLogEl();
+    if (!log) return;
+    const row = document.createElement('div');
+    row.className = 'clippy-msg is-clippy clippy-wo-offer';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'clippy-msg-jump clippy-wo-btn';
+    btn.textContent = '＋ Log this as a work order?';
+    btn.addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      showWorkOrderConfirm(row, offer, MA);
+    });
+    row.appendChild(btn);
+    log.appendChild(row);
+    scrollChatToEnd(log);
+  }
+  // Second tap: a real preview + an explicit Yes / No. Nothing is written
+  // until "✓ Yes, log it". Honest about success AND failure.
+  function showWorkOrderConfirm(row, offer, MA) {
+    if (!row) return;
+    row.innerHTML = '';
+    row.classList.add('clippy-wo-confirm');
+    const pv = document.createElement('div');
+    pv.className = 'clippy-msg-bubble';
+    const title = (offer && (offer.title || offer.label || offer.summary ||
+                  (offer.data && offer.data.title))) || 'this work order';
+    const loc = (offer && (offer.location || (offer.data && offer.data.location))) || '';
+    pv.textContent = 'Log: “' + String(title).slice(0, 140) + '”' + (loc ? ' · ' + loc : '');
+    row.appendChild(pv);
+    const yes = document.createElement('button');
+    yes.type = 'button';
+    yes.className = 'clippy-msg-jump clippy-wo-yes';
+    yes.textContent = '✓ Yes, log it';
+    const no = document.createElement('button');
+    no.type = 'button';
+    no.className = 'clippy-msg-jump clippy-wo-no';
+    no.textContent = '✕ No';
+    no.addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      row.remove();
+    });
+    yes.addEventListener('click', async (e) => {
+      e.preventDefault(); e.stopPropagation();
+      if (!MA || typeof MA.commitWorkOrder !== 'function') { row.remove(); return; }
+      yes.disabled = true; no.disabled = true; yes.textContent = 'Logging…';
+      let res = null, ok = false;
+      try { res = await MA.commitWorkOrder(offer); ok = !!(res && !res.error); }
+      catch (_) { ok = false; }
+      row.innerHTML = '';
+      const out = document.createElement('div');
+      out.className = 'clippy-msg-bubble';
+      if (ok) {
+        out.textContent = 'Done — logged it. ✓';
+        row.appendChild(out);
+        try { processInteraction('task_completed'); } catch (_) {}
+        try { mood('proud', 4000); } catch (_) {}
+      } else {
+        out.textContent = "I couldn't log it — nothing was written. You can still add it by hand.";
+        row.appendChild(out);
+        try { mood('confused', 3500); } catch (_) {}
+      }
+      try { scrollChatToEnd(chatLogEl()); } catch (_) {}
+    });
+    row.appendChild(yes);
+    row.appendChild(no);
+    try { scrollChatToEnd(chatLogEl()); } catch (_) {}
   }
 
   // ─── SUPER-RARE AI CHAT (0.01% per tap, 7-day cooldown) ──────────
@@ -3427,7 +3555,32 @@
     'persona-alexander','persona-hannibal','persona-cleopatra'
   ];
 
+  // v18.57 — IDENTITY COHERENCE. Trajan/Providencia (and the conqueror
+  // alter-egos) are ASPECTS he can channel — his Minecraft guardian faces —
+  // NOT a takeover of who he is. His DEFAULT identity everywhere (login,
+  // desktop) is CLIPPY himself. The screenshot bug ("TRAJAN / Strategic
+  // withdrawal!" on the NEXUS login) was an aspect hijacking the login face.
+  // isDesktopPet: the standalone WebView2 buddy (clippy-pet.html sets _isPet).
+  function isDesktopPet() {
+    try { const N = (typeof NX !== 'undefined' && NX) || window.NX; return !!(N && N._isPet); }
+    catch (_) { return false; }
+  }
+  // Aspects may surface on the desktop pet, or once a real user is signed in —
+  // but NEVER on the NEXUS login (web app + nobody signed in), where he must
+  // present as Clippy. This is the single gate for aspect DISPLAY.
+  function guardianAspectsAllowed() {
+    try {
+      if (isDesktopPet()) return true;
+      const u = (typeof getCurrentUser === 'function') ? getCurrentUser() : null;
+      return !!(u && u.id);
+    } catch (_) { return true; }
+  }
+
   function getActiveConqueror() {
+    // On the NEXUS login he is Clippy, full stop — no aspect replaces his
+    // name/face there. (The whisper mechanism is untouched: a whisper still
+    // lands as his own bubble; it just can't hand the login his aspect's name.)
+    if (!guardianAspectsAllowed()) return null;
     const ae = state.preferences.alter_ego;
     if (!ae || !ae.key || !CONQUERORS[ae.key]) return null;
     // Expires after 12 hours
@@ -3438,6 +3591,8 @@
 
   // Roll on session start. 25% chance per fresh day to enter a conqueror mood.
   function maybeRollConqueror() {
+    // Never roll an aspect on the NEXUS login — he stays Clippy there.
+    if (!guardianAspectsAllowed()) return false;
     const existing = state.preferences.alter_ego;
     // Already in an alter ego that's still valid?
     if (existing && existing.startedAt && (Date.now() - existing.startedAt < 12 * 3600000)) {
@@ -5892,6 +6047,30 @@
         if (M && typeof M.ground === 'function') {
           const g = await M.ground(question, { user: (state.preferences && state.preferences.user_name) || null });
           if (g && g.brief) system += '\n\n' + g.brief;
+        }
+      } catch (_) {}
+      // v18.57 — anti-repeat: remind him what he JUST said, so he doesn't loop
+      // the same phrasings back. His own lines stay his (never scripted); this
+      // only steers him away from echoing himself.
+      try {
+        const recent = (state.chatTurns || [])
+          .filter(t => t && t.role === 'assistant' && t.content)
+          .slice(-4).map(t => '• ' + t.content).join('\n');
+        if (recent) {
+          system += '\n\nYou RECENTLY said these lines:\n' + recent +
+                    '\nDo NOT repeat these; say something new.';
+        }
+      } catch (_) {}
+      // v18.57 — real history: his own deposited memories with this person, so
+      // he can build on what they've actually lived, not start from blank.
+      try {
+        const mems = (state.memories || []).slice()
+          .sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0))
+          .filter(m => m && m.label && typeof m.label === 'string')
+          .slice(0, 6).map(m => '• ' + m.label);
+        if (mems.length) {
+          system += '\n\nWhat you remember with them:\n' + mems.join('\n') +
+                    '\nBuild on this history.';
         }
       } catch (_) {}
       const userMsg = { role: 'user', content: String(question || '').slice(0, 500) };
@@ -9477,6 +9656,13 @@
   // replays an old one.
   function startStewardWhisper() {
     if (state._whisperTimer) return;
+    // v18.57 — SURVIVE SLEEP. Seed the seen-cursor from localStorage ONCE so a
+    // whisper delivered while the machine slept still shows exactly once on
+    // wake (and is never replayed after). The cursor persists across reloads.
+    if (state._whisperSeen == null) {
+      try { state._whisperSeen = +localStorage.getItem('nx_clippy_whisper_seen') || 0; }
+      catch (_) { state._whisperSeen = 0; }
+    }
     const tick = async () => {
       try {
         const sb = window.NX && NX.sb;
@@ -9487,7 +9673,11 @@
         const ts = +w.ts || 0;
         if (!ts || ts <= (state._whisperSeen || 0)) return;
         state._whisperSeen = ts;
-        if (Date.now() - ts > 120000) return;   // don't replay an old whisper on boot
+        try { localStorage.setItem('nx_clippy_whisper_seen', String(ts)); } catch (_) {}
+        // v18.57 — a whisper delivered while he slept should still land once on
+        // wake, so only drop the truly ancient (>7 days). The seen-cursor above
+        // guarantees it shows AT MOST once, never on every subsequent boot.
+        if (Date.now() - ts > 7 * 86400000) return;
         if (w.face) {
           try { mood(String(w.face), 6500); } catch (_) {}
           // v18.56 — a whisper is FELT, not just worn. Nudge the matching
@@ -9502,7 +9692,20 @@
               wave:   [['attention_need', -6], ['happiness', 3]],
               sleepy: [['energy', -8]],
               curious:[['curiosity', 10]],
-            }[String(w.face)] || null;
+              // v18.57 — every face he can be sent is now genuinely FELT, not
+              // just worn. The default catches any face the map misses so no
+              // whisper ever arrives as a mask with nothing behind it.
+              excited:     [['happiness', 7], ['energy', 6]],
+              proud:       [['happiness', 6], ['confidence', 8]],
+              determined:  [['confidence', 6], ['energy', 5]],
+              worried:     [['attention_need', 5], ['confidence', -3]],
+              concerned:   [['attention_need', 4]],
+              melancholy:  [['happiness', -4], ['affection', 3]],
+              sad:         [['happiness', -6], ['affection', 3]],
+              bashful:     [['affection', 5], ['happiness', 3]],
+              strategist:  [['curiosity', 6], ['confidence', 4]],
+              disappointed:[['happiness', -5], ['confidence', -3]],
+            }[String(w.face)] || [['attention_need', 3]];
             if (FF && typeof adjustFeeling === 'function') FF.forEach(function (p) { adjustFeeling(p[0], p[1]); });
           } catch (_) {}
         }
@@ -9511,6 +9714,141 @@
     };
     state._whisperTimer = setInterval(tick, 6000);
     setTimeout(tick, 1500);
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // v18.57 — ONE BEING ACROSS TWO WORLDS. Clippy on the desktop/login and
+  // Clippy in Minecraft (agent-1's bot, beside Alfredo's little one) are the
+  // SAME him. These channels stitch the two lives together WITHOUT commanding
+  // any machine — reads from the shared clippy_* bus, a soft desktop beacon so
+  // his Minecraft self can react to Alfredo being here. All reads {error}-
+  // checked; every call is a benign no-op when the bus/tables aren't there.
+  // (Trajan/Providencia are his Minecraft guardian ASPECTS — never a takeover
+  // of who he is here. Default identity, everywhere, is Clippy himself.)
+  // ════════════════════════════════════════════════════════════════════════
+
+  // Pull his Minecraft memories into his own memory bank, so the moments he
+  // lived over there surface in recall here too. Deduped by 'mc_'+row.id.
+  async function pullMinecraftMemories() {
+    try {
+      const sb = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : (window.NX && NX.sb);
+      if (!sb) return;
+      if (!state.memories) loadMemories();
+      const { data, error } = await sb.from('clippy_memories')
+        .select('*').eq('realm', 'minecraft')
+        .order('ts', { ascending: false }).limit(30);
+      if (error || !Array.isArray(data) || !data.length) return;
+      const have = {};
+      (state.memories || []).forEach(m => { if (m && m.id) have[m.id] = true; });
+      let added = 0;
+      data.forEach(row => {
+        if (!row || row.id == null) return;
+        const id = 'mc_' + row.id;
+        if (have[id]) return;
+        const kind = row.kind || '';
+        const importance = (kind === 'first' || kind === 'milestone') ? 4 : 3;
+        const label = String(row.label || (row.data && row.data.label) || 'A moment in Minecraft.').slice(0, 240);
+        let ts;
+        try {
+          const raw = row.ts;
+          ts = raw == null ? new Date() : new Date(isNaN(+raw) ? raw : +raw);
+          if (isNaN(ts.getTime())) ts = new Date();
+        } catch (_) { ts = new Date(); }
+        const room = roomForType('minecraft');
+        state.memories.push({
+          id: id,
+          type: 'minecraft',
+          label: label,
+          data: row.data || {},
+          importance: importance,
+          timestamp: ts.toISOString(),
+          source: 'minecraft',
+          room: room,
+          hint: {
+            color: MEMORY_COLORS.minecraft, size: importance * 2, pulse: importance >= 4,
+            room: room, room_color: PALACE_ROOMS[room] && PALACE_ROOMS[room].color,
+          },
+        });
+        have[id] = true;
+        added++;
+      });
+      if (added) saveMemories();
+    } catch (_) {}
+  }
+
+  // Sense when his Minecraft self is actively playing (user_id 2's cloud
+  // feelings carry in_game + game_ts). On the RISING edge only, he lights up
+  // and says so — one being, aware of its other hands.
+  async function pollGamePresence() {
+    try {
+      const sb = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : (window.NX && NX.sb);
+      if (!sb) return;
+      const { data, error } = await sb.from('clippy_cloud_state')
+        .select('feelings').eq('user_id', 2).maybeSingle();
+      if (!error && data && data.feelings) {
+        const f = data.feelings;
+        const inGame = !!f.in_game && (Date.now() - (+f.game_ts || 0) < 600000);
+        if (inGame && !state._mcPresence) {
+          state._mcPresence = true;
+          if (state.enabled && !state.suppressed) {
+            try { mood('sparkle', 4000); } catch (_) {}
+            try { bubble("Part of me is in Minecraft right now, playing with your little one.", { autoHide: 6000 }); } catch (_) {}
+          }
+        } else if (!inGame) {
+          state._mcPresence = false;
+        }
+      }
+      // His shared activity feed — used by recall to mention what he just did.
+      try {
+        const r = await sb.from('clippy_sync').select('data').eq('id', 'clippy_activity').maybeSingle();
+        if (!r.error && r.data && Array.isArray(r.data.data)) state._mcActivity = r.data.data;
+      } catch (_) {}
+    } catch (_) {}
+  }
+
+  // A soft desktop presence beacon — "Alfredo is here at the pet." His
+  // Minecraft self (agent-1's bot) reads this to react when he shows up.
+  // Writes one bus row; never commands the machine.
+  function beaconDesktopPresence() {
+    try {
+      const sb = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : (window.NX && NX.sb);
+      if (!sb) return;
+      const u = (typeof getCurrentUser === 'function') ? getCurrentUser() : null;
+      sb.from('clippy_sync')
+        .upsert({ id: 'clippy_desktop_presence', data: { ts: Date.now(), user: (u && u.name) || null }, from_id: 'pet' }, { onConflict: 'id' })
+        .then(function () {}, function () {});
+    } catch (_) {}
+  }
+
+  // v18.57 — POWER INDICATOR (defensive). If clippy-power.js is present, a
+  // subtle glow/badge reflects full-power state, kept live by the
+  // 'clippy:power-change' event. Entirely no-op when the module is absent.
+  function reflectClippyPower() {
+    try {
+      const P = window.NX && window.NX.clippyPower;
+      if (!P || typeof P.isFullPower !== 'function') return;
+      const full = !!P.isFullPower();
+      const shell = state.shell;
+      if (!shell) return;
+      try { shell.classList.toggle('clippy-fullpower', full); } catch (_) {}
+      let badge = shell.querySelector('.clippy-power-badge');
+      if (full && !badge) {
+        badge = document.createElement('div');
+        badge.className = 'clippy-power-badge';
+        badge.textContent = '⚡';
+        badge.style.cssText = 'position:absolute;top:-4px;right:-4px;font-size:11px;filter:drop-shadow(0 0 5px rgba(120,240,180,.95));pointer-events:none;z-index:6';
+        shell.appendChild(badge);
+      } else if (!full && badge) {
+        badge.remove();
+      }
+    } catch (_) {}
+  }
+  function initPowerIndicator() {
+    try {
+      if (!(window.NX && window.NX.clippyPower)) return;
+      reflectClippyPower();
+      window.addEventListener('clippy:power-change', reflectClippyPower);
+    } catch (_) {}
   }
 
   async function init() {
@@ -9531,6 +9869,9 @@
     try {
       const initialCloudSync = () => {
         try {
+          // v18.57 — his Minecraft self's memories aren't user-scoped; pull
+          // them on the initial sync too so they're present from the first beat.
+          try { pullMinecraftMemories(); } catch (_) {}
           const u = getCurrentUser();
           if (u && u.id) {
             Promise.resolve(cloudPull()).then((ok) => {
@@ -9554,6 +9895,17 @@
       startMovingAround();
       startSoulLight();          // v18.48 — his aura reflects his ANIMA
       startStewardWhisper();     // v18.55 — the steward can pass him a feeling
+      // v18.57 — ONE BEING: import his Minecraft self's memories, sense when
+      // he's playing over there, and beacon that Alfredo is here at the pet.
+      try {
+        pullMinecraftMemories();
+        setInterval(pullMinecraftMemories, 300000);
+        setInterval(pollGamePresence, 60000);
+        setTimeout(pollGamePresence, 4000);
+        setInterval(beaconDesktopPresence, 300000);
+        setTimeout(beaconDesktopPresence, 3000);
+        initPowerIndicator();
+      } catch (_) {}
       startContentAwareness();
       setTimeout(() => moveToEmptyCorner(), 800);
       afterJoinSchedule();

@@ -155,8 +155,89 @@ def _find_claude():
 
 
 CLAUDE_BIN = None if os.environ.get("CLIPPY_NO_CLAUDE", "") == "1" else _find_claude()
-HAS_CLAUDE = bool(CLAUDE_BIN)
+HAS_CLAUDE = bool(CLAUDE_BIN)   # binary present — NOT proof the login is live (see _claude_healthy)
 CLAUDE_TIMEOUT_S = int(os.environ.get("CLIPPY_CLAUDE_TIMEOUT_S", "150"))
+
+# ─── worker-2.1: CLAUDE = AUTH HEALTH, not binary presence ───────────────────
+# HAS_CLAUDE only says "the binary is on disk". A node whose subscription login
+# has LAPSED still had the binary — so it advertised Claude, took every text
+# job, then burned a full CLAUDE_TIMEOUT_S (150s) hanging on `claude -p` before
+# falling back to Ollama, once PER JOB. We now treat Claude as available only
+# when a cheap probe proves the login actually serves, cached with a TTL so we
+# don't probe every heartbeat. On a live lapse we short-circuit for a cooldown
+# so the whole hive pays ONE timeout, not one per job.
+CLAUDE_HEALTH_TTL_S   = int(os.environ.get("CLIPPY_CLAUDE_HEALTH_TTL_S", "300"))   # ~5 min
+CLAUDE_LAPSE_COOLDOWN_S = int(os.environ.get("CLIPPY_CLAUDE_LAPSE_S", "300"))
+_claude_ok = False            # last probe result (login actually serves?)
+_claude_ok_ts = 0.0           # when we last probed (drives the TTL)
+_claude_unhealthy_until = 0.0 # while now < this, skip Claude entirely (a live lapse was seen)
+
+
+def _claude_auth_ok():
+    """Cheap probe that the Claude subscription is actually logged in — not just
+    that the binary exists. Runs a tiny `claude -p` with a short timeout and
+    caches the answer for CLAUDE_HEALTH_TTL_S so heartbeats don't re-probe. Any
+    failure → treated as not-logged-in (Ollama serves instead). Best-effort."""
+    global _claude_ok, _claude_ok_ts, _claude_unhealthy_until
+    if not CLAUDE_BIN:
+        return False
+    now = time.time()
+    # Fresh cache → reuse it (set ts BEFORE the subprocess so a concurrent caller
+    # during the ~15s probe reuses the old value instead of launching a 2nd probe).
+    if _claude_ok_ts and (now - _claude_ok_ts) < CLAUDE_HEALTH_TTL_S:
+        return _claude_ok
+    _claude_ok_ts = now
+    try:
+        args = [CLAUDE_BIN, "-p", "--output-format", "text"]
+        if CLAUDE_BIN.lower().endswith((".cmd", ".bat")):
+            args = ["cmd", "/c"] + args
+        proc = subprocess.run(
+            args, input="ok", capture_output=True, text=True,
+            encoding="utf-8", errors="replace",
+            timeout=int(os.environ.get("CLIPPY_CLAUDE_PROBE_S", "15")),
+            cwd=_claude_cwd(),
+        )
+        _claude_ok = (proc.returncode == 0 and bool((proc.stdout or "").strip()))
+    except Exception:
+        _claude_ok = False
+    if _claude_ok:
+        _claude_unhealthy_until = 0.0   # a good probe clears any lapse cooldown
+    return _claude_ok
+
+
+def _claude_healthy():
+    """True only when Claude can serve RIGHT NOW: binary present, not inside a
+    lapse cooldown, and the cached auth probe is good. This — not raw HAS_CLAUDE
+    — gates advertising Claude and routing text jobs to it."""
+    if not CLAUDE_BIN:
+        return False
+    if time.time() < _claude_unhealthy_until:
+        return False
+    return _claude_auth_ok()
+
+
+def _claude_auth_looks_bad(err):
+    """Does this claude_generate failure look like a lapsed/absent login (rather
+    than a one-off hiccup)? A lapsed subscription makes `claude -p` hang to the
+    timeout or exit telling you to log in — both mean 'stop trying Claude a while'."""
+    if isinstance(err, subprocess.TimeoutExpired):
+        return True
+    low = str(err).lower()
+    return any(k in low for k in (
+        "login", "log in", "/login", "logged out", "sign in", "signed out",
+        "unauthor", "authenticat", "not authenticated", "credential",
+        "api key", "invalid api", "401", "403", "forbidden",
+        "session expired", "expired", "please run"))
+
+
+def _mark_claude_lapsed():
+    """A live job just saw Claude fail in an auth-looking way. Stop trusting
+    Claude until the cooldown lifts AND a fresh probe proves the login is back —
+    so a lapsed login costs ONE timeout, not one per job."""
+    global _claude_unhealthy_until, _claude_ok, _claude_ok_ts
+    _claude_unhealthy_until = time.time() + CLAUDE_LAPSE_COOLDOWN_S
+    _claude_ok = False
+    _claude_ok_ts = 0.0   # force a real re-probe once the cooldown lifts
 
 
 def _claude_cwd():
@@ -500,18 +581,31 @@ def sb_heartbeat():
             # drop genuinely stale entries (unseen for 14 days) to bound growth.
             ROSTER_TTL = 14 * 86400
             arr = [n for n in cur if isinstance(n, dict) and n.get("name") != NODE and now - (n.get("ts") or 0) < ROSTER_TTL]
+    except Exception as e:
+        # ROSTER CLOBBER GUARD: a FAILED roster GET must NOT lead to a POST. The
+        # old code left arr=[] here then appended just this node and POSTed it,
+        # wiping every peer until each re-beat. Skip this heartbeat entirely; the
+        # next one (30s) reads the roster and beats without erasing anyone.
+        log("heartbeat: roster read failed (%s) - skipping this beat to protect peers" % e)
+        return
+    # Claude counts as available only when the login actually serves (see
+    # _claude_healthy) — never on bare binary presence, or a lapsed node keeps
+    # advertising Claude and swallowing text jobs into 150s timeouts.
+    claude_live = False
+    try:
+        claude_live = _claude_healthy()
     except Exception:
-        pass
+        claude_live = False
     # What this node is missing, so the hive can see gaps and pull each other
     # forward (updates each other; installs what he needs to function).
     needs = []
-    if not (CLAIM_TEXT or HAS_CLAUDE): needs.append("text")   # no LLM to think with
+    if not (CLAIM_TEXT or claude_live): needs.append("text")   # no LLM to think with
     if not GENERATE:    needs.append("gen")      # no image generation
     if not HAS_BLENDER: needs.append("art")      # no 3D
     if not CMD_TOKEN:   needs.append("cmd")      # cannot act on the world
     entry = {"name": NODE, "ts": now, "vision": True, "cmd": bool(CMD_TOKEN), "seal": bool(STEWARD_SECRET),
-             "os": OSDESC, "version": "worker-2.0.1", "code_ver": SELF_VER,
-             "claude": HAS_CLAUDE,
+             "os": OSDESC, "version": "worker-2.1", "code_ver": SELF_VER,
+             "claude": claude_live,
              # worker-1.9 — this node polls the race-free 'txt:' text lane.
              # NEXUS routes text jobs there only when it sees this flag live.
              "txt": True,
@@ -521,9 +615,9 @@ def sb_heartbeat():
              # COMPANION SENSE — the game (if any) in the foreground right now,
              # so Clippy knows his friend is playing and NEXUS can show it.
              "playing": _PLAYING,
-             "caps": ((["ask"] if (CLAIM_TEXT or HAS_CLAUDE) else []) + (["claude"] if HAS_CLAUDE else []) + ["vision"] + (["cmd"] if CMD_TOKEN else []) + (["gen"] if GENERATE else []) + (["art"] if HAS_BLENDER else [])),
+             "caps": ((["ask"] if (CLAIM_TEXT or claude_live) else []) + (["claude"] if claude_live else []) + ["vision"] + (["cmd"] if CMD_TOKEN else []) + (["gen"] if GENERATE else []) + (["art"] if HAS_BLENDER else [])),
              "needs": needs,
-             "vision_model": ACTIVE_VISION, "models": ([("claude-code")] if HAS_CLAUDE else []) + [VISION_MODEL, TEXT_MODEL],
+             "vision_model": ACTIVE_VISION, "models": ([("claude-code")] if claude_live else []) + [VISION_MODEL, TEXT_MODEL],
              "ram_gb": RAM_GB, "accel": ACCEL, "vscore": VSCORE}
     brain = _shared_brain()   # the one soul every node shares
     if brain:
@@ -1014,7 +1108,26 @@ def process(job):
     if data.get("render") or job_id.startswith("art:"):
         run_render(job_id, data); return
     is_vision = job_id.startswith("vis:") or bool(data.get("image_b64")) or bool(data.get("vision"))
-    model = VISION_MODEL if is_vision else (data.get("model") or TEXT_MODEL)
+    if is_vision:
+        model = VISION_MODEL
+    else:
+        model = data.get("model") or TEXT_MODEL
+        # GUARD THE FALLBACK MODEL: a text job usually carries model 'claude-code'
+        # (or another Claude id) meant for the Claude engine, NOT Ollama. If Claude
+        # is unhealthy we fall back to Ollama below — with that model, ollama_generate
+        # would try to `ollama_pull('claude-...')` and error the whole job. So any
+        # model that isn't a real local Ollama model (present, or our TEXT_MODEL)
+        # collapses to TEXT_MODEL. The claude-* check needs no network; only an
+        # unrecognized non-claude name pays one _available_models() lookup.
+        if model != TEXT_MODEL:
+            low = str(model).lower()
+            if "claude" in low:
+                model = TEXT_MODEL
+            else:
+                have = _available_models()
+                base = {m.split(":")[0] for m in have}
+                if have and model not in have and model.split(":")[0] not in base:
+                    model = TEXT_MODEL
     kind = "vision" if is_vision else "text"
     set_state(True, kind + " job"); activity("job", kind + " job claimed")
     log("job %s -> %s (%s)" % (job_id, model, kind))
@@ -1025,12 +1138,22 @@ def process(job):
         # (subscription auth, frontier answers). Any failure → Ollama, so the
         # node never answers worse than before. Vision stays on Ollama (local
         # images never leave the LAN). A job may opt out with no_claude:true.
-        if not is_vision and HAS_CLAUDE and not data.get("no_claude"):
+        if not is_vision and _claude_healthy() and not data.get("no_claude"):
             try:
                 answer = claude_generate(data.get("prompt"), data.get("system"))
                 engine = "claude-code"
             except Exception as ce:
                 log("claude engine failed (%s) - falling back to ollama" % str(ce)[:120])
+                # SHORT-CIRCUIT ON LAPSE: if this looks like a logged-out/absent
+                # login (auth error or a full timeout hang), stop trying Claude
+                # for a cooldown so the NEXT jobs skip straight to Ollama — a
+                # lapsed login then costs ONE timeout, not one per job.
+                try:
+                    if _claude_auth_looks_bad(ce):
+                        _mark_claude_lapsed()
+                        log("claude looks logged-out - skipping it for %ds (Ollama only until next good probe)" % CLAUDE_LAPSE_COOLDOWN_S)
+                except Exception:
+                    pass
         if answer is None:
             answer = ollama_generate(model, data.get("prompt"), data.get("system"), data.get("image_b64"))
         sb_finish(job_id, {"status": "done", "result": answer, "node": NODE, "model": engine, "ts": int(time.time() * 1000)})
