@@ -2170,6 +2170,13 @@
       setTimeout(init, 200);
       return;
     }
+    if (state._inited) {   // re-entrancy guard: don't stack a 2nd pair of intervals on a re-init
+      if (!state._sysTimer) state._sysTimer = setInterval(updateSystemState, 5000);
+      if (!state._dataTimer) state._dataTimer = setInterval(refreshDataLayers, 30000);
+      startLoop();
+      return;
+    }
+    state._inited = true;
     // Wait for nodes to load if they haven't yet
     let attempts = 0;
     while ((!NX.nodes || NX.nodes.length === 0) && attempts < 25) {
@@ -2184,10 +2191,10 @@
     updateSystemState();
     // Pull real data from DB for the distant field layers
     refreshDataLayers();
-    // Update system state periodically
-    setInterval(updateSystemState, 5000);
-    // Refresh data layers every 30s so the galaxy reflects new tickets/events/logs
-    setInterval(refreshDataLayers, 30000);
+    // Capture the handles so navigating away can stop them — no perpetual off-screen DB poll/animation.
+    clearInterval(state._sysTimer); clearInterval(state._dataTimer);
+    state._sysTimer  = setInterval(updateSystemState, 5000);
+    state._dataTimer = setInterval(refreshDataLayers, 30000);
     // Start the render loop
     startLoop();
     // Call chat/list initializers if they exist (preserves old contract)
@@ -2199,10 +2206,10 @@
   /* ─── VISIBILITY — pause loop when hidden ──────────────────────────────── */
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
-      stopLoop();
+      if (NX.brain && NX.brain.onHide) NX.brain.onHide(); else stopLoop();
       if (state.audio && !state.audio.paused) state.audio.pause();
     } else {
-      startLoop();
+      if (NX.brain && NX.brain.onShow) NX.brain.onShow(); else startLoop();
     }
   });
 
@@ -2413,10 +2420,14 @@
     openPanel,
     wakePhysics,
     state,
-    show: () => { requestAnimationFrame(() => { resize(); }); },
+    show: () => { requestAnimationFrame(() => { resize(); }); if (NX.brain && NX.brain.onShow) NX.brain.onShow(); },
     // Kill switches (for debugging)
     off: () => stopLoop(),
     on: () => startLoop(),
+    // Nav teardown: stop the render loop AND the 5s/30s DB pollers when the galaxy goes off-screen.
+    onHide: () => { stopLoop(); clearInterval(state._sysTimer); state._sysTimer = null; clearInterval(state._dataTimer); state._dataTimer = null; },
+    // Re-arm only when the brain view is actually the active view (never poll off-screen).
+    onShow: () => { const v = document.getElementById('brainView'); if (!(v && v.classList.contains('active'))) return; if (!state._sysTimer) state._sysTimer = setInterval(updateSystemState, 5000); if (!state._dataTimer) state._dataTimer = setInterval(refreshDataLayers, 30000); startLoop(); },
     // Rebuild after NX.nodes changes
     rebuild: () => { buildParticles(); },
     // ORION RISING — also summonable by hand (double-tap the empty sky)

@@ -1165,6 +1165,10 @@ td.check{background:#F0EDE6 !important}
       if(NX.brain&&NX.brain.stopSpeaking)NX.brain.stopSpeaking();
       // Close node panel
       const np=document.getElementById('nodePanel');if(np)np.classList.remove('open');
+      // Tear down the galaxy (stop its render loop + 5s/30s DB pollers) when navigating away from brain —
+      // captured BEFORE the .view.active classes are cleared below.
+      const _leavingView = document.querySelector('.view.active');
+      if (_leavingView && _leavingView.id === 'brainView' && view !== 'brain' && NX.brain && NX.brain.onHide) { try { NX.brain.onHide(); } catch (_) {} }
       // Clear active on ALL nav buttons (top + bottom)
       tabs.forEach(t => t.classList.remove('active'));
       bnavBtns.forEach(b => b.classList.remove('active'));
