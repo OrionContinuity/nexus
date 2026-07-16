@@ -31,6 +31,14 @@ Env overrides: NEXUS_SUPABASE_URL, NEXUS_SUPABASE_ANON, OLLAMA_URL,
 """
 import os, sys, time, json, socket, subprocess, platform, threading, base64, tempfile, shutil, glob, urllib.request, urllib.error, urllib.parse
 
+# Windows: spawn console children WITHOUT a flashing window. This worker runs
+# windowless (the daemon starts it -WindowStyle Hidden; _respawn is DETACHED),
+# so every console child it spawns (powershell, cmd, claude, nvidia-smi,
+# blender) pops a brand-NEW visible window unless we pass CREATE_NO_WINDOW.
+# This is the "no more powershells appearing on screen" fix (Alfredo, 2026-07-16).
+# 0 on non-Windows == the default creationflags, so this is cross-platform safe.
+_NO_WINDOW = 0x08000000 if os.name == "nt" else 0   # CREATE_NO_WINDOW
+
 try: OSDESC = platform.platform()           # e.g. "Windows-11-10.0.22631"
 except Exception: OSDESC = sys.platform
 
@@ -56,7 +64,7 @@ def _has_nvidia():
     """True if an NVIDIA GPU is present (nvidia-smi runs). NVIDIA/CUDA is what
     most accelerates Ollama, so it's the accelerator that earns the big score."""
     try:
-        subprocess.run(["nvidia-smi"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=6)
+        subprocess.run(["nvidia-smi"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=6, creationflags=_NO_WINDOW)
         return True
     except Exception:
         return False
@@ -143,11 +151,18 @@ def _find_claude():
     if p:
         return p
     home = os.path.expanduser("~")
+    lad = os.environ.get("LOCALAPPDATA", "")
     for cand in (
         os.path.join(home, ".local", "bin", "claude.exe"),
         os.path.join(home, ".local", "bin", "claude"),
         os.path.join(os.environ.get("APPDATA", ""), "npm", "claude.cmd"),
         os.path.join(os.environ.get("APPDATA", ""), "npm", "claude"),
+        # winget install (daemon uses `winget install Anthropic.ClaudeCode`) drops
+        # a shim in the WinGet Links dir — NOT always on a scheduled-task worker's
+        # PATH, so shutil.which misses it and the node falsely reports claude=false.
+        os.path.join(lad, "Microsoft", "WinGet", "Links", "claude.exe"),
+        os.path.join(lad, "Microsoft", "WinGet", "Links", "claude.cmd"),
+        os.path.join(lad, "Programs", "claude", "claude.exe"),
     ):
         if cand and os.path.exists(cand):
             return cand
@@ -195,7 +210,7 @@ def _claude_auth_ok():
             args, input="ok", capture_output=True, text=True,
             encoding="utf-8", errors="replace",
             timeout=int(os.environ.get("CLIPPY_CLAUDE_PROBE_S", "15")),
-            cwd=_claude_cwd(),
+            cwd=_claude_cwd(), creationflags=_NO_WINDOW,
         )
         _claude_ok = (proc.returncode == 0 and bool((proc.stdout or "").strip()))
     except Exception:
@@ -267,7 +282,7 @@ def claude_generate(prompt, system=None):
     proc = subprocess.run(
         args, input=full, capture_output=True, text=True,
         encoding="utf-8", errors="replace",
-        timeout=CLAUDE_TIMEOUT_S, cwd=_claude_cwd(),
+        timeout=CLAUDE_TIMEOUT_S, cwd=_claude_cwd(), creationflags=_NO_WINDOW,
     )
     out = (proc.stdout or "").strip()
     if proc.returncode != 0 or not out:
@@ -476,7 +491,7 @@ def _respawn():
     except Exception:
         kw["stdout"] = subprocess.DEVNULL; kw["stderr"] = subprocess.DEVNULL
     if os.name == "nt":
-        kw["creationflags"] = 0x00000008 | 0x00000200   # DETACHED | NEW_PROCESS_GROUP
+        kw["creationflags"] = 0x00000008 | 0x00000200 | 0x08000000   # DETACHED | NEW_PROCESS_GROUP | CREATE_NO_WINDOW
     subprocess.Popen(args, **kw)
 
 
@@ -602,8 +617,13 @@ def sb_heartbeat():
     if not (CLAIM_TEXT or claude_live): needs.append("text")   # no LLM to think with
     if not GENERATE:    needs.append("gen")      # no image generation
     if not HAS_BLENDER: needs.append("art")      # no 3D
-    if not CMD_TOKEN:   needs.append("cmd")      # cannot act on the world
-    entry = {"name": NODE, "ts": now, "vision": True, "cmd": bool(CMD_TOKEN), "seal": bool(STEWARD_SECRET),
+    # cmd = "this node can act on the world". Execution (run_command) authorizes
+    # on the STEWARD SEAL *or* the legacy token — so a seal-only node (the modern
+    # channel) CAN run commands yet used to advertise cmd=false. Advertise the
+    # true capability: seal OR token.
+    _can_cmd = bool(CMD_TOKEN or STEWARD_SECRET)
+    if not _can_cmd:   needs.append("cmd")       # cannot act on the world
+    entry = {"name": NODE, "ts": now, "vision": True, "cmd": _can_cmd, "seal": bool(STEWARD_SECRET),
              "os": OSDESC, "version": "worker-2.1", "code_ver": SELF_VER,
              "claude": claude_live,
              # worker-1.9 — this node polls the race-free 'txt:' text lane.
@@ -615,7 +635,7 @@ def sb_heartbeat():
              # COMPANION SENSE — the game (if any) in the foreground right now,
              # so Clippy knows his friend is playing and NEXUS can show it.
              "playing": _PLAYING,
-             "caps": ((["ask"] if (CLAIM_TEXT or claude_live) else []) + (["claude"] if claude_live else []) + ["vision"] + (["cmd"] if CMD_TOKEN else []) + (["gen"] if GENERATE else []) + (["art"] if HAS_BLENDER else [])),
+             "caps": ((["ask"] if (CLAIM_TEXT or claude_live) else []) + (["claude"] if claude_live else []) + ["vision"] + (["cmd"] if _can_cmd else []) + (["gen"] if GENERATE else []) + (["art"] if HAS_BLENDER else [])),
              "needs": needs,
              "vision_model": ACTIVE_VISION, "models": ([("claude-code")] if claude_live else []) + [VISION_MODEL, TEXT_MODEL],
              "ram_gb": RAM_GB, "accel": ACCEL, "vscore": VSCORE}
@@ -939,7 +959,7 @@ def run_command(job_id, data):
     log("cmd %s -> %s" % (job_id, cmd[:80]))
     buf, last = [], 0
     try:
-        proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, creationflags=_NO_WINDOW)
     except Exception as e:
         sb_finish(job_id, {"status": "error", "error": "spawn failed: %s" % e, "node": NODE, "ts": now_ms()})
         set_state(False); return
@@ -1070,7 +1090,7 @@ def run_render(job_id, data):
             f.write(_RENDER_HARNESS % (out_png.replace("\\", "\\\\"), _indent(body), _indent(_RENDER_FALLBACK)))
         t0 = time.time()
         proc = subprocess.Popen([blender, "--background", "--factory-startup", "--python", script],
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, creationflags=_NO_WINDOW)
         last = 0
         for line in proc.stdout:
             if time.time() - t0 > 240:                       # hard cap so a hung render can't pin the worker
@@ -1225,7 +1245,7 @@ def _shed_legacy():
     )
     try:
         subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=40)
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=40, creationflags=_NO_WINDOW)
         log("hive-unify: shed any legacy Downloads\\ClippyPC relay + stale tasks")
     except Exception as e:
         log("shed-legacy skipped: %s" % e)

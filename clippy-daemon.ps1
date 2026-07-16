@@ -738,7 +738,18 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
           if (Test-Path $src) { Copy-Item $src (Join-Path $stable $f) -Force -EA SilentlyContinue }
         }
         $stableDaemon = Join-Path $stable 'clippy-daemon.ps1'
-        $act = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $stableDaemon + '" -Supervise')
+        # Launch through a hidden wscript/VBS shim so the scheduler NEVER flashes a
+        # console. When Task Scheduler runs powershell.exe DIRECTLY, conhost
+        # allocates a window BEFORE '-WindowStyle Hidden' can apply — a brief flash
+        # at logon and on every 5-min self-heal. wscript with window-style 0 starts
+        # hidden from creation, so no window ever appears. (Alfredo: "no more
+        # powershells appearing on screen", 2026-07-16.) Win10-safe (conhost
+        # --headless is Win11-only). In VBS, "" is one literal quote — so the daemon
+        # path stays quoted even if the user profile path contains a space.
+        $vbs = Join-Path $stable 'run-daemon-hidden.vbs'
+        $vbsBody = 'CreateObject("WScript.Shell").Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""' + $stableDaemon + '"" -Supervise", 0, False'
+        Set-Content -Path $vbs -Value $vbsBody -Encoding ascii -Force
+        $act = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument ('"' + $vbs + '"')
         # Two triggers so Clippy is NEVER left dead:
         #  1) at logon (fresh session), and
         #  2) a 5-min repeat that re-launches the supervisor if it ever died
