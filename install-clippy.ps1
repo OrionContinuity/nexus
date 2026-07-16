@@ -45,6 +45,23 @@ $stable = Join-Path $env:LOCALAPPDATA 'NexusClippy'
 
 function Say([string]$m, [string]$c = 'Gray') { Write-Host $m -ForegroundColor $c }
 
+function Test-ClaudeAuth($exe) {
+  # The ~/.claude FOLDER is created on the first `claude` run even with NO valid
+  # login — so a dir check gives false confidence (seen live on the laptops
+  # 2026-07-16: folder present, `claude -p` still said "Not logged in").
+  # Probe for REAL: run a tiny prompt and confirm it isn't the login nag.
+  # Wrapped in a job with a timeout so a hung/cold claude can't stall the install.
+  if (-not $exe) { return $false }
+  try {
+    $j = Start-Job { param($x) 'ok' | & $x -p --output-format text 2>&1 } -ArgumentList $exe
+    if (Wait-Job $j -Timeout 45) {
+      $out = (Receive-Job $j | Out-String); Remove-Job $j -Force
+      return ($out.Trim() -ne '' -and $out -notmatch 'not logged in|/login|please run')
+    }
+    Stop-Job $j; Remove-Job $j -Force; return $false
+  } catch { return $false }
+}
+
 Say ''
 Say '  ── NEXUS hive node installer ─────────────────────────────' 'Cyan'
 Say "  home: $stable" 'DarkGray'
@@ -122,23 +139,31 @@ if (-not $claudeExe) {
     if ($p -and (Test-Path $p)) { $claudeExe = $p; break }
   }
 }
-$loggedIn = Test-Path (Join-Path $env:USERPROFILE '.claude')
+Say '  checking Claude login (real probe, not just the folder)…' 'DarkGray'
+$loggedIn = Test-ClaudeAuth $claudeExe
 if (-not $claudeExe) {
   Say '  [!!] Claude Code was not detected after the daemon ran. Re-run this' 'Red'
   Say '       installer, or install manually: winget install Anthropic.ClaudeCode' 'Red'
-} elseif (-not $NoLogin -and -not $loggedIn) {
+} elseif ($loggedIn) {
+  Say '  [ok] Claude subscription verified logged in — this node thinks with Claude.' 'Green'
+} elseif (-not $NoLogin) {
   Say ''
   Say '  Last step — log this node into the Claude subscription so it' 'Yellow'
-  Say '  thinks with Claude (chat, diary, the gods). Interactive, ~30s.' 'Yellow'
-  $ans = Read-Host '  Run `claude /login` now? [Y/n]'
+  Say '  thinks with Claude (chat, diary, the gods). A browser opens; you MUST' 'Yellow'
+  Say '  finish the sign-in until the terminal says logged in. ~30s.' 'Yellow'
+  $ans = Read-Host '  Run claude /login now? [Y/n]'
   if ($ans -eq '' -or $ans -match '^[Yy]') {
     & $claudeExe /login
-    if (Test-Path (Join-Path $env:USERPROFILE '.claude')) { Say '  [ok] logged in — this node now thinks with Claude, same as the others.' 'Green' }
+    if (Test-ClaudeAuth $claudeExe) {
+      Say '  [ok] verified — this node now thinks with Claude, same as the others.' 'Green'
+    } else {
+      Say '  [!!] still not logged in. The folder can exist without a valid session —' 'Red'
+      Say '       run `claude /login` again and COMPLETE the browser sign-in. Until then' 'Red'
+      Say '       this node answers with Ollama (claude:false on the bus).' 'Red'
+    }
   } else {
-    Say '  Skipped. Run `claude /login` any time — the node upgrades itself the minute you do.' 'DarkGray'
+    Say '  Skipped. Run claude /login any time — the node upgrades itself once the login truly completes.' 'DarkGray'
   }
-} elseif ($loggedIn) {
-  Say '  [ok] Claude subscription already logged in — this node thinks with Claude.' 'Green'
 }
 
 Say ''
