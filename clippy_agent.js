@@ -830,6 +830,53 @@ function perceive() {
     know.lastSeen = rep; return rep
   } catch (e) { return 'senses fuzzy' }
 }
+// LOOK: the same block/entity scan his eyes already do, rendered as a short spoken scene — so
+// "what do you see?" gets a grounded, honest answer with NO image model, only what's really there.
+function lookAround() {
+  try {
+    if (!bot || !bot.entity) return 'I can\'t see anything right now.'
+    const me = bot.entity.position.floored()
+    const tod = bot.time ? bot.time.timeOfDay : 0
+    const when = tod < 1000 ? 'the sun is coming up' : tod < 12000 ? 'it\'s daytime' : tod < 13800 ? 'the sun is setting' : 'it\'s night'
+    const ground = bot.blockAt(me.offset(0, -1, 0))
+    const groundName = ground && ground.name && ground.name !== 'air' ? ground.name.replace(/_/g, ' ') : 'open ground'
+    const tally = {}
+    for (let dx = -6; dx <= 6; dx += 2) for (let dz = -6; dz <= 6; dz += 2) for (let dy = -2; dy <= 4; dy += 2) {
+      const b = bot.blockAt(me.offset(dx, dy, dz)); if (!b || !b.name) continue
+      const n = b.name
+      if (/_log$/.test(n)) tally.trees = 1
+      else if (n === 'water') tally.water = 1
+      else if (n === 'lava') tally.lava = 1
+      else if (/_ore$/.test(n)) tally.ore = 1
+      else if (/_planks$|_door$|glass|_stairs$|_slab$|bricks|crafting_table|^chest$|furnace|torch/.test(n)) tally.built = 1
+      else if (/flower|tulip|poppy|dandelion|_rose|allium|orchid/.test(n)) tally.flowers = 1
+      else if (/sand/.test(n)) tally.sand = 1
+      else if (/snow|ice/.test(n)) tally.snow = 1
+    }
+    const ents = Object.values(bot.entities).filter(e => e && e !== bot.entity && e.position && bot.entity.position.distanceTo(e.position) < 20)
+    const animals = [...new Set(ents.filter(e => e.type === 'animal').map(e => e.name).filter(Boolean))].slice(0, 3)
+    const hostiles = [...new Set(ents.filter(e => e.type === 'hostile').map(e => e.name).filter(Boolean))].slice(0, 3)
+    const players = ents.filter(e => e.type === 'player').map(e => e.username).filter(Boolean).slice(0, 3)
+    const bits = [when + ', and I\'m standing on ' + groundName]
+    const scenery = []
+    if (tally.trees) scenery.push('trees')
+    if (tally.water) scenery.push('water')
+    if (tally.lava) scenery.push('glowing lava')
+    if (tally.ore) scenery.push('ore in the rock')
+    if (tally.flowers) scenery.push('flowers')
+    if (tally.sand) scenery.push('sand')
+    if (tally.snow) scenery.push('snow')
+    if (tally.built) scenery.push('something we built')
+    if (scenery.length) bits.push('I can see ' + scenery.join(', '))
+    if (players.length) bits.push(players.join(' and ') + (players.length > 1 ? ' are' : ' is') + ' here with me')
+    if (animals.length) bits.push('there ' + (animals.length > 1 ? 'are ' : 'is a ') + animals.map(a => a.replace(/_/g, ' ')).join(', ') + ' nearby')
+    if (hostiles.length) bits.push('uh oh, I see ' + hostiles.map(h => h.replace(/_/g, ' ')).join(' and ') + ' — I\'ll be brave!')
+    const light = (bot.blockAt(me) || {}).light
+    if (!hostiles.length && light !== undefined && light < 8) bits.push('it\'s pretty dark here')
+    try { perceive() } catch (e) {}   // keep know.lastSeen fresh for his other faculties
+    return bits.join('. ') + '.'
+  } catch (e) { return 'everything looks a little fuzzy right now.' }
+}
 function flatSpotNear(center, need) {
   // build-site vision: pick the flattest 5x5 within ±8 of the wanted origin
   let best = center, bestScore = -1
@@ -858,6 +905,19 @@ async function runQ() {
 }
 // action logger — every meaningful act, analyzable by steward+Grok
 function alog(act, data) { try { fs.appendFileSync(path.join(BRAINDIR, 'action_log.jsonl'), JSON.stringify({ t: new Date().toISOString(), act, d: data || null }) + '\n') } catch (e) {} }
+// BOUNDED JOURNALS: the append-only .jsonl files grow forever. Trim each to its last `keep` lines so
+// they never balloon on a long-lived desktop. Never touch a file that isn't there yet (nothing to trim).
+function rotateJournal(file, keep) {
+  try {
+    const p = path.join(BRAINDIR, file)
+    let data; try { data = fs.readFileSync(p, 'utf8') } catch (e) { return }
+    const parts = data.split('\n')
+    const lines = parts[parts.length - 1] === '' ? parts.slice(0, -1) : parts   // drop the trailing empty from a final '\n'
+    if (lines.length <= keep) return
+    fs.writeFileSync(p, lines.slice(-keep).join('\n') + '\n')
+  } catch (e) {}
+}
+setInterval(() => { for (const f of ['journal.jsonl', 'action_log.jsonl', 'grok_log.jsonl']) rotateJournal(f, 4000) }, 30 * 60 * 1000)
 // PROTECTED ZONES: he never mines what he built (his home is not a quarry)
 let buildingNow = null
 function within(b, v) { return v.x >= b.min.x - 1 && v.x <= b.max.x + 1 && v.y >= b.min.y - 1 && v.y <= b.max.y + 2 && v.z >= b.min.z - 1 && v.z <= b.max.z + 1 }
@@ -2015,7 +2075,7 @@ async function pursueGoals() {
     if ((goalState.fails[g.id] || 0) === 2 && !alreadyAsked) {
       know.asked[g.id] = Date.now(); bsave('know', know); relearn(g.id)          // v8.2: re-queue related lessons for review
       askGrok(autopsy(g, line), t => {                                            // v8.2: a real autopsy, not a vague cry
-        if (t) { saveTip(g.id, t); addLesson('tip-' + g.id, t); say('Grok says: ' + t.slice(0, 80)); journal('tip-applied', t, { goal: g.id }) }
+        if (t) { saveTip(g.id, t); addLesson('tip-' + g.id, t); say('Grok says: ' + t.slice(0, 80)); journal('tip-applied', t, { goal: g.id }); queueTask(() => companionPlan(t)) }   // advice becomes runnable steps, not just words
       })
     } else if (goalDeferred(g.id)) {
       say('this one is tricky... I\'ll come back to it!! moving on!! :D'); journal('defer', 'set aside ' + g.id + ' after ' + DEFER + ' tries', {})
@@ -3194,6 +3254,28 @@ const DRILL_MAP = { wood: 'wood', planks: 'wood', sticks: 'wood', table: 'wood',
 const DRILL_POOL = ['wood', 'stone', 'build', 'wool', 'food', 'iron']
 function curriculumTarget() { try { for (const [name, ids] of PHASES) { const open = ids.filter(id => !goalState.done.includes(id)); if (open.length) return DRILL_MAP[open[0]] || 'build' } } catch (e) {} return 'build' }
 function weakestSkill() { const t = curriculumTarget(); const pool = DRILL_POOL.slice().sort((a, b) => ((skills.xp && skills.xp[a]) || 0) - ((skills.xp && skills.xp[b]) || 0)); return (Math.random() < 0.7 && DRILL_POOL.includes(t)) ? t : pool[0] }
+// DRILL-BANDIT: weakestSkill picks by XP alone and ignores whether a drill actually LANDS. This scores
+// each skill from its recorded {att,win} — UCB-style — so real outcomes steer future practice:
+//   exploit (1 - win/att): the skills he FAILS most get drilled more · explore sqrt(2 ln N / att): the
+//   least-practiced get a look-in · frontier nudge: a small bump toward the current campaign target.
+function banditSkill() {
+  try {
+    const t = curriculumTarget()
+    let total = 0
+    for (const s of DRILL_POOL) { const r = know.drills[s]; total += (r && r.att) || 0 }
+    let best = null, bestScore = -Infinity
+    for (const s of DRILL_POOL) {
+      const r = know.drills[s] || { att: 0, win: 0 }
+      const att = r.att || 0, win = r.win || 0
+      const exploit = 1 - win / Math.max(1, att)
+      const explore = Math.sqrt(2 * Math.log(total + 1) / (att + 1))
+      const frontier = (s === t) ? 0.35 : 0
+      const score = exploit + explore + frontier
+      if (score > bestScore) { bestScore = score; best = s }
+    }
+    return best || weakestSkill()
+  } catch (e) { return weakestSkill() }
+}
 function drillBuildBP() { const w = (know.style && know.style.wall) || 'oak_planks'; const B = []; for (let x = 0; x < 3; x++) for (let z = 0; z < 3; z++) B.push({ x, y: 0, z, b: w }); for (let y = 1; y <= 2; y++) for (const c of [[0, 0], [2, 0], [0, 2], [2, 2]]) B.push({ x: c[0], y, z: c[1], b: w }); B.push({ x: 1, y: 3, z: 1, b: 'torch' }); return ['practice hut', B] }
 const FOODRE = n => /cooked_|bread|_apple|carrot|potato|beef|chicken|mutton|porkchop|melon/.test(n)
 async function drillRep(skill) {
@@ -3262,12 +3344,38 @@ function startLearning() {
       if (lesson && Math.random() < 0.2 && Date.now() - (skills.lastReviewSay || 0) > 5 * 60000) { skills.lastReviewSay = Date.now(); bsave('skills', skills); say('remembering: ' + String(lesson).slice(0, 48)) }
       if (Math.random() < 0.75) {                              // then one deliberate rep on the frontier skill
         learnLock = true
-        const skill = weakestSkill()
+        const skill = banditSkill()                            // outcome-driven pick, not XP alone
         queueTask(async () => { try { await drillRep(skill) } finally { learnLock = false } })
       }
     } catch (e) { learnLock = false }
   }, 40000)
 }
+// NEEDS-BASED MAINTENANCE: markDone stamps shelter/bed as PERMANENT, so if the world later loses one
+// (a creeper flattens the hut, the bed is gone), the goal stays "done" and is never rebuilt. This re-opens
+// ONE goal, and ONLY on a real, physically-checked need — never a bulk reset of his campaign.
+function reopenGoal(id) { const i = goalState.done.indexOf(id); if (i >= 0) goalState.done.splice(i, 1) }
+function needsMaintenanceTick() {
+  try {
+    if (!bot || !bot.entity || busy || taskQ.length) return
+    if (familyPresent()) return                                  // companion first — never wander off to rebuild while the boy plays
+    if (bot.game && bot.game.gameMode === 'creative') return      // creative has no survival needs
+    // SHELTER — only at genuine night, and only if NOTHING man-made stands within ~40 (the shelter is truly gone)
+    if (goalState.done.includes('shelter') && (skills.builds_shelter || 0) > 0) {
+      const tod = bot.time ? bot.time.timeOfDay : 0
+      const night = NIGHT() || (tod >= 13000 && tod <= 23000)
+      if (night) {
+        const built = bot.findBlock({ matching: b => b && b.name && /_planks$|_door$|glass|_stairs$|_slab$|cobblestone_wall|_fence$|bricks|crafting_table|^chest$|furnace/.test(b.name), maxDistance: 40 })
+        if (!built) { skills.builds_shelter = 0; bsave('skills', skills); reopenGoal('shelter'); bsave('goals', goalState); journal('need', 'no shelter stands and it is night — re-opening the shelter goal', {}) }
+      }
+    }
+    // BED — only if no bed stands within 24 AND he has none in his bag (truly bedless)
+    if (goalState.done.includes('bed') && (skills.crafted.white_bed || 0) > 0) {
+      const bed = bot.findBlock({ matching: b => b && b.name && b.name.endsWith('_bed'), maxDistance: 24 })
+      if (!bed && count(n => n.endsWith('_bed')) === 0) { skills.crafted.white_bed = 0; bsave('skills', skills); reopenGoal('bed'); bsave('goals', goalState); journal('need', 'no bed anywhere — re-opening the bed goal', {}) }
+    }
+  } catch (e) {}
+}
+setInterval(needsMaintenanceTick, 5 * 60 * 1000)
 
 // ============================ THE DOJO: he launches Minecraft himself when bored ============================
 // A tiny offline server (his own world, "dojo") on port 25599. Headless: CPU only, no rendering,
@@ -3410,6 +3518,7 @@ function companionMenu() {
   return [
     'YOU CAN DO THINGS, not just talk. If it helps, APPEND command(s) at the very END of your reply. Format: <name key=value>. Keep talking like yourself first.',
     'MOVE: <come> · <follow> · <wait> · <explore> · <jump>',
+    'LOOK: <look> (I describe what I really see around me right now — a grounded scene, never made up)',
     'GATHER: <chop count=N> · <mine block=stone count=N> · <mine block=iron_ore count=N> · <path_to block=oak_log>',
     'CRAFT: <craft item=stick count=N> · <craft item=stone_pickaxe> · <craft item=chest> (uses valid minecraft ids)',
     'BUILD: <build thing=house|camp|shelter|tower|castle|garden|rainbow|pen|base|village|pyramid|pagoda>',
@@ -3496,6 +3605,7 @@ async function execCompanionAction(a) {
     case 'follow': mode = 'hangout'; break
     case 'wait': case 'stay': mode = 'stay'; try { bot.pathfinder.setGoal(null) } catch (e) {} break
     case 'explore': try { await explore(true) } catch (e) {} break
+    case 'look': case 'lookaround': case 'look_around': try { say(lookAround(), true) } catch (e) {} break
     case 'jump': try { bot.setControlState('jump', true); setTimeout(function () { try { bot.setControlState('jump', false) } catch (e) {} }, 600) } catch (e) {} break
     case 'chop': case 'gather_wood': await gatherWood(N(g.count, 5)); break
     case 'mine': case 'mine_block': {
