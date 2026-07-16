@@ -3241,8 +3241,9 @@ function companionGoal() { return (know && know.llmGoal) || 'play and build with
 function companionMenu() {
   return [
     'YOU CAN DO THINGS, not just talk. If it helps, APPEND command(s) at the very END of your reply. Format: <name key=value>. Keep talking like yourself first.',
-    'MOVE: <come> · <follow> · <wait> · <explore>',
+    'MOVE: <come> · <follow> · <wait> · <explore> · <jump>',
     'GATHER: <chop count=N> · <mine block=stone count=N> · <mine block=iron_ore count=N> · <path_to block=oak_log>',
+    'CRAFT: <craft item=stick count=N> · <craft item=stone_pickaxe> · <craft item=chest> (uses valid minecraft ids)',
     'BUILD: <build thing=house|camp|shelter|tower|castle|garden|rainbow|pen|base|village|pyramid|pagoda>',
     'FIGHT (never the player): <kill mob=zombie|skeleton|spider|creeper|cow|pig|chicken|sheep>',
     'ITEMS: <give item=NAME count=N> · <place item=NAME x=.. y=.. z=..> · <eat> · <armour>',
@@ -3301,6 +3302,7 @@ async function execCompanionAction(a) {
     case 'follow': mode = 'hangout'; break
     case 'wait': case 'stay': mode = 'stay'; try { bot.pathfinder.setGoal(null) } catch (e) {} break
     case 'explore': try { await explore(true) } catch (e) {} break
+    case 'jump': try { bot.setControlState('jump', true); setTimeout(function () { try { bot.setControlState('jump', false) } catch (e) {} }, 600) } catch (e) {} break
     case 'chop': case 'gather_wood': await gatherWood(N(g.count, 5)); break
     case 'mine': case 'mine_block': {
       const b = clean(g.block || g.thing || 'stone')
@@ -3310,6 +3312,7 @@ async function execCompanionAction(a) {
       else await mineNamed(b, N(g.count, 4))
       break
     }
+    case 'craft': case 'craft_item': case 'make': { const it = clean(g.item || g.thing || g.name); if (it) { try { await craftItem(it, N(g.count, 1)) } catch (e) {} } break }
     case 'path_to': case 'path_to_block': await pathToNamed(clean(g.block || g.thing)); break
     case 'kill': case 'kill_mob': case 'attack': await killMob(clean(g.mob || g.target || 'zombie')); break
     case 'build': case 'place_structure': {
@@ -3336,7 +3339,7 @@ async function execCompanionAction(a) {
     case 'remember': if (g.key) { know.facts = know.facts || {}; know.facts[String(g.key).slice(0, 40)] = String(g.value || '').slice(0, 120); bsave('know', know); journal('remember', g.key + '=' + g.value, {}) } break
     case 'remember_location': if (g.label && g.coord) { const mm = String(g.coord).match(/-?\d+/g); if (mm && mm.length >= 3) rememberPlace(String(g.label).slice(0, 24), new Vec3(+mm[0], +mm[1], +mm[2])) } break
     case 'vacuum': case 'pickup': { const drops = Object.values(bot.entities).filter(function (e) { return e && e.name === 'item' && bot.entity.position.distanceTo(e.position) < 7 }).sort(function (a, b) { return bot.entity.position.distanceTo(a.position) - bot.entity.position.distanceTo(b.position) }); if (drops[0]) { try { await moveNear(drops[0].position, 0.6) } catch (e) {} say('got it!! ✨') } else say('I don\'t see anything to pick up!'); break }
-    case 'drink': case 'drink_potion': { const p = bot.inventory.items().find(function (i) { return /potion/.test(i.name) }); if (p) { try { await bot.equip(p, 'hand'); bot.activateItem(); say('gulp gulp!') } catch (e) {} } else say('I have no potions to drink!'); break }
+    case 'drink': case 'drink_potion': { const want = clean(g.item || g.potion); const items = bot.inventory.items(); const p = (want && items.find(function (i) { return /potion/.test(i.name) && ((i.name + ' ' + (i.customName || i.displayName || '')).toLowerCase().indexOf(want.replace(/potion|of|_/g, '').trim()) >= 0) })) || items.find(function (i) { return /potion/.test(i.name) }); if (p) { try { await bot.equip(p, 'hand'); bot.activateItem(); say('gulp gulp!') } catch (e) {} } else say('I have no potions to drink!'); break }
     default: break   // unsupported (e.g. teleport to coords — bots aren't ops) -> ignore
   }
 }
