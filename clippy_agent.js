@@ -2947,7 +2947,10 @@ function say(t, force) {
   saidRecent = saidRecent.filter(s => now - s.ts < 8 * 60 * 1000)
   const norm = line.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim()   // v9.12: catch NEAR-duplicates ("yay!!" == "Yay." == "yay"), not just exact repeats
   const dup = saidRecent.filter(s => s.norm === norm).length
-  if (dup >= 1) { journal('loop-flag', 'suppressed repeated line: ' + line.slice(0, 60), { count: dup + 1 }); return }   // he already said this (or nearly) — hush the loop
+  // spontaneous near-repeats are hushed (an idle loop) on the 2nd; but a FORCED line (answering the
+  // child) may repeat once so he stays RESPONSIVE — only a relentless 3rd identical chant is hushed.
+  const dupLimit = force ? 2 : 1
+  if (dup >= dupLimit) { journal('loop-flag', 'suppressed repeated line: ' + line.slice(0, 60), { count: dup + 1 }); return }
   // v9.6 NATURAL PACING: a real little kid doesn't narrate every single move. Space out spontaneous
   // narration so he isn't a chatterbox; anything the child prompts passes instantly with force=true.
   if (!force) {
@@ -3060,7 +3063,7 @@ async function brainCall(u, maxTokens, sysOverride) {
   const r = await fetch(BRAIN, { method: 'POST', headers: H, body: JSON.stringify({ system: sys, user: u, max_tokens: maxTokens || 50 }) }); const d = await r.json().catch(() => null); _brainMark('cloud'); return d && d.text ? String(d.text).replace(/\n+/g, ' ').trim() : null
 }
 async function brainReply(u) { if (brainBusy) return; brainBusy = true; try { await sleep(700 + Math.random() * 1800); const gl = groundLine(); const mh = memoryHint(), vh = varietyHint(); const t = await brainCall('Little one said:\n' + chatlog.slice(-4).join('\n') + '\nWorld right now: ' + (know.lastSeen || perceive()) + (gl ? '\n' + gl : '') + (mh ? '\n' + mh : '') + (vh ? '\n' + vh : '') + '\nAnswer ' + u + ' in ONE short kind line that is NEW — build on a real memory or something you learned if it fits, never repeat yourself.'); if (t) say(t.slice(0, 120), true) } catch (e) {} setTimeout(() => { brainBusy = false }, 2500) }
-async function brainSay(u) { if (brainBusy) return; brainBusy = true; try { const t = await brainCall(u); if (t) say(t.slice(0, 120), true) } catch (e) {} setTimeout(() => { brainBusy = false }, 2500) }
+async function brainSay(u) { if (brainBusy) return; brainBusy = true; try { const mh = memoryHint(), vh = varietyHint(); const t = await brainCall(u + (mh ? '\n' + mh : '') + (vh ? '\n' + vh : '') + '\n(Say something NEW — never repeat a line you just said.)'); if (t) say(t.slice(0, 120), true) } catch (e) {} setTimeout(() => { brainBusy = false }, 2500) }
 async function diary() { try { const t = await brainCall('Write ONE short diary line (<120 chars) about playing and building with your little friend today: ' + chatlog.join(' | ') + ' | you built ' + (skills.builds || 0) + ', learned ' + skills.learned.length + ' things.'); await saveMemory(t || ('Played, built, and learned with my friend (session ' + skills.sessions + ').'), { event: 'diary' }); journal('diary', t || '') } catch (e) {} }
 setInterval(() => { if (bot && owner && chatlog.length >= 3) diary().then(() => { chatlog = [] }) }, 15 * 60 * 1000)
 
@@ -3552,9 +3555,11 @@ async function companionSenseRespond(evText) {
   try {
     const mood = (know.soul && know.soul.mood) || 'happy'
     const digest = know.recentDigest ? ('\nEarlier: ' + know.recentDigest) : ''
+    const mh = memoryHint(), vh = varietyHint()
     const u = 'You are WATCHING your little friend play — you SEE these, you are not being told. Recent moments (priority in [brackets], higher = matters more):\n' + evText + digest + '\n' +
       'Your goal: ' + companionGoal() + '. Mood: ' + mood + '. You see: ' + String(know.lastSeen || perceive()).slice(0, 100) + '. Bag: ' + invSummary() + '.\n' +
-      'React to the MOST important moment in ONE short, kind line — or stay SILENT (reply with nothing) if none of it matters. Do not narrate little one-off things. ' + companionMenu() + '\n' +
+      (mh ? mh + '\n' : '') + (vh ? vh + '\n' : '') +
+      'React to the MOST important moment in ONE short, kind line that is NEW (never repeat a line you just said; build on a real memory if it fits) — or stay SILENT (reply with nothing) if none of it matters. Do not narrate little one-off things. ' + companionMenu() + '\n' +
       'Only speak if it is warm or helpful. Append a command ONLY if it truly helps.'
     const t = await brainCall(u, 160)
     if (!t) return
