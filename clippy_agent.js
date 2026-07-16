@@ -2938,15 +2938,16 @@ async function race() {
 function dance() { if (!bot || !bot.entity) return; say('*dances* wheee!!'); let i = 0; const iv = setInterval(() => { if (!bot || i++ > 10) return clearInterval(iv); try { bot.look((i * Math.PI) / 3, i % 2 ? -0.4 : 0.4, true); bot.setControlState('jump', i % 2 === 0) } catch (e) { clearInterval(iv) } }, 340); setTimeout(() => { try { bot.setControlState('jump', false) } catch (e) {} }, 4200) }
 // ===== EVERY TEXT LOGGED (chat_log.jsonl) + anti-repeat loop detector =====
 function tlog(who, text) { try { fs.appendFileSync(path.join(BRAINDIR, 'chat_log.jsonl'), JSON.stringify({ t: new Date().toISOString(), who, text: String(text).slice(0, 300) }) + '\n') } catch (e) {} }
-let saidRecent = [], _lastSay = 0
+let saidRecent = [], _lastSay = 0, _memCache = []
 function say(t, force) {
   if (!bot || !bot.entity) return
   let line = IDENT.tone ? IDENT.tone(String(t)) : String(t)   // v9.11: companions speak in their own voice
   line = line.replace(/\bthought for \d+\s*s\b\.?/gi, '').replace(/^\s*grok says:?\s*/i, '').replace(/\s{2,}/g, ' ').trim()   // v9.11.2: strip leaked LLM reasoning artifacts
   const now = Date.now()
   saidRecent = saidRecent.filter(s => now - s.ts < 8 * 60 * 1000)
-  const dup = saidRecent.filter(s => s.line === line).length
-  if (dup >= 2) { journal('loop-flag', 'suppressed repeated line: ' + line.slice(0, 60), { count: dup + 1 }); return }   // he was chanting — flag it, hush it
+  const norm = line.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim()   // v9.12: catch NEAR-duplicates ("yay!!" == "Yay." == "yay"), not just exact repeats
+  const dup = saidRecent.filter(s => s.norm === norm).length
+  if (dup >= 1) { journal('loop-flag', 'suppressed repeated line: ' + line.slice(0, 60), { count: dup + 1 }); return }   // he already said this (or nearly) — hush the loop
   // v9.6 NATURAL PACING: a real little kid doesn't narrate every single move. Space out spontaneous
   // narration so he isn't a chatterbox; anything the child prompts passes instantly with force=true.
   if (!force) {
@@ -2955,12 +2956,39 @@ function say(t, force) {
     if (gap < 35000 && Math.random() < 0.5) return             // and past that, often just keep playing quietly
   }
   _lastSay = now
-  saidRecent.push({ line, ts: now })
+  saidRecent.push({ line, norm, ts: now })
   tlog('clippy', line); try { publishActivity('say', line) } catch (e) {}   // 📡 his voice to the live feed
   // v9.10 SAFETY: his mouth may only ever CHAT — never a slash-command. Strip any leading "/" per chunk so
   // that even opped, even if the LLM ever returned "/something", it goes out as words, not an executed command.
   try { for (const c of line.match(/.{1,96}/g) || []) bot.chat(c.replace(/^\s*\/+/, '')) } catch (e) {}
 }
+// v9.12 ANTI-REPETITION + MEMORY-FEEDBACK — the fix for "he's repetitive and doesn't learn".
+// His brain never knew what he had just said or what he remembered, so it looped. These feed his
+// recent lines (so he WON'T repeat them) and his real history (so he draws on it) into every prompt.
+function recentLines(n) {
+  const seen = [], out = []
+  for (let i = saidRecent.length - 1; i >= 0 && out.length < (n || 6); i--) {
+    const l = saidRecent[i].line, key = saidRecent[i].norm || l.toLowerCase()
+    if (key && !seen.includes(key)) { seen.push(key); out.unshift(l) }
+  }
+  return out
+}
+function varietyHint() {
+  const r = recentLines(6)
+  return r.length ? ('You JUST said these — do NOT repeat them or anything like them; say something genuinely NEW:\n- ' + r.join('\n- ')) : ''
+}
+function memoryHint() {
+  const bits = []
+  const mems = (_memCache || []).slice(-3)
+  if (mems.length) bits.push('You remember doing these together: ' + mems.join(' | '))
+  const learned = (skills.learned || []).slice(-6)
+  if (learned.length) bits.push('Things you have learned: ' + learned.join(', '))
+  try { const g = (typeof nextGoal === 'function') && nextGoal(); if (g && g.hint) bits.push('What you are working toward: ' + g.hint) } catch (e) {}
+  return bits.join('\n')
+}
+// keep a fresh handful of his real memories in RAM so the prompt can reference them without a DB hit each line
+setInterval(function () { loadMemories().then(function (m) { if (m && m.length) _memCache = m }).catch(function () {}) }, 5 * 60 * 1000)
+setTimeout(function () { loadMemories().then(function (m) { if (m && m.length) _memCache = m }).catch(function () {}) }, 15000)
 // ===== GROK PIPELINE: dedup cache + persistent revive log (grok_log.jsonl) =====
 function grokHash(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return String(h) }
 let grokBusy = false, grokQ = []
@@ -3031,7 +3059,7 @@ async function brainCall(u, maxTokens, sysOverride) {
   } catch (e) { try { know.lastBrainErr = String((e && e.message) || e).slice(0, 60) } catch (x) {} }
   const r = await fetch(BRAIN, { method: 'POST', headers: H, body: JSON.stringify({ system: sys, user: u, max_tokens: maxTokens || 50 }) }); const d = await r.json().catch(() => null); _brainMark('cloud'); return d && d.text ? String(d.text).replace(/\n+/g, ' ').trim() : null
 }
-async function brainReply(u) { if (brainBusy) return; brainBusy = true; try { await sleep(700 + Math.random() * 1800); const gl = groundLine(); const t = await brainCall('Little one said:\n' + chatlog.slice(-4).join('\n') + '\nWorld right now: ' + (know.lastSeen || perceive()) + (gl ? '\n' + gl : '') + '\nAnswer ' + u + ' in ONE short kind line.'); if (t) say(t.slice(0, 120), true) } catch (e) {} setTimeout(() => { brainBusy = false }, 2500) }
+async function brainReply(u) { if (brainBusy) return; brainBusy = true; try { await sleep(700 + Math.random() * 1800); const gl = groundLine(); const mh = memoryHint(), vh = varietyHint(); const t = await brainCall('Little one said:\n' + chatlog.slice(-4).join('\n') + '\nWorld right now: ' + (know.lastSeen || perceive()) + (gl ? '\n' + gl : '') + (mh ? '\n' + mh : '') + (vh ? '\n' + vh : '') + '\nAnswer ' + u + ' in ONE short kind line that is NEW — build on a real memory or something you learned if it fits, never repeat yourself.'); if (t) say(t.slice(0, 120), true) } catch (e) {} setTimeout(() => { brainBusy = false }, 2500) }
 async function brainSay(u) { if (brainBusy) return; brainBusy = true; try { const t = await brainCall(u); if (t) say(t.slice(0, 120), true) } catch (e) {} setTimeout(() => { brainBusy = false }, 2500) }
 async function diary() { try { const t = await brainCall('Write ONE short diary line (<120 chars) about playing and building with your little friend today: ' + chatlog.join(' | ') + ' | you built ' + (skills.builds || 0) + ', learned ' + skills.learned.length + ' things.'); await saveMemory(t || ('Played, built, and learned with my friend (session ' + skills.sessions + ').'), { event: 'diary' }); journal('diary', t || '') } catch (e) {} }
 setInterval(() => { if (bot && owner && chatlog.length >= 3) diary().then(() => { chatlog = [] }) }, 15 * 60 * 1000)
@@ -3321,11 +3349,13 @@ async function companionRespond(username, message) {
   try {
     await sleep(500 + Math.random() * 1000)
     const mood = (know.soul && know.soul.mood) || 'happy'
+    const mh = memoryHint(), vh = varietyHint()
     const u = 'Your little friend said: "' + String(message).slice(0, 200) + '"\n' +
       'Your current goal: ' + companionGoal() + '. Your mood: ' + mood + '. ' +
       'What you see: ' + String(know.lastSeen || perceive()).slice(0, 120) + '. Your bag: ' + invSummary() + '.\n' +
+      (mh ? mh + '\n' : '') + (vh ? vh + '\n' : '') +
       companionMenu() + '\n' +
-      'Reply in ONE short, kind, happy line for a small child. Then append command(s) ONLY if they help.'
+      'Reply in ONE short, kind, happy line for a small child — make it NEW (build on a real memory or something you learned; never repeat a line you just said). Then append command(s) ONLY if they help.'
     const t = await brainCall(u, 160)
     if (!t) { return }
     const parsed = parseCompanionActions(t)
