@@ -12,7 +12,8 @@
    1. Creates the stable home  %LOCALAPPDATA%\NexusClippy
    2. Downloads the node's core files from GitHub raw (main = canon):
       clippy-daemon.ps1, clippy-worker.py, clippy-update.ps1,
-      clippy-character.json, clippy-dialog.json, clippy-pet-comp.ps1
+      clippy-character.json, clippy-dialog.json, clippy-pet-comp.ps1,
+      clippy_agent.js (his Minecraft brain)
    3. Runs the daemon ONCE from that folder. The daemon does the rest —
       it is the installer (winget + direct fallbacks): git, Supabase CLI,
       GitHub CLI, Python 3, CLAUDE CODE, Ollama; registers the logon +
@@ -52,7 +53,8 @@ $null = New-Item -ItemType Directory -Force -Path $stable
 
 # 2. Core files from canon ---------------------------------------------------
 $files = @('clippy-daemon.ps1','clippy-worker.py','clippy-update.ps1',
-           'clippy-character.json','clippy-dialog.json','clippy-pet-comp.ps1')
+           'clippy-character.json','clippy-dialog.json','clippy-pet-comp.ps1',
+           'clippy_agent.js')   # his Minecraft brain — pulled so a fresh install has the current MC bot too
 $got = 0
 foreach ($f in $files) {
   try {

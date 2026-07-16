@@ -157,8 +157,8 @@ function Start-GrokProc {
 }
 function Update-NodeFromGitHub {
   # Pull the latest node scripts into $HOMEDIR. Returns which ones changed.
-  $res = @{ worker = $false; daemon = $false; pet = $false; grok = $false }
-  foreach ($f in 'clippy-worker.py', 'clippy-daemon.ps1', 'clippy-update.ps1', 'clippy-character.json', 'clippy-dialog.json', 'clippy-pet-comp.ps1', 'grok_bridge.py') {
+  $res = @{ worker = $false; daemon = $false; pet = $false; grok = $false; bot = $false }
+  foreach ($f in 'clippy-worker.py', 'clippy-daemon.ps1', 'clippy-update.ps1', 'clippy-character.json', 'clippy-dialog.json', 'clippy-pet-comp.ps1', 'grok_bridge.py', 'clippy_agent.js') {
     $dst = Join-Path $HOMEDIR $f
     $tmp = Join-Path $env:TEMP ('nx_' + $f)
     try {
@@ -171,6 +171,7 @@ function Update-NodeFromGitHub {
         if ($f -eq 'clippy-daemon.ps1') { $res.daemon = $true }
         if ($f -eq 'clippy-pet-comp.ps1') { $res.pet = $true }
         if ($f -eq 'grok_bridge.py') { $res.grok = $true }
+        if ($f -eq 'clippy_agent.js') { $res.bot = $true }   # his Minecraft brain changed — a supervisor may restart the bot to load it
         # Character/dialog are data the worker reads at startup - restart it to reload.
         if ($f -eq 'clippy-character.json' -or $f -eq 'clippy-dialog.json') { $res.worker = $true }
         Log "[upd] refreshed $f" 'Green'
@@ -589,7 +590,7 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
         $self = $PSCommandPath; if (-not $self) { $self = $MyInvocation.MyCommand.Path }
         $stable = Join-Path $env:LOCALAPPDATA 'NexusClippy'
         New-Item -ItemType Directory -Force -Path $stable | Out-Null
-        foreach ($f in 'clippy-daemon.ps1', 'clippy-worker.py', 'clippy-update.ps1', 'clippy-character.json', 'clippy-dialog.json', 'clippy-pet-comp.ps1') {
+        foreach ($f in 'clippy-daemon.ps1', 'clippy-worker.py', 'clippy-update.ps1', 'clippy-character.json', 'clippy-dialog.json', 'clippy-pet-comp.ps1', 'clippy_agent.js') {
           $src = Join-Path $HOMEDIR $f
           if (Test-Path $src) { Copy-Item $src (Join-Path $stable $f) -Force -EA SilentlyContinue }
         }
