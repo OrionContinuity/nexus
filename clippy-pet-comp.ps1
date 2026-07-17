@@ -195,11 +195,8 @@ public class ClippyComp : Form {
     // If the user has dragged Clippy before, come back where they left him
     // (clamped on-screen) instead of snapping to the corner.
     LoadPos();
-    if(_userMoved){
-      var vs = Roam();
-      this.Left = Math.Max(vs.Left - PW + 90, Math.Min(_userL, vs.Right - 90));
-      this.Top  = Math.Max(vs.Top,            Math.Min(_userT, vs.Bottom - 90));
-    }
+    int _pl, _pt; Place(out _pl, out _pt);   // fully-visible: saved spot if still on a live screen, else the corner
+    this.Left = _pl; this.Top = _pt;
   }
   // Re-fit the full-screen overlay to the CURRENT primary work area. Called on
   // WM_DISPLAYCHANGE and on a slow poll, so Clippy survives monitor sleep/wake,
@@ -213,15 +210,7 @@ public class ClippyComp : Form {
       // (clamped on-screen); otherwise anchor to the work area's bottom-right
       // corner. Either way survives monitor sleep/wake, RDP resize, DPI change,
       // and never grows back to full-screen.
-      int nl, nt;
-      if (_userMoved) {
-        var vs = Roam();
-        nl = Math.Max(vs.Left - PW + 90, Math.Min(_userL, vs.Right - 90));
-        nt = Math.Max(vs.Top,            Math.Min(_userT, vs.Bottom - 90));
-      } else {
-        var wa = ScreenWA();
-        nl = wa.Right - PW - 8; nt = wa.Bottom - PH - 8;
-      }
+      int nl, nt; Place(out nl, out nt);   // recompute a fully-visible spot every tick (survives monitor unplug/RDP/DPI)
       if (this.Left != nl || this.Top != nt || this.Width != PW) {
         Wv = PW; Hv = PH;
         this.Left = nl; this.Top = nt;
@@ -370,6 +359,30 @@ public class ClippyComp : Form {
   bool _userMoved = false; int _userL, _userT;
   public static string PosPath;
   Rectangle Roam(){ try { var v = SystemInformation.VirtualScreen; if(v.Width > 0 && v.Height > 0) return v; } catch {} return ScreenWA(); }
+  // Fully-visible placement. Honour the user's dragged spot ONLY if it still lands
+  // Clippy substantially on a CURRENTLY-connected screen; otherwise (a monitor was
+  // unplugged, the resolution shrank, or RDP handed a smaller desktop) snap to the
+  // primary work-area corner so he is never stranded off-screen as an invisible
+  // sliver - the "process runs but I can't see Clippy" bug (DESKTOP-OQ8SROU,
+  // 2026-07-16). The old clamp kept only 90px on-screen, which IS a near-invisible
+  // sliver; this requires a healthy chunk of him on a real monitor or resets.
+  void Place(out int nl, out int nt){
+    var wa = ScreenWA();
+    int cornerL = wa.Right - PW - 8, cornerT = wa.Bottom - PH - 8;
+    if(!_userMoved){ nl = cornerL; nt = cornerT; return; }
+    Rectangle box = new Rectangle(_userL, _userT, PW, PH);
+    Rectangle bestWA = Rectangle.Empty; int bestArea = 0;
+    try {
+      foreach(var sc in Screen.AllScreens){
+        var inter = Rectangle.Intersect(sc.WorkingArea, box);
+        int area = inter.Width * inter.Height;
+        if(area > bestArea){ bestArea = area; bestWA = sc.WorkingArea; }
+      }
+    } catch {}
+    if(bestWA.IsEmpty || bestArea < 160*160){ nl = cornerL; nt = cornerT; return; }  // his saved monitor is gone -> reset
+    nl = Math.Max(bestWA.Left, Math.Min(_userL, bestWA.Right - PW));   // FULLY inside that screen, not a 90px edge sliver
+    nt = Math.Max(bestWA.Top,  Math.Min(_userT, bestWA.Bottom - PH));
+  }
   void MovePet(int dx, int dy){
     var vs = Roam();
     int nl = this.Left + dx, nt = this.Top + dy;
