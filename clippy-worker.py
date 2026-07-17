@@ -1336,8 +1336,17 @@ def _watchdog_loop():
         try:
             stale = time.time() - _last_beat
             if stale > WATCHDOG_STALE_S:
-                log("WATCHDOG: heartbeat stale %ds (> %ds) - worker wedged; exiting for a clean restart" % (int(stale), WATCHDOG_STALE_S))
-                try: activity("node", "watchdog restart (wedged)")
+                # Leave a MARK of what wedged - don't heal the symptom silently and
+                # lose the wound (Providencia's feedback). _state holds what he was
+                # doing; the activity feed survives the restart and shows in NEXUS.
+                doing = ""
+                try: doing = str(_state.get("current") or "")
+                except Exception: pass
+                try: busy = _state.get("busy")
+                except Exception: busy = None
+                mark = "wedged %ds while busy=%s doing '%s'" % (int(stale), busy, doing[:80])
+                log("WATCHDOG: heartbeat stale - %s - exiting for a clean restart" % mark)
+                try: activity("node", "watchdog restart: " + mark)
                 except Exception: pass
                 os._exit(1)
         except Exception:

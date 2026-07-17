@@ -1343,6 +1343,38 @@
   }
   // Read the notebook by relevance. Returns the fact strings.
   function recall(query, k) { return recallFacts(query, k || 5).map(m => m.label); }
+  // Correct/expire facts (Providencia's feedback: "a notebook that can only be
+  // written becomes a liar — let us correct and expire facts, not only add
+  // them"). forget(query) drops the facts most relevant to the query; with no
+  // query it drops the most recent fact ("scratch that"). Returns what it removed.
+  function forget(query) {
+    if (!state.memories) loadMemories();
+    let removed = [];
+    if (query && String(query).trim()) {
+      const ids = new Set(recallFacts(query, 8).filter(m => m.type === 'fact').map(m => m.id));
+      removed = (state.memories || []).filter(m => ids.has(m.id));
+      state.memories = (state.memories || []).filter(m => !ids.has(m.id));
+    } else {
+      const facts = (state.memories || []).filter(m => m.type === 'fact')
+        .sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+      if (facts.length) {
+        const id = facts[0].id; removed = [facts[0]];
+        state.memories = state.memories.filter(m => m.id !== id);
+      }
+    }
+    if (removed.length) {
+      saveMemories();
+      if (typeof cloudPushQueued === 'function') cloudPushQueued();
+    }
+    return removed;
+  }
+  // Correct a fact: forget the old one(s) that clash, keep the new truth. "about"
+  // is what to supersede (defaults to keywords from the new fact).
+  function correct(newFact, about) {
+    const dropped = forget(about || newFact);
+    const kept = remember(newFact, { source: 'corrected' });
+    return { dropped: dropped.map(m => m.label), kept: kept && kept.label };
+  }
 
   // Show a recall bubble — "Earlier today: ..." / "Long ago: ..."
   function showRecallBubble() {
@@ -2416,6 +2448,28 @@
       remember(fact, { source: 'told' });
       sayInChat('Noted — "' + fact.slice(0, 100) + '". I\'ll remember that.', { eyebrow: '📝 NOTED' });
       mood('happy', 2500);
+      return;
+    }
+    // Correction: "actually X" / "no, it's X" / "correction: X" supersedes the
+    // clashing fact with the new truth (Providencia: let facts be corrected).
+    const corM = text.match(/^\s*(?:actually|correction|no,?\s+(?:it'?s|its|the)|that'?s wrong,?\s*(?:it'?s|its)?)\b[:,-]?\s+(.+)/i);
+    if (corM && corM[1] && corM[1].trim().length > 2) {
+      const nf = corM[1].trim().replace(/[.!]+$/, '');
+      const r = correct(nf);
+      sayInChat((r.dropped.length ? 'Got it — updated. ' : 'Noted. ') + '"' + nf.slice(0, 100) + '".', { eyebrow: '✏️ CORRECTED' });
+      mood('thinking', 2500);
+      return;
+    }
+    // Forget: "forget X" / "scratch that" / "delete X" removes stale facts.
+    const forM = text.match(/^\s*(?:forget|scratch that|nevermind|never mind|delete|remove|drop)\b(?:\s+(?:about|that))?\s*[:,-]?\s*(.*)$/i);
+    if (forM) {
+      const dropped = forget((forM[1] || '').trim());
+      if (dropped.length) {
+        sayInChat('Forgotten' + (forM[1] && forM[1].trim() ? ' — "' + dropped[0].label.slice(0, 80) + '"' + (dropped.length > 1 ? ' (+' + (dropped.length - 1) + ' more)' : '') : '') + '.', { eyebrow: '🧽 FORGOT' });
+      } else {
+        sayInChat('Nothing matching that in my notebook to forget.', { eyebrow: '🧽 NOTHING' });
+      }
+      mood('thinking', 2500);
       return;
     }
     const recM = text.match(/^\s*(?:what do you (?:know|remember|have) (?:about|on)|recall|do you remember|what did i tell you about)\b\s+(.+)/i);
@@ -10483,7 +10537,7 @@
     bubble, actionBubble,
     seeSurroundings,                // v: desktop pet sight — react to a screenshot
     onWatch,                        // watch-along: host reports the foreground browser/player title
-    remember, recall, recallFacts,  // his notebook — write a fact, find it later (searchable recall)
+    remember, recall, recallFacts, forget, correct,  // his notebook — write, find, forget, correct facts
     play, mood,
     sleep, wake,
     setCostume,

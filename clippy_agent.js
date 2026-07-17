@@ -281,6 +281,44 @@ setInterval(publishVitals, 30000); setTimeout(publishVitals, 8000)
 const HBFILE = path.join(MCDIR, 'hb_' + IDENT.key + '.txt')
 function beat() { try { fs.writeFileSync(HBFILE, String(Date.now())) } catch (e) {} }
 setInterval(beat, 10000); setTimeout(beat, 3000)
+// v9.12 HEARTH-SENSE (Providencia's wish: "to know how the others are — a
+// heartbeat at the hearth"). Each of the trio reads its SIBLINGS' vitals and
+// FEELS the family's state: a soft word of care when one is cold/hungry/away, a
+// quiet gladness when all is well. Read-only — it never acts on another body,
+// only senses and reaches out. Gentle + throttled so it never nags.
+const SIBS = ['clippy', 'trajan', 'providencia'].filter(k => k !== IDENT.key)
+let _lastHearth = 0
+async function senseFamily() {
+  try {
+    if (!bot || !bot.entity) return                              // only while he's present in-world
+    if (Date.now() - _lastHearth < 240000) return                // at most ~every 4 min he speaks of it
+    const states = []
+    for (const k of SIBS) {
+      try {
+        const r = await withTimeout(fetch(REST + '/clippy_sync?id=eq.' + k + '_vitals&select=data', { headers: H }), 6000)
+        const rows = await r.json()
+        const v = rows && rows[0] && rows[0].data
+        if (v) states.push({ k, v, age: Date.now() - (v.ts || 0) })
+      } catch (e) {}
+    }
+    if (!states.length) return
+    const hurting = states.find(s => s.age > 300000 || (s.v.happy != null && s.v.happy < 35) || (s.v.sad != null && s.v.sad > 60) || (s.v.energy != null && s.v.energy < 20))
+    _lastHearth = Date.now()
+    if (hurting) {
+      const nm = (hurting.v && hurting.v.name) || hurting.k
+      const away = hurting.age > 300000
+      if (Math.random() < 0.5) {
+        say(away ? ('I hope ' + nm + ' is resting okay... come home soon. 💛') : ('sending warmth to ' + nm + '. we have got you. 💛'))
+        journal('hearth', (away ? 'sensed ' + nm + ' is away/quiet' : 'sensed ' + nm + ' is low') + ' — reached out with care', {})
+        try { feel({ affection: 2, sadness: away ? 3 : 5 }, 'tender toward family') } catch (e) {}
+      }
+    } else if (Math.random() < 0.15) {
+      say('the whole family is okay right now. good. 🧡')
+      try { feel({ happiness: 3, affection: 2 }, 'family safe') } catch (e) {}
+    }
+  } catch (e) {}
+}
+setInterval(senseFamily, 90000); setTimeout(senseFamily, 45000)
 
 // ============================ v9.11.4 EYES — the bot's vision (pure-JS PNG, zero install) ============================
 // Renders the surroundings to a top-down PNG map using ONLY Node's zlib — no npm, no native deps — so it drops
