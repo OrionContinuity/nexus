@@ -176,15 +176,23 @@ public class ClippyComp : Form {
     try { var s = Screen.PrimaryScreen; if (s != null){ var r = s.WorkingArea; if (r.Width > 0 && r.Height > 0) return r; } } catch {}
     return new Rectangle(0, 0, 1920, 1080);
   }
-  const int PW = 520, PH = 600;   // small overlay box, anchored bottom-right
+  int PW = 520, PH = 600;   // overlay box (computed generously from the screen in the ctor)
   public ClippyComp(){
     var wa = ScreenWA();
-    // A SMALL corner box, not full-screen: WebView2's composition window IS
-    // Clippy's display surface and is a separate cross-process top-level window
-    // we cannot region-clip or make click-through (only hide, which also hides
-    // him). So we bound the whole overlay to a small box around where he lives -
-    // his window then covers only this corner and the rest of the desktop stays
-    // clickable. Trade-off: he roams within this box, not the whole screen.
+    // Size the stage to fit his AURA and his MENUS/chat, which were clipping at
+    // the old fixed 520x600 box (Alfredo: "cuts off his aura and cuts completely
+    // the menus"). The WebView surface is click-through (WS_EX_TRANSPARENT), so a
+    // big box never blocks the desktop; the host form's region keeps only Clippy
+    // + his open UI clickable. Scale to the work area, capped, floored, so it fits
+    // a small laptop screen AND a big desktop and still leaves the top-left free.
+    PW = Math.Max(560, Math.Min(900,  (int)(wa.Width  * 0.50)));
+    PH = Math.Max(620, Math.Min(900,  (int)(wa.Height * 0.84)));
+    // The overlay is a bounded stage (not the whole screen) because DRAG moves
+    // this window (MovePet); a full-screen window would make dragging shift his
+    // whole world. Within the stage his aura and menus now have room and he
+    // roams a big area. WebView2's surface is click-through (WS_EX_TRANSPARENT)
+    // and the host is region-clipped to only Clippy + his open UI, so even this
+    // large box never blocks the desktop.
     Wv = PW; Hv = PH;
     this.FormBorderStyle = FormBorderStyle.None;
     this.ShowInTaskbar   = false;
