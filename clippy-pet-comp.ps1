@@ -400,6 +400,36 @@ public class ClippyComp : Form {
     _userMoved = true; _userL = nl; _userT = nt;
     IntPtr wv = FindWebView(); if(wv != IntPtr.Zero) SetWindowPos(wv, IntPtr.Zero, nl, nt, 0, 0, SWP_MOVE);
   }
+  // GlidePet: like MovePet but EASED over ~0.45s instead of an instant jump, so
+  // autonomous drift reads as him gliding across the desktop, not teleporting
+  // (Alfredo: "remove teleports"). Drag stays on the instant MovePet path - a
+  // hand-drag must track the cursor 1:1. A new glide just retargets the running
+  // timer; grabbing him cancels it (see the button-down handler).
+  Timer _glide; int _glTL, _glTT;
+  void GlidePet(int dx, int dy){
+    var vs = Roam();
+    int tl = this.Left + dx, tt = this.Top + dy;
+    tl = Math.Max(vs.Left - PW + 90, Math.Min(tl, vs.Right - 90));
+    tt = Math.Max(vs.Top,            Math.Min(tt, vs.Bottom - 90));
+    _glTL = tl; _glTT = tt;
+    if (_glide == null) {
+      _glide = new Timer(); _glide.Interval = 16;   // ~60fps
+      _glide.Tick += delegate (object s, EventArgs e) {
+        int cl = this.Left, ct = this.Top;
+        int nl = cl + (int)Math.Round((_glTL - cl) * 0.18);   // ease-out toward target
+        int nt = ct + (int)Math.Round((_glTT - ct) * 0.18);
+        if (nl == cl && _glTL != cl) nl += (_glTL > cl) ? 1 : -1;   // never stall on rounding
+        if (nt == ct && _glTT != ct) nt += (_glTT > ct) ? 1 : -1;
+        bool done = (Math.Abs(_glTL - nl) <= 1 && Math.Abs(_glTT - nt) <= 1);
+        if (done) { nl = _glTL; nt = _glTT; }
+        this.Left = nl; this.Top = nt;
+        _userMoved = true; _userL = nl; _userT = nt;
+        IntPtr wv = FindWebView(); if (wv != IntPtr.Zero) SetWindowPos(wv, IntPtr.Zero, nl, nt, 0, 0, SWP_MOVE);
+        if (done) _glide.Stop();
+      };
+    }
+    _glide.Start();
+  }
   void SavePos(){ try { if(PosPath != null) File.WriteAllText(PosPath, "{\"l\":" + _userL + ",\"t\":" + _userT + "}"); } catch {} }
   void LoadPos(){
     try {
@@ -564,7 +594,7 @@ public class ClippyComp : Form {
             if (!_asleep && !_hidden && !_dragging) {
               var pp = mm.Substring(5).Split(' ');
               int mdx, mdy;
-              if (pp.Length == 2 && int.TryParse(pp[0], out mdx) && int.TryParse(pp[1], out mdy)) MovePet(mdx, mdy);
+              if (pp.Length == 2 && int.TryParse(pp[0], out mdx) && int.TryParse(pp[1], out mdy)) GlidePet(mdx, mdy);
             }
           }
         } catch {}
@@ -706,6 +736,7 @@ public class ClippyComp : Form {
     if (m.Msg == 0x201) {                 // WM_LBUTTONDOWN
       POINT cp; GetCursorPos(out cp);
       _btnDown = true; _dragging = false;
+      if (_glide != null) _glide.Stop();   // a hand on him cancels any autonomous glide
       _downSx = cp.X; _downSy = cp.Y; _lastSx = cp.X; _lastSy = cp.Y;
       try { SetCapture(this.Handle); } catch {}
       return;                             // buffer: decide click-vs-drag on move/up
