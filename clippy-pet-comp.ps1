@@ -185,8 +185,8 @@ public class ClippyComp : Form {
     // big box never blocks the desktop; the host form's region keeps only Clippy
     // + his open UI clickable. Scale to the work area, capped, floored, so it fits
     // a small laptop screen AND a big desktop and still leaves the top-left free.
-    PW = Math.Max(560, Math.Min(900,  (int)(wa.Width  * 0.50)));
-    PH = Math.Max(620, Math.Min(900,  (int)(wa.Height * 0.84)));
+    PW = Math.Max(600, Math.Min(960,  (int)(wa.Width  * 0.52)));
+    PH = Math.Max(680, Math.Min(960,  (int)(wa.Height * 0.86)));
     // The overlay is a bounded stage (not the whole screen) because DRAG moves
     // this window (MovePet); a full-screen window would make dragging shift his
     // whole world. Within the stage his aura and menus now have room and he
@@ -645,7 +645,11 @@ public class ClippyComp : Form {
       foreach (var r in rects) {
         int x = r[0], y = r[1], w = r[2], h = r[3], c = r[4];
         if (w <= 1 || h <= 1) continue;
-        int pad = (c == 1) ? 34 : 8;   // orb: generous pad for the glow/fireflies; bubble: tight
+        // Pad the region OUT past the hard content rect so soft shadows render
+        // instead of being clipped square: the orb carries drop-shadow soul-glow
+        // (up to ~40px) and the bubble/ORACLE panel a box-shadow glow (0 0 26px)
+        // + a 6/22px drop. 8px cut both flat ("allow shadow" - Alfredo 2026-07-17).
+        int pad = (c == 1) ? 44 : 32;   // orb: soul-glow halo; bubble/panel: glow + drop-shadow
         IntPtr piece = (c == 1)
           ? CreateEllipticRgn(x - pad, y - pad, x + w + pad, y + h + pad)
           : CreateRectRgn(x - pad, y - pad, x + w + pad, y + h + pad);
