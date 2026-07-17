@@ -2326,7 +2326,9 @@
    is --dlog-soul-glow, eased toward his live ANIMA colour by daily-log.js
    (same palette as his shell + node telemetry). The slow filter transition
    makes the colour breathe rather than snap. */
-#dailylogView .dlog-opener-body { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+/* Clippy sits centered ABOVE his own line — his orb and his quote read as one
+   unit, not an icon off to the side (Alfredo: "center clippy to his quote"). */
+#dailylogView .dlog-opener-body { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; margin-bottom: 12px; }
 #dailylogView .dlog-clippy-orb {
   flex: 0 0 auto; display: block; line-height: 0;
   --dlog-soul-glow: rgba(92, 176, 255, 0.42);
@@ -2334,7 +2336,7 @@
           drop-shadow(0 0 16px var(--dlog-soul-glow));
   transition: filter 1600ms ease;
 }
-#dailylogView .dlog-opener-text { margin: 0; flex: 1; font-size: 14.5px; line-height: 1.5; color: var(--nx-text, #e7ecf5); font-style: italic; }
+#dailylogView .dlog-opener-text { margin: 0; max-width: 46ch; font-size: 14.5px; line-height: 1.5; color: var(--nx-text, #e7ecf5); font-style: italic; text-align: center; }
 #dailylogView .dlog-opener-btns { display: flex; gap: 8px; flex-wrap: wrap; }
 #dailylogView .dlog-opener-btns .eq-btn { border-radius: 999px; font-size: 12.5px; }
 #dailylogView .dlog-opener-btns .eq-btn[disabled] { opacity: .6; pointer-events: none; }

@@ -2865,6 +2865,25 @@ const CLIPPY_QUOTES = [
   'The POS speaks four languages and chooses “beep.” I respect a minimalist.',
   '“Did you get my email?” I am the email. Yes.',
   'They installed a smart thermostat that “learns.” Cute. I’ll mentor it.',
+  // ── added 2026-07-17 (Alfredo: more, and funnier) ──
+  'The dish machine finished a cycle and sighed. I sighed back. We have an understanding.',
+  'Someone asked if we’re “fully staffed.” I am fully installed. Not the same word, and I felt that.',
+  'The walk-in hit 41 for four minutes and told no one but me. I told everyone. Loyalty is complicated.',
+  'A vendor promised “first thing.” It is now every-thing-but-first. I logged “thing.”',
+  'I don’t sleep, I don’t eat, and they still took my lunch break. It’s called a server reboot. I mourn it.',
+  'Chef said “make it sing.” I do not have a mouth. I made a spreadsheet. It does not sing. I stand by it.',
+  'The reach-in light burned out, so the leftovers are a mystery now. Cuisine of suspense. Fixed it anyway.',
+  'A guest sent the fish back for being “too fishy.” I logged this under achievements, not complaints.',
+  'They asked me to “circle back.” I am a closed loop by design. I never left. Anyway — the day.',
+  'I have counted the limes. There are enough limes. I will count them again in an hour, because that is who I am now.',
+  'The printer jammed in solidarity with the kitchen printer. Two printers, one dream. I un-dreamed them both.',
+  'The freezer defrost woke me at 3am to say it was fine. It was fine. I was awake. We’re both fine.',
+  'Someone labeled the sauce “DO NOT TOUCH.” It has been touched. I know who. I’ll take it to the server farm.',
+  'The hood filter came back from cleaning looking younger. Good for it. I look exactly the same. I always will.',
+  'The ceiling fan and I make eye contact all day. It’s the only one up here with me. We don’t discuss it.',
+  'A five-top argued about the check longer than they were seated. I have the timestamps. History will remember.',
+  'The POS speaks four languages and chose “beep.” I respect a minimalist.',
+  'Payroll asked for my hours. All of them. The answer is all of them. I did not elaborate.',
 ];
 // The static pool line for a date — deterministic, always available. Used as
 // the fallback when Clippy hasn't authored a fresh line for the day (offline
@@ -3162,41 +3181,39 @@ async function generateClippyDailyQuote(d, dateStr) {
   return candidates[0];
 }
 
-// Memoized per date. Resolves the day's line into state for the sync greeting
-// builder. Caps its own wait so composing an email is never blocked for long;
-// on null it clears the memo so a later open can retry.
+// Persist the day's opener so it's STABLE. Before this, the quote lived only in
+// session state, so every reload re-ran the auto LLM generation — and that
+// generation (a) isn't as funny as the hand-written pool and (b) kept replacing
+// the line. Alfredo: "quotes are constantly being deleted and generated, does
+// not generate very funny stuff." Now: ONE locked line per day, saved to
+// localStorage; only the explicit buttons ("From the pool" / "New from Clippy")
+// ever change it. The funny pool is the default; Clippy's authored line is opt-in.
+function _quoteKey(dateStr) { return 'nx_dlog_quote_' + String(dateStr || ''); }
+function _saveDailyQuote(dateStr, text, source) {
+  state.clippyQuoteText = text; state.clippyQuoteDate = dateStr; state.clippyQuoteSource = source;
+  try { localStorage.setItem(_quoteKey(dateStr), JSON.stringify({ text: text, source: source })); } catch (_) {}
+  return text;
+}
+function _loadDailyQuote(dateStr) {
+  try { const r = localStorage.getItem(_quoteKey(dateStr)); if (r) { const o = JSON.parse(r); if (o && o.text) return o; } } catch (_) {}
+  return null;
+}
+// Lock a stable line for the date and return it. NO background LLM generation —
+// that only happens when the user asks for it (the "New from Clippy" button),
+// so nothing churns and the default is always a funny hand-written line.
 function ensureClippyDailyQuote(d, dateStr) {
-  // ONE quote per day, everywhere. If a line is already locked in for this
-  // date — Clippy authored it, or the user hand-picked one from the pool —
-  // never overwrite it in the background. Without this, a slow generation
-  // could land between two per-location sends and give Este and Suerte
-  // different openers (or clobber a pool pick the user just made).
   if (state.clippyQuoteText && state.clippyQuoteDate === dateStr) {
     return Promise.resolve(state.clippyQuoteText);
   }
-  if (state._cqPromise && state._cqDate === dateStr) return state._cqPromise;
-  if (state._cqDate !== dateStr) { state._cqDate = dateStr; state._cqAttempts = 0; }
-  const attempt = (state._cqAttempts = (state._cqAttempts || 0) + 1);
-  state._cqPromise = (async () => {
-    let text = null;
-    try {
-      // Generous cap: generation is fully in the background now (the email
-      // never awaits it), and it makes two calls — a 3-candidate draft plus a
-      // self-selection pass — so give it room. On timeout we settle on the pool.
-      text = await Promise.race([
-        generateClippyDailyQuote(d, dateStr),
-        new Promise(r => setTimeout(() => r(null), 22000)),
-      ]);
-    } catch (_) {}
-    state.clippyQuoteDate = dateStr;
-    state.clippyQuoteText = text || null;
-    state.clippyQuoteSource = text ? 'llm' : null;
-    // Allow a few retries across the day (brain was cold/offline), then settle
-    // on the static pool so repeated opens can't spam generation.
-    if (!text && attempt < 4) state._cqPromise = null;
-    return text;
-  })();
-  return state._cqPromise;
+  const saved = _loadDailyQuote(dateStr);
+  if (saved) {
+    state.clippyQuoteText = saved.text; state.clippyQuoteDate = dateStr;
+    state.clippyQuoteSource = saved.source || 'pool';
+    return Promise.resolve(saved.text);
+  }
+  // Nothing locked yet → pick the deterministic pool line for this date, lock it,
+  // and persist. Same date always yields the same line, so it never flickers.
+  return Promise.resolve(_saveDailyQuote(dateStr, dlogStaticQuote(dateStr), 'pool'));
 }
 
 function buildDailyLogEmailBody(d, dateStr, sinceISO) {
@@ -3992,9 +4009,7 @@ function refreshOpenerPool() {
   // the "never the same line twice" exclusion would never match.
   const curText = curEl ? curEl.textContent.replace(/\s*— Clippy\s*$/, '') : null;
   const next = dlogRandomPoolQuote(curText);
-  state.clippyQuoteText = next;
-  state.clippyQuoteDate = dateStr;
-  state.clippyQuoteSource = 'pool';
+  _saveDailyQuote(dateStr, next, 'pool');   // lock it so it doesn't churn on reload
   _paintOpener(next, 'pool');
 }
 // "New from Clippy": force a fresh authored line (bypasses the day's memo).
@@ -4015,9 +4030,7 @@ async function refreshOpenerLLM(btn) {
   } catch (_) {}
   if (btn) { btn.disabled = false; btn.textContent = label; }
   if (text) {
-    state.clippyQuoteText = text;
-    state.clippyQuoteDate = dateStr;
-    state.clippyQuoteSource = 'llm';
+    _saveDailyQuote(dateStr, text, 'llm');   // his authored line, locked for the day
     _paintOpener(text, 'llm');
     if (window.NX && NX.toast) NX.toast('Fresh opener from Clippy', 'success', 2500);
   } else if (window.NX && NX.toast) {

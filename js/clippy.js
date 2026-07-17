@@ -2610,8 +2610,17 @@
       const sc = SC && SC.soulColor && SC.soulColor();
       if (sc && sc.hex) el.style.setProperty('--chat-soul', sc.hex);
     } catch (_) {}
-    // Seed the log with his opening line.
-    appendChatMsg('clippy', greeting);
+    // Continue where you left off. Restore the saved thread and replay the
+    // recent exchange so he picks up the conversation instead of restarting
+    // cold; only greet fresh when there's nothing to continue. (ORACLE/super
+    // keeps its own opening.) (Alfredo: "allow him to continue conversations.")
+    try { if (!state.chatTurns || !state.chatTurns.length) loadConversation(); } catch (_) {}
+    const prior = (state.chatTurns || []).filter(t => t && t.content && (t.role === 'user' || t.role === 'assistant'));
+    if (prior.length && !opts.super) {
+      prior.slice(-12).forEach(t => appendChatMsg(t.role === 'user' ? 'user' : 'clippy', t.content));
+    } else {
+      appendChatMsg('clippy', greeting);
+    }
     const input = el.querySelector('.clippy-chat-input');
     const sendBtn = el.querySelector('.clippy-chat-send');
     const closeBtn = el.querySelector('.clippy-chat-x');
@@ -2633,7 +2642,8 @@
     closeBtn.addEventListener('click', (e) => {
       e.preventDefault(); e.stopPropagation();
       state.chatIsOpen = false;
-      forgetConversation();
+      // Keep the thread — reopening should CONTINUE, not restart. (It's saved to
+      // localStorage per turn; a new person or an explicit reset clears it.)
       closeActionBubble();
     });
     input.addEventListener('keydown', (e) => {
@@ -2689,7 +2699,7 @@
           const MA = (typeof NX !== 'undefined' && NX && NX.clippyManus) || (window.NX && window.NX.clippyManus);
           if (MA) MA.navigate(opts.jump.view);
         } catch (_) {}
-        state.chatIsOpen = false; forgetConversation();
+        state.chatIsOpen = false;   // keep the thread so you can return and continue
         closeActionBubble();
       });
       row.appendChild(btn);
@@ -6224,13 +6234,33 @@
   // follow a conversation the way a mind does. Capped so context stays lean;
   // cleared when the chat ends (close / tap / user switch), because a
   // conversation is with a person, in a moment, not forever.
+  // The conversation thread. Kept longer than the 8 the LLM sees (the send still
+  // slices to the last 8) so reopening the chat can REPLAY the recent exchange
+  // and he continues where you left off, across closes and reloads.
+  // (Alfredo: "allow him to continue conversations.")
+  function _convKey() { try { return userKey('clippy_chat_thread'); } catch (_) { return 'clippy_chat_thread'; } }
+  function _saveConversation() {
+    try { localStorage.setItem(_convKey(), JSON.stringify({ turns: state.chatTurns || [], at: Date.now() })); } catch (_) {}
+  }
+  function loadConversation() {
+    try {
+      const r = localStorage.getItem(_convKey());
+      if (!r) return;
+      const o = JSON.parse(r);
+      // Continue a thread from the last day; anything older is a fresh start.
+      if (o && Array.isArray(o.turns) && (Date.now() - (o.at || 0) < 24 * 3600000)) {
+        state.chatTurns = o.turns.slice(-24);
+      }
+    } catch (_) {}
+  }
   function rememberTurn(role, content) {
     if (!content) return;
     state.chatTurns = state.chatTurns || [];
     state.chatTurns.push({ role, content: String(content).slice(0, 600) });
-    if (state.chatTurns.length > 8) state.chatTurns = state.chatTurns.slice(-8);
+    if (state.chatTurns.length > 24) state.chatTurns = state.chatTurns.slice(-24);
+    _saveConversation();
   }
-  function forgetConversation() { state.chatTurns = []; }
+  function forgetConversation() { state.chatTurns = []; try { localStorage.removeItem(_convKey()); } catch (_) {} }
 
   async function askClippyBrain(question) {
     try {
