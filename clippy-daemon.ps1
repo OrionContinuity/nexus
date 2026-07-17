@@ -121,7 +121,7 @@ function Start-WorkerProc {
   Log "[ok] clippy-worker started" 'Green'
   return $true
 }
-# ===================== v9.12 MINECRAFT BOT — install Node + deps, run & revive Clippy =====================
+# ===================== v9.12 MINECRAFT BOT - install Node + deps, run & revive Clippy =====================
 # So "one download = everything": the daemon provisions Node.js + mineflayer and keeps his Minecraft brain
 # (clippy_agent.js) alive - closing the old gap where NOTHING revived him after a soft-OOM/world churn.
 # Opt-in per machine via a bot.on flag (install-clippy creates it, so a normal download just works; pool
@@ -202,11 +202,11 @@ function Start-GrokProc {
   Log "[ok] grok bridge started" 'Green'
   return $true
 }
-# ============================ v9.12 CONTROLLER — F310 -> Minecraft Java (opt-in) ============================
+# ============================ v9.12 CONTROLLER - F310 -> Minecraft Java (opt-in) ============================
 # Java Edition has NO native controller support (Bedrock does); the mineflayer BOT needs none. This maps
 # the CHILD's Logitech F310 (rear switch on X = XInput, no driver needed) onto the vanilla Java client via
 # antimicrox (free, GPL-3, the only mapper with a scriptable --profile launch). All in one place: the daemon
-# installs it, and starts/stops the mapper with the game. OPT-IN per machine — create the flag file to
+# installs it, and starts/stops the mapper with the game. OPT-IN per machine - create the flag file to
 # enable, so every other node stays a no-op:
 #     %LOCALAPPDATA%\NexusClippy\controller.on   (or  ~/.clippy/controller.on)
 # The toddler button map (see MINECRAFT-CONTROLLER.md) is generated once via the antimicrox GUI and saved as
@@ -265,7 +265,7 @@ function Update-NodeFromGitHub {
         if ($f -eq 'clippy-daemon.ps1') { $res.daemon = $true }
         if ($f -eq 'clippy-pet-comp.ps1') { $res.pet = $true }
         if ($f -eq 'grok_bridge.py') { $res.grok = $true }
-        if ($f -eq 'clippy_agent.js') { $res.bot = $true }   # his Minecraft brain changed — a supervisor may restart the bot to load it
+        if ($f -eq 'clippy_agent.js') { $res.bot = $true }   # his Minecraft brain changed - a supervisor may restart the bot to load it
         # Character/dialog are data the worker reads at startup - restart it to reload.
         if ($f -eq 'clippy-character.json' -or $f -eq 'clippy-dialog.json') { $res.worker = $true }
         Log "[upd] refreshed $f" 'Green'
@@ -544,9 +544,9 @@ $tools = @(
      Test = { (Test-Path (Join-Path $ProgRoot 'ghcli\bin\gh.exe')) -or [bool](Get-Command gh -EA SilentlyContinue) } }
   @{ Name = 'Python 3';     EstGB = 0.6; Winget = 'Python.Python.3.12';
      Test = { [bool](Get-Command python -EA SilentlyContinue) -or [bool](Get-Command python3 -EA SilentlyContinue) } }
-  # v281 — THE SUBSCRIPTION ENGINE (keeper's word 2026-07-11: "wire everything
+  # v281 - THE SUBSCRIPTION ENGINE (keeper's word 2026-07-11: "wire everything
   # to just use claude subscription. daemon installs everything"). Claude Code
-  # is what makes a node answer with claude:true on the txt: lane — the same
+  # is what makes a node answer with claude:true on the txt: lane - the same
   # engine Clippy thinks with, and (as of pantheon-voice v3 / hideaway-night
   # v4) the engine the gods and the midnight reading prefer. Winget first,
   # official native installer as the fallback. The LOGIN stays human (see the
@@ -579,7 +579,7 @@ function Install-RenderDeps {
 function Resolve-ClaudeExe {
   # Find the claude-code binary across EVERY install location. winget installs
   # Anthropic.ClaudeCode into %LOCALAPPDATA%\Microsoft\WinGet\Links but does NOT
-  # add that dir to an already-running process's PATH — so Get-Command alone
+  # add that dir to an already-running process's PATH - so Get-Command alone
   # misses it and the node falsely reports "Claude not installed", skips the
   # login prompt, and heartbeats claude:false forever. Mirrors the worker's
   # _find_claude(). Returns the full path, or $null. (Alfredo, 2026-07-16:
@@ -630,10 +630,10 @@ foreach ($t in $tools) {
 }
 Log "provision summary - present:$present installed:$installed skipped:$skipped failed:$failed" 'Cyan'
 
-# v281 — Claude Code installs unattended, but the SUBSCRIPTION LOGIN is
+# v281 - Claude Code installs unattended, but the SUBSCRIPTION LOGIN is
 # interactive by design: the seat is Alfredo's to grant, never a machine's to
 # take. Until a human runs the login once, the worker heartbeats claude:false
-# and text jobs fall back to Ollama — nothing breaks, it just thinks smaller.
+# and text jobs fall back to Ollama - nothing breaks, it just thinks smaller.
 # Make a just-winget-installed claude resolvable in THIS session (winget edits
 # the persisted user PATH, but the running process still has the old one).
 $wingetLinks = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links'
@@ -778,11 +778,11 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
         $stableDaemon = Join-Path $stable 'clippy-daemon.ps1'
         # Launch through a hidden wscript/VBS shim so the scheduler NEVER flashes a
         # console. When Task Scheduler runs powershell.exe DIRECTLY, conhost
-        # allocates a window BEFORE '-WindowStyle Hidden' can apply — a brief flash
+        # allocates a window BEFORE '-WindowStyle Hidden' can apply - a brief flash
         # at logon and on every 5-min self-heal. wscript with window-style 0 starts
         # hidden from creation, so no window ever appears. (Alfredo: "no more
         # powershells appearing on screen", 2026-07-16.) Win10-safe (conhost
-        # --headless is Win11-only). In VBS, "" is one literal quote — so the daemon
+        # --headless is Win11-only). In VBS, "" is one literal quote - so the daemon
         # path stays quoted even if the user profile path contains a space.
         $vbs = Join-Path $stable 'run-daemon-hidden.vbs'
         $vbsBody = 'CreateObject("WScript.Shell").Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""' + $stableDaemon + '"" -Supervise", 0, False'
@@ -793,7 +793,7 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
         #  2) a 5-min repeat that re-launches the supervisor if it ever died
         #     mid-session (crash, kill, bad update). The supervisor self-instances
         #     (a second copy just exits), so repeated launches are harmless and
-        #     self-healing — this is what makes "it's not even open" impossible:
+        #     self-healing - this is what makes "it's not even open" impossible:
         #     a dead node is back within 5 minutes with no human and no re-logon.
         # Logon trigger scoped to THIS user: a plain '-AtLogOn' means "any user",
         # and registering that needs admin rights - every unelevated daemon run

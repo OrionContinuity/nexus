@@ -51,7 +51,7 @@ if ([Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
 }
 
 # Single instance via a session-named mutex. The old process-scan check had a
-# TOCTOU race — two hosts launched close together each saw "no other" before
+# TOCTOU race - two hosts launched close together each saw "no other" before
 # registering, so two GhostGlass layers ended up stacked and fighting over the
 # click-through region. A mutex is atomic. Held for this process's lifetime
 # ($script scope keeps it off the GC).
@@ -168,7 +168,7 @@ public class ClippyComp : Form {
   CoreWebView2CompositionController _ctl;
 
   // Null/zero-safe primary work area. On a headless boot (no monitor) or the
-  // instant a monitor sleeps, Screen.PrimaryScreen can be null or report 0x0 —
+  // instant a monitor sleeps, Screen.PrimaryScreen can be null or report 0x0 -
   // reading .WorkingArea directly then throws and the overlay dies. Fall back to
   // a sane default; the 3s re-fit timer corrects to the real screen when it
   // appears (monitor wake, RDP connect, resolution change).
@@ -182,7 +182,7 @@ public class ClippyComp : Form {
     // A SMALL corner box, not full-screen: WebView2's composition window IS
     // Clippy's display surface and is a separate cross-process top-level window
     // we cannot region-clip or make click-through (only hide, which also hides
-    // him). So we bound the whole overlay to a small box around where he lives —
+    // him). So we bound the whole overlay to a small box around where he lives -
     // his window then covers only this corner and the rest of the desktop stays
     // clickable. Trade-off: he roams within this box, not the whole screen.
     Wv = PW; Hv = PH;
@@ -204,7 +204,7 @@ public class ClippyComp : Form {
   // Re-fit the full-screen overlay to the CURRENT primary work area. Called on
   // WM_DISPLAYCHANGE and on a slow poll, so Clippy survives monitor sleep/wake,
   // disconnect/reconnect, an RDP session grabbing a different resolution, and
-  // DPI/scale changes — instead of being stranded at the launch-time geometry
+  // DPI/scale changes - instead of being stranded at the launch-time geometry
   // (off-screen or with a misaligned click-through region). No-ops when nothing
   // moved, so the poll is cheap.
   void Refit(){
@@ -239,19 +239,19 @@ public class ClippyComp : Form {
     // WS_EX_NOREDIRECTIONBITMAP alone gives DComp per-pixel transparency. We
     // intentionally do NOT add WS_EX_LAYERED: on a layered window the clickable
     // shape is defined by the layer's ALPHA (uniform 255 => the whole window
-    // eats clicks), which OVERRIDES SetWindowRgn — that's why the region-clipped
+    // eats clicks), which OVERRIDES SetWindowRgn - that's why the region-clipped
     // overlay still blocked the desktop. Without LAYERED, SetWindowRgn controls
     // hit-testing and everything outside Clippy's silhouette reaches the desktop.
     get { var cp = base.CreateParams; cp.ExStyle |= 0x00200000 /* WS_EX_NOREDIRECTIONBITMAP */; return cp; }
   }
   protected override void OnHandleCreated(EventArgs e){
     base.OnHandleCreated(e);
-    // No SetLayeredWindowAttributes here anymore — the window is not layered.
+    // No SetLayeredWindowAttributes here anymore - the window is not layered.
     // Transparency is pure DComp; hit-testing is defined by the window region.
     // Click-through is now done PER-MESSAGE in WndProc via WM_NCHITTEST
     // (HTTRANSPARENT off Clippy so the click falls through to the desktop,
     // HTCLIENT over him so the orb/buttons stay live). We must NOT set
-    // WS_EX_TRANSPARENT — a window with it never receives WM_NCHITTEST, so we
+    // WS_EX_TRANSPARENT - a window with it never receives WM_NCHITTEST, so we
     // could not carve Clippy back out. Dropping the old global-flag toggle (it
     // was ineffective here) is the actual fix.
     //
@@ -275,18 +275,18 @@ public class ClippyComp : Form {
     probe.Start();
     // CLICK-THROUGH via WINDOW REGION. On this NOREDIRECTIONBITMAP DComp window
     // the WS_EX_LAYERED|WS_EX_TRANSPARENT click-through path is inert (verified
-    // live: desktop stayed dead even with it set). SetWindowRgn works instead —
+    // live: desktop stayed dead even with it set). SetWindowRgn works instead -
     // the OS clips the window to Clippy's silhouette, so every pixel OUTSIDE him
     // simply isn't the window and the click lands on the desktop (cross-process
     // correct). ApplyRects rebuilds the region as he moves. Start with an EMPTY
     // region so the full-screen window blocks nothing until his rects arrive.
     try { SetWindowRgn(this.Handle, CreateRectRgn(0, 0, 0, 0), false); L("initial empty region set"); } catch (Exception re) { L("region init err: " + re.Message); }
-    // NOTE: we do NOT hide WebView2's window anymore — it IS Clippy's display
+    // NOTE: we do NOT hide WebView2's window anymore - it IS Clippy's display
     // surface (hiding it hid him). Instead the whole overlay is a small box
     // (see the constructor), so that window only covers his corner and the rest
     // of the desktop stays clickable.
     // Display self-heal: poll the primary work area every 3s and re-fit if it
-    // changed. Belt-and-suspenders with the WM_DISPLAYCHANGE handler below —
+    // changed. Belt-and-suspenders with the WM_DISPLAYCHANGE handler below -
     // a hidden top-level tool window doesn't always receive that message, but
     // the poll always catches a monitor sleep/wake, RDP resize, or DPI change.
     var refit = new Timer(); refit.Interval = 3000;
@@ -632,9 +632,9 @@ public class ClippyComp : Form {
         DeleteObject(piece);
         n++;
       }
-      SetWindowRgn(this.Handle, full, true);   // system owns 'full' now — do not delete
+      SetWindowRgn(this.Handle, full, true);   // system owns 'full' now - do not delete
       if (_regionLogN < 4) { _regionLogN++; L("region applied (" + n + " parts)"); }
-      // First rects arrive ~0.5s after nav — earliest point WebView2's window
+      // First rects arrive ~0.5s after nav - earliest point WebView2's window
       // exists. Make it click-through NOW so the dead corner is freed promptly
       // (the 3s refit only maintains it thereafter).
       EnsureWebView();
