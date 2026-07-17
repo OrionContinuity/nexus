@@ -136,6 +136,8 @@ public class ClippyComp : Form {
   [DllImport("user32.dll")] static extern IntPtr SetCapture(IntPtr h);
   [DllImport("user32.dll")] static extern bool ReleaseCapture();
   [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
+  [StructLayout(LayoutKind.Sequential)] struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
   [DllImport("shell32.dll")] static extern int SHQueryUserNotificationState(out int state);
   [DllImport("wtsapi32.dll")] static extern bool WTSRegisterSessionNotification(IntPtr h, int flags);
   [DllImport("wtsapi32.dll")] static extern bool WTSUnRegisterSessionNotification(IntPtr h);
@@ -326,6 +328,11 @@ public class ClippyComp : Form {
       if (_rng.Next(100) < 30) JumpScreens();
     };
     jump.Start();
+    // Soul travel: report this machine's name + idle time every 2s so the page
+    // can elect where his body lives and beam him to the screen Alfredo is using.
+    var pres = new Timer(); pres.Interval = 2000;
+    pres.Tick += delegate (object s, EventArgs ev) { PostPresence(); };
+    pres.Start();
     // Politeness poll: every 1s decide whether to step out of the way (fullscreen
     // game / presentation) or come back. Cheap (a shell state query + maybe one
     // foreground-window rect check).
@@ -649,7 +656,7 @@ public class ClippyComp : Form {
   var w=window.chrome&&window.chrome.webview; if(!w) return;
   try{w.postMessage('vp '+window.innerWidth+'x'+window.innerHeight);}catch(e){}
   if(!document.getElementById('pet-style')){var st=document.createElement('style');st.id='pet-style';st.textContent='#clippy-shell{right:60px!important;bottom:64px!important;}';(document.head||document.documentElement).appendChild(st);}
-  if(!window.__petSight){window.__petSight=1;w.addEventListener('message',function(ev){try{var d=ev.data;if(typeof d!=='string')return;if(d.slice(0,4)==='see:'){var b=d.slice(4);if(window.NX&&NX.clippy&&NX.clippy.seeSurroundings)NX.clippy.seeSurroundings(b);}else if(d.slice(0,6)==='watch:'){if(window.NX&&NX.clippy&&NX.clippy.onWatch)NX.clippy.onWatch(d.slice(6));}}catch(e){}});}
+  if(!window.__petSight){window.__petSight=1;w.addEventListener('message',function(ev){try{var d=ev.data;if(typeof d!=='string')return;if(d.slice(0,4)==='see:'){var b=d.slice(4);if(window.NX&&NX.clippy&&NX.clippy.seeSurroundings)NX.clippy.seeSurroundings(b);}else if(d.slice(0,6)==='watch:'){if(window.NX&&NX.clippy&&NX.clippy.onWatch)NX.clippy.onWatch(d.slice(6));}else if(d.slice(0,4)==='dev:'){if(window.NX&&NX.clippy&&NX.clippy.onDevice)NX.clippy.onDevice(d.slice(4));}else if(d.slice(0,5)==='idle:'){if(window.NX&&NX.clippy&&NX.clippy.onIdle)NX.clippy.onIdle(d.slice(5));}}catch(e){}});}
   var SEL='#clippy-shell,.clippy-bubble';
   var PAD=2,last='';   // tight click radius - hugs the orb itself
   function vis(el){try{var r=el.getBoundingClientRect();return r.width>2&&r.height>2&&el.getClientRects().length>0;}catch(e){return false;}}
@@ -708,6 +715,24 @@ public class ClippyComp : Form {
       int ty = dst.Top  + _rng.Next(Math.Max(1, dst.Height - PH));
       GlidePet(tx - this.Left, ty - this.Top);
       L("jump screens -> " + dst.Left + "," + dst.Top);
+    } catch {}
+  }
+  // Soul travel: how long since Alfredo touched THIS machine. The page uses it
+  // to elect which device holds his body (least-idle wins) so his soul follows
+  // him across screens. 0 on any failure (treated as "active here").
+  int IdleMs(){
+    try {
+      var lii = new LASTINPUTINFO(); lii.cbSize = (uint)Marshal.SizeOf(lii);
+      if (GetLastInputInfo(ref lii)) { long d = (long)((uint)Environment.TickCount - lii.dwTime); if (d < 0) d = 0; if (d > 2000000000) d = 2000000000; return (int)d; }
+    } catch {}
+    return 0;
+  }
+  bool _devSent = false;
+  void PostPresence(){
+    try {
+      if (_ctl == null) return;
+      if (!_devSent) { _ctl.CoreWebView2.PostWebMessageAsString("dev:" + Environment.MachineName); _devSent = true; }
+      _ctl.CoreWebView2.PostWebMessageAsString("idle:" + IdleMs());
     } catch {}
   }
   // Event-driven sight (Clippy's #2 wish): LOOK when something happens - a tab

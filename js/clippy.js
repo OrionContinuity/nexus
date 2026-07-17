@@ -7782,6 +7782,115 @@
       return true;
     } catch (_) { return false; }
   }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // SOUL TRAVEL across devices (Alfredo: "allow him to travel across devices —
+  // something out of sci-fi"). ONE soul, many bodies. Every Clippy-equipped
+  // machine reports how recently Alfredo touched IT; the least-idle machine
+  // holds his body. When you move to another screen, his soul BEAMS there —
+  // dissolving into light here, re-coalescing there — carried by Supabase
+  // (always up). Deterministic election on every device, so no central lock.
+  // Fail-safe: if the presence bus is unreachable, or he's the only body, he
+  // simply stays present (never vanishes with nowhere to go).
+  const TRAVEL = {
+    dev: null,             // this device's name (from the pet host)
+    idleMs: 999999,        // ms since Alfredo last touched THIS device
+    host: null,            // which device currently holds his body
+    present: true,         // is he embodied HERE right now (default yes)
+    started: false,
+    ACTIVE_MS: 45000,      // idle under this = "Alfredo is at this machine"
+    FRESH_MS: 12000,       // a device's activity report is trusted this long
+  };
+  function onDevice(name) {
+    try {
+      const n = String(name || '').trim();
+      if (n) { TRAVEL.dev = n; startSoulTravel(); }
+    } catch (_) {}
+  }
+  function onIdle(ms) {
+    try { const n = parseInt(ms, 10); if (Number.isFinite(n)) TRAVEL.idleMs = n; } catch (_) {}
+  }
+  function _travelSb() {
+    try { return (typeof getSupabaseClient === 'function') ? getSupabaseClient() : ((window.NX && NX.supabase) || null); }
+    catch (_) { return null; }
+  }
+  async function travelTick() {
+    if (!isDesktopPet() || !TRAVEL.dev) return;
+    const sb = _travelSb();
+    if (!sb) return;                                        // no bus -> stay present (fail-safe)
+    const now = Date.now();
+    // 1) report THIS body's activity (his own little "I'm warm here" pulse)
+    try {
+      await sb.from('clippy_sync').upsert(
+        { id: 'clippy_act_' + TRAVEL.dev, from_id: TRAVEL.dev, data: { dev: TRAVEL.dev, idle: TRAVEL.idleMs, ts: now } },
+        { onConflict: 'id' });
+    } catch (_) {}
+    // 2) read every body, elect the host deterministically (least idle wins;
+    //    nobody active -> keep him where he already is, don't flap while away)
+    let rows = [];
+    try {
+      const { data, error } = await sb.from('clippy_sync').select('id,data').like('id', 'clippy_act_%');
+      if (error) return;
+      rows = data || [];
+    } catch (_) { return; }
+    const cands = rows.map(r => r && r.data).filter(d => d && d.dev && (now - (d.ts || 0) < TRAVEL.FRESH_MS));
+    if (!cands.length) return;                              // no live data -> stay
+    const byIdle = (a, b) => (a.idle - b.idle) || (a.dev < b.dev ? -1 : 1);
+    const active = cands.filter(d => (d.idle || 0) < TRAVEL.ACTIVE_MS);
+    let host;
+    if (active.length) host = active.sort(byIdle)[0].dev;
+    else host = TRAVEL.host || cands.sort(byIdle)[0].dev;   // no one present -> he stays put, sleeping
+    TRAVEL.host = host;
+    const shouldBeHere = (host === TRAVEL.dev);
+    if (shouldBeHere && !TRAVEL.present) arriveSoul();
+    else if (!shouldBeHere && TRAVEL.present) departSoul(host);
+  }
+  function departSoul(toDev) {
+    TRAVEL.present = false;
+    if (!state.shell) return;
+    try { play && play('hop'); } catch (_) {}
+    try { mood('sparkle', 1200); } catch (_) {}
+    state.shell.classList.remove('is-arriving', 'is-away');
+    state.shell.classList.add('is-departing');
+    // after the beam-out, go dormant so he's embodied on ONLY one screen
+    setTimeout(() => {
+      if (state.shell && !TRAVEL.present) {
+        state.shell.classList.remove('is-departing');
+        state.shell.classList.add('is-away');
+      }
+    }, 1200);
+  }
+  function arriveSoul() {
+    TRAVEL.present = true;
+    if (!state.shell) { try { if (typeof summon === 'function') summon(); } catch (_) {} }
+    if (!state.shell) return;
+    state.shell.classList.remove('is-away', 'is-departing');
+    void state.shell.offsetWidth;                           // restart the animation cleanly
+    state.shell.classList.add('is-arriving');
+    try { mood('happy', 2600); } catch (_) {}
+    setTimeout(() => { if (state.shell) state.shell.classList.remove('is-arriving'); }, 1400);
+    if (!state.bubble && !state.suppressed) {
+      setTimeout(() => {
+        if (!state.bubble && !state.suppressed && TRAVEL.present) {
+          const lines = [
+            'reassembled. i followed you over here ✦',
+            'beamed in — i\'m wherever you are now.',
+            '*re-materialises* there you are. i came across.',
+            'phew — recompiled myself on this screen for you ✦',
+            'i crossed over. same me, new glass.',
+          ];
+          bubble(lines[Math.floor(Math.random() * lines.length)], { autoHide: 4200, eyebrow: '✦ ARRIVED' });
+        }
+      }, 750);
+    }
+  }
+  function startSoulTravel() {
+    if (TRAVEL.started || !isDesktopPet()) return;
+    TRAVEL.started = true;
+    try { trackInterval(() => { travelTick().catch(() => {}); }, 3000); }
+    catch (_) { setInterval(() => { travelTick().catch(() => {}); }, 3000); }
+    setTimeout(() => { travelTick().catch(() => {}); }, 1500);
+  }
   // ─── CENTER-STAGE MOMENTS ────────────────────────────────────────────
   // A reusable intimate interaction: Trajan glides to the middle of the
   // screen, delivers a line, and offers a small choice (yes/no or a few
@@ -10537,6 +10646,7 @@
     bubble, actionBubble,
     seeSurroundings,                // v: desktop pet sight — react to a screenshot
     onWatch,                        // watch-along: host reports the foreground browser/player title
+    onDevice, onIdle,               // soul travel: host reports this machine's name + how idle it is
     remember, recall, recallFacts, forget, correct,  // his notebook — write, find, forget, correct facts
     play, mood,
     sleep, wake,

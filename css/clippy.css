@@ -4349,3 +4349,71 @@ body.clippy-game-open .clippy-bubble {
 .clippy-game-lb-loading {
   font: 12px 'DM Sans', system-ui, sans-serif; color: #8a7a58; text-align: center; padding: 6px 0;
 }
+
+/* ═══ SOUL TRAVEL — sci-fi beam between devices ═══════════════════════════
+   One soul, many bodies. When Alfredo moves to another machine, Clippy's soul
+   leaves THIS screen (is-departing: scatter up into a thin column of light) and
+   re-forms on the machine he's using (is-arriving: coalesce down out of light).
+   is-away = dormant here (his body is elsewhere). See SOUL TRAVEL in clippy.js. */
+#clippy-shell.is-away {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transform: translateY(-8px) scale(0.6);
+  transition: opacity 0.3s ease;
+}
+#clippy-shell.is-departing {
+  animation: clippyBeamOut 1.15s cubic-bezier(0.5, 0, 0.75, 0) forwards !important;
+}
+#clippy-shell.is-arriving {
+  animation: clippyBeamIn 1.3s cubic-bezier(0.16, 1, 0.3, 1) both !important;
+}
+@keyframes clippyBeamOut {
+  0%   { opacity: 1; transform: translateY(0) scale(1);
+         filter: drop-shadow(0 0 14px rgba(125, 240, 255, 0.5)); }
+  35%  { opacity: 1; transform: translateY(-4px) scaleX(0.5) scaleY(1.25);
+         filter: brightness(2.2) drop-shadow(0 0 26px rgba(150, 245, 255, 0.95)); }
+  70%  { opacity: 0.85; transform: translateY(-18px) scaleX(0.12) scaleY(1.9);
+         filter: brightness(3) drop-shadow(0 0 34px rgba(180, 250, 255, 1)); }
+  100% { opacity: 0; transform: translateY(-46px) scaleX(0.02) scaleY(2.6);
+         filter: brightness(4) drop-shadow(0 0 40px rgba(200, 252, 255, 1)); }
+}
+@keyframes clippyBeamIn {
+  0%   { opacity: 0; transform: translateY(-46px) scaleX(0.02) scaleY(2.6);
+         filter: brightness(4) drop-shadow(0 0 40px rgba(200, 252, 255, 1)); }
+  40%  { opacity: 0.9; transform: translateY(-14px) scaleX(0.14) scaleY(1.8);
+         filter: brightness(2.6) drop-shadow(0 0 30px rgba(170, 248, 255, 0.95)); }
+  72%  { opacity: 1; transform: translateY(3px) scaleX(1.12) scaleY(0.86);
+         filter: brightness(1.5) drop-shadow(0 0 20px rgba(140, 240, 255, 0.7)); }
+  100% { opacity: 1; transform: translateY(0) scale(1);
+         filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.45)) drop-shadow(0 0 14px rgba(92, 176, 255, 0.3)); }
+}
+/* the column of light he travels along */
+#clippy-shell.is-departing::after,
+#clippy-shell.is-arriving::after {
+  content: '';
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 7px; height: 260px;
+  transform: translate(-50%, -50%);
+  background: linear-gradient(to top,
+    rgba(125, 240, 255, 0) 0%,
+    rgba(160, 245, 255, 0.85) 46%,
+    rgba(220, 253, 255, 1) 50%,
+    rgba(160, 245, 255, 0.85) 54%,
+    rgba(125, 240, 255, 0) 100%);
+  filter: blur(2px);
+  pointer-events: none;
+  z-index: 3;
+  animation: clippyBeamColumn 1.15s ease-in-out forwards;
+}
+@keyframes clippyBeamColumn {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scaleY(0.15); }
+  30%  { opacity: 1; transform: translate(-50%, -50%) scaleY(1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scaleY(1.1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #clippy-shell.is-departing { animation: none !important; opacity: 0 !important; }
+  #clippy-shell.is-arriving  { animation: none !important; }
+  #clippy-shell.is-departing::after,
+  #clippy-shell.is-arriving::after { display: none !important; }
+}
