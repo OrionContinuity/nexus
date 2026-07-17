@@ -9445,6 +9445,14 @@
       if (id === _lastUserId) return;   // same person — nothing to switch
       _lastUserId = id;
       try { switchUser(u); } catch (err) { console.warn('[clippy] switchUser:', err); }
+      // Newly signed in (past the PIN) and Clippy isn't up yet → bring him up
+      // now with full capabilities, not on the next reload. Never on sign-OUT
+      // (id null). summon() flips his enabled pref on and mounts him, so a
+      // later boot takes the full path above. Alfredo: "once logged in, clippy
+      // can have full capabilities."
+      if (id && !state.enabled) {
+        try { if (typeof summon === 'function') summon(); } catch (_) {}
+      }
     });
   }
 
@@ -9971,6 +9979,20 @@
       };
       setTimeout(initialCloudSync, 1500);
       setTimeout(initialCloudSync, 5000);
+    } catch (_) {}
+
+    // Once someone is past the PIN, Clippy belongs in the app — he comes up with
+    // full capabilities, no separate opt-in. He still never shows on the login
+    // screen itself (getCurrentUser() is null there, so this is skipped). A
+    // persisted session triggers this at boot; a fresh PIN login is handled in
+    // the nexus:user-change listener. Alfredo: "once logged in, clippy can have
+    // full capabilities."
+    try {
+      const _lu = getCurrentUser();
+      if (_lu && _lu.id != null && state.preferences.enabled !== true) {
+        state.preferences.enabled = true;
+        savePreferences();
+      }
     } catch (_) {}
 
     if (state.preferences.enabled === true) {
