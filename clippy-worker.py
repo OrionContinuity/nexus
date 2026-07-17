@@ -1413,7 +1413,13 @@ def main():
     threading.Thread(target=_heartbeat_loop, daemon=True).start()
     threading.Thread(target=_companion_loop, daemon=True).start()   # game awareness (Windows)
     log("companion sense ON (foreground-game awareness; keeps Clippy glad while you play)")
-    warmup()
+    # Warm the vision model in the BACKGROUND. It used to run inline here, which
+    # blocked the job loop + self-update below for the whole model load — minutes
+    # on a CPU laptop (DESKTOP-OQ8SROU sat 'warming up vision' 6+ min, unable to
+    # answer any command or self-heal, 2026-07-16). Threaded, the node is
+    # responsive instantly and vision warms alongside; warmup() is best-effort so
+    # a failure in the thread still never stops the worker.
+    threading.Thread(target=warmup, daemon=True).start()
     if GENERATE:
         threading.Thread(target=_generate_loop, daemon=True).start()
         log("self-dialog generation ON (every %ds, idle-only, present model only)" % GEN_EVERY_SECS)
