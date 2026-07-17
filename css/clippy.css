@@ -992,6 +992,33 @@
 .clippy-msg-jump:hover { background: color-mix(in srgb, var(--chat-soul) 28%, transparent); }
 .clippy-msg-jump:active { transform: scale(0.97); }
 
+/* Thinking item — shown while his LLM brain works. A soul-tinted pulsing orb,
+   the word "thinking", and the animated dots, so it reads as real effort. */
+.clippy-thinking-item {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 8px;
+  background: color-mix(in srgb, var(--chat-soul, #5cb0ff) 12%, rgba(255,255,255,0.05)) !important;
+  border: 1px solid color-mix(in srgb, var(--chat-soul, #5cb0ff) 30%, transparent) !important;
+}
+.clippy-think-orb {
+  width: 12px; height: 12px; border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #eaf5ff, var(--chat-soul, #5cb0ff) 70%);
+  box-shadow: 0 0 8px var(--chat-soul, #5cb0ff), 0 0 2px var(--chat-soul, #5cb0ff);
+  flex: 0 0 auto;
+  animation: clippyThinkPulse 1.4s ease-in-out infinite;
+}
+@keyframes clippyThinkPulse {
+  0%, 100% { transform: scale(0.82); opacity: 0.65; }
+  50%      { transform: scale(1.12); opacity: 1; }
+}
+.clippy-think-label {
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--chat-soul, #5cb0ff) 55%, #e8eef6);
+  font-style: italic;
+}
+
 /* Typing "…". */
 .clippy-typing-dots { display: inline-flex; gap: 4px; align-items: center; padding: 2px 0; }
 .clippy-typing-dots i {

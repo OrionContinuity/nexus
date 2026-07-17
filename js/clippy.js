@@ -1865,11 +1865,9 @@
       pool: 'multilang_hi', mood: 'happy', eyebrow: 'POLYGLOT' },
     { pat: /\b(translation|translate|word for)\b/i,
       pool: 'translations', mood: 'thinking', eyebrow: 'LINGUA' },
-    // Question heuristics — fall-back catches
-    { pat: /^why\b/i, pool: 'whimsical_idle', mood: 'thinking' },
-    { pat: /^how\b/i, pool: 'roman_facts', mood: 'thinking', eyebrow: 'ROMA' },
-    { pat: /^what\b/i, pool: 'whimsical_idle', mood: 'thinking' },
-    { pat: /\?$/i, pool: 'whimsical_idle', mood: 'thinking' },
+    // (Removed the old "^why / ^how / ^what / ?" catch-alls: they hijacked every
+    // real question into a random fact/whimsy line. Unmatched input now falls
+    // through to his LLM brain — see handleChatInput → askClippyBrain.)
   ];
 
   function bubbleStage(kind) {
@@ -2295,14 +2293,36 @@
     }, 4000 + Math.random() * 2500);
   }
 
+  // Pools that are ambient "flavor" — fun facts + whimsy. Delightful when a topic
+  // is idly mentioned ("rome is cool" → a Roman fact), but they must NEVER answer
+  // a genuine question. Before this guard, "How can I improve your model?" matched
+  // a /^how/ catch-all and returned Roman trivia — chatting felt useless. Now a
+  // question-shaped input skips every flavor pool and falls through to his LLM
+  // brain, while real commands (tickle, dance, "who are you?") still fire.
+  const FLAVOR_POOLS = new Set([
+    'roman_facts', 'athens_facts', 'sparta_facts', 'persian_facts', 'hispania_facts',
+    'greek_facts', 'battle_facts', 'animal_facts', 'space_facts', 'science_facts',
+    'weird_facts', 'dad_jokes', 'latin_phrases', 'whimsical_idle', 'multilang_hi',
+    'translations'
+  ]);
+  function _looksLikeQuestion(t) {
+    return /\?\s*$/.test(t) ||
+      /^\s*(how|why|what|what'?s|who|whom|when|where|which|can|could|should|would|do|does|did|is|are|am|will|won'?t|help|explain|improve|fix|make|write|give|suggest|recommend|tell me how|show me|find|check|plan|summar)/i.test(t);
+  }
   function chatMatch(input) {
     if (!input || typeof input !== 'string') return null;
     const trimmed = input.trim();
     if (trimmed.length === 0) return null;
+    const question = _looksLikeQuestion(trimmed);
     for (const rule of CHAT_KEYWORDS) {
       // Rules with a wrapped pat object (v18.1 _conditional) expose .test
       if (rule.pat && typeof rule.pat.test === 'function') {
         if (rule.pat.test(trimmed)) {
+          // A real question goes to his brain, not a canned fact/whimsy pool.
+          if (question && rule.pool && FLAVOR_POOLS.has(rule.pool) &&
+              !rule.action && !rule.response && !rule.respond) {
+            continue;
+          }
           // For wrapped patterns, the raw match comes from rule.pat.source
           let m = null;
           if (rule.pat instanceof RegExp) m = trimmed.match(rule.pat);
@@ -2570,7 +2590,15 @@
     if (!log || log.querySelector('.clippy-typing')) return;
     const row = document.createElement('div');
     row.className = 'clippy-msg is-clippy clippy-typing';
-    row.innerHTML = '<div class="clippy-msg-bubble"><span class="clippy-typing-dots"><i></i><i></i><i></i></span></div>';
+    // A visible "thinking" item — a pulsing orb, the word, and animated dots —
+    // so it's obvious he's actually working on a real answer, not idle.
+    // (Alfredo: "give it like a thinking item.")
+    row.innerHTML =
+      '<div class="clippy-msg-bubble clippy-thinking-item">' +
+        '<span class="clippy-think-orb"></span>' +
+        '<span class="clippy-think-label">thinking</span>' +
+        '<span class="clippy-typing-dots"><i></i><i></i><i></i></span>' +
+      '</div>';
     log.appendChild(row);
     scrollChatToEnd(log);
   }
