@@ -7528,6 +7528,20 @@
       }, 250);
     }
   }
+  // Desktop pet only: slide the whole host overlay across the monitor. moveTo
+  // repositions him INSIDE the bounded stage; this lets him actually travel the
+  // screen — "allow drift on screen if he's on the way" (Alfredo 2026-07-17).
+  // The host (clippy-pet-comp.ps1) clamps the slide on-screen (>=90px visible)
+  // and its refit keeps the box fully inside the monitor, so he can't wander off.
+  function petDriftWindow(dx, dy) {
+    if (!isDesktopPet()) return false;
+    try {
+      const w = window.chrome && window.chrome.webview;
+      if (!w) return false;
+      w.postMessage('move ' + Math.round(dx) + ' ' + Math.round(dy));
+      return true;
+    } catch (_) { return false; }
+  }
   // ─── CENTER-STAGE MOMENTS ────────────────────────────────────────────
   // A reusable intimate interaction: Trajan glides to the middle of the
   // screen, delivers a line, and offers a small choice (yes/no or a few
@@ -8072,7 +8086,15 @@
     const dy = (Math.random() - 0.5) * 160;
     const nx = Math.max(12, Math.min(W - shellW - 12, rect.left + dx));
     const ny = Math.max(60, Math.min(H - shellH - 12, rect.top + dy));
-    moveTo(nx, ny);
+    // Desktop pet: drift the whole overlay so he roams the monitor, not just the
+    // corner stage. moveTo would only shuffle him within the box; sliding the
+    // host window is what lets him wander the screen "on his way".
+    if (isDesktopPet()) {
+      petDriftWindow(dx, dy);
+      try { play('hop'); } catch (_) {}
+    } else {
+      moveTo(nx, ny);
+    }
     if (Math.random() < 0.4) {
       setTimeout(() => {
         if (!state.bubble && state.enabled) {

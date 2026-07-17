@@ -553,7 +553,21 @@ public class ClippyComp : Form {
         _ctl.CoreWebView2.Settings.AreDevToolsEnabled = true;
       } catch (Exception se) { L("settings warn: " + se.Message); }
       _ctl.CoreWebView2.WebMessageReceived += delegate(object sw, CoreWebView2WebMessageReceivedEventArgs aw) {
-        try { string mm = aw.TryGetWebMessageAsString(); if (mm != null && mm.StartsWith("rects ")) ApplyRects(mm.Substring(6)); else if (mm != null && mm.StartsWith("vp ")) L("viewport " + mm.Substring(3) + " vs client " + Wv + "x" + Hv); } catch {}
+        try {
+          string mm = aw.TryGetWebMessageAsString();
+          if (mm != null && mm.StartsWith("rects ")) ApplyRects(mm.Substring(6));
+          else if (mm != null && mm.StartsWith("vp ")) L("viewport " + mm.Substring(3) + " vs client " + Wv + "x" + Hv);
+          else if (mm != null && mm.StartsWith("move ")) {
+            // Page-driven drift: Clippy wanders the monitor by sliding the whole
+            // overlay. MovePet clamps on-screen; skip while asleep/hidden or mid-drag
+            // so autonomous drift never fights a fullscreen game or the user's hand.
+            if (!_asleep && !_hidden && !_dragging) {
+              var pp = mm.Substring(5).Split(' ');
+              int mdx, mdy;
+              if (pp.Length == 2 && int.TryParse(pp[0], out mdx) && int.TryParse(pp[1], out mdy)) MovePet(mdx, mdy);
+            }
+          }
+        } catch {}
       };
       _ctl.CoreWebView2.NavigationCompleted += delegate(object s2, CoreWebView2NavigationCompletedEventArgs a2) {
         L("nav done success=" + a2.IsSuccess);
