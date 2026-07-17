@@ -75,6 +75,11 @@ ACCEL  = "nvidia" if _has_nvidia() else "cpu"
 # Vision strength score the app uses to route a vision job to the STRONGEST
 # online node: a CUDA GPU dominates; among similar nodes, more RAM wins.
 VSCORE = int(RAM_GB) + (100 if ACCEL == "nvidia" else 0)
+# worker-2.2 — vision load-shedding. A CPU node lets a live NVIDIA peer take heavy
+# vision (Scan Plate + Clippy's Sight, ~90s on CPU vs seconds on GPU), so a laptop
+# stops pinning its whole job loop on desktop glances. Updated each heartbeat.
+_gpu_peer_online = False
+VISION_DEFER_MS = int(os.environ.get("CLIPPY_VISION_DEFER_MS", "12000"))
 
 SUPA_URL   = os.environ.get("NEXUS_SUPABASE_URL",  "https://oprsthfxqrdbwdvommpw.supabase.co").rstrip("/")
 SUPA_KEY   = os.environ.get("NEXUS_SUPABASE_ANON", "sb_publishable_rOLSdIG6mIjVLY8JmvrwCA_qfM7Vyk9")
@@ -412,6 +417,16 @@ def sb_get_pending():
             # taken it within the grace, it isn't coming. We answer.
             if now - (d.get("ts") or 0) < TEXT_RESCUE_MS:
                 continue
+        # worker-2.2 — VISION -> GPU: a CPU node lets a live NVIDIA peer take a
+        # FRESH vision job (Scan Plate / Clippy's Sight is ~90s on CPU vs seconds
+        # on GPU, and while it runs it pins this node's whole job loop). Failover:
+        # after the grace nobody claimed it, so we take it - vision never stalls
+        # if the rig is offline/busy. A job that explicitly prefers THIS node is
+        # never deferred.
+        is_vision = bool(d.get("image_b64") or d.get("vision")) or (row.get("id") or "").startswith("vis:")
+        if is_vision and ACCEL == "cpu" and _gpu_peer_online and pref != NODE:
+            if now - (d.get("ts") or 0) < VISION_DEFER_MS:
+                continue
         out.append(row)
     return out
 
@@ -625,6 +640,15 @@ def sb_heartbeat():
         # next one (30s) reads the roster and beats without erasing anyone.
         log("heartbeat: roster read failed (%s) - skipping this beat to protect peers" % e)
         return
+    # Is a fresh NVIDIA peer online? If so, a CPU node hands it heavy vision
+    # (see sb_get_pending) instead of pinning itself ~90s per image.
+    global _gpu_peer_online
+    try:
+        _gpu_peer_online = any(
+            isinstance(n, dict) and n.get("accel") == "nvidia" and (now - (n.get("ts") or 0) < 120)
+            for n in arr)
+    except Exception:
+        _gpu_peer_online = False
     # Claude counts as available only when the login actually serves (see
     # _claude_healthy) — never on bare binary presence, or a lapsed node keeps
     # advertising Claude and swallowing text jobs into 150s timeouts.
@@ -646,7 +670,7 @@ def sb_heartbeat():
     _can_cmd = bool(CMD_TOKEN or STEWARD_SECRET)
     if not _can_cmd:   needs.append("cmd")       # cannot act on the world
     entry = {"name": NODE, "ts": now, "vision": True, "cmd": _can_cmd, "seal": bool(STEWARD_SECRET),
-             "os": OSDESC, "version": "worker-2.1", "code_ver": SELF_VER,
+             "os": OSDESC, "version": "worker-2.2", "code_ver": SELF_VER,
              "claude": claude_live,
              # worker-1.9 — this node polls the race-free 'txt:' text lane.
              # NEXUS routes text jobs there only when it sees this flag live.
