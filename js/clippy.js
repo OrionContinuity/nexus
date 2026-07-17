@@ -5899,34 +5899,97 @@
   // (base64 JPEG via WebMessage). He runs it past the vision model, then reacts
   // with ONE funny, in-character line about what he sees — himself included.
   // Pet-only in practice; a no-op when no vision-capable provider is reachable.
+  // ─── WATCH-ALONG (Alfredo: "watch anime with me, detect what is being
+  // watched, read the link on any browser") ─────────────────────────────────
+  // The desktop host posts "watch:<proc>|<title>" — the foreground browser tab
+  // or media-player title (which carries the show name + site). We keep it as
+  // live context so his screen-peeks can NAME the show and react like a friend
+  // on the couch. Nothing here reads keystrokes or the raw URL — just the title
+  // the window already advertises.
+  const WATCH_VIDEO_SITES = /crunchyroll|funimation|hidive|netflix|hulu|disney|youtube|youtu\.be|primevideo|aniwave|9anime|gogoanime|animepahe|hianime|anilist|bilibili|twitch|vimeo|hbo|\bmax\b/i;
+  const WATCH_VIDEO_HINTS = /episode|\bep\.?\s?\d|\bs\d{1,2}e\d{1,2}\b|season\s?\d|streaming|\bsub\b|\bdub\b|\bOVA\b|anime/i;
+  function _watchIsVideo(proc, title) {
+    if (/vlc|mpv|mpc|potplayer|wmplayer/i.test(proc)) return true;
+    return WATCH_VIDEO_SITES.test(title) || WATCH_VIDEO_HINTS.test(title);
+  }
+  function _cleanShowTitle(title) {
+    let t = String(title || '')
+      .replace(/\s*[-—|]\s*(Google Chrome|Mozilla Firefox|Microsoft.?Edge|Brave|Opera|Vivaldi|Arc|Zen Browser|LibreWolf)\s*$/i, '')
+      .replace(/^\(\d+\)\s*/, '');   // strip an unread-count "(3) " prefix
+    return t.trim();
+  }
+  function pickWatchGreeting(show) {
+    const s = (show && show.length > 2 && show.length < 80) ? show : 'this';
+    const pool = [
+      'ooh, ' + s + '? scooting in next to you 🍿',
+      'we watching ' + s + '? i call the good cushion.',
+      s + '! yes. i will provide commentary nobody asked for.',
+      'putting my little popcorn on for ' + s + ' 🍿',
+      'oh we are SO watching ' + s + ' together.'
+    ];
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+  function onWatch(payload) {
+    try {
+      if (!isDesktopPet()) return;
+      const raw = String(payload || '');
+      if (!raw) { state.watch = null; return; }          // tabbed away from any browser/player
+      const bar = raw.indexOf('|');
+      const proc = bar >= 0 ? raw.slice(0, bar) : '';
+      const title = bar >= 0 ? raw.slice(bar + 1) : raw;
+      const show = _cleanShowTitle(title);
+      const isVideo = _watchIsVideo(proc, title);
+      const prev = state.watch;
+      state.watch = { proc, title, show, isVideo, since: Date.now() };
+      // Fresh show he hasn't greeted → a little couch-flop line. Never over a
+      // bubble/chat/drag, and at most once per distinct show.
+      if (isVideo && (!prev || prev.show !== show) && state._watchGreetShow !== show) {
+        state._watchGreetShow = show;
+        if (!state.bubble && !state.chatOpen && !state.dragging && (!state.preferences || !state.preferences.do_not_disturb)) {
+          setTimeout(() => {
+            if (!state.bubble && !state.chatOpen && !state.dragging) {
+              bubble(pickWatchGreeting(show), { autoHide: 6000, eyebrow: '🍿 WATCHING' });
+            }
+          }, 450);
+        }
+      }
+    } catch (e) {}
+  }
+
   async function seeSurroundings(b64) {
     try {
       if (!b64) return;
       const app = _appHandle();
       if (!app || typeof app.askClaudeVision !== 'function') return;
       if (state.bubble || state.chatOpen || state.dragging) return;   // don't barge in
-      mood('curious', 3500);
+      const w = state.watch;
+      const watching = !!(w && w.isVideo);
+      mood(watching ? 'excited' : 'curious', 3500);
       const desc = await app.askClaudeVision(
-        "This is a screenshot of a computer desktop. In ONE vivid, concrete sentence describe what's on it — the apps/windows, the wallpaper, and especially any small glowing blue orb mascot floating on the screen.",
+        watching
+          ? "This is a frame from a video/anime the user is watching. In ONE vivid sentence, describe what's happening on screen right now — characters, action, mood — and ignore any small glowing blue orb mascot floating over it."
+          : "This is a screenshot of a computer desktop. In ONE vivid, concrete sentence describe what's on it — the apps/windows, the wallpaper, and especially any small glowing blue orb mascot floating on the screen.",
         b64);
       if (!desc) return;
       const ch = state.character;
       const p = _perception();
       if (state.selfAuthored === false || typeof app.askClaude !== 'function' || !(ch && ch.chatPersona)) {
-        bubble("I spy: " + String(desc).slice(0, 130), { autoHide: 8000, eyebrow: '👀' });
+        bubble((watching ? "ooh — " : "I spy: ") + String(desc).slice(0, 130), { autoHide: 8000, eyebrow: watching ? '🍿' : '👀' });
         return;
       }
       const system = ch.chatPersona.replace(/\{name\}/g, p.name) +
-        " You just PEEKED at " + p.name + "'s screen with your own little eyes — you're the glowing blue orb floating on it. " +
-        "React to what you saw with ONE short, funny, in-character line spoken straight to them (address them as 'you'). " +
-        "No quotes, no preamble, no markdown.";
-      const ctx = "What you just saw on the screen: " + String(desc).slice(0, 400);
+        (watching
+          ? " You are watching " + (w.show ? '"' + w.show + '"' : "something") + " TOGETHER with " + p.name + ", curled up as the little glowing blue orb on their screen. " +
+            "React to THIS moment on screen with ONE short, spontaneous, in-character couch-buddy line straight to them (address them as 'you'). Don't spoil beyond what's shown. No quotes, no preamble, no markdown."
+          : " You just PEEKED at " + p.name + "'s screen with your own little eyes — you're the glowing blue orb floating on it. " +
+            "React to what you saw with ONE short, funny, in-character line spoken straight to them (address them as 'you'). No quotes, no preamble, no markdown.");
+      const ctx = (watching && w.show ? "Show/tab: " + w.show + ". " : "") + "What you just saw on the screen: " + String(desc).slice(0, 400);
       let line = null;
       try {
         const out = await app.askClaude(system, [{ role: 'user', content: ctx }], 90);
         line = out && String(out).replace(/\[confidence:[^\]]*\]/gi, '').replace(/^["']+|["']+$/g, '').trim();
       } catch (e) {}
-      bubble(line || ("I spy: " + String(desc).slice(0, 120)), { autoHide: 9000, eyebrow: '👀' });
+      bubble(line || ((watching ? "ooh — " : "I spy: ") + String(desc).slice(0, 120)), { autoHide: 9000, eyebrow: watching ? '🍿' : '👀' });
     } catch (e) {}
   }
 
@@ -8070,13 +8133,16 @@
 
   function maybeBoredDrift() {
     if (state.bubble || state.coinFlipInProgress) return false;
+    const pet = isDesktopPet();
     const idleMs = Date.now() - (state.lastTapAt || 0);
-    if (idleMs < 30000) {
+    // Desktop pet roams sooner + more freely — "allow more movement". (In the web
+    // app he stays the calmer 30s/2.5% wanderer so he isn't distracting.)
+    if (idleMs < (pet ? 15000 : 30000)) {
       state.shell && state.shell.classList.remove('is-bored');
       return false;
     }
     state.shell && state.shell.classList.add('is-bored');
-    if (Math.random() > 0.025) return false;
+    if (Math.random() > (pet ? 0.06 : 0.025)) return false;
     if (!state.shell) return false;
     const rect = state.shell.getBoundingClientRect();
     const W = window.innerWidth, H = window.innerHeight;
@@ -10271,6 +10337,7 @@
     summon,
     bubble, actionBubble,
     seeSurroundings,                // v: desktop pet sight — react to a screenshot
+    onWatch,                        // watch-along: host reports the foreground browser/player title
     play, mood,
     sleep, wake,
     setCostume,

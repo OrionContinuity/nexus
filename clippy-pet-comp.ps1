@@ -296,6 +296,33 @@ public class ClippyComp : Form {
     var eyes = new Timer(); eyes.Interval = 360000; // ~every 6 min (CPU vision is ~90s)
     eyes.Tick += delegate (object s, EventArgs ev) { SendSight(); };
     eyes.Start();
+    // Watch-along: notice WHAT you're on (browser tab / player title), tell the
+    // page so Clippy can co-watch and name the show, and while something plays
+    // GLANCE more often (~90s) than the ambient 6-min cadence so he reacts to it.
+    int _watchTicks = 0;
+    var watch = new Timer(); watch.Interval = 5000;
+    watch.Tick += delegate (object s, EventArgs ev) {
+      try {
+        if (_asleep || _hidden) return;
+        string w = ForegroundWatch();
+        if (w != _lastWatch) {
+          _lastWatch = w;
+          if (_ctl != null) { try { _ctl.CoreWebView2.PostWebMessageAsString("watch:" + w); } catch {} }
+          L("watch: " + (w.Length > 90 ? w.Substring(0, 90) : w));
+          _watchTicks = 0;
+        }
+        if (_lastWatch.Length > 0) { _watchTicks++; if (_watchTicks >= 18) { _watchTicks = 0; SendSight(); } }
+      } catch {}
+    };
+    watch.Start();
+    // Roam wider: jump to another monitor now and then (only with 2+ screens).
+    // Rare and smooth (GlidePet) so he explores without being a nuisance.
+    var jump = new Timer(); jump.Interval = 60000;
+    jump.Tick += delegate (object s, EventArgs ev) {
+      if (_asleep || _hidden || _dragging) return;
+      if (_rng.Next(100) < 30) JumpScreens();
+    };
+    jump.Start();
     // Politeness poll: every 1s decide whether to step out of the way (fullscreen
     // game / presentation) or come back. Cheap (a shell state query + maybe one
     // foreground-window rect check).
@@ -615,7 +642,7 @@ public class ClippyComp : Form {
   var w=window.chrome&&window.chrome.webview; if(!w) return;
   try{w.postMessage('vp '+window.innerWidth+'x'+window.innerHeight);}catch(e){}
   if(!document.getElementById('pet-style')){var st=document.createElement('style');st.id='pet-style';st.textContent='#clippy-shell{right:60px!important;bottom:64px!important;}';(document.head||document.documentElement).appendChild(st);}
-  if(!window.__petSight){window.__petSight=1;w.addEventListener('message',function(ev){try{var d=ev.data;if(typeof d==='string'&&d.slice(0,4)==='see:'){var b=d.slice(4);if(window.NX&&NX.clippy&&NX.clippy.seeSurroundings)NX.clippy.seeSurroundings(b);}}catch(e){}});}
+  if(!window.__petSight){window.__petSight=1;w.addEventListener('message',function(ev){try{var d=ev.data;if(typeof d!=='string')return;if(d.slice(0,4)==='see:'){var b=d.slice(4);if(window.NX&&NX.clippy&&NX.clippy.seeSurroundings)NX.clippy.seeSurroundings(b);}else if(d.slice(0,6)==='watch:'){if(window.NX&&NX.clippy&&NX.clippy.onWatch)NX.clippy.onWatch(d.slice(6));}}catch(e){}});}
   var SEL='#clippy-shell,.clippy-bubble';
   var PAD=2,last='';   // tight click radius - hugs the orb itself
   function vis(el){try{var r=el.getBoundingClientRect();return r.width>2&&r.height>2&&el.getClientRects().length>0;}catch(e){return false;}}
@@ -626,16 +653,66 @@ public class ClippyComp : Form {
   // Clippy's eyes: grab the desktop, shrink it, hand it to the page (which runs
   // it past the vision model and makes him riff). Capture is plain GDI; we post
   // it to our OWN webview (no network here) so it stays a local hand-off.
+  // --- WATCH-ALONG + WIDER EYES ------------------------------------------------
+  // "watch anime with me, detect what is being watched, read the link on any
+  // browser, bigger scope." We read the FOREGROUND window's title + process so
+  // Clippy knows the show/page. That title is the browser TAB TITLE (it carries
+  // the anime name and the site) - not keystrokes, not the raw URL bar (UI-Auto
+  // for that is heavy and the title already names the show). Only browsers and
+  // media players qualify; anything else reports nothing.
+  static readonly string[] _watchApps = new string[]{
+    "chrome","msedge","firefox","brave","opera","vivaldi","arc","librewolf","zen",
+    "vlc","mpv","mpc-hc64","mpc-hc","mpc-be64","potplayermini64","potplayer","wmplayer" };
+  string _lastWatch = "";
+  Random _rng = new Random();
+  string ForegroundWatch(){
+    try {
+      IntPtr h = GetForegroundWindow();
+      if (h == IntPtr.Zero) return "";
+      var sb = new System.Text.StringBuilder(512);
+      GetWindowText(h, sb, sb.Capacity);
+      string title = sb.ToString().Trim();
+      if (title.Length == 0) return "";
+      uint pid; GetWindowThreadProcessId(h, out pid);
+      string proc = "";
+      try { proc = System.Diagnostics.Process.GetProcessById((int)pid).ProcessName.ToLowerInvariant(); } catch {}
+      if (Array.IndexOf(_watchApps, proc) < 0) return "";
+      return proc + "|" + title;
+    } catch { return ""; }
+  }
+  // The monitor Clippy should look at: the one showing the foreground window (the
+  // video), so his eyes follow the show even on a second screen ("bigger scope").
+  System.Drawing.Rectangle SightBounds(){
+    try { IntPtr h = GetForegroundWindow(); if (h != IntPtr.Zero) { var sc = Screen.FromHandle(h); if (sc != null) return sc.Bounds; } } catch {}
+    try { return Screen.PrimaryScreen.Bounds; } catch { return new System.Drawing.Rectangle(0,0,1920,1080); }
+  }
+  // "able to jump screens": glide to a random spot on another monitor. Place()
+  // then keeps him fully on whichever screen he landed on.
+  void JumpScreens(){
+    try {
+      var all = Screen.AllScreens;
+      if (all == null || all.Length < 2) return;
+      var cur = Screen.FromControl(this);
+      var others = new List<Screen>();
+      foreach (var s in all) if (s.DeviceName != cur.DeviceName) others.Add(s);
+      if (others.Count == 0) return;
+      var dst = others[_rng.Next(others.Count)].WorkingArea;
+      int tx = dst.Left + _rng.Next(Math.Max(1, dst.Width  - PW));
+      int ty = dst.Top  + _rng.Next(Math.Max(1, dst.Height - PH));
+      GlidePet(tx - this.Left, ty - this.Top);
+      L("jump screens -> " + dst.Left + "," + dst.Top);
+    } catch {}
+  }
   static ImageCodecInfo _jpg;
   void SendSight(){
     try {
       if (_ctl == null) return;
       if (_asleep || _hidden) return;   // paused from the tray, or hidden - don't grab the screen or spend GPU
-      var b = Screen.PrimaryScreen.Bounds;
+      var b = SightBounds();            // the monitor with the video, not always primary
       string b64;
       using (var full = new Bitmap(b.Width, b.Height))
       using (var g = Graphics.FromImage(full)) {
-        g.CopyFromScreen(0, 0, 0, 0, new Size(b.Width, b.Height));
+        g.CopyFromScreen(b.X, b.Y, 0, 0, new Size(b.Width, b.Height));
         int tw = 760; int th = (int)(b.Height * 760.0 / b.Width);
         using (var small = new Bitmap(tw, th))
         using (var g2 = Graphics.FromImage(small)) {
