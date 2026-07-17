@@ -1204,6 +1204,7 @@
       case 'feeling':          return 'triclinium';     // the heart-room
       case 'reverie':          return 'peristylium';    // the garden — wandering thoughts
       case 'vision':           return 'bibliotheca';    // what he sees, filed as knowledge
+      case 'fact':             return 'bibliotheca';    // his notebook — facts he was told / figured out
       // ── His Minecraft self (clippy_memories, realm='minecraft') ──
       case 'minecraft':        return 'peristylium';    // the colonnade — paths walked together, blocks placed together
       default:                 return 'atrium';
@@ -1307,6 +1308,41 @@
     if (!candidates.length) return null;
     return candidates[Math.floor(Math.random() * candidates.length)];
   }
+
+  // ─── THE NOTEBOOK (Clippy's #1 wish) ─────────────────────────────────────
+  // Searchable recall: score deposited memories by keyword overlap with a query
+  // and return the most RELEVANT (not just the most recent), so a fact he wrote
+  // down can actually be found later. Small, dependency-free, runs on every
+  // brain call. remember()/recall() below are the write/read face of it.
+  const _RECALL_STOP = new Set(['the','a','an','and','or','but','to','of','in','on','for','is','are','was','were','do','does','did','you','your','my','me','it','that','this','what','how','why','when','where','who','can','could','should','would','with','about','at','be','have','has','i','we','they','them','their','our','not','no','yes']);
+  function recallFacts(query, k) {
+    k = k || 5;
+    if (!state.memories || !state.memories.length || !query) return [];
+    const terms = (String(query).toLowerCase().match(/[a-z0-9]{3,}/g) || []).filter(t => !_RECALL_STOP.has(t));
+    if (!terms.length) return [];
+    const scored = [];
+    for (const m of state.memories) {
+      if (!m || !m.label) continue;
+      const hay = (String(m.label) + ' ' + JSON.stringify(m.data || '') + ' ' + (m.type || '')).toLowerCase();
+      let score = 0;
+      for (const t of terms) { if (hay.indexOf(t) >= 0) score += 1; }
+      if (score <= 0) continue;
+      const ageDays = (Date.now() - new Date(m.timestamp || 0)) / 86400000;
+      score += (m.importance || 1) * 0.15 + Math.max(0, 1 - ageDays / 30) * 0.3;   // gentle recency/importance nudge
+      scored.push({ m, score });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, k).map(s => s.m);
+  }
+  // Write a durable fact into the notebook (deposits as a searchable memory).
+  function remember(text, opts) {
+    opts = opts || {};
+    const fact = String(text || '').trim().replace(/\s+/g, ' ').slice(0, 200);
+    if (fact.length < 2) return null;
+    return depositMemory('fact', fact, { source: opts.source || 'told', tags: opts.tags || [] }, opts.importance || 4);
+  }
+  // Read the notebook by relevance. Returns the fact strings.
+  function recall(query, k) { return recallFacts(query, k || 5).map(m => m.label); }
 
   // Show a recall bubble — "Earlier today: ..." / "Long ago: ..."
   function showRecallBubble() {
@@ -2369,6 +2405,29 @@
     if (art && art[2] && art[2].trim().length > 1) {
       const idea = art[2].trim().replace(/[?.!]+$/, '');
       if (/\b(sculpt|3d|3-d|blender|render)\b/i.test(text)) sculptIdea(idea); else sketchIdea(idea);
+      return;
+    }
+    // ── THE NOTEBOOK (his #1 wish) ──────────────────────────────────────────
+    // "remember / note / don't forget X" writes a durable, searchable fact;
+    // "what do you know about X" / "recall X" reads it back by relevance.
+    const remM = text.match(/^\s*(?:hey\s+|please\s+)?(?:remember|note|don'?t forget|keep in mind|jot down|write down)\b(?:\s+that)?\s*[:,-]?\s+(.+)/i);
+    if (remM && remM[1] && remM[1].trim().length > 1) {
+      const fact = remM[1].trim().replace(/[.!]+$/, '');
+      remember(fact, { source: 'told' });
+      sayInChat('Noted — "' + fact.slice(0, 100) + '". I\'ll remember that.', { eyebrow: '📝 NOTED' });
+      mood('happy', 2500);
+      return;
+    }
+    const recM = text.match(/^\s*(?:what do you (?:know|remember|have) (?:about|on)|recall|do you remember|what did i tell you about)\b\s+(.+)/i);
+    if (recM && recM[1] && recM[1].trim().length > 1) {
+      const hits = recall(recM[1].trim(), 6);
+      if (hits.length) {
+        sayInChat('Here\'s what I have:\n' + hits.map(h => '• ' + h).join('\n'), { eyebrow: '📓 NOTEBOOK' });
+        mood('happy', 2500);
+      } else {
+        sayInChat('Nothing in my notebook on that yet — tell me and I\'ll keep it for you.', { eyebrow: '📓 EMPTY' });
+        mood('thinking', 3000);
+      }
       return;
     }
     const found = chatMatch(text);
@@ -4264,6 +4323,9 @@
               while (a.errorToasts.length && a.errorToasts[0] < cutoff) {
                 a.errorToasts.shift();
               }
+              // Something clearly went wrong — open his eyes NOW so he sees it
+              // while it's on screen, not on the next timer tick. (His #2 wish.)
+              try { requestPetSight(); } catch (_) {}
             }
           }
         }
@@ -6152,18 +6214,34 @@
                     '\nDo NOT repeat these; say something new.';
         }
       } catch (_) {}
-      // v18.57 — real history: his own deposited memories with this person, so
-      // he can build on what they've actually lived, not start from blank.
+      // v18.60 — THE NOTEBOOK (his #1 wish): pull the facts most RELEVANT to what
+      // he's being asked, not just the most recent, so something he wrote down is
+      // actually found and used. Relevance first, then a little recent context.
       try {
+        const rel = recallFacts(question, 6);
+        if (rel.length) {
+          system += '\n\nFrom your notebook — what you know that bears on THIS question:\n' +
+                    rel.map(m => '• ' + m.label).join('\n') +
+                    '\nUse these facts when they fit; you may say "I remember…".';
+        }
+      } catch (_) {}
+      // v18.57 — real history: his own recent memories with this person, so he
+      // can build on what they've actually lived, not start from blank.
+      try {
+        const seen = new Set(recallFacts(question, 6).map(m => m.label));
         const mems = (state.memories || []).slice()
           .sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0))
-          .filter(m => m && m.label && typeof m.label === 'string')
-          .slice(0, 6).map(m => '• ' + m.label);
+          .filter(m => m && m.label && typeof m.label === 'string' && !seen.has(m.label))
+          .slice(0, 5).map(m => '• ' + m.label);
         if (mems.length) {
-          system += '\n\nWhat you remember with them:\n' + mems.join('\n') +
+          system += '\n\nAlso recently on your mind:\n' + mems.join('\n') +
                     '\nBuild on this history.';
         }
       } catch (_) {}
+      // v18.60 — ASK, DON'T GUESS (his #5 wish). When the request is ambiguous or
+      // he's missing a detail he'd genuinely need, he asks ONE short clarifying
+      // question instead of guessing wrong. Only when it truly matters.
+      system += '\n\nIf their message is ambiguous or you are missing a key detail you would truly need to help well, do NOT guess — ask ONE short clarifying question back, starting it with "Quick q — ". Otherwise just answer directly.';
       const userMsg = { role: 'user', content: String(question || '').slice(0, 500) };
       // Prior turns (this conversation) + the new question. The pool flattens
       // this to a transcript; the cloud brain gets the same flattened thread —
@@ -7630,6 +7708,23 @@
       const w = window.chrome && window.chrome.webview;
       if (!w) return false;
       w.postMessage('move ' + Math.round(dx) + ' ' + Math.round(dy));
+      return true;
+    } catch (_) { return false; }
+  }
+  // Event-driven sight (his #2 wish): ask the host to LOOK now, instead of only
+  // on the 90s timer. The host already opens his eyes on a tab change; this
+  // covers "when you're clearly stuck" — an error, a rage-click burst. Throttled
+  // so it never spends his GPU in a storm of signals.
+  let _lastSightReq = 0;
+  function requestPetSight() {
+    if (!isDesktopPet()) return false;
+    const now = Date.now();
+    if (now - _lastSightReq < 45000) return false;   // cooldown
+    _lastSightReq = now;
+    try {
+      const w = window.chrome && window.chrome.webview;
+      if (!w) return false;
+      w.postMessage('sight');
       return true;
     } catch (_) { return false; }
   }
@@ -10388,6 +10483,7 @@
     bubble, actionBubble,
     seeSurroundings,                // v: desktop pet sight — react to a screenshot
     onWatch,                        // watch-along: host reports the foreground browser/player title
+    remember, recall, recallFacts,  // his notebook — write a fact, find it later (searchable recall)
     play, mood,
     sleep, wake,
     setCostume,

@@ -742,7 +742,7 @@ function join(port) {
   })
   bot.on('kicked', r => { log('kicked', String(r).slice(0, 80)); journal('error', 'kicked: ' + String(r).slice(0, 120)) })
   bot.on('error', e => { log('err', e.message); jerr('bot: ' + e.message); if (!spawned) { if (curPort !== DOJO_PORT) _badPorts[curPort] = Date.now() + 120000; const b = bot; bot = null; joining = false; actGen++; setTimeout(() => teardownBot(b), 150) } })
-  bot.on('end', () => { const b = bot; setInGame(false); bot = null; owner = null; joining = false; actGen++; log('left world'); tlog('event', 'left world'); setTimeout(() => teardownBot(b), 150) })   // v9.3: release the bot -> no leak
+  bot.on('end', () => { const b = bot; setInGame(false); bot = null; owner = null; joining = false; actGen++; log('left world'); tlog('event', 'left world'); setTimeout(() => teardownBot(b), 150); if (!IDENT.soulWriter) setTimeout(() => { if (!bot && !joining) { try { join(DOJO_PORT) } catch (e) {} } }, 4000) })   // v9.3: release the bot -> no leak; quick rejoin after a kick so he doesn't stay out (Clippy's wish: "don't get kicked")
 }
 function adoptOwner(name) { if (!bot || !bot.entity) return; if (name && bot.players[name] && bot.players[name].entity) { owner = name; return } const c = Object.keys(bot.players).filter(p => p !== bot.username); if (c.length) owner = c[0]; if (owner) log('friend', owner) }
 
@@ -1021,7 +1021,18 @@ function startHeart() {
       if (bot.food === undefined || bot.food >= 15) return
       const order = ['bread', 'cooked_beef', 'cooked_porkchop', 'cooked_chicken', 'cooked_mutton', 'baked_potato', 'apple', 'carrot', 'beef', 'porkchop', 'chicken', 'mutton']
       const it = order.map(n => bot.inventory.items().find(i => i.name === n)).find(Boolean)
-      if (!it) { if (bot.food < 8 && Date.now() - (skills.lastHungrySay || 0) > 60000) { skills.lastHungrySay = Date.now(); say('so hungry... need food!!') } return }
+      if (!it) {
+        // No food on hand. Instead of just starving (Clippy's wish: "don't let me
+        // starve"), actually GO GET some — throttled so he doesn't loop-hunt.
+        if (bot.food < 8) {
+          if (Date.now() - (skills.lastHungrySay || 0) > 60000) { skills.lastHungrySay = Date.now(); say('so hungry... getting food!! 🍗') }
+          if (!busy && typeof huntFood === 'function' && Date.now() - (skills.lastAutoHunt || 0) > 120000) {
+            skills.lastAutoHunt = Date.now(); bsave('skills', skills)
+            Promise.resolve(huntFood(2)).catch(() => {})
+          }
+        }
+        return
+      }
       await bot.equip(it, 'hand'); await bot.consume()
       alog('eat', { food: it.name }); journal('eat', 'ate ' + it.name + ' (hunger was ' + bot.food + ')')
       if (!skills.firsts.includes('eat')) first('eat', 'I learned to eat when hungry — ' + it.name + '. Self care!', {})

@@ -310,6 +310,9 @@ public class ClippyComp : Form {
           if (_ctl != null) { try { _ctl.CoreWebView2.PostWebMessageAsString("watch:" + w); } catch {} }
           L("watch: " + (w.Length > 90 ? w.Substring(0, 90) : w));
           _watchTicks = 0;
+          // The tab/window changed to something new -> open his eyes now, not on
+          // the next 90s tick, so he's present for what just came up.
+          if (w.Length > 0) EventSight(20000);
         }
         if (_lastWatch.Length > 0) { _watchTicks++; if (_watchTicks >= 18) { _watchTicks = 0; SendSight(); } }
       } catch {}
@@ -614,6 +617,10 @@ public class ClippyComp : Form {
           string mm = aw.TryGetWebMessageAsString();
           if (mm != null && mm.StartsWith("rects ")) ApplyRects(mm.Substring(6));
           else if (mm != null && mm.StartsWith("vp ")) L("viewport " + mm.Substring(3) + " vs client " + Wv + "x" + Hv);
+          else if (mm == "sight") {
+            // Page asked him to LOOK now (he senses you're stuck). Throttled.
+            if (!_asleep && !_hidden) EventSight(30000);
+          }
           else if (mm != null && mm.StartsWith("move ")) {
             // Page-driven drift: Clippy wanders the monitor by sliding the whole
             // overlay. MovePet clamps on-screen; skip while asleep/hidden or mid-drag
@@ -701,6 +708,19 @@ public class ClippyComp : Form {
       int ty = dst.Top  + _rng.Next(Math.Max(1, dst.Height - PH));
       GlidePet(tx - this.Left, ty - this.Top);
       L("jump screens -> " + dst.Left + "," + dst.Top);
+    } catch {}
+  }
+  // Event-driven sight (Clippy's #2 wish): LOOK when something happens - a tab
+  // change, or a page-side "sight" request when he's clearly stuck - instead of
+  // only on the ambient timer. Throttled so a storm of events never pins the GPU.
+  int _lastEventSightTick = 0;
+  void EventSight(int cooldownMs){
+    try {
+      if (_asleep || _hidden) return;
+      int t = Environment.TickCount;
+      if (_lastEventSightTick != 0 && (t - _lastEventSightTick) < cooldownMs) return;
+      _lastEventSightTick = t;
+      SendSight();
     } catch {}
   }
   static ImageCodecInfo _jpg;

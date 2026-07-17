@@ -324,6 +324,13 @@ SB_HEADERS = {"apikey": SUPA_KEY, "Authorization": "Bearer " + SUPA_KEY, "Conten
 
 POLL_SECS = 1                     # vision rides its own 'vis:' lane (no race); 1s keeps latency low + request volume modest
 HEARTBEAT_SECS = 30
+# Self-heal watchdog (Clippy's #3 wish: "don't just stall"). The heartbeat thread
+# refreshes _last_beat every cycle; if it stops for this long the process has
+# wedged, so we exit non-zero and let the daemon restart a fresh worker - instead
+# of stalling until the 15-min supervisor notices. A long legit job never trips it
+# (heartbeat is a separate thread and keeps the beat fresh).
+WATCHDOG_STALE_S = int(os.environ.get("CLIPPY_WATCHDOG_STALE_S", "300"))
+_last_beat = time.time()
 JOB_MAX_AGE_MS = 120_000          # ignore jobs older than this (NEXUS has given up)
 # Strongest-node routing: the app tags a vision job with the strongest online
 # node in 'prefer'. Other nodes hold off this long so the preferred node claims
@@ -670,7 +677,7 @@ def sb_heartbeat():
     _can_cmd = bool(CMD_TOKEN or STEWARD_SECRET)
     if not _can_cmd:   needs.append("cmd")       # cannot act on the world
     entry = {"name": NODE, "ts": now, "vision": True, "cmd": _can_cmd, "seal": bool(STEWARD_SECRET),
-             "os": OSDESC, "version": "worker-2.2", "code_ver": SELF_VER,
+             "os": OSDESC, "version": "worker-2.3", "code_ver": SELF_VER,
              "claude": claude_live,
              # worker-1.9 — this node polls the race-free 'txt:' text lane.
              # NEXUS routes text jobs there only when it sees this flag live.
@@ -1304,6 +1311,8 @@ def _heartbeat_loop():
     off the registry."""
     beats = 0
     while True:
+        global _last_beat
+        _last_beat = time.time()                  # watchdog liveness: set BEFORE the network post
         try: sb_heartbeat()
         except Exception: pass
         beats += 1
@@ -1313,6 +1322,26 @@ def _heartbeat_loop():
             try: _shed_legacy()                   # make the hive 1: retire legacy Downloads\ClippyPC relays
             except Exception: pass
         time.sleep(HEARTBEAT_SECS)
+
+
+def _watchdog_loop():
+    """Self-heal (Clippy's #3 wish). If the heartbeat thread stops refreshing its
+    beat for WATCHDOG_STALE_S, the process has wedged - exit non-zero so the daemon
+    supervisor restarts a fresh worker, instead of stalling until the 15-min pass.
+    A long legit job never trips this (heartbeat is its own thread). Most hangs are
+    I/O waits that release the GIL, so this thread still runs to pull the cord."""
+    time.sleep(max(90, WATCHDOG_STALE_S // 2))    # grace for a slow boot / vision warmup
+    while True:
+        time.sleep(30)
+        try:
+            stale = time.time() - _last_beat
+            if stale > WATCHDOG_STALE_S:
+                log("WATCHDOG: heartbeat stale %ds (> %ds) - worker wedged; exiting for a clean restart" % (int(stale), WATCHDOG_STALE_S))
+                try: activity("node", "watchdog restart (wedged)")
+                except Exception: pass
+                os._exit(1)
+        except Exception:
+            pass
 
 
 # ─── COMPANION SENSE: Clippy knows when his friend is playing a game ─────────
@@ -1435,6 +1464,8 @@ def main():
     log("clippy-worker up - node='%s' vision='%s' bus=%s ollama=%s claude=%s" % (NODE, VISION_MODEL, SUPA_URL, OLLAMA, CLAUDE_BIN or "no"))
     sb_heartbeat()      # register immediately so the node shows online without waiting a cycle
     threading.Thread(target=_heartbeat_loop, daemon=True).start()
+    threading.Thread(target=_watchdog_loop, daemon=True).start()    # self-heal: restart if wedged
+    log("watchdog ON (self-restart if the heartbeat stalls > %ds)" % WATCHDOG_STALE_S)
     threading.Thread(target=_companion_loop, daemon=True).start()   # game awareness (Windows)
     log("companion sense ON (foreground-game awareness; keeps Clippy glad while you play)")
     # Warm the vision model in the BACKGROUND. It used to run inline here, which
