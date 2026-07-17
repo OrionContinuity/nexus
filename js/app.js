@@ -4064,15 +4064,32 @@ td.check{background:#F0EDE6 !important}
     // the beefy box does the heavy Scan Plate work and a busy/offline node
     // never strands the job. With one node this is a no-op.
     let prefer = null;
-    if (opts.image_b64) {
-      try {
-        const vnodes = (await this.clippyPoolNodes()).filter(n => n && n.vscore != null);
+    try {
+      const pnodes = (await this.clippyPoolNodes()).filter(Boolean);
+      if (opts.image_b64) {
+        // VISION -> the most powerful vision node (the GPU rig / 3070). Busy is
+        // penalized; the worker's failover grace covers a busy/offline pick so a
+        // laptop still answers if the rig is down. CPU nodes also defer in the
+        // worker (worker-2.2), so a laptop never grinds ~90s on a Scan Plate.
+        const vnodes = pnodes.filter(n => n.vscore != null);
         if (vnodes.length > 1) {
           vnodes.sort((a, b) => (((b.vscore || 0) - (b.busy ? 1e6 : 0)) - ((a.vscore || 0) - (a.busy ? 1e6 : 0))));
           prefer = vnodes[0].name || vnodes[0].id || null;
         }
-      } catch (_) {}
-    }
+      } else if (txtNode) {
+        // TEXT/CHAT -> the most powerful THINKING node: a live Claude node first
+        // (his real voice), then by strength (vscore). The worker's prefer-grace
+        // means laptops stay fully capable and pick up text if the top node is
+        // busy or offline - text is never stranded. (Alfredo: "nexus app should
+        // use the most powerful node for vision jobs and texts.")
+        const tnodes = pnodes.filter(n => n.txt);
+        if (tnodes.length > 1) {
+          const strength = n => (n.claude ? 1e7 : 0) + (n.vscore || 0) - (n.busy ? 1e6 : 0);
+          tnodes.sort((a, b) => strength(b) - strength(a));
+          prefer = tnodes[0].name || tnodes[0].id || null;
+        }
+      }
+    } catch (_) {}
     const job = {
       status: 'pending', prompt: String(prompt || ''),
       system: opts.system || null, image_b64: opts.image_b64 || null,
