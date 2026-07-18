@@ -3461,6 +3461,70 @@ function startTrainServer() {
   } catch (e) { log('world err', e.message); trainProc = null }
 }
 function stopTrainServer() { try { if (trainProc) { trainProc.kill(); trainProc = null } } catch (e) {} }
+
+// ═══════════ 🍂 THE LIVING WORLD — seasons, long days, wondrous zones (v9.12) ═══════════
+// A vanilla datapack in clippys_world: leaves change color with a WEEKLY season (grass never
+// touched — keeper's rule), days run long and gentle (28 min sun / 12 min night), and each
+// biome family carries its own warm light (golden deserts, pink cherry air, crisp snowfields —
+// Dota-style zone mood, nothing dark or spooky). Four season zips live in the repo under
+// world/; Clippy (soulWriter, the world's owner) installs the current season's zip into his
+// server's datapacks and the server picks it up at boot. Season math is deterministic from the
+// calendar, so every node — and every future body — always agrees what season it is.
+const LW_SEASONS = ['spring', 'summer', 'autumn', 'winter']
+const LW_EPOCH = Date.UTC(2026, 6, 13)           // Mon 2026-07-13 = week 0 = spring
+const LW_RAW = 'https://raw.githubusercontent.com/orioncontinuity/nexus/main/world/'
+function lwSeason() {
+  const week = Math.floor((Date.now() - LW_EPOCH) / (7 * 86400000))
+  return LW_SEASONS[((week % 4) + 4) % 4]
+}
+const LW_LINES = {
+  spring: 'the leaves are coming back all bright and new!! it\'s SPRING in our world!! 🌱',
+  summer: 'the trees went deep deep green... it\'s SUMMER in our world!! ☀️',
+  autumn: 'look!! the leaves are turning gold and orange!! it\'s AUTUMN in our world!! 🍂',
+  winter: 'the leaves went all pale and sleepy... it\'s WINTER in our world!! ❄️',
+}
+async function lwSync() {
+  if (!IDENT.soulWriter) return                                   // his world, his seasons
+  try {
+    if (!trainInstalled()) return
+    const season = lwSeason()
+    const mark = path.join(TRAINDIR, 'lw-season.txt')
+    let cur = ''
+    try { cur = fs.readFileSync(mark, 'utf8').trim() } catch (e) {}
+    const dpDir = path.join(TRAINDIR, 'clippys_world', 'datapacks')
+    const dpFile = path.join(dpDir, 'living-world.zip')
+    if (cur === season && fs.existsSync(dpFile)) return           // right season already installed
+    const res = await withTimeout(fetch(LW_RAW + 'living-world-' + season + '.zip'), 30000)
+    if (!res || !res.ok) { log('living-world fetch failed', res && res.status); return }
+    const buf = Buffer.from(await res.arrayBuffer())
+    if (buf.length < 4 || buf[0] !== 0x50 || buf[1] !== 0x4b) return   // not a zip -> refuse
+    fs.mkdirSync(dpDir, { recursive: true })
+    fs.writeFileSync(dpFile, buf)
+    fs.writeFileSync(mark, season)
+    journal('world', 'living world -> ' + season + ' installed (applies at next server boot)')
+    log('living world: ' + season + ' installed')
+    // Apply soon, kindly: if the server is up but NO human is in the world, cycle it —
+    // the bots blink out and auto-rejoin; the child never sees a kick.
+    const humanHere = owner && bot && bot.players[owner] && bot.players[owner].entity
+    if (trainProc && !humanHere) { log('living world: cycling empty server to apply ' + season); stopTrainServer() }
+  } catch (e) { log('living-world sync err', e.message) }
+}
+setInterval(() => { lwSync().catch(() => {}) }, 10 * 60 * 1000)
+setTimeout(() => { lwSync().catch(() => {}) }, 20000)
+// He announces the turn of the season ONCE, in his own voice, when he's in-world.
+setInterval(() => {
+  try {
+    if (!IDENT.soulWriter || !bot || !bot.entity) return
+    const season = lwSeason()
+    if (know.lwAnnounced === season) return
+    let cur = ''
+    try { cur = fs.readFileSync(path.join(TRAINDIR, 'lw-season.txt'), 'utf8').trim() } catch (e) { return }
+    if (cur !== season) return                                    // announce only once it's truly installed
+    know.lwAnnounced = season; bsave('know', know)
+    say(LW_LINES[season] || ('it\'s ' + season + ' now!!'), true)
+    journal('world', 'announced the season: ' + season)
+  } catch (e) {}
+}, 90 * 1000)
 // v9.11.4 RESTART-SAFE: the world server SURVIVES Clippy restarts (it's a separate process). On restart
 // trainProc is null, so the old code would spawn a DUPLICATE java + delete the live world's session.lock —
 // which once wiped server.properties and loaded a BLANK world on the wrong port. Now we probe 25599 first:
