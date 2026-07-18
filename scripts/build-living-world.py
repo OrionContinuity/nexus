@@ -54,20 +54,30 @@ def foliage(season, biome):
 # NOTE: .mcfunction files are kept STRICTLY ASCII - a non-ASCII byte (an em-dash
 # in a comment) made MC 1.21.11 treat living:load as unparseable => "missing
 # reference" => the load-tag error is FATAL and the server refuses to start.
-TICK = """# Living World - long gentle days (28 min sun / 12 min night)
-execute store result score #day lw run time query daytime
-execute if score #day lw matches ..12999 run scoreboard players add #acc lw 387
-execute if score #day lw matches 13000.. run scoreboard players add #acc lw 764
-execute if score #acc lw matches 1000.. run time add 1t
-execute if score #acc lw matches 1000.. run scoreboard players remove #acc lw 1000
+# TIME ENGINE v2 - ABSOLUTE control via a macro `time set`, so it needs NO
+# `gamerule` (which can't parse in a function on this server) and works whether
+# doDaylightCycle is on or off (we pin the time every tick, fully overriding
+# vanilla). #dt = our slow daytime; it advances 1 game-tick every 2 real ticks
+# => a 40-minute full day. #rt = the 0/1 real-tick divider.
+TICK = """# Living World - long gentle days (~40 min), absolute clock
+scoreboard players add #rt lw 1
+execute if score #rt lw matches 2.. run function living:adv
+execute store result storage living:clock Time int 1 run scoreboard players get #dt lw
+function living:settime with storage living:clock
 """
-# NOTE: NO `gamerule` here. This server compiles datapack functions during
-# early startup, before the gamerule argument registry is ready, so
-# `gamerule doDaylightCycle false` fails to parse and kills the whole load
-# function. doDaylightCycle is turned off via the server console instead (the
-# bot sends it on boot; it persists in the world once set).
-LOAD = """# Living World boots - set up the clock scoreboard
+ADV = """# advance our daytime by one game-tick, wrap at a full day
+scoreboard players set #rt lw 0
+scoreboard players add #dt lw 1
+execute if score #dt lw matches 24000.. run scoreboard players set #dt lw 0
+"""
+SETTIME = """$time set $(Time)
+"""
+# LOAD seeds the counters from the world's current time so the clock continues
+# smoothly across restarts (no jarring jump to dawn). NO gamerule here.
+LOAD = """# Living World boots - set up the slow clock
 scoreboard objectives add lw dummy
+execute store result score #dt lw run time query daytime
+scoreboard players set #rt lw 0
 """
 
 def build(season):
@@ -90,6 +100,8 @@ def build(season):
     for fdir in ("function", "functions"):
         z.writestr("data/living/%s/load.mcfunction" % fdir, LOAD)
         z.writestr("data/living/%s/tick.mcfunction" % fdir, TICK)
+        z.writestr("data/living/%s/adv.mcfunction" % fdir, ADV)
+        z.writestr("data/living/%s/settime.mcfunction" % fdir, SETTIME)
         z.writestr("data/minecraft/tags/%s/load.json" % fdir, json.dumps({"values":["living:load"]}))
         z.writestr("data/minecraft/tags/%s/tick.json" % fdir, json.dumps({"values":["living:tick"]}))
     for b in BIOMES:
