@@ -141,6 +141,21 @@
       await c.from('clippy_sync').upsert({ id: ROW_ID, data: full, from_id: 'nexus' }, { onConflict: 'id' });
     } catch (_) {}
   }
+  async function setEnableAll(on) {
+    // One switch for every machine: workers see enable_all on the bus and
+    // create/remove their local controller.on flag — no per-PC setup ever.
+    var c = sb(); if (!c) return { error: 'no bus' };
+    var full = { games: {}, ts: 0 };
+    try {
+      var r = await c.from('clippy_sync').select('data').eq('id', ROW_ID).maybeSingle();
+      if (!r.error && r.data && r.data.data) full = r.data.data;
+      if (!full.games) full.games = {};
+    } catch (_) {}
+    full.enable_all = { on: !!on, ts: Date.now() };
+    var w = await c.from('clippy_sync').upsert({ id: ROW_ID, data: full, from_id: 'nexus' }, { onConflict: 'id' });
+    return { error: w.error ? (w.error.message || 'save failed') : null };
+  }
+
   async function listGames() {
     // The committed registry is served by Pages right next to the app.
     try {
@@ -196,6 +211,25 @@
     });
     gameRow.appendChild(gameSel);
     card.appendChild(gameRow);
+
+    // enable-everywhere switch — the '🎮 works on every machine' button
+    var enRow = el('div', 'clippy-ctrl-presets');
+    var enBtn = el('button', 'clippy-ctrl-preset', '🖥️ Enable controller on ALL machines');
+    enBtn.onclick = async function () {
+      enBtn.disabled = true; setStatus('Enabling everywhere…');
+      var r = await setEnableAll(true);
+      enBtn.disabled = false;
+      setStatus(r.error ? ('⚠ ' + r.error) : '✓ Every machine enables its controller within ~a minute (mapper installs itself at first game launch).');
+    };
+    var disBtn = el('button', 'clippy-ctrl-preset', '⏸ Disable everywhere');
+    disBtn.onclick = async function () {
+      disBtn.disabled = true; setStatus('Disabling everywhere…');
+      var r = await setEnableAll(false);
+      disBtn.disabled = false;
+      setStatus(r.error ? ('⚠ ' + r.error) : '✓ Controller mapping turns off on every machine within ~a minute.');
+    };
+    enRow.appendChild(enBtn); enRow.appendChild(disBtn);
+    card.appendChild(enRow);
 
     // presets
     var presetRow = el('div', 'clippy-ctrl-presets');

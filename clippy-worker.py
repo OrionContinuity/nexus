@@ -1618,6 +1618,23 @@ def _controller_cfg_loop():
             ts = data.get("ts") or 0
             games = data.get("games") or {}
             mark = _ctrl_load_mark()
+            # panel's 'enable on ALL machines' switch -> local controller.on flag
+            ea = data.get("enable_all") or {}
+            if isinstance(ea, dict) and ea.get("ts") and ea.get("ts") != mark.get("enable_ts"):
+                flag = os.path.join(os.path.expanduser("~"), ".clippy", "controller.on")
+                try:
+                    if ea.get("on"):
+                        os.makedirs(os.path.dirname(flag), exist_ok=True)
+                        open(flag, "w").close()
+                        log("controller: ENABLED on this node (NEXUS panel)")
+                    elif os.path.exists(flag):
+                        os.remove(flag)
+                        log("controller: disabled on this node (NEXUS panel)")
+                    mark["enable_ts"] = ea.get("ts")
+                    _ctrl_save_mark(mark)
+                    activity("node", "controller %s via NEXUS panel" % ("enabled" if ea.get("on") else "disabled"))
+                except Exception as e:
+                    log("controller enable toggle failed: %s" % e)
             if ts and ts != mark.get("ts"):
                 changed = False
                 # apply every configured game
@@ -1651,7 +1668,7 @@ def _controller_cfg_loop():
                             log("controller: override cleared - restored committed %s" % fn)
                     except Exception as e:
                         log("controller: restore %s failed (%s)" % (fn, e))
-                _ctrl_save_mark({"ts": ts, "games": sorted(games.keys())})
+                _ctrl_save_mark({"ts": ts, "games": sorted(games.keys()), "enable_ts": mark.get("enable_ts")})
                 if changed:
                     _ctrl_restart_mapper()
                     activity("node", "controller profile updated from NEXUS panel")
