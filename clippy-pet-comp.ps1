@@ -142,9 +142,19 @@ public class ClippyComp : Form {
   [DllImport("wtsapi32.dll")] static extern bool WTSRegisterSessionNotification(IntPtr h, int flags);
   [DllImport("wtsapi32.dll")] static extern bool WTSUnRegisterSessionNotification(IntPtr h);
   [DllImport("user32.dll")] static extern int RegisterWindowMessage(string s);
+  // --- Clippy's HANDS: real mouse control (SendInput) so he can click anything ---
+  [DllImport("user32.dll")] static extern uint SendInput(uint n, INPUT[] pInputs, int cb);
+  [DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);
   public delegate bool EnumProc(IntPtr h, IntPtr l);
   [StructLayout(LayoutKind.Sequential)] struct POINT { public int X; public int Y; }
   [StructLayout(LayoutKind.Sequential)] struct RECTW { public int L, T, R, B; }
+  [StructLayout(LayoutKind.Sequential)] struct MOUSEINPUT { public int dx; public int dy; public uint mouseData; public uint dwFlags; public uint time; public IntPtr dwExtraInfo; }
+  [StructLayout(LayoutKind.Sequential)] struct INPUT { public uint type; public MOUSEINPUT mi; }
+  const uint INPUT_MOUSE = 0;
+  const uint MOUSEEVENTF_MOVE = 0x0001, MOUSEEVENTF_ABSOLUTE = 0x8000, MOUSEEVENTF_VIRTUALDESK = 0x4000;
+  const uint MOUSEEVENTF_LEFTDOWN = 0x0002, MOUSEEVENTF_LEFTUP = 0x0004;
+  const uint MOUSEEVENTF_RIGHTDOWN = 0x0008, MOUSEEVENTF_RIGHTUP = 0x0010;
+  const int SM_XVIRTUALSCREEN = 76, SM_YVIRTUALSCREEN = 77, SM_CXVIRTUALSCREEN = 78, SM_CYVIRTUALSCREEN = 79;
   const int GWL_EXSTYLE = -20, WS_EX_TRANSPARENT = 0x20, RGN_OR = 2, GW_OWNER = 4;
   const uint SWP_MOVE = 0x15; // NOSIZE|NOZORDER|NOACTIVATE
   const int SW_HIDE = 0, SW_SHOWNA = 8;       // show without stealing focus
@@ -638,6 +648,31 @@ public class ClippyComp : Form {
               if (pp.Length == 2 && int.TryParse(pp[0], out mdx) && int.TryParse(pp[1], out mdy)) GlidePet(mdx, mdy);
             }
           }
+          // --- Clippy's HANDS: he can click ANYTHING on the desktop. The page
+          // decides WHERE (from his vision/brain) and asks the host to perform a
+          // REAL click there. 'click x,y' | 'rclick x,y' | 'dblclick x,y' | 'movec x,y'
+          // Coordinates are absolute desktop pixels. Rate-limited so he can never
+          // machine-gun the mouse. Suppressed while the screen is locked.
+          else if (mm != null && (mm.StartsWith("click ") || mm.StartsWith("rclick ") || mm.StartsWith("dblclick ") || mm.StartsWith("movec "))) {
+            try {
+              int sp = mm.IndexOf(' ');
+              string verb = mm.Substring(0, sp);
+              var pp = mm.Substring(sp + 1).Split(',');
+              int cx, cy;
+              if (pp.Length == 2 && int.TryParse(pp[0].Trim(), out cx) && int.TryParse(pp[1].Trim(), out cy) && !_locked) {
+                long nowc = DateTime.UtcNow.Ticks / 10000L;
+                if (nowc - _lastClickMs >= 140) {            // >=140ms between actions
+                  _lastClickMs = nowc;
+                  MoveCursorAbs(cx, cy);
+                  if (verb == "click") DoMouse(MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, false);
+                  else if (verb == "rclick") DoMouse(MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, false);
+                  else if (verb == "dblclick") DoMouse(MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, true);
+                  // 'movec' just moves the cursor (no button)
+                  if (_clickLogN < 12) { _clickLogN++; L("hands: " + verb + " @ " + cx + "," + cy); }
+                }
+              }
+            } catch {}
+          }
         } catch {}
       };
       _ctl.CoreWebView2.NavigationCompleted += delegate(object s2, CoreWebView2NavigationCompletedEventArgs a2) {
@@ -804,6 +839,33 @@ public class ClippyComp : Form {
   // open/close). SetWindowRgn takes ownership of the final region, so we must NOT
   // delete it; we DO delete the intermediate sub-regions after combining.
   int _regionLogN = 0;
+  // Clippy's HANDS state + primitives (real mouse control via SendInput)
+  long _lastClickMs = 0; int _clickLogN = 0;
+  void MoveCursorAbs(int x, int y) {
+    // Map absolute desktop pixels -> 0..65535 normalized over the WHOLE virtual
+    // desktop, so a click lands correctly across multiple monitors and DPI.
+    try {
+      int vx = GetSystemMetrics(SM_XVIRTUALSCREEN), vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
+      int vw = GetSystemMetrics(SM_CXVIRTUALSCREEN), vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+      if (vw <= 0) vw = 1; if (vh <= 0) vh = 1;
+      int nx = (int)(((double)(x - vx) * 65535.0) / vw);
+      int ny = (int)(((double)(y - vy) * 65535.0) / vh);
+      var inp = new INPUT[1];
+      inp[0].type = INPUT_MOUSE;
+      inp[0].mi.dx = nx; inp[0].mi.dy = ny;
+      inp[0].mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+      SendInput(1, inp, Marshal.SizeOf(typeof(INPUT)));
+      try { SetCursorPos(x, y); } catch {}   // belt-and-suspenders for single-monitor
+    } catch {}
+  }
+  void DoMouse(uint down, uint up, bool dbl) {
+    try {
+      var seq = dbl ? new uint[]{down, up, down, up} : new uint[]{down, up};
+      var inp = new INPUT[seq.Length];
+      for (int i = 0; i < seq.Length; i++) { inp[i].type = INPUT_MOUSE; inp[i].mi.dwFlags = seq[i]; }
+      SendInput((uint)inp.Length, inp, Marshal.SizeOf(typeof(INPUT)));
+    } catch {}
+  }
   void ApplyRegion(List<int[]> rects){
     try {
       IntPtr full = CreateRectRgn(0, 0, 0, 0);   // empty; OR every piece into it

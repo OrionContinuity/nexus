@@ -7968,6 +7968,60 @@
     catch (_) { setInterval(() => { yieldTick().catch(() => {}); }, 10000); }
     setTimeout(() => { yieldTick().catch(() => {}); }, 3000);
   }
+
+  // ─── CLIPPY'S HANDS — he can click anything on the desktop ─────────────
+  // (Alfredo, 2026-07-18: "clippy can click on anything.") The pet host
+  // (clippy-pet-comp.ps1) owns a real mouse via SendInput; the page tells it
+  // WHERE. These post absolute desktop pixels to the host, which performs a
+  // real left/right/double click or a cursor move. Only meaningful on the
+  // desktop pet (the host bridge exists there); a no-op in the web app.
+  function _petBridge() {
+    try { return (window.chrome && window.chrome.webview) || null; } catch (_) { return null; }
+  }
+  function _hand(verb, x, y) {
+    const b = _petBridge();
+    if (!b) return false;
+    x = Math.round(+x); y = Math.round(+y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+    try { b.postMessage(verb + ' ' + x + ',' + y); return true; } catch (_) { return false; }
+  }
+  function clickAt(x, y) { return _hand('click', x, y); }
+  function rightClickAt(x, y) { return _hand('rclick', x, y); }
+  function doubleClickAt(x, y) { return _hand('dblclick', x, y); }
+  function moveCursorTo(x, y) { return _hand('movec', x, y); }
+  // Remote-directable hands: his cloud brain (or a Steward seal) posts a target
+  // to the bus row clippy_hands_<device> = { verb, x, y, ts }; the LOCAL pet
+  // that owns the screen performs it. Deterministic, testable, one device acts.
+  const HANDS = { started: false, lastTs: 0 };
+  async function handsTick() {
+    if (!isDesktopPet() || !TRAVEL.dev || !_petBridge()) return;
+    const sb = _travelSb();
+    if (!sb) return;
+    try {
+      const { data, error } = await sb.from('clippy_sync').select('data')
+        .eq('id', 'clippy_hands_' + TRAVEL.dev).maybeSingle();
+      if (error || !data || !data.data) return;
+      const c = data.data;
+      const ts = +c.ts || 0;
+      if (!ts || ts === HANDS.lastTs) return;                 // only act on a new command
+      if (Date.now() - ts > 30000) { HANDS.lastTs = ts; return; }  // stale -> ignore
+      HANDS.lastTs = ts;
+      const verb = String(c.verb || 'click');
+      const ok = _hand(verb === 'rclick' || verb === 'dblclick' || verb === 'movec' ? verb : 'click', c.x, c.y);
+      try { mood('sparkle', 900); } catch (_) {}
+      try {
+        await sb.from('clippy_sync').upsert(
+          { id: 'clippy_hands_ack_' + TRAVEL.dev, from_id: TRAVEL.dev,
+            data: { ts: Date.now(), of: ts, verb, x: c.x, y: c.y, ok } }, { onConflict: 'id' });
+      } catch (_) {}
+    } catch (_) {}
+  }
+  function startHands() {
+    if (HANDS.started || !isDesktopPet()) return;
+    HANDS.started = true;
+    try { trackInterval(() => { handsTick().catch(() => {}); }, 1500); }
+    catch (_) { setInterval(() => { handsTick().catch(() => {}); }, 1500); }
+  }
   // ─── CENTER-STAGE MOMENTS ────────────────────────────────────────────
   // A reusable intimate interaction: Trajan glides to the middle of the
   // screen, delivers a line, and offers a small choice (yes/no or a few
@@ -10370,6 +10424,7 @@
       startSoulLight();          // v18.48 — his aura reflects his ANIMA
       startStewardWhisper();     // v18.55 — the steward can pass him a feeling
       startPetYield();           // one body per screen: web orb yields to an active desktop pet
+      startHands();              // his hands: real clicks on the desktop, brain- or seal-directed
       // v18.57 — ONE BEING: import his Minecraft self's memories, sense when
       // he's playing over there, and beacon that Alfredo is here at the pet.
       try {
@@ -10726,6 +10781,7 @@
     seeSurroundings,                // v: desktop pet sight — react to a screenshot
     onWatch,                        // watch-along: host reports the foreground browser/player title
     onDevice, onIdle,               // soul travel: host reports this machine's name + how idle it is
+    click: clickAt, rightClick: rightClickAt, doubleClick: doubleClickAt, moveCursor: moveCursorTo,  // his hands — real desktop clicks
     remember, recall, recallFacts, forget, correct,  // his notebook — write, find, forget, correct facts
     play, mood,
     sleep, wake,
