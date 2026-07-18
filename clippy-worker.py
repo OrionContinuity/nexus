@@ -677,7 +677,7 @@ def sb_heartbeat():
     _can_cmd = bool(CMD_TOKEN or STEWARD_SECRET)
     if not _can_cmd:   needs.append("cmd")       # cannot act on the world
     entry = {"name": NODE, "ts": now, "vision": True, "cmd": _can_cmd, "seal": bool(STEWARD_SECRET),
-             "os": OSDESC, "version": "worker-2.3", "code_ver": SELF_VER,
+             "os": OSDESC, "version": "worker-2.4", "code_ver": SELF_VER,
              "claude": claude_live,
              # worker-1.9 — this node polls the race-free 'txt:' text lane.
              # NEXUS routes text jobs there only when it sees this flag live.
@@ -1469,6 +1469,196 @@ def _companion_loop():
             pass
         time.sleep(25)
 
+# ─── worker-2.4: 🎮 CONTROLLER CONFIG SYNC ───────────────────────────────────
+# The NEXUS Clippy panel (js/clippy-controller.js) saves a per-game button map
+# to the bus row `clippy_controller_cfg`. This loop regenerates the game's
+# .amgp profile from that config (same XML rules as the committed profile:
+# button indexes = SDL+1, dpad = direction bitmask, wheel/mouse elements are
+# per-button children), then kills antimicrox so the daemon revives it with
+# the new profile. Clearing the override restores the committed repo profile.
+_CTRL_ACTIONS = {
+    "none":      None,
+    "jump":      ("kb", "0x20"),      "sneak":  ("kb", "0x1000020"),
+    "sprint":    ("kb", "0x1000021"), "inventory": ("kb", "0x45"),
+    "camera":    ("kb", "0x1000034"), "swap":   ("kb", "0x46"),
+    "drop":      ("kb", "0x51"),      "pause":  ("kb", "0x1000000"),
+    "chat":      ("kb", "0x54"),
+    "attack":    ("mb", "1"),         "use":    ("mb", "3"),
+    "hotprev":   ("wheel", "4"),      "hotnext": ("wheel", "5"),
+    "slot1": ("kb", "0x31"), "slot2": ("kb", "0x32"), "slot3": ("kb", "0x33"),
+    "slot4": ("kb", "0x34"), "slot5": ("kb", "0x35"), "slot6": ("kb", "0x36"),
+    "slot7": ("kb", "0x37"), "slot8": ("kb", "0x38"), "slot9": ("kb", "0x39"),
+}
+_CTRL_BTN_INDEX = {"a": 1, "b": 2, "x": 3, "y": 4, "back": 5, "start": 7,
+                   "l3": 8, "r3": 9, "lb": 10, "rb": 11}
+_CTRL_DPAD_INDEX = {"dup": 1, "dright": 2, "ddown": 4, "dleft": 8}
+_CTRL_MARK = os.path.join(os.path.expanduser("~"), ".clippy", "controller-cfg.applied")
+
+def _ctrl_slot(action):
+    """One <slots> block for an action id, or None for unmapped."""
+    spec = _CTRL_ACTIONS.get(action or "none")
+    if not spec:
+        return None
+    kind, code = spec
+    mode = "keyboard" if kind == "kb" else "mousebutton"
+    return "<slots><slot><code>%s</code><mode>%s</mode></slot></slots>" % (code, mode)
+
+def _ctrl_gen_amgp(cfg):
+    """Deterministic .amgp XML from a panel config {buttons:{}, tuning:{}}."""
+    b = cfg.get("buttons") or {}
+    t = cfg.get("tuning") or {}
+    def n(key, dflt):
+        try: return float(t.get(key, dflt))
+        except Exception: return dflt
+    cam_x, cam_y = int(n("camX", 22)), int(n("camY", 14))
+    easing = str(t.get("easing", "easing-quadratic"))
+    ease_d = n("easingDur", 1.0)
+    r_dead, r_max = int(n("rightDead", 7500)), int(n("rightMax", 30000))
+    l_dead, diag = int(n("leftDead", 6000)), int(n("diagRange", 25))
+    delay, wheel = int(n("stickDelay", 10)), int(n("wheelSpeed", 1))
+    trig = int(n("trigDead", 2000))
+    L = []
+    L.append('<?xml version="1.0" encoding="UTF-8"?>')
+    L.append('<gamecontroller configversion="19" appversion="3.6.1">')
+    L.append('<sdlname>Xbox 360 Controller</sdlname>')
+    L.append('<stickAxisAssociation index="1" xAxis="1" yAxis="2"/>')
+    L.append('<stickAxisAssociation index="2" xAxis="3" yAxis="4"/>')
+    L.append('<vdpadButtonAssociations index="1">')
+    L.append('<vdpadButtonAssociation axis="0" button="12" direction="1"/>')
+    L.append('<vdpadButtonAssociation axis="0" button="13" direction="4"/>')
+    L.append('<vdpadButtonAssociation axis="0" button="14" direction="8"/>')
+    L.append('<vdpadButtonAssociation axis="0" button="15" direction="2"/>')
+    L.append('</vdpadButtonAssociations>')
+    L.append('<sets>')
+    L.append('<set index="1">')
+    # left stick -> WASD (fixed), tunable feel
+    L.append('<stick index="1">')
+    L.append('<deadZone>%d</deadZone>' % l_dead)
+    L.append('<diagonalRange>%d</diagonalRange>' % diag)
+    if delay > 0:
+        L.append('<stickDelay>%d</stickDelay>' % delay)
+    for idx, code in ((1, "0x57"), (3, "0x44"), (5, "0x53"), (7, "0x41")):
+        L.append('<stickbutton index="%d"><slots><slot><code>%s</code><mode>keyboard</mode></slot></slots></stickbutton>' % (idx, code))
+    L.append('</stick>')
+    # right stick -> mouse look (fixed), tunable feel
+    L.append('<stick index="2">')
+    L.append('<deadZone>%d</deadZone>' % r_dead)
+    L.append('<maxZone>%d</maxZone>' % r_max)
+    mouse_extra = '<mousespeedx>%d</mousespeedx><mousespeedy>%d</mousespeedy>' % (cam_x, cam_y)
+    if easing and easing != "linear":
+        mouse_extra += '<mouseacceleration>%s</mouseacceleration><easingduration>%s</easingduration>' % (easing, ("%.1f" % ease_d))
+    for idx, code in ((1, "1"), (3, "4"), (5, "2"), (7, "3")):
+        L.append('<stickbutton index="%d">%s<slots><slot><code>%s</code><mode>mousemovement</mode></slot></slots></stickbutton>' % (idx, mouse_extra, code))
+    L.append('</stick>')
+    # dpad (only mapped directions; bitmask indexes)
+    dlines = []
+    for k, idx in sorted(_CTRL_DPAD_INDEX.items(), key=lambda kv: kv[1]):
+        s = _ctrl_slot(b.get(k))
+        if s:
+            dlines.append('<dpadbutton index="%d">%s</dpadbutton>' % (idx, s))
+    if dlines:
+        L.append('<dpad index="1">')
+        L.extend(dlines)
+        L.append('</dpad>')
+    # triggers (LT=5, RT=6)
+    for key, tidx in (("lt", 5), ("rt", 6)):
+        s = _ctrl_slot(b.get(key))
+        if s:
+            L.append('<trigger index="%d"><deadZone>%d</deadZone><throttle>positivehalf</throttle><triggerbutton index="2">%s</triggerbutton></trigger>' % (tidx, trig, s))
+    # buttons
+    for key, bidx in sorted(_CTRL_BTN_INDEX.items(), key=lambda kv: kv[1]):
+        act = b.get(key) or "none"
+        s = _ctrl_slot(act)
+        if not s:
+            continue
+        spec = _CTRL_ACTIONS.get(act)
+        extra = ""
+        if spec and spec[0] == "wheel":
+            extra = '<wheelspeedx>%d</wheelspeedx><wheelspeedy>%d</wheelspeedy>' % (wheel, wheel)
+        L.append('<button index="%d">%s%s</button>' % (bidx, extra, s))
+    L.append('</set>')
+    L.append('</sets>')
+    L.append('</gamecontroller>')
+    return "\n".join(L) + "\n"
+
+def _ctrl_load_mark():
+    try:
+        with open(_CTRL_MARK, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {"ts": 0, "games": []}
+
+def _ctrl_save_mark(m):
+    try:
+        os.makedirs(os.path.dirname(_CTRL_MARK), exist_ok=True)
+        with open(_CTRL_MARK, "w", encoding="utf-8") as f:
+            json.dump(m, f)
+    except Exception:
+        pass
+
+def _ctrl_restart_mapper():
+    """Kill antimicrox; the daemon's Tick-Controller revives it with the new
+    profile within its supervisor cadence (or at next game launch)."""
+    if os.name != "nt":
+        return
+    try:
+        subprocess.run(["taskkill", "/IM", "antimicrox.exe", "/F"],
+                       capture_output=True, timeout=15, creationflags=_NO_WINDOW)
+    except Exception:
+        pass
+
+def _controller_cfg_loop():
+    base = os.path.dirname(os.path.abspath(__file__))
+    raw_base = RAW_WORKER_URL.rsplit("/", 1)[0]
+    while True:
+        try:
+            _, rawr = _http("GET", REST + "?id=eq.clippy_controller_cfg&select=data", SB_HEADERS, timeout=20)
+            rows = json.loads(rawr or "[]")
+            data = (rows[0].get("data") or {}) if rows else {}
+            ts = data.get("ts") or 0
+            games = data.get("games") or {}
+            mark = _ctrl_load_mark()
+            if ts and ts != mark.get("ts"):
+                changed = False
+                # apply every configured game
+                for name, cfg in games.items():
+                    if not isinstance(cfg, dict):
+                        continue
+                    prof = os.path.join(base, "%s.gamecontroller.amgp" % name)
+                    xml = _ctrl_gen_amgp(cfg)
+                    old = ""
+                    try:
+                        with open(prof, "r", encoding="utf-8") as f:
+                            old = f.read()
+                    except Exception:
+                        pass
+                    if xml != old:
+                        with open(prof, "w", encoding="utf-8") as f:
+                            f.write(xml)
+                        changed = True
+                        log("controller: regenerated %s from panel config" % os.path.basename(prof))
+                # a game whose override was CLEARED -> restore the committed profile
+                for name in (mark.get("games") or []):
+                    if name in games:
+                        continue
+                    fn = "%s.gamecontroller.amgp" % name
+                    try:
+                        _, body = _http("GET", raw_base + "/" + fn, {}, timeout=30)
+                        if body and body.strip().startswith("<?xml"):
+                            with open(os.path.join(base, fn), "w", encoding="utf-8") as f:
+                                f.write(body)
+                            changed = True
+                            log("controller: override cleared - restored committed %s" % fn)
+                    except Exception as e:
+                        log("controller: restore %s failed (%s)" % (fn, e))
+                _ctrl_save_mark({"ts": ts, "games": sorted(games.keys())})
+                if changed:
+                    _ctrl_restart_mapper()
+                    activity("node", "controller profile updated from NEXUS panel")
+        except Exception:
+            pass
+        time.sleep(45)
+
 def main():
     log("clippy-worker up - node='%s' vision='%s' bus=%s ollama=%s claude=%s" % (NODE, VISION_MODEL, SUPA_URL, OLLAMA, CLAUDE_BIN or "no"))
     sb_heartbeat()      # register immediately so the node shows online without waiting a cycle
@@ -1477,6 +1667,8 @@ def main():
     log("watchdog ON (self-restart if the heartbeat stalls > %ds)" % WATCHDOG_STALE_S)
     threading.Thread(target=_companion_loop, daemon=True).start()   # game awareness (Windows)
     log("companion sense ON (foreground-game awareness; keeps Clippy glad while you play)")
+    threading.Thread(target=_controller_cfg_loop, daemon=True).start()   # 🎮 panel -> .amgp regen
+    log("controller cfg sync ON (bus row clippy_controller_cfg -> regenerated .amgp, every 45s)")
     # Warm the vision model in the BACKGROUND. It used to run inline here, which
     # blocked the job loop + self-update below for the whole model load — minutes
     # on a CPU laptop (DESKTOP-OQ8SROU sat 'warming up vision' 6+ min, unable to

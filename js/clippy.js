@@ -7247,6 +7247,7 @@
       { label: '👗 Wardrobe', onClick: () => { closeActionBubble(); showCostumeMenu(); } },
       { label: '❤️ My feelings', onClick: () => { closeActionBubble(); showAffinityMenu(); } },
       { label: '🤖 What I am', onClick: () => { closeActionBubble(); showCapabilityMenu(); } },
+      { label: '🎮 Controller', onClick: () => { closeActionBubble(); if (window.NX && NX.clippyController) NX.clippyController.show(); } },
     ];
     if (oracleReady) {
       actions.push({ label: '✨ Oracle (rare)', onClick: () => { triggerSuperChat(); } });
