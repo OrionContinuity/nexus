@@ -12,31 +12,30 @@
 <sets>
 <set index="1">
 <stick index="1">
+<deadZone>6000</deadZone>
+<diagonalRange>25</diagonalRange>
+<stickDelay>10</stickDelay>
 <stickbutton index="1"><slots><slot><code>0x57</code><mode>keyboard</mode></slot></slots></stickbutton>
 <stickbutton index="3"><slots><slot><code>0x44</code><mode>keyboard</mode></slot></slots></stickbutton>
 <stickbutton index="5"><slots><slot><code>0x53</code><mode>keyboard</mode></slot></slots></stickbutton>
 <stickbutton index="7"><slots><slot><code>0x41</code><mode>keyboard</mode></slot></slots></stickbutton>
 </stick>
 <stick index="2">
-<deadZone>4000</deadZone>
-<stickbutton index="1"><mousespeedx>50</mousespeedx><mousespeedy>50</mousespeedy><slots><slot><code>1</code><mode>mousemovement</mode></slot></slots></stickbutton>
-<stickbutton index="3"><mousespeedx>50</mousespeedx><mousespeedy>50</mousespeedy><slots><slot><code>4</code><mode>mousemovement</mode></slot></slots></stickbutton>
-<stickbutton index="5"><mousespeedx>50</mousespeedx><mousespeedy>50</mousespeedy><slots><slot><code>2</code><mode>mousemovement</mode></slot></slots></stickbutton>
-<stickbutton index="7"><mousespeedx>50</mousespeedx><mousespeedy>50</mousespeedy><slots><slot><code>3</code><mode>mousemovement</mode></slot></slots></stickbutton>
+<deadZone>7500</deadZone>
+<maxZone>30000</maxZone>
+<stickbutton index="1"><mousespeedx>22</mousespeedx><mousespeedy>14</mousespeedy><mouseacceleration>easing-quadratic</mouseacceleration><easingduration>1.0</easingduration><slots><slot><code>1</code><mode>mousemovement</mode></slot></slots></stickbutton>
+<stickbutton index="3"><mousespeedx>22</mousespeedx><mousespeedy>14</mousespeedy><mouseacceleration>easing-quadratic</mouseacceleration><easingduration>1.0</easingduration><slots><slot><code>4</code><mode>mousemovement</mode></slot></slots></stickbutton>
+<stickbutton index="5"><mousespeedx>22</mousespeedx><mousespeedy>14</mousespeedy><mouseacceleration>easing-quadratic</mouseacceleration><easingduration>1.0</easingduration><slots><slot><code>2</code><mode>mousemovement</mode></slot></slots></stickbutton>
+<stickbutton index="7"><mousespeedx>22</mousespeedx><mousespeedy>14</mousespeedy><mouseacceleration>easing-quadratic</mouseacceleration><easingduration>1.0</easingduration><slots><slot><code>3</code><mode>mousemovement</mode></slot></slots></stickbutton>
 </stick>
-<dpad index="1">
-<dpadbutton index="5"><slots><slot><code>0x51</code><mode>keyboard</mode></slot></slots></dpadbutton>
-</dpad>
 <trigger index="5"><deadZone>2000</deadZone><throttle>positivehalf</throttle><triggerbutton index="2"><slots><slot><code>3</code><mode>mousebutton</mode></slot></slots></triggerbutton></trigger>
 <trigger index="6"><deadZone>2000</deadZone><throttle>positivehalf</throttle><triggerbutton index="2"><slots><slot><code>1</code><mode>mousebutton</mode></slot></slots></triggerbutton></trigger>
 <button index="1"><slots><slot><code>0x20</code><mode>keyboard</mode></slot></slots></button>
 <button index="2"><slots><slot><code>0x1000020</code><mode>keyboard</mode></slot></slots></button>
-<button index="3"><slots><slot><code>0x45</code><mode>keyboard</mode></slot></slots></button>
-<button index="4"><slots><slot><code>0x46</code><mode>keyboard</mode></slot></slots></button>
-<button index="7"><slots><slot><code>0x1000000</code><mode>keyboard</mode></slot></slots></button>
-<button index="8"><slots><slot><code>0x1000021</code><mode>keyboard</mode></slot></slots></button>
-<button index="10"><wheelspeedx>20</wheelspeedx><wheelspeedy>20</wheelspeedy><slots><slot><code>4</code><mode>mousebutton</mode></slot></slots></button>
-<button index="11"><wheelspeedx>20</wheelspeedx><wheelspeedy>20</wheelspeedy><slots><slot><code>5</code><mode>mousebutton</mode></slot></slots></button>
+<button index="3"><slots><slot><code>0x1000034</code><mode>keyboard</mode></slot></slots></button>
+<button index="4"><slots><slot><code>0x45</code><mode>keyboard</mode></slot></slots></button>
+<button index="10"><wheelspeedx>1</wheelspeedx><wheelspeedy>1</wheelspeedy><slots><slot><code>4</code><mode>mousebutton</mode></slot></slots></button>
+<button index="11"><wheelspeedx>1</wheelspeedx><wheelspeedy>1</wheelspeedy><slots><slot><code>5</code><mode>mousebutton</mode></slot></slots></button>
 </set>
 </sets>
 </gamecontroller>

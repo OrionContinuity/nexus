@@ -72,29 +72,41 @@ If no committed profile is present it loads antimicrox's own saved/default
 profile — so creating the mapping once in the GUI (below) is enough; the daemon
 just turns it on/off with the game.
 
-## The toddler button map (F310 in X mode)
+## The toddler button map (F310 in X mode) — v2, agent-researched 2026-07-18
 
-Encode this once in the antimicrox GUI (mirrors the Bedrock/Xbox default so it
-feels like console Minecraft). The six that matter most for the youngest player
-are **bold**.
+Six research lenses (movement stick, camera feel, face buttons, triggers/
+bumpers/dpad, toddler accessibility, amgp format) + a synthesis pass produced
+this map. Guiding rules: **Bedrock console parity where it's safe, deliberate
+holes where a 3-year-old can hurt their world.** The committed
+`minecraft.gamecontroller.amgp` encodes it exactly.
 
-| F310 control | Action | Keyboard/mouse |
-|---|---|---|
-| **Left stick** | **Move** | W / A / S / D |
-| Left stick press (L3) | Sprint | Left-Ctrl |
-| **Right stick** | **Look** | Mouse X / Y |
-| **A** | **Jump** | Space |
-| **B** | **Sneak** | Left-Shift (hold) |
-| X | Inventory | E |
-| Y | Swap hand | F |
-| **RT** | **Break / attack** | Left mouse |
-| **LT** | **Use / place** | Right mouse |
-| LB / RB | Hotbar prev / next | Wheel up / down |
-| D-pad Down | Drop | Q |
-| Start (≡) | Pause | Esc |
+| F310 control | Action | Emits | Feel tuning |
+|---|---|---|---|
+| **Left stick** | **Move** | W / A / S / D | deadZone 6000 (lightest-push start, no rest drift), diagonalRange 25 ("mostly forward" snaps to pure W), stickDelay 10ms (debounce kills accidental double-tap-W sprint) |
+| **Right stick** | **Look** | Mouse X / Y | mousespeed 22/14 (Y at ~64% of X — console trick, stops sky/feet-staring), easing-quadratic over 1.0s (gentle tilts move gently), deadZone 7500 |
+| **A** | **Jump** | Space | plain hold — exact Bedrock parity |
+| **B** | **Sneak / dismount** | Left-Shift (hold) | HOLD, never toggle (a latched sneak is undiagnosable at 3); only dismount key — must stay |
+| **X** | **Camera view** | F5 | the most-mashed button gets the harmless fun payload; self-reversing |
+| **Y** | **Inventory** | E | Bedrock's inventory button; E self-closes every screen — the child undoes their own press |
+| **RT** | **Break / attack** | Left mouse (hold) | no turbo (turbo resets Java's block-break progress) |
+| **LT** | **Use / place** | Right mouse (hold) | no turbo (would machine-gun blocks) |
+| LB / RB | Hotbar prev / next | Wheel up / down | wheelspeed **1** (was 20 = ~20 slots/s spin; now a tap = one slot) |
+| D-pad | — **inert** — | *(unmapped)* | sits under the resting thumb; drop-Q deleted (hotbar-dumping trap; the old index-5 binding was also an invalid bitmask that never fired) |
+| Start / Back / Guide | — **inert** — | *(unmapped)* | Start→Esc removed: pause menu + stick-cursor + RT-click = a 3yo can hit "Save and Quit"; parent pauses from keyboard |
+| L3 / R3 (stick clicks) | — **inert** — | *(unmapped)* | death-grip steering clicks the stick = runaway sprint; no sprint binding at all at this age |
 
-For the youngest player, start with only the six bold rows and add the rest as
-they grow.
+**Removed vs v1:** Y=F swap-offhand (the "my sword vanished" meltdown),
+D-pad-down=Q drop, Start=Esc, L3=Ctrl sprint.
+
+## In-game settings that complete the map (set once on the PC)
+
+- World: **Creative + Peaceful** — every mistake reversible, instant break
+- Controls: **Auto-Jump ON** (terrain walkable without timing A)
+- Accessibility: **Toggle Sneak OFF / Toggle Sprint OFF** (would latch the hold bindings)
+- **FOV Effects 0%** — no nauseating zoom if double-tap-W sprint fires (that sprint can't be unbound in vanilla)
+- Mouse Sensitivity 100% (the .amgp is the single tuning knob); `pauseOnLostFocus:false` in options.txt
+- Windows: **Xbox Game Bar OFF** (Guide button inert); keyboard out of reach — T-chat, Q, F3, Esc stay parent-only
+- Camera too slow as they grow? Raise `mousespeedx/y` (adult feel ≈ 50/35, easing-cubic 0.5s) — an "older kid" second profile can ship via the registry later.
 
 ## Bring-up steps (do these live on the PC — e.g. the 4pm session)
 
