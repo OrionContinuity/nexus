@@ -51,14 +51,17 @@ def foliage(season, biome):
 # ── Time engine (pack_format 94; 1.21 uses singular 'function' dirs)
 # day 0..12999 (13000 ticks) over 28 min (33600 rt) -> 387 per-mille
 # night 13000..23999 (11000 ticks) over 12 min (14400 rt) -> 764 per-mille
-TICK = """# Living World — long gentle days (28 min sun / 12 min night)
+# NOTE: .mcfunction files are kept STRICTLY ASCII - a non-ASCII byte (an em-dash
+# in a comment) made MC 1.21.11 treat living:load as unparseable => "missing
+# reference" => the load-tag error is FATAL and the server refuses to start.
+TICK = """# Living World - long gentle days (28 min sun / 12 min night)
 execute store result score #day lw run time query daytime
 execute if score #day lw matches ..12999 run scoreboard players add #acc lw 387
 execute if score #day lw matches 13000.. run scoreboard players add #acc lw 764
 execute if score #acc lw matches 1000.. run time add 1t
 execute if score #acc lw matches 1000.. run scoreboard players remove #acc lw 1000
 """
-LOAD = """# Living World boots — take over the clock
+LOAD = """# Living World boots - take over the clock
 scoreboard objectives add lw dummy
 gamerule doDaylightCycle false
 """
