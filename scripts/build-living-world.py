@@ -79,10 +79,15 @@ def build(season):
         "min_format": [94, 0],
         "max_format": [94, 1],
         "description": "Living World · %s — seasons in the leaves, long gentle days, wondrous zones (Clippy's world)" % season}}, indent=1))
-    z.writestr("data/living/function/load.mcfunction", LOAD)
-    z.writestr("data/living/function/tick.mcfunction", TICK)
-    z.writestr("data/minecraft/tags/function/load.json", json.dumps({"values":["living:load"]}))
-    z.writestr("data/minecraft/tags/function/tick.json", json.dumps({"values":["living:tick"]}))
+    # Ship functions + tags in BOTH the singular (1.21+) and plural (<1.21)
+    # directory names so the pack resolves regardless of how this exact server
+    # build reads them - the living:load "missing reference" persisted even with
+    # valid metadata + ASCII, which points at a function-dir resolution quirk.
+    for fdir in ("function", "functions"):
+        z.writestr("data/living/%s/load.mcfunction" % fdir, LOAD)
+        z.writestr("data/living/%s/tick.mcfunction" % fdir, TICK)
+        z.writestr("data/minecraft/tags/%s/load.json" % fdir, json.dumps({"values":["living:load"]}))
+        z.writestr("data/minecraft/tags/%s/tick.json" % fdir, json.dumps({"values":["living:tick"]}))
     for b in BIOMES:
         d = json.load(open("biomes/%s.json" % b))
         d.setdefault("effects", {})["foliage_color"] = foliage(season, b)
