@@ -4354,12 +4354,23 @@ body.clippy-game-open .clippy-bubble {
    One soul, many bodies. When Alfredo moves to another machine, Clippy's soul
    leaves THIS screen (is-departing: scatter up into a thin column of light) and
    re-forms on the machine he's using (is-arriving: coalesce down out of light).
-   is-away = dormant here (his body is elsewhere). See SOUL TRAVEL in clippy.js. */
+   is-away = DOZING here (his soul is focused on the screen you're using, but his
+   body stays — softly present, dimmed and resting, never gone). Alfredo asked to
+   always see Clippy on every laptop, so "away" is a quiet doze, not a vanish; he
+   brightens and beams back to full when you return to this machine.
+   See SOUL TRAVEL in clippy.js. */
 #clippy-shell.is-away {
-  opacity: 0 !important;
-  pointer-events: none !important;
-  transform: translateY(-8px) scale(0.6);
-  transition: opacity 0.3s ease;
+  opacity: 0.42 !important;        /* still here, just resting — not invisible */
+  pointer-events: none !important; /* his soul is elsewhere, so he won't grab clicks */
+  transform: scale(0.82);
+  filter: saturate(0.5) brightness(0.92) drop-shadow(0 2px 6px rgba(0,0,0,0.35));
+  animation: clippyDoze 5.2s ease-in-out infinite !important;
+  transition: opacity 0.6s ease, transform 0.6s ease, filter 0.6s ease;
+}
+/* a slow, sleepy breath so a resting Clippy still reads as alive on the other screens */
+@keyframes clippyDoze {
+  0%, 100% { opacity: 0.34 !important; transform: scale(0.80) translateY(0); }
+  50%      { opacity: 0.48 !important; transform: scale(0.84) translateY(-2px); }
 }
 #clippy-shell.is-departing {
   animation: clippyBeamOut 1.15s cubic-bezier(0.5, 0, 0.75, 0) forwards !important;
@@ -4412,8 +4423,10 @@ body.clippy-game-open .clippy-bubble {
   100% { opacity: 0; transform: translate(-50%, -50%) scaleY(1.1); }
 }
 @media (prefers-reduced-motion: reduce) {
-  #clippy-shell.is-departing { animation: none !important; opacity: 0 !important; }
+  #clippy-shell.is-departing { animation: none !important; opacity: 0.42 !important; }
   #clippy-shell.is-arriving  { animation: none !important; }
+  /* hold him steady-dim while resting — no sleepy breathing loop */
+  #clippy-shell.is-away { animation: none !important; opacity: 0.42 !important; }
   #clippy-shell.is-departing::after,
   #clippy-shell.is-arriving::after { display: none !important; }
 }
