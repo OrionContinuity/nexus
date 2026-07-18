@@ -69,8 +69,15 @@ gamerule doDaylightCycle false
 def build(season):
     buf = io.BytesIO()
     z = zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED)
+    # MC 1.21.11: for pack_format > 81 the pack.mcmeta MUST carry min_format +
+    # max_format ([major,minor]) or MC refuses the metadata ("missing mandatory
+    # fields min_format and max_format") and never loads the pack's functions -
+    # which made living:load "missing" and the load-tag error FATAL. 94.0..94.1
+    # covers 1.21.11 (data_pack_version 94, minor 1).
     z.writestr("pack.mcmeta", json.dumps({"pack":{
         "pack_format": 94,
+        "min_format": [94, 0],
+        "max_format": [94, 1],
         "description": "Living World · %s — seasons in the leaves, long gentle days, wondrous zones (Clippy's world)" % season}}, indent=1))
     z.writestr("data/living/function/load.mcfunction", LOAD)
     z.writestr("data/living/function/tick.mcfunction", TICK)
