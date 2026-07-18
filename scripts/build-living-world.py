@@ -61,9 +61,13 @@ execute if score #day lw matches 13000.. run scoreboard players add #acc lw 764
 execute if score #acc lw matches 1000.. run time add 1t
 execute if score #acc lw matches 1000.. run scoreboard players remove #acc lw 1000
 """
-LOAD = """# Living World boots - take over the clock
+# NOTE: NO `gamerule` here. This server compiles datapack functions during
+# early startup, before the gamerule argument registry is ready, so
+# `gamerule doDaylightCycle false` fails to parse and kills the whole load
+# function. doDaylightCycle is turned off via the server console instead (the
+# bot sends it on boot; it persists in the world once set).
+LOAD = """# Living World boots - set up the clock scoreboard
 scoreboard objectives add lw dummy
-gamerule doDaylightCycle false
 """
 
 def build(season):
