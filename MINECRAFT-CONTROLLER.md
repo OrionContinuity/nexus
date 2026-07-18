@@ -45,10 +45,28 @@ enable:   create  %LOCALAPPDATA%\NexusClippy\controller.on   (or  ~\.clippy\cont
 
 Once enabled, the daemon's supervisor loop (`Tick-Controller`):
 - installs antimicrox via winget the first time,
-- **starts** the hidden mapper (`antimicrox --hidden --profile-controller 1`,
-  plus `--profile <file>` if a committed profile is present) **when Minecraft
-  launches**,
+- **detects which registered game is running** (see *Multiple games* below) and
+  **starts** the hidden mapper with **that game's profile**,
+- **swaps the profile** (mapper restart) when the child switches games,
 - **stops** it when the game (or the opt-in flag) goes away.
+
+## Multiple games — the registry (`controller-profiles.json`)
+
+The controller layer is game-agnostic. `controller-profiles.json` (repo root,
+synced to nodes like everything else) lists every supported game:
+
+```json
+{ "games": [ { "name": "minecraft", "title": "Minecraft Java",
+    "profile": "minecraft.gamecontroller.amgp",
+    "proc": "^javaw?\\.exe$", "cmdline": "(?i)minecraft" } ] }
+```
+
+- `proc` — regex on the process name; `cmdline` — optional regex the command
+  line must also match. First match wins, top to bottom.
+- **Adding a game = commit its `.amgp` profile + one registry entry.** The
+  daemon syncs any profile the registry names — no daemon edits, no reinstall.
+- A missing/broken registry falls back to the built-in Minecraft entry, so play
+  never bricks.
 
 If no committed profile is present it loads antimicrox's own saved/default
 profile — so creating the mapping once in the GUI (below) is enough; the daemon

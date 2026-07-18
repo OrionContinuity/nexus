@@ -1,0 +1,13 @@
+{
+  "_": "🎮 Controller registry — which games get the F310 mapped, and how we detect them. The daemon reads this: it syncs every profile listed here from the repo, watches for a matching process, and starts antimicrox with that game's profile (restarting the mapper when the child switches games). ADDING A GAME = commit its .amgp profile + add an entry here. No daemon edits needed.",
+  "_detect": "proc = regex on the process name; cmdline = optional regex the command line must ALSO match (empty = any). First match wins, top to bottom — put the most specific entries first.",
+  "games": [
+    {
+      "name": "minecraft",
+      "title": "Minecraft Java",
+      "profile": "minecraft.gamecontroller.amgp",
+      "proc": "^javaw?\\.exe$",
+      "cmdline": "(?i)minecraft"
+    }
+  ]
+}

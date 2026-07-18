@@ -229,30 +229,77 @@ function Ensure-Antimicrox {
   $script:AntimicroxExe = Resolve-AntimicroxExe
   return [bool]$script:AntimicroxExe
 }
-function Get-MinecraftClientProc { return (Get-CimInstance Win32_Process -EA SilentlyContinue | Where-Object { $_.Name -match '^javaw?\.exe$' -and $_.CommandLine -match '(?i)minecraft' } | Select-Object -First 1) }
-function Start-ControllerMap {
+# ── GAME DETECTION (multi-game, registry-driven) ─────────────────────────────
+# controller-profiles.json lists every supported game: how to DETECT it (process
+# name regex + optional command-line regex) and which .amgp profile to load.
+# Adding a game = commit its profile + one registry entry; the daemon syncs both
+# and this code needs no edits. First registry match wins (most specific first).
+$script:CtrlActiveGame = ''   # which game's profile the running mapper was started with
+function Get-ControllerRegistry {
+  $reg = Join-Path $HOMEDIR 'controller-profiles.json'
+  try {
+    if (Test-Path $reg) {
+      $j = Get-Content $reg -Raw | ConvertFrom-Json
+      if ($j -and $j.games) { return @($j.games) }
+    }
+  } catch { Log "[controller] registry parse failed: $($_.Exception.Message)" 'Yellow' }
+  # Fallback: the original built-in Minecraft entry, so a bad/missing registry never bricks play.
+  return @([pscustomobject]@{ name = 'minecraft'; title = 'Minecraft Java'; profile = 'minecraft.gamecontroller.amgp'; proc = '^javaw?\.exe$'; cmdline = '(?i)minecraft' })
+}
+function Get-RunningGame {
+  # One process scan, checked against every registry entry. Returns the entry or $null.
+  $procs = Get-CimInstance Win32_Process -EA SilentlyContinue
+  if (-not $procs) { return $null }
+  foreach ($g in (Get-ControllerRegistry)) {
+    if (-not $g.proc) { continue }
+    $hit = $procs | Where-Object {
+      $_.Name -match $g.proc -and ((-not $g.cmdline) -or ($_.CommandLine -match $g.cmdline))
+    } | Select-Object -First 1
+    if ($hit) { return $g }
+  }
+  return $null
+}
+function Start-ControllerMap([object]$game) {
   if (Get-AntimicroxProc) { return }
   if (-not (Ensure-Antimicrox)) { return }
-  $prof = Join-Path $HOMEDIR 'minecraft.gamecontroller.amgp'
   # --profile applies to ALL controllers (only the F310 is attached); --profile-controller alone is a
   # no-op and is flaky even with --profile (antimicrox issue #1114), so we ship the committed profile.
   $axArgs = @('--hidden')
+  $prof = if ($game -and $game.profile) { Join-Path $HOMEDIR $game.profile } else { Join-Path $HOMEDIR 'minecraft.gamecontroller.amgp' }
   if (Test-Path $prof) { $axArgs += @('--profile', $prof) }
-  try { Start-Process $script:AntimicroxExe -ArgumentList $axArgs -WindowStyle Hidden; Log '[controller] F310 mapping started for Minecraft' 'Green' } catch { Log "[controller] launch failed: $($_.Exception.Message)" 'Yellow' }
+  $title = if ($game -and $game.title) { $game.title } else { 'game' }
+  try {
+    Start-Process $script:AntimicroxExe -ArgumentList $axArgs -WindowStyle Hidden
+    $script:CtrlActiveGame = if ($game) { [string]$game.name } else { '' }
+    Log "[controller] F310 mapping started for $title" 'Green'
+  } catch { Log "[controller] launch failed: $($_.Exception.Message)" 'Yellow' }
 }
-function Stop-ControllerMap { try { Get-Process antimicrox -EA SilentlyContinue | ForEach-Object { try { $_.CloseMainWindow() | Out-Null; Start-Sleep -Milliseconds 800; if (-not $_.HasExited) { $_.Kill() } } catch {} } } catch {} }
+function Stop-ControllerMap { try { Get-Process antimicrox -EA SilentlyContinue | ForEach-Object { try { $_.CloseMainWindow() | Out-Null; Start-Sleep -Milliseconds 800; if (-not $_.HasExited) { $_.Kill() } } catch {} } } catch {}; $script:CtrlActiveGame = '' }
 function Tick-Controller {
-  # Start the mapper only while Minecraft is running; stop it when the game (or the opt-in) goes away.
+  # Start the mapper only while a REGISTERED game is running, with THAT game's
+  # profile; stop it when the game (or the opt-in) goes away; restart it when
+  # the child switches to a different registered game (profile swap).
   if (-not (Test-ControllerEnabled)) { if (Get-AntimicroxProc) { Stop-ControllerMap }; return }
   try {
-    if (Get-MinecraftClientProc) { if (-not (Get-AntimicroxProc)) { Start-ControllerMap } }
+    $game = Get-RunningGame
+    if ($game) {
+      if (-not (Get-AntimicroxProc)) { Start-ControllerMap $game }
+      elseif ($script:CtrlActiveGame -and $script:CtrlActiveGame -ne [string]$game.name) {
+        Log "[controller] game switched ($script:CtrlActiveGame -> $($game.name)) - swapping profile" 'Cyan'
+        Stop-ControllerMap; Start-ControllerMap $game
+      }
+    }
     else { if (Get-AntimicroxProc) { Stop-ControllerMap } }
   } catch {}
 }
 function Update-NodeFromGitHub {
   # Pull the latest node scripts into $HOMEDIR. Returns which ones changed.
   $res = @{ worker = $false; daemon = $false; pet = $false; grok = $false; bot = $false }
-  foreach ($f in 'clippy-worker.py', 'clippy-daemon.ps1', 'clippy-update.ps1', 'clippy-character.json', 'clippy-dialog.json', 'clippy-pet-comp.ps1', 'grok_bridge.py', 'clippy_agent.js', 'minecraft.gamecontroller.amgp') {
+  # Base files + the controller registry; then every game profile the registry
+  # lists (so committing a new game's .amgp + registry entry deploys itself).
+  $files = @('clippy-worker.py', 'clippy-daemon.ps1', 'clippy-update.ps1', 'clippy-character.json', 'clippy-dialog.json', 'clippy-pet-comp.ps1', 'grok_bridge.py', 'clippy_agent.js', 'controller-profiles.json', 'minecraft.gamecontroller.amgp')
+  try { foreach ($g in (Get-ControllerRegistry)) { if ($g.profile -and ($files -notcontains [string]$g.profile)) { $files += [string]$g.profile } } } catch {}
+  foreach ($f in $files) {
     $dst = Join-Path $HOMEDIR $f
     $tmp = Join-Path $env:TEMP ('nx_' + $f)
     try {
@@ -771,7 +818,9 @@ if (-not $EnsureOnly -and -not $ReportOnly) {
         $self = $PSCommandPath; if (-not $self) { $self = $MyInvocation.MyCommand.Path }
         $stable = Join-Path $env:LOCALAPPDATA 'NexusClippy'
         New-Item -ItemType Directory -Force -Path $stable | Out-Null
-        foreach ($f in 'clippy-daemon.ps1', 'clippy-worker.py', 'clippy-update.ps1', 'clippy-character.json', 'clippy-dialog.json', 'clippy-pet-comp.ps1', 'clippy_agent.js', 'minecraft.gamecontroller.amgp') {
+        $stageFiles = @('clippy-daemon.ps1', 'clippy-worker.py', 'clippy-update.ps1', 'clippy-character.json', 'clippy-dialog.json', 'clippy-pet-comp.ps1', 'clippy_agent.js', 'controller-profiles.json', 'minecraft.gamecontroller.amgp')
+        try { foreach ($g in (Get-ControllerRegistry)) { if ($g.profile -and ($stageFiles -notcontains [string]$g.profile)) { $stageFiles += [string]$g.profile } } } catch {}
+        foreach ($f in $stageFiles) {
           $src = Join-Path $HOMEDIR $f
           if (Test-Path $src) { Copy-Item $src (Join-Path $stable $f) -Force -EA SilentlyContinue }
         }
