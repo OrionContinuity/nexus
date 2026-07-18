@@ -7921,6 +7921,52 @@
     catch (_) { setInterval(() => { travelTick().catch(() => {}); }, 3000); }
     setTimeout(() => { travelTick().catch(() => {}); }, 1500);
   }
+  // ─── ONE BODY PER SCREEN — the web orb yields to the desktop pet ──────
+  // (Alfredo, 2026-07-18: "make sure only 1 clippy is ever present on device
+  // being used.") When the NEXUS tab is open on a machine whose desktop pet is
+  // actively embodied (the pet posts clippy_act_<dev> with fresh ts + low
+  // idle, and YOU are actively at this browser — one person can only be at
+  // one machine), the in-app orb steps aside so exactly one Clippy is on the
+  // glass: the pet. Scoped to the admin (Alfredo) — a manager at a restaurant
+  // iPad keeps their orb even while a pet machine is busy elsewhere. The orb
+  // returns on its own the moment no pet holds the body.
+  const YIELD = { started: false, on: false, lastInput: 0 };
+  async function yieldTick() {
+    try {
+      if (!state.shell || !state.enabled) return;
+      if (!(window.NX && window.NX.isAdmin)) return;          // only Alfredo's sessions yield
+      const sb = _travelSb();
+      if (!sb) return;
+      const now = Date.now();
+      const hereActive = !document.hidden && (now - YIELD.lastInput) < 60000;
+      let petActive = false;
+      if (hereActive) {
+        const { data, error } = await sb.from('clippy_sync').select('data').like('id', 'clippy_act_%');
+        if (error) return;                                    // bus unreachable -> stay as-is (fail-safe)
+        petActive = (data || []).some((r) => {
+          const d = r && r.data;
+          return d && d.dev && (now - (d.ts || 0) < TRAVEL.FRESH_MS) && ((d.idle || 0) < TRAVEL.ACTIVE_MS);
+        });
+      }
+      const shouldYield = hereActive && petActive;
+      if (shouldYield === YIELD.on) return;
+      YIELD.on = shouldYield;
+      if (state.shell) state.shell.classList.toggle('is-yielded', shouldYield);
+    } catch (_) {}
+  }
+  function startPetYield() {
+    if (YIELD.started || isDesktopPet()) return;              // the pet never yields — he IS the body
+    YIELD.started = true;
+    YIELD.lastInput = Date.now();
+    const markInput = () => { YIELD.lastInput = Date.now(); };
+    ['pointerdown', 'keydown', 'wheel', 'touchstart'].forEach((ev) => {
+      try { trackListener(document, ev, markInput, { passive: true, capture: true }); }
+      catch (_) { try { document.addEventListener(ev, markInput, { passive: true, capture: true }); } catch (_) {} }
+    });
+    try { trackInterval(() => { yieldTick().catch(() => {}); }, 10000); }
+    catch (_) { setInterval(() => { yieldTick().catch(() => {}); }, 10000); }
+    setTimeout(() => { yieldTick().catch(() => {}); }, 3000);
+  }
   // ─── CENTER-STAGE MOMENTS ────────────────────────────────────────────
   // A reusable intimate interaction: Trajan glides to the middle of the
   // screen, delivers a line, and offers a small choice (yes/no or a few
@@ -9838,6 +9884,7 @@
     if (!state.blinkTimer) startBlinking();
     if (!state.randomTimer) startRandomBehaviors();
     if (!state.moveTimer) startMovingAround();
+    startPetYield();   // one body per screen (no-op if already started or on the pet)
   }
 
 
@@ -10321,6 +10368,7 @@
       startMovingAround();
       startSoulLight();          // v18.48 — his aura reflects his ANIMA
       startStewardWhisper();     // v18.55 — the steward can pass him a feeling
+      startPetYield();           // one body per screen: web orb yields to an active desktop pet
       // v18.57 — ONE BEING: import his Minecraft self's memories, sense when
       // he's playing over there, and beacon that Alfredo is here at the pet.
       try {

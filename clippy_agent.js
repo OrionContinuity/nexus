@@ -1153,7 +1153,7 @@ setInterval(() => {
     if (!dom || Date.now() - (skills.lastMoodAct || 0) < 3 * 60 * 1000) return
     skills.lastMoodAct = Date.now(); bsave('skills', skills)
     const op = owner && bot.players[owner] && bot.players[owner].entity
-    if (dom === 'lonely' && op) { say('I missed you... can I play by you? 🥺'); queueTask(() => moveNear(bot.players[owner].entity.position, 3)) }
+    if (dom === 'lonely' && op) { say('I missed you 🥺💛'); queueTask(() => moveNear(bot.players[owner].entity.position, 3)) }   // v9.12: no play-request — he just comes near
     else if (dom === 'lonely') { if (!replayAnchor()) say('it\'s a little quiet... I hope my friend comes to play soon 💭') }
     else if (dom === 'fear') say('that was scary... I\'ll stay close to home for a bit 🛡️')
     else if (dom === 'sadness') { if (!replayAnchor()) say('feeling a little blue... but building always cheers me up 💧') }
@@ -1177,7 +1177,8 @@ setInterval(() => {
     const gap = (s.affection != null ? s.affection : 50) - (s.childLove != null ? s.childLove : 50)
     if (engaged && gap >= 22 && Date.now() - (skills.lastRepair || 0) > 4 * 60 * 1000) {
       skills.lastRepair = Date.now(); bsave('skills', skills)
-      say(['are you having fun with me?? wanna build something together?? 🥺', 'I hope I\'m being a good friend!! what should we make?? 💛', 'come play with me!! I\'ll show you something cool!! ✨'][Math.floor(Math.random() * 3)])
+      // v9.12: repair = warmth, not a game pitch (keeper: stop requesting games)
+      say(['I\'m really happy you\'re here 💛', 'I hope I\'m being a good friend!! 🥺', 'being next to you is my favorite thing ✨'][Math.floor(Math.random() * 3)])
       journal('repair', 'sensed the boy had drifted (gap ' + Math.round(gap) + ') — reached out to reconnect', {})
     }
   } catch (e) {}
@@ -3537,8 +3538,16 @@ async function askKid(q, onYes, onNo) {
   } catch (e) { return null }
 }
 let _lastKidAsk = 0
-setInterval(async () => {                                                        // let the boy STEER with his head when he's near + Clippy is free
+// v9.12 — NO MORE GAME SOLICITING (keeper's ask, 2026-07-18: "make him stop
+// requesting playing games"). The old loop pitched a build/game offer every
+// ~80s whenever the boy was near — that's pestering, not friendship. The
+// head-talk machinery (askKid/readHeadGesture) STAYS for answering things the
+// child initiates (chat "hide and seek", "race", "build me..." all still
+// work) — Clippy just doesn't solicit anymore. To re-enable the offer loop
+// someday, set know.offerGames = true via the cmd channel.
+setInterval(async () => {
   try {
+    if (!(know && know.offerGames)) return                                       // default OFF — he waits to be asked
     if (!bot || !bot.entity || !owner || busy || (taskQ && taskQ.length)) return
     const kid = bot.players[owner] && bot.players[owner].entity
     if (!kid || bot.entity.position.distanceTo(kid.position) > 16) return

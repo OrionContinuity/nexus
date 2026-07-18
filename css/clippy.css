@@ -4372,6 +4372,16 @@ body.clippy-game-open .clippy-bubble {
   0%, 100% { opacity: 0.34 !important; transform: scale(0.80) translateY(0); }
   50%      { opacity: 0.48 !important; transform: scale(0.84) translateY(-2px); }
 }
+/* ONE BODY PER SCREEN: the NEXUS tab's orb steps fully aside while the desktop
+   pet is actively embodied on this same machine — the pet IS Clippy here, and
+   two of him on one screen is one too many. Unlike is-away (a doze on OTHER
+   machines), is-yielded clears the glass: the real body is inches away. */
+#clippy-shell.is-yielded {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transform: scale(0.9);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
 #clippy-shell.is-departing {
   animation: clippyBeamOut 1.15s cubic-bezier(0.5, 0, 0.75, 0) forwards !important;
 }
