@@ -1139,16 +1139,51 @@ td.check{background:#F0EDE6 !important}
     // nexus_users, so we ping the verify_pin RPC with an invalid PIN.
     // It returns null fast, doesn't write data, and confirms both DB
     // connectivity AND that the auth RPC is reachable.
-    this.sb.rpc('verify_pin', { p_pin: '___probe___' }).then(({error})=>{
-      const err=document.getElementById('pinError');
-      if(error){
-        console.error('NEXUS Supabase:', error.message);
-        if(err) err.textContent='DB: '+error.message;
-      }
-    }).catch(e=>{
-      const err=document.getElementById('pinError');
-      if(err) err.textContent='No connection to server';
-    });
+    //
+    // RESILIENT PROBE (2026-07-18): a fresh reboot/reinstall runs this before
+    // WiFi is fully up, so the one-shot probe used to fail with "Failed to
+    // fetch" and leave that scary red error stuck forever — even after the
+    // network recovered seconds later. Now it RETRIES with backoff and
+    // SELF-CLEARS the moment the DB answers; only a persistent failure shows.
+    // It also re-probes whenever the browser fires 'online'. A network-level
+    // "Failed to fetch" is retryable; a real RPC error (DB reachable, call
+    // rejected) is shown immediately — that's a genuine problem, not a blip.
+    (() => {
+      const setErr = (msg) => { const err=document.getElementById('pinError'); if(err) err.textContent = msg || ''; };
+      const isNetworkErr = (e) => {
+        const m = ((e && (e.message || e)) + '').toLowerCase();
+        return !m || m.includes('failed to fetch') || m.includes('networkerror') ||
+               m.includes('load failed') || m.includes('typeerror');
+      };
+      let settled = false, attempt = 0;
+      const MAX = 6;                                   // ~ up to a minute of grace on a cold boot
+      const probe = () => {
+        if (settled) return;
+        attempt++;
+        this.sb.rpc('verify_pin', { p_pin: '___probe___' }).then(({error})=>{
+          if (!error) {                                // DB answered — we're connected
+            settled = true; setErr('');
+            return;
+          }
+          if (isNetworkErr(error)) {                   // transient — keep trying quietly
+            console.warn('NEXUS Supabase probe (attempt '+attempt+'):', error.message);
+            if (attempt < MAX) { setErr('Connecting…'); setTimeout(probe, Math.min(1500 * attempt, 8000)); }
+            else setErr('No connection to server — check WiFi, then reload.');
+            return;
+          }
+          // Reachable but the RPC itself errored — that's real, surface it.
+          settled = true;
+          console.error('NEXUS Supabase:', error.message);
+          setErr('DB: '+error.message);
+        }).catch(()=>{                                 // hard throw = network down
+          if (attempt < MAX) { setErr('Connecting…'); setTimeout(probe, Math.min(1500 * attempt, 8000)); }
+          else setErr('No connection to server — check WiFi, then reload.');
+        });
+      };
+      probe();
+      // The moment the OS says we're back online, re-check and clear the banner.
+      try { window.addEventListener('online', () => { settled = false; attempt = 0; probe(); }); } catch(_) {}
+    })();
     // Skip PIN screen setup if this is a public QR scan — the public scan
     // detector will render its own UI over the page body
     if (window._NX_PUBLIC_SCAN) {
