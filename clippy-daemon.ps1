@@ -213,11 +213,27 @@ function Start-GrokProc {
 #     $HOMEDIR\minecraft.gamecontroller.amgp   (then committed so it deploys to nodes).
 $script:AntimicroxExe = $null
 function Resolve-AntimicroxExe {
-  # winget installs antimicrox MACHINE-scope (NSIS) to Program Files (x86); it does NOT add itself to PATH.
-  foreach ($p in @((Join-Path ${env:ProgramFiles(x86)} 'AntiMicroX\antimicrox.exe'), (Join-Path ${env:ProgramFiles} 'AntiMicroX\antimicrox.exe'))) {
-    if ($p -and (Test-Path $p)) { return $p }
-  }
+  # winget installs antimicrox MACHINE-scope (NSIS) and does NOT add itself to PATH.
+  # 2026-07-18: newer builds drop the exe in a \bin\ subfolder
+  # (C:\Program Files\AntiMicroX\bin\antimicrox.exe); older builds put it at the
+  # install root. We check BOTH — the missing \bin\ path meant the daemon never
+  # found the mapper and the controller silently did nothing (found live on
+  # Providencia: installed under \bin\, daemon looked only at the root).
+  $cands = @(
+    (Join-Path ${env:ProgramFiles(x86)} 'AntiMicroX\bin\antimicrox.exe'),
+    (Join-Path ${env:ProgramFiles}      'AntiMicroX\bin\antimicrox.exe'),
+    (Join-Path ${env:ProgramFiles(x86)} 'AntiMicroX\antimicrox.exe'),
+    (Join-Path ${env:ProgramFiles}      'AntiMicroX\antimicrox.exe')
+  )
+  foreach ($p in $cands) { if ($p -and (Test-Path $p)) { return $p } }
   $c = Get-Command antimicrox -EA SilentlyContinue; if ($c) { return $c.Source }
+  # last resort: recurse the install dir (covers any future layout change)
+  foreach ($base in @(${env:ProgramFiles}, ${env:ProgramFiles(x86)})) {
+    if ($base -and (Test-Path (Join-Path $base 'AntiMicroX'))) {
+      $hit = Get-ChildItem (Join-Path $base 'AntiMicroX') -Filter 'antimicrox.exe' -Recurse -File -EA SilentlyContinue | Select-Object -First 1
+      if ($hit) { return $hit.FullName }
+    }
+  }
   return $null
 }
 function Test-ControllerEnabled { return (Test-Path (Join-Path $HOMEDIR 'controller.on')) -or (Test-Path (Join-Path $env:USERPROFILE '.clippy\controller.on')) }
