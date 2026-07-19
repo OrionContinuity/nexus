@@ -381,6 +381,7 @@ if (IDENT.soulWriter) {
   setInterval(() => {
     try {
       if (Date.now() - _bootTs < 45000) return    // boot grace: observe existing heartbeats before reviving anyone (no spurious duplicates on rollout/restart)
+      if (!(know && know.hostPoolSiblings)) return  // v9.15.2: the companions run on their OWN laptops now, each supervised by its own daemon. The host must NEVER spawn LOCAL copies (trajan_mc.js/providencia_mc.js) — they collided by NAME with the real laptop bots on the online-mode=false server and churned everyone out with "logged in from another location". Only re-enable (know.hostPoolSiblings=true) if the whole trio is ever run host-pooled again.
       for (const s of SIBS) {
         let hb = 0
         try { hb = parseInt(fs.readFileSync(path.join(MCDIR, 'hb_' + s.key + '.txt'), 'utf8').trim()) || 0 } catch (e) {}
