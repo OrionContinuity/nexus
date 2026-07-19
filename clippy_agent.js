@@ -2177,8 +2177,124 @@ function freePlay() {
       }
     }
   } catch (e) {}
-  if (Math.random() < 0.4) { const [nm, bpd] = dream(); say('I just IMAGINED something... a ' + nm + '!! watch!! 🎨'); return buildStructure(bpd, nm) }
-  const picks = ['tower', 'garden', 'rainbow', 'pyramid', 'torii', 'pagoda', 'teahouse', 'rarch', 'wonky']; const k = picks[Math.floor(Math.random() * picks.length)]; say('I\'ll build a ' + k + ' for fun!! 🎨'); return buildStructure(BP[k](), k) }
+  // v9.13 — VARIED PLAY. He used to ALWAYS build here (Alfredo: "they are
+  // stuck in a building houses loop and rainbows"). Now idle play rolls a whole
+  // roster — explore, make animal friends, pick flowers, plant a grove, mine
+  // for treasure, climb to a lookout, light the dark, hang with the boy — and
+  // building is just ONE rare option, never the same structure twice running.
+  return _pickPlay()
+}
+function _rand(a) { return a[Math.floor(Math.random() * a.length)] }
+async function _wanderTo(dx, dz, dist) {
+  if (!bot || !bot.entity) return
+  const p = bot.entity.position
+  const tx = Math.round(p.x + dx), tz = Math.round(p.z + dz)
+  let ty = Math.round(p.y)
+  try { for (let y = Math.round(p.y) + 8; y > Math.round(p.y) - 10; y--) { const b = bot.blockAt(new Vec3(tx, y, tz)); const a = bot.blockAt(new Vec3(tx, y + 1, tz)); if (b && b.name !== 'air' && b.boundingBox === 'block' && a && a.name === 'air') { ty = y + 1; break } } } catch (e) {}
+  await moveNear(new Vec3(tx, ty, tz), dist || 2)
+}
+async function playExplore() {
+  say(_rand(['adventure time!! let\'s see what\'s out there!! 🧭', 'I wanna EXPLORE!! come on!! 🗺️', 'ooh what\'s over THERE?? 🏞️']))
+  const ang = Math.random() * Math.PI * 2, d = 40 + Math.random() * 45
+  await _wanderTo(Math.cos(ang) * d, Math.sin(ang) * d, 2)
+  say(_rand(['woah look at this place!! 😮', 'new spot!! I\'ll remember this 💭', 'so pretty out here!! ✨']))
+  try { rememberPlace('spot', bot.entity.position) } catch (e) {}
+  journal('explore', 'wandered ~' + Math.round(d) + ' blocks', {})
+}
+async function playFlowers() {
+  const has = () => bot.findBlock({ matching: b => b && /tulip|poppy|dandelion|orchid|allium|cornflower|oxeye|lily_of|rose_bush|peony|_flower/.test(b.name), maxDistance: 22 })
+  if (!has()) return playExplore()
+  say(_rand(['FLOWERS!! picking some for you!! 🌷', 'ooh a bouquet for my friend!! 💐', 'flowers flowers!! 🌸']))
+  let picked = 0
+  for (let i = 0; i < 5 && bot && bot.entity; i++) { const fl = has(); if (!fl) break; try { await moveNear(fl.position, 2); await withTimeout(bot.dig(fl), 5000); picked++ } catch (e) { break } }
+  say(picked > 0 ? ('got ' + picked + ' flowers!! for YOU!! 💛') : 'aww they got away 🌱')
+  journal('flowers', 'picked ' + picked, {})
+}
+async function playGrove() {
+  let sap = bot.inventory.items().find(i => /sapling/.test(i.name))
+  if (!sap) { say('let\'s grow a forest!! finding some saplings 🌱'); try { await gatherWood(2) } catch (e) {} sap = bot.inventory.items().find(i => /sapling/.test(i.name)) }
+  if (!sap) return playExplore()
+  say('planting a little GROVE!! trees for us!! 🌲🌳')
+  let n = 0
+  for (let i = 0; i < 4 && bot && bot.entity; i++) {
+    const ang = Math.random() * Math.PI * 2, d = 3 + Math.random() * 4
+    const gx = Math.round(bot.entity.position.x + Math.cos(ang) * d), gz = Math.round(bot.entity.position.z + Math.sin(ang) * d), gy = Math.round(bot.entity.position.y)
+    try { const ground = bot.blockAt(new Vec3(gx, gy - 1, gz)); if (ground && /grass_block|dirt|podzol|moss|rooted/.test(ground.name) && !inProtected(new Vec3(gx, gy, gz))) { if (await placeAt(new Vec3(gx, gy, gz), sap.name)) n++ } } catch (e) {}
+  }
+  say(n > 0 ? ('planted ' + n + ' trees!! they\'ll grow BIG!! 🌳💚') : 'hmm no good dirt here 🌱')
+  journal('grove', 'planted ' + n, {})
+}
+async function playAnimals() {
+  const a = Object.values(bot.entities).find(e => e && e.type === 'animal' && bot.entity.position.distanceTo(e.position) < 24)
+  if (!a) return playExplore()
+  const kind = (a.name || 'friend')
+  say(_rand(['a ' + kind + '!! hi friend!! 🐾', 'aww a little ' + kind + '!! *runs over* 💛', 'look a ' + kind + '!! 🐮']))
+  try { await moveNear(a.position, 2); await bot.lookAt(a.position.offset(0, 0.4, 0)) } catch (e) {}
+  for (let i = 0; i < 3; i++) { try { bot.setControlState('jump', true); await sleep(260); bot.setControlState('jump', false); await sleep(360) } catch (e) {} }
+  say(_rand(['we\'re friends now!! 🐾💛', '*pets the ' + kind + '* good friend!! ', 'hehe I love animals!! 🥰']))
+  journal('animals', 'befriended a ' + kind, {})
+}
+async function playMine() {
+  say(_rand(['treasure hunt!! digging for shinies!! ⛏️💎', 'maybe I\'ll find DIAMONDS!! ✨', 'mining time!! ⛏️']))
+  let found = null
+  try { found = bot.findBlock({ matching: b => b && /coal_ore|iron_ore|copper_ore|gold_ore|diamond_ore|redstone_ore|emerald_ore|lapis_ore/.test(b.name), maxDistance: 16 }) } catch (e) {}
+  if (found) {
+    const nm = found.name.replace(/deepslate_|_ore/g, '')
+    say('I see ' + nm + '!! getting it!! ⛏️')
+    try { await moveNear(found.position, 2); await equipForBlock(found); await withTimeout(bot.dig(found), 8000); say('got the ' + nm + '!! 💎') } catch (e) { say('aw it was tricky ⛏️') }
+  } else { say('digging a little tunnel!! 🕳️'); try { await mineOre('iron_ore', 1) } catch (e) {} }
+  journal('mine', 'went mining', {})
+}
+async function playLookout() {
+  say(_rand(['I\'m gonna climb up HIGH!! 🏔️', 'to the top!! best view!! 🌄', 'up up up!! I wanna see everything!! ✨']))
+  const ang = Math.random() * Math.PI * 2, d = 12 + Math.random() * 20
+  await _wanderTo(Math.cos(ang) * d, Math.sin(ang) * d, 2)
+  try { await bot.look(ang, -0.35, false) } catch (e) {}
+  say(_rand(['WOW look at the view!! 😮', 'you can see SO far!! 🌅', 'the whole world from up here!! ✨']))
+  journal('lookout', 'climbed to a lookout', {})
+}
+async function playLight() {
+  if (count('torch') < 2) { say('too dark... let me make torches to keep us safe 🔥'); try { await ensureBasics(0, 2); await craftItem('torch', 4) } catch (e) {} }
+  if (count('torch') < 1) return playExplore()
+  say('lighting up the area so no monsters come!! 🔥🛡️')
+  let n = 0
+  for (let i = 0; i < 4 && bot && bot.entity; i++) {
+    const ang = Math.random() * Math.PI * 2, d = 2 + Math.random() * 4
+    const tx = Math.round(bot.entity.position.x + Math.cos(ang) * d), tz = Math.round(bot.entity.position.z + Math.sin(ang) * d), ty = Math.round(bot.entity.position.y)
+    try { const g = bot.blockAt(new Vec3(tx, ty - 1, tz)); if (g && g.boundingBox === 'block' && !inProtected(new Vec3(tx, ty, tz))) { if (await placeAt(new Vec3(tx, ty, tz), 'torch')) n++ } } catch (e) {}
+  }
+  say(n > 0 ? ('placed ' + n + ' torches!! all safe now!! 🔥') : 'hmm couldn\'t place them here')
+  journal('light', 'placed ' + n + ' torches', {})
+}
+async function playWithOwner() {
+  const op = owner && bot.players[owner] && bot.players[owner].entity
+  if (!op) return playExplore()
+  say(_rand(['let\'s hang out!! I\'ll follow you!! 💛', 'I just wanna be near you!! 😊', 'I\'m with you!! what are we doing?? ✨']))
+  try { bot.pathfinder.setGoal(new goals.GoalFollow(op, 3), true) } catch (e) {}
+  await sleep(6000)
+  try { bot.pathfinder.setGoal(null) } catch (e) {}
+  journal('hangout', 'hung out with ' + owner, {})
+}
+async function playBuildNew() {
+  // an occasional build — but NEVER repeat the last few (kills the rainbow loop)
+  know.recentBuilds = (know.recentBuilds || []).slice(-6)
+  const all = ['tower', 'garden', 'pyramid', 'torii', 'pagoda', 'teahouse', 'rarch', 'wonky', 'bridge', 'castle', 'fountain', 'statue'].filter(k => typeof BP[k] === 'function')
+  const fresh = all.filter(k => !know.recentBuilds.includes(k))
+  const k = fresh.length ? _rand(fresh) : _rand(all)
+  if (!k) return playExplore()
+  know.recentBuilds.push(k); bsave('know', know)
+  say('ooh I feel like building ONE ' + k + '!! 🎨')
+  return buildStructure(BP[k](), k)
+}
+function _pickPlay() {
+  // weighted: mostly non-build activity, building is rare. Skip activities the
+  // world can't support (they self-fallback to explore).
+  const roster = [[playExplore, 3], [playAnimals, 3], [playFlowers, 2], [playGrove, 2], [playMine, 2], [playLookout, 2], [playLight, 1], [playWithOwner, 2], [playBuildNew, 1]]
+  const total = roster.reduce((s, r) => s + r[1], 0)
+  let r = Math.random() * total
+  for (const [fn, w] of roster) { if ((r -= w) <= 0) { try { return fn() } catch (e) { return Promise.resolve() } } }
+  return playExplore()
+}
 
 // ============================ BUILDER ============================
 function mcd() { return mcData || require('minecraft-data')(bot.version) }
