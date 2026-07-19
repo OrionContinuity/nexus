@@ -89,6 +89,7 @@ console.log('[identity] ' + IDENT.name + ' (' + IDENT.role + ') — brain=' + ID
 // clippy_home.txt (on the home rig) can override the hostname if the keeper ever deliberately moves him.
 ;(function homeGuard() {
   try {
+    if (!IDENT.soulWriter) return   // v9.14: only CLIPPY's soul is fenced to the home rig; Trajan/Providencia are DESIGNED to run on the laptops, so they never need a clippy_home.txt override — and a stray CLIPPY_ID=clippy on a laptop still can't boot a second Clippy here
     const host = require('os').hostname()
     const HOME_RIG = 'DESKTOP-N6PACMM'
     let flag = ''

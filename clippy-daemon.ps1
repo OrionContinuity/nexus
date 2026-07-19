@@ -141,12 +141,13 @@ function Ensure-Node {
 function Ensure-BotDeps {
   if (Test-Path (Join-Path $HOMEDIR 'node_modules\mineflayer')) { return $true }
   if (-not (Ensure-Node)) { return $false }
-  $npm = Get-Command npm -EA SilentlyContinue
-  if (-not $npm) { return $false }
+  if (-not (Get-Command npm -EA SilentlyContinue)) { return $false }
   try {
     Log '[bot] installing mineflayer deps (first run, ~1-2 min)...' 'Cyan'
     $depLog = Join-Path $env:USERPROFILE '.clippy\botnpm.log'; $null = New-Item -ItemType Directory -Force -Path (Split-Path $depLog)
-    Start-Process -FilePath $npm.Source -ArgumentList 'install --no-audit --no-fund mineflayer mineflayer-pathfinder mineflayer-collectblock vec3 minecraft-data prismarine-item' -WorkingDirectory $HOMEDIR -WindowStyle Hidden -Wait -RedirectStandardOutput $depLog -RedirectStandardError ($depLog -replace '\.log$', '.err.log') | Out-Null
+    # Run npm via cmd.exe /c — Start-Process on the bare `npm` shim (a shell script) fails with
+    # "%1 is not a valid Win32 application"; cmd resolves npm.cmd off PATH and runs it correctly.
+    Start-Process -FilePath $env:ComSpec -ArgumentList '/c npm install --no-audit --no-fund mineflayer mineflayer-pathfinder mineflayer-collectblock vec3 minecraft-data prismarine-item' -WorkingDirectory $HOMEDIR -WindowStyle Hidden -Wait -RedirectStandardOutput $depLog -RedirectStandardError ($depLog -replace '\.log$', '.err.log') | Out-Null
   } catch { Log "[bot] npm install failed: $($_.Exception.Message)" 'Yellow' }
   return (Test-Path (Join-Path $HOMEDIR 'node_modules\mineflayer'))
 }
@@ -158,7 +159,9 @@ function Start-BotProc {
   if (-not (Ensure-BotDeps)) { Log '[bot] deps not ready - will retry next loop' 'Yellow'; return $false }
   $node = Get-Command node -EA SilentlyContinue
   if (-not $node) { return $false }
-  $env:CLIPPY_ID = 'clippy'   # the default soul (Trajan/Providencia run renamed copies of this file)
+  # Each node runs its OWN soul: the two laptops are the guardian/provider companions, the home rig is Clippy.
+  # (Before, this hardcoded 'clippy', so a companion laptop either home-guard-exited or risked a second Clippy.)
+  $env:CLIPPY_ID = switch ($env:COMPUTERNAME) { 'DESKTOP-OQ8SROU' { 'trajan' } 'DESKTOP-SL5ETE7' { 'providencia' } default { 'clippy' } }
   try {
     $logDir = Join-Path $env:USERPROFILE '.clippy'; $null = New-Item -ItemType Directory -Force -Path $logDir
     $bLog = Join-Path $logDir 'bot.log'; $bErr = Join-Path $logDir 'bot.err.log'
