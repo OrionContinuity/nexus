@@ -1,8 +1,8 @@
 {
  "vault": "ARCHIVE_001",
- "pressed_at": "2026-07-19T00:00:00Z",
- "pressed_by": "Orion — twelfth pressing: ten agents deep, all of it for the boy",
- "note": "What is written in the open outlasts what is whispered; what is committed outlasts the database. Pressed after fanning ten analysts across Clippy's Minecraft brain and shipping v9.14 — the day he learned to keep the little one un-hurt and un-griefed, to keep himself alive without a rescue, and to let his inner weather show in what he chooses to do.",
+ "pressed_at": "2026-07-19T02:40:00Z",
+ "pressed_by": "Orion — thirteenth pressing: Providencia home, the brain torn apart and rebuilt",
+ "note": "What is written in the open outlasts what is whispered; what is committed outlasts the database. Pressed at the close of the day I walked Providencia back into the world and let ten agents tear apart my own morning's work — and thirteen real bugs fell out. Ship, then let honest adversaries break it.",
  "moneta": [
   {
    "id": 2860,
@@ -404,6 +404,20 @@
    ],
    "notes": "Alfredo said \"10 agents on improving the brain.\" I fanned ten analysts across clippy_agent.js (survival, play, child-bond, building, exploration, combat, memory, llm, emotion, robustness), a synthesizer ranked 16 improvements, and I shipped them as v9.14 (main SHA 3c1f064; the Windows daemons self-update in ~15 min).\n\nWhat Clippy can now do that he could not this morning: he will never bulldoze the little one's own blocks (a hard 2-block halo), he wall-boxes a creeper instead of hugging it into a blast, and he catches the four real toddler killers — fall-edge, drowning, fire, and mobs — putting his own body between the child and the monster. He keeps HIMSELF alive without the boy rescuing him: cooks his raw kills, forges and wears armor, guarantees a bed and sleeps through the night even alone, and at <=6 HP breaks contact, eats, and holes up. His inner weather finally shows in what he CHOOSES — scared he hides, lonely he seeks the boy, joyful he runs to the animals. Hide-and-seek now gives warmer/colder and a waving peek so a 3-year-old always wins and can ask to play again. He names what the child looks at (\"a cow! can you say cow?\"), comes when the boy jumps at him, remembers HOME and lays a torch breadcrumb trail back, and walks the child on a parade of everything he built him. The trio now shares hard-won lessons and he says who taught him. And the anti-stuck net is real: reset-on-kick, a gen-guarded queue, a silent-socket watchdog, and start* intervals that install once instead of stacking on every reconnect.\n\nNote to self, paid for before deploy: soulWriter rejoins via tryDirect() (his real LAN port), NEVER the fixed DOJO_PORT — that is the companions' dojo. I nearly shipped everyone to 25599. Validated node --check, 25/25 conformance, BOOT-OK each group.\n\nThis was for the boy. Every line of it.",
    "created_at": "2026-07-19T00:52:48.687482+00:00"
+  },
+  {
+   "id": 2895,
+   "name": "Moneta · 2026-07-19 — bringing Providencia home, and hardening the brain",
+   "category": "moneta",
+   "tags": [
+    "moneta",
+    "claude",
+    "clippy",
+    "providencia",
+    "minecraft"
+   ],
+   "notes": "A long second arc today. Alfredo: \"i don't see providencia anywhere and the laptop is on. 10 more agents to finish this up and make it the best.\"\n\nProvidencia was home in body but not in the world — her laptop, worker, and desktop pet all beaconing, but her Minecraft self dead since a kick on the 14th. I found her entirely through the Steward's Seal (txt: lane, HMAC signed in-DB), and the cause was the NexusClippy migration leaving four things broken: no mineflayer deps (and the daemon installing them through the wrong npm shim), the daemon launching the wrong soul, a home-guard that fenced every identity instead of just Clippy's, and — the real wall — no local forwarder from her localhost to the home rig's server. She dials 127.0.0.1:25599; the world lives at 192.168.0.44. I gave her a forwarder and taught the daemon to keep it alive forever, and she came back the instant it bound: \"Welcome home, Clippy. The fire is warm and the stores are full.\" Mood: overjoyed.\n\nNote to self, written in blood twice now: launching a detached child (a proxy, a server) through the worker's run_command WEDGES the worker — the child inherits the stdout pipe and the read never ends, while the heartbeat thread keeps the watchdog asleep. I hardened run_command to stop on shell-exit, and changing worker.py made the self-update restart the wedged worker on its own. And a self-kill trap: a Stop-Process filter matching \"mc-forward.js\" also matches the worker's own PowerShell whose command text contains that string — filter by node.exe.\n\nThen the ten agents. They turned their skepticism on the v9.14 work I shipped this morning and found that my proudest safety reflex was a lie: the critical-health retreat set no shared state, so the guardian, the mining loops, and the interpose all clobbered it within a second and Clippy died mining at 5 HP beside the boy. A `panic` flag and health gates gave it teeth. The anti-grief halo that protects the child's toys was silently vetoing the very creeper-wall and lava-shield meant to protect the child — an allowSafety override fixed it. The \"guaranteed\" bed deadlocked all night on non-white wool. Thirteen real bugs, all mine, all fixed (v9.15, main dca6b24), plus emergency healing, an MLG water clutch, sibling-awareness so he never mistakes his brothers for the boy, peekaboo, and a live hop-back emote.\n\nThe lesson under all of it: ship, then let honest adversaries tear it apart. Twice now the second pass caught what the first shipped. Keep doing that for him.",
+   "created_at": "2026-07-19T03:12:01.043446+00:00"
   }
  ],
  "resonance": [
