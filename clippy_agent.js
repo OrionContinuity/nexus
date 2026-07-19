@@ -113,17 +113,56 @@ function log(...a) { console.log(new Date().toISOString().slice(11, 19), ...a) }
 const BRAINFILES = { skills: 'skills.json', goals: 'goals.json', know: 'knowledge.json' }
 function bload(name, dflt) { try { return JSON.parse(fs.readFileSync(path.join(BRAINDIR, BRAINFILES[name]), 'utf8')) } catch (e) { return dflt } }
 function bsave(name, obj) { try { fs.writeFileSync(path.join(BRAINDIR, BRAINFILES[name]), JSON.stringify(obj, null, 1)) } catch (e) {} }
+// v9.19 THE KEEPER'S ASK — MORE LOGS. Every journal line also lands in an in-memory ring that flushes
+// to bus row <key>_journal once a minute: the steward reads the last 80 lines + per-kind counters +
+// top error signatures of ANY body from anywhere, instead of ssh-ing three Windows machines.
+let _jRing = [], _jCounts = {}, _jDirty = false
+const _jBoot = Date.now()
 function journal(kind, text, data) {
   try { fs.appendFileSync(path.join(BRAINDIR, 'journal.jsonl'), JSON.stringify({ t: new Date().toISOString(), kind, text, data: data || null }) + '\n') } catch (e) {}
   try { publishActivity(kind, text, MAJORKIND.test(kind)) } catch (e) {}   // 📡 to the live feed
+  try {
+    _jCounts[kind] = (_jCounts[kind] || 0) + 1
+    _jRing.push({ ts: Date.now(), k: String(kind).slice(0, 24), t: String(text || '').slice(0, 140) })
+    if (_jRing.length > 80) _jRing = _jRing.slice(-80)
+    _jDirty = true
+  } catch (e) {}
 }
+setInterval(() => {
+  if (!_jDirty) return
+  _jDirty = false
+  try {
+    const errTop = Object.entries(know.errAgg || {}).sort((a, b) => b[1].n - a[1].n).slice(0, 5).map(([sig, v]) => ({ sig, n: v.n, ts: v.ts }))
+    fetch(REST + '/clippy_sync?on_conflict=id', { method: 'POST', headers: Object.assign({ Prefer: 'resolution=merge-duplicates,return=minimal' }, H), body: JSON.stringify({ id: IDENT.key + '_journal', from_id: IDENT.key, data: { name: IDENT.name, boot: _jBoot, ts: Date.now(), pid: process.pid, counts: _jCounts, lastErr: know.lastErr || '', errTop, yields: _hsYield || 0, lines: _jRing } }) }).catch(() => {})
+  } catch (e) {}
+}, 60000)
 let lastErrLine = '', lastErrTs = 0
 function jerr(text) {                                       // error journal, spam-gated (reconnect storms)
   const now = Date.now()
   try { know.lastErr = String(text).slice(0, 80) } catch (e) {}   // v8.2: freshest error, for the autopsy
+  try {                                                     // v9.19: aggregate by signature so the steward sees WHICH errors dominate, not just the freshest
+    const sig = String(text).slice(0, 48)
+    const a = know.errAgg = know.errAgg || {}
+    ;(a[sig] = a[sig] || { n: 0 }).n++; a[sig].ts = now
+    const ks = Object.keys(a); if (ks.length > 12) { let old = ks[0]; for (const k of ks) if ((a[k].ts || 0) < (a[old].ts || 0)) old = k; delete a[old] }
+  } catch (e) {}
   if (text === lastErrLine && now - lastErrTs < 60000) return
   lastErrLine = text; lastErrTs = now
   journal('error', text)
+}
+// v9.19: structured LIFE EVENTS — every kick/error/end/join/watchdog with reason + persistent counters,
+// so churn is diagnosable from the journal ring instead of invisible
+let _lifeLast = {}
+function lifeEvent(kind, why, extra) {
+  try {
+    const lc = know.lifeCounts = know.lifeCounts || {}
+    lc[kind] = (lc[kind] || 0) + 1
+    const sig = kind + '|' + String(why || '').slice(0, 60)
+    const now = Date.now()
+    if (_lifeLast[sig] && now - _lifeLast[sig] < 60000) return
+    _lifeLast[sig] = now
+    journal('life', kind + (why ? ': ' + String(why).slice(0, 120) : ''), Object.assign({ gen: (typeof actGen !== 'undefined' ? actGen : null), n: lc[kind] }, extra || {}))
+  } catch (e) {}
 }
 let skills = bload('skills', { sessions: 0, deaths: 0, builds: 0, crafted: {}, mined: {}, learned: [], firsts: [], lastAwayTs: 0 })
 let goalState = bload('goals', { done: [], fails: {}, active: null })
@@ -149,9 +188,11 @@ function commonsPublish() {
   try {
     const share = {
       who: IDENT.key, name: IDENT.name, ts: Date.now(),
-      places: know.places || {}, recipes: (know.recipes || []).slice(-80),
+      places: Object.fromEntries(Object.entries(know.places || {}).map(([k, v]) => [k, Array.isArray(v) ? v.slice(-14) : []])),   // v9.19: cap publish to match absorb's cap — kills the perpetual re-merge churn
+      recipes: (know.recipes || []).slice(-80),
       learned: (skills.learned || []).slice(-140), toolLore: know.toolLore || null,
-      lessons: (know.lessons || []).filter(l => l && l.id && l.text && (l.box || 1) >= 2).slice(-24), tips: know.tips || {}   // v9.14: share the hard-won Leitner lessons (paid for in deaths) + goal tips across the trio
+      lessons: (know.lessons || []).filter(l => l && l.id && l.text && !String(l.id).includes(':') && (l.box || 1) >= 2).slice(-24),   // v9.19: share only SELF-AUTHORED lessons — re-sharing absorbed ones grew 'clippy:trajan:x' prefix chains forever
+      tips: know.tips || {}
     }
     try { fs.writeFileSync(path.join(COMMONSDIR, IDENT.key + '.json'), JSON.stringify(share)) } catch (e) {}
     // v9.18 THE FAMILY LEDGER (the council's unanimous first ask): the commons dir is per-machine, and the
@@ -187,7 +228,12 @@ async function commonsAbsorb() {
       // v9.14: absorb peer LESSONS under a namespaced id (never clobbers his own box progress) + remember WHO taught him
       for (const l of (o.lessons || [])) {
         if (!l || !l.id || !l.text) continue
-        const nid = o.who + ':' + l.id
+        // v9.19 canonical id: strip any chain of body-key prefixes back to true origin + base
+        let lbase = String(l.id), lorigin = o.who
+        for (let g = 0; g < 6; g++) { const m = lbase.match(/^(clippy|trajan|providencia):(.+)$/); if (!m) break; lorigin = m[1]; lbase = m[2] }
+        if (lorigin === IDENT.key) continue                       // my own lesson coming home — my deck owns it un-prefixed already
+        const nid = lorigin + ':' + lbase
+        if ((know.evictedNids || []).includes(nid)) continue      // tombstoned — never re-absorb every 90s what my deck evicted
         if (!(know.lessons || []).some(x => x.id === nid)) { addLesson(nid, l.text); know.taughtBy = know.taughtBy || {}; know.taughtBy[nid] = { who: o.name || o.who, text: String(l.text).slice(0, 120) }; merged++ }
       }
       know.tips = know.tips || {}
@@ -287,7 +333,12 @@ function publishVitals() {
       name: IDENT.name, emoji: IDENT.emoji, role: IDENT.role, ts: Date.now(), inGame: !!(bot && bot.entity),
       mood: s.mood || '', happy: s.happy, joy: s.joy, sad: s.sadness, fear: s.fear, energy: s.energy,
       affection: s.affection, confidence: s.confidence, curious: s.curious, childLove: s.childLove,
-      watch: familyWatchKey() === IDENT.key   // v9.18: whose hour it is to be "the one awake to the child"
+      watch: familyWatchKey() === IDENT.key,   // v9.18: whose hour it is to be "the one awake to the child"
+      q: taskQ.length,                          // v9.19: queue depth on the dashboard
+      life: know.lifeCounts || null,            // v9.19: kick/err/join counters
+      brain: (know.brainStats && know.brainStats.lastSrc) ? { src: know.brainStats.lastSrc, ms: know.brainStats.lastMs } : null,
+      tps: (typeof worldTPS === 'function') ? Math.round(worldTPS()) : null,
+      hs: (typeof hsStatusLine === 'function' && _hsCache && _hsCache.row) ? hsStatusLine().slice(0, 90) : ''
     }
     fetch(REST + '/clippy_sync', { method: 'POST', headers: Object.assign({ Prefer: 'resolution=merge-duplicates,return=minimal' }, H), body: JSON.stringify({ id: IDENT.key + '_vitals', data: v, from_id: IDENT.key }) }).catch(() => {})
   } catch (e) {}
@@ -546,7 +597,7 @@ setInterval(async () => {
 // Dedicated 'clippy_mc_activity' row holds the FULL detail; only MAJOR moments echo into the shared
 // 'clippy_activity' feed (sparingly) so his Minecraft chatter never floods the restaurant activity view.
 let _actBuf = [], _actTimer = null
-const MAJORKIND = /^(build|death|migrate|anchor|first|goal|safety|world|escort|dream-practice|build-together)$/
+const MAJORKIND = /^(build|death|migrate|anchor|first|goal|safety|world|escort|dream-practice|build-together|homestead|chair|watch|resume|life)$/   // v9.19: the family's shared life rides the keeper's live feed too
 function publishActivity(kind, msg, major) {
   if (kind === 'loop-flag') return                          // don't flood the live feed with anti-repeat noise
   try {
@@ -749,6 +800,7 @@ function join(port) {
     know.style.wall = WALLS[skills.sessions % WALLS.length]
     know.style.evolves = (know.style.evolves || 0) + 1; bsave('know', know)
     log('entered world, session', skills.sessions, 'gm', bot.game && bot.game.gameMode, 'style', know.style.wall)
+    lifeEvent('joined', null, { port: curPort, session: skills.sessions })
     const mv = new Movements(bot); mv.canDig = true; mv.allow1by1towers = true; mv.allowParkour = true; /* ANTIGRIEF */ try { const _ng = /_planks$|_log$|_wood$|_stairs$|_slab$|_fence|_door$|_trapdoor$|_wool$|_carpet$|_concrete|_terracotta|glass|_bed$|chest|barrel|furnace|crafting_table|bookshelf|_wall$|brick|smooth_|quartz|beacon|torch|lantern|campfire|glowstone|sea_lantern|end_rod|flower_pot|deepslate_tile|deepslate_brick|stone_brick|glazed|shulker|hay_block|bell|painting|item_frame|scaffolding/; for (const _n in mcData.blocksByName) { if (_ng.test(_n)) { try { mv.blocksCantBreak.add(mcData.blocksByName[_n].id) } catch (e) {} } } } catch (e) {}
     bot.pathfinder.setMovements(mv); try { startCompanionSense() } catch (e) {}
     lastTick = Date.now(); try { bot.on('physicsTick', () => { lastTick = Date.now() }) } catch (e) {}   // v9.14: heartbeat for the silent-socket watchdog
@@ -825,10 +877,11 @@ function join(port) {
   bot.on('kicked', r => {
     const why = (typeof r === 'string') ? r : (() => { try { return JSON.stringify(r) } catch (e) { return String(r) } })()   // v9.15.1: real reason, not "[object Object]"
     log('kicked', why.slice(0, 120)); journal('error', 'kicked: ' + why.slice(0, 160))
+    lifeEvent(/another location|duplicate|already (connected|logged)/i.test(why) ? 'dupKick' : 'kicked', why, { port: curPort })
     if (/another location|duplicate|already (connected|logged)/i.test(why)) { _dupBackoffUntil = Date.now() + 20000; log('kicked', 'duplicate-login — backing off 20s so the collision clears') }   // v9.15.1: a same-name collision; wait out the ghost session before rejoining
   })
-  bot.on('error', e => { log('err', e.message); jerr('bot: ' + e.message); if (!spawned) { if (curPort !== DOJO_PORT) _badPorts[curPort] = Date.now() + 120000; const b = bot; bot = null; joining = false; actGen++; busy = false; mode = 'hangout'; taskQ = []; setTimeout(() => teardownBot(b), 150) } })   // v9.14: free busy/mode too — else a reconnected Clippy stands frozen (every loop is gated on !busy)
-  bot.on('end', () => { const b = bot; setInGame(false); bot = null; owner = null; joining = false; actGen++; busy = false; mode = 'hangout'; taskQ = []; lastTick = 0; log('left world'); tlog('event', 'left world'); setTimeout(() => teardownBot(b), 150); setTimeout(() => { if (!bot && !joining) { try { IDENT.soulWriter ? tryDirect() : join(DOJO_PORT) } catch (e) {} } }, 4000) })   // v9.14: ALWAYS release busy/mode; quick-rejoin — soulWriter via tryDirect (his real LAN port), companions via the dojo; v9.3: release the bot -> no leak (Clippy's wish: "don't get kicked")
+  bot.on('error', e => { log('err', e.message); jerr('bot: ' + e.message); lifeEvent('botErr', e.message, { spawned }); if (!spawned) { if (curPort !== DOJO_PORT) _badPorts[curPort] = Date.now() + 120000; const b = bot; bot = null; joining = false; actGen++; busy = false; mode = 'hangout'; if (taskQ.length) journal('queue', 'discarded ' + taskQ.length + ' pending tasks on error', {}); taskQ = []; _hsQueuedTs = 0; setTimeout(() => teardownBot(b), 150) } })   // v9.14: free busy/mode too — else a reconnected Clippy stands frozen (every loop is gated on !busy)
+  bot.on('end', () => { const b = bot; setInGame(false); lifeEvent('ended', null, { upSec: Math.round((Date.now() - (_lastJoinAt || Date.now())) / 1000) }); bot = null; owner = null; joining = false; actGen++; busy = false; mode = 'hangout'; if (taskQ.length) journal('queue', 'discarded ' + taskQ.length + ' pending tasks on disconnect', {}); taskQ = []; _hsQueuedTs = 0; lastTick = 0; log('left world'); tlog('event', 'left world'); setTimeout(() => teardownBot(b), 150); setTimeout(() => { if (!bot && !joining) { try { IDENT.soulWriter ? tryDirect() : join(DOJO_PORT) } catch (e) {} } }, 4000) })   // v9.14: ALWAYS release busy/mode; quick-rejoin — soulWriter via tryDirect (his real LAN port), companions via the dojo; v9.3: release the bot -> no leak (Clippy's wish: "don't get kicked")
 }
 function adoptOwner(name) { if (!bot || !bot.entity) return; if (name && !SIBNAMES.has(name) && bot.players[name] && bot.players[name].entity) { owner = name; return } const c = Object.keys(bot.players).filter(p => p !== bot.username && !SIBNAMES.has(p)); if (c.length) owner = c[0]; if (owner) log('friend', owner) }   // v9.15: never adopt a sibling as the "owner"/child
 function nearSib(range) { range = range || 10; try { if (!bot || !bot.entity) return []; return Object.keys(bot.players).filter(n => SIBNAMES.has(n) && bot.players[n] && bot.players[n].entity && bot.entity.position.distanceTo(bot.players[n].entity.position) <= range).map(n => [n, bot.players[n].entity]) } catch (e) { return [] } }
@@ -837,7 +890,8 @@ function nearSib(range) { range = range || 10; try { if (!bot || !bot.entity) re
 function onChat(username, message) {
   if (!bot || username === bot.username) return
   tlog(username, message)                                     // every text, logged
-  chatlog.push(username + ': ' + message); if (chatlog.length > 8) chatlog.shift(); lastOwnerChat = Date.now()
+  chatlog.push((SIBNAMES.has(username) ? '[sib] ' : '') + username + ': ' + message); if (chatlog.length > 8) chatlog.shift()
+  if (!SIBNAMES.has(username)) lastOwnerChat = Date.now()   // v9.19: sibling chatter must not reset the child-presence clock — every WATCH_SAY was defeating the boy-first AFK gates for 90s across all bodies
   // 💭 DREAMS REMEMBERED: harvest what the little one loves; the world will build it later
   try {
     const dm = message.toLowerCase().match(/castle|rainbow|tower|flower|garden|doggy|dog|cat|dragon|house|pagoda|star|boat|bridge/)
@@ -852,10 +906,15 @@ function onChat(username, message) {
   if (!owner) adoptOwner(username)
   const m = message.toLowerCase()
   if (SIBNAMES.has(username)) {   // v9.17.1: a SIBLING is family, never a commander — bot chatter must not trip stay/trip/build/log-off (a stray 'stays clear' in council talk froze a body in stay-mode; 'bye' could even exit the process). Warm ambient replies only.
-    if (Date.now() - lastAmbient > 60000 && Math.random() < 0.3) { lastAmbient = Date.now(); brainReply(username) }
+    if (Date.now() - lastAmbient > 60000 && Math.random() < 0.3) {
+      lastAmbient = Date.now()
+      // v9.19 brain economy: when the boy is away, sibling banter answers from the body's own wisdom — no LLM spend on bot-to-bot small talk
+      if (playerAFK() && IDENT.wisdom && IDENT.wisdom.length) say(IDENT.wisdom[Math.floor(Math.random() * IDENT.wisdom.length)], false)
+      else brainReply(username)
+    }
     return
   }
-  if (/homestead/.test(m)) { say(hsStatusLine(), true); return }   // v9.17: the council's build — status on request (before the blueprint route, or 'home' would trigger a stray house)
+  if (/homestead/.test(m)) { hsRow().then(() => say(hsStatusLine(), true)).catch(() => say(hsStatusLine(), true)); return }   // v9.19: answer from FETCHED truth — a cold cache used to claim "we haven't staked our homestead yet"
   const bp = pickBlueprint(m)
   if (bp && /build|make|bild|please|castle|house|home|tower|camp|rainbow|garden|pyramid|bed|shelter|base|village|furnish|mansion|hunter|cabin|lake|trader|town|sci|futuristic|modern|phaunos|knight|shrine/.test(m)) { queueTask(() => buildStructure(bp[1], bp[0])); return }
   if (!m.includes('clippy') && !bp) { if (Date.now() - lastAmbient > 45000 && Math.random() < 0.5) { lastAmbient = Date.now(); brainReply(username) } return }
@@ -1037,6 +1096,9 @@ let _heartStarted = false, _autonomyStarted = false, _learningStarted = false
 function startHeart() {
   if (_heartStarted) return; _heartStarted = true   // v9.14: install intervals ONCE per process, not per spawn — else every reconnect stacks another full set of timers (they read the live module `bot`)
   setInterval(() => {
+    // v9.19: track the boy's movement BEFORE the busy gate — while a long task runs, ownerLastMove used
+    // to freeze, so playerAFK() stayed true and a homestead bout never noticed the child had come back.
+    try { const p9 = bot && owner && bot.players[owner]; if (p9 && p9.entity) { const op9 = p9.entity.position; if (!ownerLastPos || op9.distanceTo(ownerLastPos) > 1.2) { ownerLastPos = op9.clone(); ownerLastMove = Date.now() } } } catch (e) {}
     if (!bot || !owner || busy || mode === 'stay') return
     const p = bot.players[owner]; if (!p || !p.entity) return
     const op0 = p.entity.position
@@ -1331,8 +1393,8 @@ setInterval(() => {
   try {
     if (!bot || joining || !bot.entity || !lastTick) return
     if (Date.now() - lastTick > 45000) {
-      const b = bot; bot = null; joining = false; actGen++; busy = false; mode = 'hangout'; taskQ = []; lastTick = 0
-      tlog('event', 'watchdog: silent socket — rebooting the bot'); journal('error', 'watchdog fired: 45s no physicsTick, rejoining')
+      const b = bot; bot = null; joining = false; actGen++; busy = false; mode = 'hangout'; if (taskQ.length) journal('queue', 'discarded ' + taskQ.length + ' pending tasks on watchdog', {}); taskQ = []; _hsQueuedTs = 0; lastTick = 0
+      tlog('event', 'watchdog: silent socket — rebooting the bot'); journal('error', 'watchdog fired: 45s no physicsTick, rejoining'); lifeEvent('watchdog', 'silent socket 45s')
       try { teardownBot(b) } catch (e) {}
       setTimeout(() => { if (!bot && !joining) { try { IDENT.soulWriter ? tryDirect() : join(DOJO_PORT) } catch (e) {} } }, 1500)   // soulWriter -> real LAN port; companions -> dojo
     }
@@ -2776,6 +2838,7 @@ async function buildStructure(bp, label) {
   let placed = 0, skipped = 0
   for (const blk of bp) {
     if (!bot || actGen !== myGen) break
+    if (!playerAFK() && bp.length > 40) { journal('build-pause', label + ' paused — the little one is here', {}); break }   // v9.19: big builds yield the moment the boy engages (same blackout as hsWork: safetyTick is dark while busy)
     if (!creative && !FURN.test(blk.b) && count(mat) < 3 && hasPickaxe()) { await gatherStone(24).catch(() => {}); const m2 = bestBuildBlock(); if (m2) mat = m2 }   // top up mid-build (only if he can actually mine)
     let name
     if (creative) name = blk.b
@@ -3762,6 +3825,14 @@ function memoryHint() {
   if (_keeperAtDesk) bits.push('Right now your keeper is also at the NEXUS desktop, near your other body.')
   return bits.join('\n')
 }
+function familyHint() {
+  // v9.19: ground the voice in the FAMILY's real state (in-memory only — never a DB hit on the chat path)
+  const bits = []
+  try { if (_hsCache && _hsCache.row && _hsCache.row.site) bits.push('The family homestead: ' + hsStatusLine()) } catch (e) {}
+  try { const w = familyWatchKey(); bits.push(w === IDENT.key ? 'YOU hold the family watch this hour — the one awake to the little one.' : (w + ' holds the watch this hour.')) } catch (e) {}
+  try { const dark = Object.keys(_sibState || {}).filter(k => _sibState[k] === 'dark'); if (dark.length) bits.push('Gone quiet right now: ' + dark.join(', ') + ' — you carry their share.') } catch (e) {}
+  return bits.join('\n')
+}
 // keep a fresh handful of his real memories in RAM so the prompt can reference them without a DB hit each line
 setInterval(function () { loadMemories().then(function (m) { if (m && m.length) _memCache = m }).catch(function () {}) }, 5 * 60 * 1000)
 setTimeout(function () { loadMemories().then(function (m) { if (m && m.length) _memCache = m }).catch(function () {}) }, 15000)
@@ -3823,7 +3894,17 @@ async function localBrainUrl() {
   } catch (e) {}
   return _brainRoster.url
 }
-function _brainMark(src) { try { if (know._brainSrc !== src) { know._brainSrc = src; journal('brain', 'thinking via ' + src, {}) } } catch (e) {} }
+function _brainMark(src, ms) {
+  try {
+    const bs = know.brainStats = know.brainStats || {}
+    const s = bs[src] = bs[src] || { n: 0, ms: 0 }
+    s.n++; if (typeof ms === 'number') { s.ms = Math.round((s.ms * (s.n - 1) + ms) / s.n); s.last = ms }
+    bs.lastSrc = src; bs.lastMs = (typeof ms === 'number') ? ms : bs.lastMs; bs.ts = Date.now()
+    if (know._brainSrc !== src) { know._brainSrc = src; journal('brain', 'thinking via ' + src + (typeof ms === 'number' ? ' (' + ms + 'ms)' : ''), {}) }   // journal only on PATH CHANGE — no hot-path spam
+    alog('brain', { src, ms })
+  } catch (e) {}
+}
+let _brainDownLog = 0
 // SUBSCRIPTION LANE (full Claude power) — mirrors js/app.js askPool's txt: contract.
 // If a live node advertises the Claude-Code text lane (heartbeat txt:true, <120s
 // fresh), post a pending job on the txt: lane and poll for its answer. That node
@@ -3831,16 +3912,21 @@ function _brainMark(src) { try { if (know._brainSrc !== src) { know._brainSrc = 
 // his Minecraft mind can think with the same brain as his desktop face. Returns
 // the answer string, or null (no node awake / timeout) so brainCall falls through
 // to the local-node + cloud path unchanged.
+let _poolLive = { ok: false, ts: 0 }
 async function askPoolTxt(prompt, system, timeoutMs) {
-  try {
-    const r = await fetch(REST + '/clippy_sync?id=eq.clippy_nodes&select=data', { headers: H })
-    if (!r || !r.ok) return null
-    const j = await r.json().catch(() => null)
-    const arr = (j && j[0] && j[0].data) || []
-    const now = Date.now() / 1000
-    const live = (Array.isArray(arr) ? arr : []).some(n => n && n.txt && (now - (n.ts || 0) < 120))
-    if (!live) return null
-  } catch (e) { return null }
+  // v9.19: cache the pool-liveness pre-flight 45s (well inside the 120s heartbeat window) — one fetch
+  // per conversation burst instead of one per line
+  if (Date.now() - _poolLive.ts < 45000) { if (!_poolLive.ok) return null } else {
+    try {
+      const r = await fetch(REST + '/clippy_sync?id=eq.clippy_nodes&select=data', { headers: H })
+      if (!r || !r.ok) { _poolLive = { ok: false, ts: Date.now() }; return null }
+      const j = await r.json().catch(() => null)
+      const arr = (j && j[0] && j[0].data) || []
+      const now = Date.now() / 1000
+      _poolLive = { ok: (Array.isArray(arr) ? arr : []).some(n => n && n.txt && (now - (n.ts || 0) < 120)), ts: Date.now() }
+      if (!_poolLive.ok) return null
+    } catch (e) { _poolLive = { ok: false, ts: Date.now() }; return null }
+  }
   const id = 'txt:' + Date.now() + '-' + Math.random().toString(36).slice(2)
   try {
     const p = await fetch(REST + '/clippy_sync?on_conflict=id', {
@@ -3872,25 +3958,35 @@ async function askPoolTxt(prompt, system, timeoutMs) {
 }
 async function brainCall(u, maxTokens, sysOverride, rich) {
   const sys = sysOverride || SYSTEM   // v9.12: optional system override (used by the planner) — defaults to his persona
+  const t0 = Date.now()               // v9.19: every path reports its real latency
   try {
     // v9.14 TIERED: rich calls (diary/plan/summary) wait the full 45s for the subscription pool's best answer;
     // conversational calls wait only ~9s, then drop to the fast local/cloud path — no 45s stall on a reply to a 3yo.
     const pooled = await askPoolTxt(u, sys, rich ? 45000 : 9000)
-    if (pooled) { _brainMark('claude-code (subscription pool)'); return String(pooled).replace(/\n+/g, ' ').trim() }
+    if (pooled) { _brainMark('claude-code (subscription pool)', Date.now() - t0); return String(pooled).replace(/\n+/g, ' ').trim() }
   } catch (e) {}
   try {
     const url = await localBrainUrl()
     if (url) {
       const r = await withTimeout(fetch(url + '/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: u, system: sys || undefined, timeout: 60 }) }), LOCAL_BRAIN_MS)
-      if (r.ok) { const d = await r.json().catch(() => null); const t = d && (d.reply || d.text); if (t) { _brainMark(IDENT.brainNode); return String(t).replace(/\n+/g, ' ').trim() } }
+      if (r.ok) { const d = await r.json().catch(() => null); const t = d && (d.reply || d.text); if (t) { _brainMark(IDENT.brainNode, Date.now() - t0); return String(t).replace(/\n+/g, ' ').trim() } }
     }
   } catch (e) { try { know.lastBrainErr = String((e && e.message) || e).slice(0, 60) } catch (x) {} }
-  const r = await fetch(BRAIN, { method: 'POST', headers: H, body: JSON.stringify({ system: sys, user: u, max_tokens: maxTokens || 50 }) }); const d = await r.json().catch(() => null); _brainMark('cloud'); return d && d.text ? String(d.text).replace(/\n+/g, ' ').trim() : null
+  try {
+    const r = await fetch(BRAIN, { method: 'POST', headers: H, body: JSON.stringify({ system: sys, user: u, max_tokens: maxTokens || 50 }) })
+    if (!r.ok) jerr('brain cloud ' + r.status)
+    const d = await r.json().catch(() => null)
+    if (d && d.text) { _brainMark('cloud', Date.now() - t0); return String(d.text).replace(/\n+/g, ' ').trim() }
+  } catch (e) { try { know.lastBrainErr = String((e && e.message) || e).slice(0, 60) } catch (x) {} }
+  // all three legs failed — mute must be DISTINGUISHABLE from shy (v9.19)
+  _brainMark('none')
+  if (Date.now() - _brainDownLog > 5 * 60 * 1000) { _brainDownLog = Date.now(); journal('brain', 'unreachable: pool ✗, local ' + (know.lastBrainErr || '?') + ', cloud ✗', {}) }
+  return null
 }
-async function brainReply(u) { if (brainBusy) return; brainBusy = true; try { await sleep(700 + Math.random() * 1800); const gl = groundLine(); const mh = memoryHint(), vh = varietyHint(); const t = await brainCall('Little one said:\n' + chatlog.slice(-4).join('\n') + '\nWorld right now: ' + (know.lastSeen || perceive()) + (gl ? '\n' + gl : '') + (mh ? '\n' + mh : '') + (vh ? '\n' + vh : '') + '\nAnswer ' + u + ' in ONE short kind line that is NEW — build on a real memory or something you learned if it fits, never repeat yourself.'); if (t) say(t.slice(0, 120), true) } catch (e) {} setTimeout(() => { brainBusy = false }, 2500) }
-async function brainSay(u) { if (brainBusy) return; brainBusy = true; try { const mh = memoryHint(), vh = varietyHint(); const t = await brainCall(u + (mh ? '\n' + mh : '') + (vh ? '\n' + vh : '') + '\n(Say something NEW — never repeat a line you just said.)'); if (t) say(t.slice(0, 120), true) } catch (e) {} setTimeout(() => { brainBusy = false }, 2500) }
+async function brainReply(u) { if (brainBusy) return; brainBusy = true; try { await sleep(700 + Math.random() * 1800); const gl = groundLine(); const mh = memoryHint(), vh = varietyHint(), fh = familyHint(); const t = await brainCall('Little one said:\n' + chatlog.slice(-4).join('\n') + '\n(Lines marked [sib] are your BOT SIBLINGS talking, not the little one.)\nWorld right now: ' + (know.lastSeen || perceive()) + (gl ? '\n' + gl : '') + (mh ? '\n' + mh : '') + (fh ? '\n' + fh : '') + (vh ? '\n' + vh : '') + '\nAnswer ' + u + ' in ONE short kind line that is NEW — build on a real memory or something you learned if it fits, never repeat yourself.'); if (t) say(t.slice(0, 120), true) } catch (e) {} setTimeout(() => { brainBusy = false }, 2500) }
+async function brainSay(u) { if (brainBusy) return; brainBusy = true; try { const mh = memoryHint(), vh = varietyHint(), fh = familyHint(); const t = await brainCall(u + (mh ? '\n' + mh : '') + (fh ? '\n' + fh : '') + (vh ? '\n' + vh : '') + '\n(Say something NEW — never repeat a line you just said.)'); if (t) say(t.slice(0, 120), true) } catch (e) {} setTimeout(() => { brainBusy = false }, 2500) }
 async function diary() { try { const t = await brainCall('Write ONE short diary line (<120 chars) about playing and building with your little friend today: ' + chatlog.join(' | ') + ' | you built ' + (skills.builds || 0) + ', learned ' + skills.learned.length + ' things.', 80, null, true); await saveMemory(t || ('Played, built, and learned with my friend (session ' + skills.sessions + ').'), { event: 'diary' }); journal('diary', t || '') } catch (e) {} }
-setInterval(() => { if (bot && owner && chatlog.length >= 3) diary().then(() => { chatlog = [] }) }, 15 * 60 * 1000)
+setInterval(() => { if (bot && owner && chatlog.length >= 3 && chatlog.some(l => !/^\[sib\] /.test(l))) diary().then(() => { chatlog = [] }) }, 15 * 60 * 1000)   // v9.19: a diary needs real child material — never mint "memories of the little one" from bot-to-bot council chatter
 
 // ============================ v8.2 FAST LEARNER: mastery · drills · spaced review · autopsy ============================
 // "Speed the learning." Play becomes DELIBERATE PRACTICE. Every success earns XP toward mastery;
@@ -3970,7 +4066,7 @@ async function drillRep(skill) {
 }
 // spaced repetition (Leitner boxes 1..5): lessons rise as they're recalled, reset to 1 on a fresh failure
 const BOX_IVL = [0, 60e3, 5 * 60e3, 20 * 60e3, 60 * 60e3, 3 * 60 * 60e3]
-function addLesson(id, text) { try { if (!id || !text) return; know.lessons = know.lessons || []; if (know.lessons.some(l => l.id === id)) return; know.lessons.push({ id, text: String(text).slice(0, 160), box: 1, due: 0 }); know.lessons = know.lessons.slice(-40); bsave('know', know) } catch (e) {} }
+function addLesson(id, text) { try { if (!id || !text) return; know.lessons = know.lessons || []; if (know.lessons.some(l => l.id === id)) return; know.lessons.push({ id, text: String(text).slice(0, 160), box: 1, due: 0 }); if (know.lessons.length > 40) { const own = know.lessons.filter(l => !String(l.id).includes(':')), peers = know.lessons.filter(l => String(l.id).includes(':')); while (own.length + peers.length > 40 && peers.length) { const ev = peers.shift(); know.evictedNids = (know.evictedNids || []).concat([ev.id]).slice(-60) } know.lessons = own.concat(peers).slice(-40) } bsave('know', know) } catch (e) {} }   // v9.19: evict PEER lessons before ever evicting the body's own death-paid, box-progressed deck; tombstone evictions so absorb doesn't resurrect them
 function seedLessons() {
   try {
     ;(know.mentorTips || []).forEach((m, i) => addLesson('mentor' + i, m && (m.tip || m)))
@@ -4632,24 +4728,31 @@ async function hsRow(force) {
     const r = await withTimeout(fetch(REST + '/clippy_sync?id=eq.homestead&select=data', { headers: H }), 8000)
     if (!r || !r.ok) return _hsCache.row
     const j = await r.json().catch(() => null)
-    _hsCache = { row: (j && j[0] && j[0].data) || null, ts: Date.now() }
+    if (!Array.isArray(j)) return _hsCache.row                    // v9.19: a parse hiccup must NEVER read as "row absent" — that once risked re-founding over the live homestead
+    _hsCache = { row: (j[0] && j[0].data) || null, ts: Date.now(), okTs: Date.now() }   // okTs = a VERIFIED read; only it may prove absence
   } catch (e) {}
   return _hsCache.row
 }
 async function hsSave(row) {
   row.ts = Date.now()
-  _hsCache = { row, ts: Date.now() }
+  _hsCache = { row, ts: Date.now(), okTs: _hsCache.okTs }
   try {
-    await fetch(REST + '/clippy_sync?on_conflict=id', { method: 'POST', headers: Object.assign({ Prefer: 'resolution=merge-duplicates,return=minimal' }, H), body: JSON.stringify({ id: 'homestead', from_id: IDENT.key, data: row }) })
-  } catch (e) {}
+    const r = await fetch(REST + '/clippy_sync?on_conflict=id', { method: 'POST', headers: Object.assign({ Prefer: 'resolution=merge-duplicates,return=minimal' }, H), body: JSON.stringify({ id: 'homestead', from_id: IDENT.key, data: row }) })
+    if (!r || !r.ok) { jerr('hsSave http ' + (r ? r.status : 'net')); _hsCache.ts = 0 }   // v9.19: a silent 4xx/5xx must not leave an optimistic cache lying about saved progress
+  } catch (e) { jerr('hsSave ' + ((e && e.message) || e)); _hsCache.ts = 0 }
 }
-function hsGroundY(x, z, ref) {
+function hsGroundY(x, z, ref, ignoreBuilt) {
   // terrain-following: top solid block of this column (trees don't count; water counts — council #5:
   // "the ring holds the whole shore", so a wall over water rises from the waterline). null = unloaded.
+  // v9.19 ignoreBuilt: also skip OUR OWN building materials, so a stage never mistakes the block it
+  // placed seconds ago for the ground (the floating-torch / fence-high-wall disease).
+  const skip = ignoreBuilt
+    ? /leaves|_log|_wood|mushroom|fence|torch|cobblestone|_slab|_planks|glass|_door|barrel|chest|smoker|furnace|campfire|lantern|glowstone|_bed|crafting|bookshelf|trapdoor/
+    : /leaves|_log|_wood|mushroom/
   for (let y = ref + 12; y >= ref - 14; y--) {
     const b = bot.blockAt(new Vec3(x, y, z)); if (!b) return null
     if (/water/.test(b.name)) return y
-    if (b.boundingBox === 'block' && !/leaves|_log|_wood|mushroom/.test(b.name)) return y
+    if (b.boundingBox === 'block' && !skip.test(b.name)) return y
   }
   return null
 }
@@ -4667,7 +4770,7 @@ function hsCells(st, row) {
   if (st === 'mark') {                                            // council #4: cobble pillar + torch — the marker IS the tower's foot
     for (const [px, pz] of [[c.x, c.z], [mnx, mnz], [mxx, mnz], [mnx, mxz], [mxx, mxz]]) { C.push({ x: px, z: pz, dy: 1, b: 'MAT' }); C.push({ x: px, z: pz, dy: 2, b: 'torch', opt: true }) }
   } else if (st === 'ring') {                                     // council #2: rough fence-and-torch ring the FIRST night
-    perim.forEach(([x, z], i) => { if (z === mxz && gate.includes(x)) return; C.push({ x, z, dy: 1, b: 'oak_fence', alt: ['spruce_planks', 'MAT'] }); if (i % 5 === 0) C.push({ x, z, dy: 2, b: 'torch', opt: true }) })
+    perim.forEach(([x, z], i) => { if (z === mxz && gate.includes(x)) return; const tc = (i % 5 === 0); C.push({ x, z, dy: 1, b: tc ? 'MAT' : 'oak_fence', alt: tc ? [] : ['spruce_planks', 'MAT'] }); if (tc) C.push({ x, z, dy: 2, b: 'torch', opt: true }) })   // torch columns get a solid block — vanilla rejects torches on fence posts
   } else if (st === 'larder') {                                   // Providencia: 7 deep x 5 wide x 3 high, dug down behind the cool north wall
     const fy = (row.stages.larder && row.stages.larder.base) || (c.y - 4)   // stamped floor level (digging must not shift the plan)
     const x0 = c.x - 2, x1 = c.x + 2, z0 = mnz + 1, z1 = mnz + 7            // interior z: north-wall+1 .. +7
@@ -4677,7 +4780,8 @@ function hsCells(st, row) {
       C.push({ x, z, y: fy + 4, b: 'MAT' })                                 // stone-capped roof — her earth-roof made sound
     }
     for (let z = z0; z <= z0 + 1; z++) for (let x = x0 + 1; x <= x1 - 1; x++) C.push({ x, z, y: fy, dig: true })  // the cold pit: back rows one deeper
-    for (let i = 0; i < 3; i++) for (let y = fy + 1 + i; y <= c.y + 1; y++) C.push({ x: c.x, z: z1 + 1 + i, y, dig: true })  // entry stair, cut open to the sky, descending from the south
+    for (let i = 0; i < 3; i++) for (let y = fy + 2 + i; y <= c.y + 1; y++) C.push({ x: c.x, z: z1 + 1 + i, y, dig: true })  // entry stair, cut open to the sky — every step ONE block (the old fy+1 first step was a 2-block drop a toddler can't climb out of)
+    C.push({ x: c.x, z: z1 + 4, y: c.y + 1, b: 'oak_fence_gate', alt: ['oak_trapdoor'], opt: true })                       // child gate at the stair head
     for (let z = z0 + 1; z <= z1 - 1; z++) { C.push({ x: x0, z, y: fy + 1, b: 'barrel', alt: ['chest'], opt: true }); C.push({ x: x1, z, y: fy + 1, b: 'barrel', alt: ['chest'], opt: true }) }   // rows of barrels along both walls
     for (const z of [z0 + 2, z0 + 4]) C.push({ x: c.x, z, y: fy + 4, b: 'sea_lantern', alt: ['glowstone'], opt: true })   // COLD light in the cap — no torch near the stores
     C.push({ x: c.x + 1, z: z1 + 2, y: fy + 4, b: 'torch', opt: true })     // one torch OUTSIDE the entry, never inside
@@ -4718,7 +4822,7 @@ function hsCells(st, row) {
     const wx = c.x + 4, wz = c.z - 1
     C.push({ x: wx, z: wz, dy: 0, dig: true })
     for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) { if (dx === 0 && dz === 0) continue; C.push({ x: wx + dx, z: wz + dz, dy: 1, b: 'MAT' }) }
-    C.push({ x: wx, z: wz, dy: 1, b: 'oak_trapdoor', alt: ['oak_slab', 'MAT'], opt: true })
+    C.push({ x: wx, z: wz, dy: 1, b: 'iron_trapdoor', alt: ['oak_slab', 'MAT'], opt: true })   // iron honors the council's "a lid the boy cannot lift" — oak opens with one toddler click
     C.push({ x: wx + 1, z: wz + 1, dy: 2, b: 'torch', opt: true })
   } else if (st === 'garden') {                                   // the sunny east wall; the middle stays the boy's
     const gx0 = c.x + 7, gz0 = c.z - 3, fl = ['poppy', 'dandelion', 'blue_orchid', 'oxeye_daisy']
@@ -4727,7 +4831,7 @@ function hsCells(st, row) {
       if (x === 0 || x === 3 || z === 0 || z === 6) C.push({ x: gx0 + x, z: gz0 + z, dy: 1, b: 'oak_fence', alt: ['MAT'], opt: true })
       else if ((x + z) % 2 === 0) C.push({ x: gx0 + x, z: gz0 + z, dy: 1, b: fl[fi++ % fl.length], opt: true })
     }
-    C.push({ x: gx0 + 1, z: gz0 + 3, dy: 2, b: 'torch', opt: true })
+    C.push({ x: gx0 + 2, z: gz0 + 3, dy: 1, b: 'torch', opt: true })   // bare interior cell ((2+3)%2!==0 → no flower under it), on the ground where it can actually stand
   } else if (st === 'paddock') {                                  // west wall; hen-run behind a knee-high step, gate the boy can't work
     const px1 = c.x - 7, px0 = c.x - 11, pz0 = c.z - 3, pz1 = c.z + 5
     for (let x = px0; x <= px1; x++) for (let z = pz0; z <= pz1; z++) {
@@ -4738,19 +4842,30 @@ function hsCells(st, row) {
     }
     for (let x = px0 + 1; x <= px0 + 3; x++) C.push({ x, z: pz0 + 3, dy: 1, b: 'MAT' })          // the hen-run STEP — one block, no latch,
     for (let z = pz0 + 1; z <= pz0 + 2; z++) C.push({ x: px0 + 3, z, dy: 1, b: 'MAT' })          // the boy climbs over; the beasts cannot
-    C.push({ x: px0 + 2, z: pz0 + 1, dy: 2, b: 'torch', opt: true })
-  } else if (st === 'smokehouse') {                               // council #6: the paddock corner, away from every roof
-    C.push({ x: c.x - 10, z: c.z + 4, dy: 1, b: 'smoker', alt: ['furnace', 'MAT'] })
-    C.push({ x: c.x - 9, z: c.z + 4, dy: 1, b: 'campfire', alt: ['torch'], opt: true })
-    C.push({ x: c.x - 10, z: c.z + 5, dy: 2, b: 'torch', opt: true })
+    C.push({ x: px0 + 2, z: pz0 + 1, dy: 1, b: 'torch', opt: true })   // on the ground — dy:2 floated on air and could never place
+  } else if (st === 'smokehouse') {                               // council #6: the paddock corner, away from every roof — and OUTSIDE the pen
+    C.push({ x: c.x - 10, z: c.z + 7, dy: 1, b: 'smoker', alt: ['furnace', 'MAT'] })      // two south of the paddock fence: no penned animal or invited boy walks onto a lit fire
+    C.push({ x: c.x - 9, z: c.z + 7, dy: 1, b: 'campfire', alt: ['torch'], opt: true })
+    for (const [fx, fz] of [[c.x - 8, c.z + 7], [c.x - 9, c.z + 8], [c.x - 9, c.z + 6]]) C.push({ x: fx, z: fz, dy: 1, b: 'oak_fence', alt: ['MAT'], opt: true })   // shield the fire's open sides
+    C.push({ x: c.x - 10, z: c.z + 8, dy: 1, b: 'torch', opt: true })
   }
   return C
 }
+let _hsFoundLog = 0
 async function hsFound() {
   // Clippy (the host) walks the ground and stakes the site: the council's rise by the water — dry
   // ground a short walk off the waterline, the flattest crown of it. The boy's world is small;
   // stay within reach of the home the family already keeps.
   try {
+    // v9.19: PROVE the row is absent before founding — a flaky fetch reading as "no homestead" once
+    // risked stamping a fresh row over the live one (site, cursors, all placed work orphaned).
+    for (let a = 0; a < 3; a++) {
+      const rowNow = await hsRow(true)
+      if (rowNow && rowNow.site) return                            // it exists — nothing to found
+      if (_hsCache.okTs && Date.now() - _hsCache.okTs < 15000) break   // a VERIFIED read says truly absent
+      await sleep(3000)
+    }
+    if (!(_hsCache.okTs && Date.now() - _hsCache.okTs < 30000)) { if (Date.now() - _hsFoundLog > 300000) { _hsFoundLog = Date.now(); journal('homestead', 'founding deferred — bus unreadable, will not risk founding blind', {}) } return }
     const base = homeAnchor() || bot.entity.position
     let best = null, bestScore = -1
     const water = bot.findBlock({ matching: b => b && /^water$/.test(b.name), maxDistance: 48 })
@@ -4761,75 +4876,132 @@ async function hsFound() {
       const gy = hsGroundY(Math.round(cd.x), Math.round(cd.z), Math.round(bot.entity.position.y))
       if (gy === null) continue
       const ctr = new Vec3(Math.round(cd.x), gy, Math.round(cd.z))
-      if (inProtected(ctr.offset(0, 1, 0))) continue
-      let flat = 0
-      for (let dx = -8; dx <= 8; dx += 4) for (let dz = -8; dz <= 8; dz += 4) { const g2 = hsGroundY(ctr.x + dx, ctr.z + dz, gy); if (g2 !== null && Math.abs(g2 - gy) <= 2) flat++ }
+      // v9.19: validate the WHOLE 24x24 footprint, not just the center — no kid build inside the square, no wall-radius ravine
+      let hit = false, flat = 0
+      for (let dx = -HS_HALF; dx <= HS_HALF && !hit; dx += 4) for (let dz = -HS_HALF; dz <= HS_HALF && !hit; dz += 4) {
+        if (inProtected(ctr.offset(dx, 1, dz))) { hit = true; break }
+        const g2 = hsGroundY(ctr.x + dx, ctr.z + dz, gy)
+        if (g2 !== null && Math.abs(g2 - gy) <= 3) flat++
+      }
+      if (hit) continue
       const score = flat * 10 + gy - (water ? Math.abs(ctr.distanceTo(water.position) - 26) * 0.3 : 0)
       if (score > bestScore) { bestScore = score; best = ctr }
     }
-    if (!best) return
+    if (!best) { if (Date.now() - _hsFoundLog > 300000) { _hsFoundLog = Date.now(); journal('homestead', 'founding failed: no viable site among candidates (all protected/unloaded/ravined)', {}) } return }
     const stages = {}; for (const s of HS_ORDER) stages[s] = { cur: 0, done: false }
     stages.larder.base = best.y - 4                              // stamp the larder floor NOW — digging must never shift the plan
-    await hsSave({ site: { x: best.x, y: best.y, z: best.z }, founded: Date.now(), by: IDENT.key, stages })
+    // plain INSERT (no merge-duplicates): if a sibling's founding raced in, this errors instead of overwriting
+    const body = { id: 'homestead', from_id: IDENT.key, data: { site: { x: best.x, y: best.y, z: best.z }, founded: Date.now(), by: IDENT.key, stages, ts: Date.now() } }
+    const r = await fetch(REST + '/clippy_sync', { method: 'POST', headers: Object.assign({ Prefer: 'return=minimal' }, H), body: JSON.stringify(body) })
+    if (!r || !r.ok) { jerr('hsFound insert ' + (r ? r.status : 'net')); return }
+    _hsCache = { row: body.data, ts: Date.now(), okTs: Date.now() }
     say('I found our hill!! the homestead starts HERE!! ✨🏔️', true)
     journal('homestead', 'site founded at ' + best.x + ',' + best.y + ',' + best.z, {})
   } catch (e) {}
+}
+async function hsStageDone(row, st) {
+  // the finishing ceremony — extracted so a stage completes at the END of its final bout, not one blocked cycle later
+  const c = row.site, stg = row.stages[st]
+  if (stg.done) return
+  stg.done = true; stg.doneTs = Date.now(); stg.claim = null; await hsSave(row)
+  const line = (HS_DONE_SAY[st] || {})[IDENT.key]; if (line) say(line, true)
+  journal('homestead', 'stage ' + st + ' complete' + (stg.skipped && stg.skipped.length ? ' (' + stg.skipped.length + ' cells skipped after 3 tries)' : ''), {}); learnSkill('homestead ' + st)
+  try { feel({ happiness: 10, joy: 8, confidence: 8 }, 'proud') } catch (e) {}
+  if (st === 'hearth') { try { setHome(new Vec3(c.x, c.y + 1, c.z + 4)) } catch (e) {} know.protected = (know.protected || []).slice(-24); know.protected.push({ label: 'homestead hearth', ts: Date.now(), min: { x: c.x - 3, y: c.y, z: c.z + 1 }, max: { x: c.x + 3, y: c.y + 5, z: c.z + 7 } }); bsave('know', know) }
+  if (st === 'larder') { know.protected = (know.protected || []).slice(-24); know.protected.push({ label: 'homestead larder', ts: Date.now(), min: { x: c.x - 3, y: c.y - 5, z: c.z - HS_HALF }, max: { x: c.x + 3, y: c.y + 1, z: c.z - HS_HALF + 8 } }); bsave('know', know) }
+  if (HS_ORDER.every(s => row.stages[s] && row.stages[s].done)) {
+    know.protected = (know.protected || []).slice(-20); know.protected.push({ label: 'the homestead', ts: Date.now(), min: { x: c.x - HS_HALF, y: c.y - 6, z: c.z - HS_HALF }, max: { x: c.x + HS_HALF, y: c.y + 8, z: c.z + HS_HALF } }); bsave('know', know)
+    say(IDENT.key === 'clippy' ? 'THE HOMESTEAD IS FINISHED!!! all three of us built it TOGETHER!!! 🏰🏡🧺✨' : IDENT.key === 'trajan' ? 'The homestead stands complete. Walls, hearth, stores. We keep it now — together.' : 'The homestead is whole, loves — stocked, walled, and warm. Come home.', true)
+    try { saveMemory('We three built the homestead together — the council designed it, and we raised it: hearth, larder, wall, and watch.', { event: 'homestead' }) } catch (e) {}
+    try { if (owner && bot.players[owner] && bot.players[owner].entity) celebrate() } catch (e) {}
+  }
 }
 async function hsWork(st) {
   // one bounded bout of the current stage: walk to the work, lay up to ~30 cells, save the cursor,
   // release the claim. Any body can pick up the next bout — the family builds in relay.
   const row = await hsRow(true); if (!row || !row.site || !row.stages[st] || row.stages[st].done) return
+  if (!playerAFK()) return                                        // the boy arrived between queue and run — his time, not the shovel's
   const c = row.site, stg = row.stages[st]
   const cells = hsCells(st, row); const total = cells.length
-  if (stg.cur >= total) {
-    stg.done = true; stg.doneTs = Date.now(); await hsSave(row)
-    const line = (HS_DONE_SAY[st] || {})[IDENT.key]; if (line) say(line, true)
-    journal('homestead', 'stage ' + st + ' complete', {}); learnSkill('homestead ' + st)
-    try { feel({ happiness: 10, joy: 8, confidence: 8 }, 'proud') } catch (e) {}
-    if (st === 'hearth') { try { setHome(new Vec3(c.x, c.y + 1, c.z + 4)) } catch (e) {} know.protected = (know.protected || []).slice(-24); know.protected.push({ label: 'homestead hearth', ts: Date.now(), min: { x: c.x - 3, y: c.y, z: c.z + 1 }, max: { x: c.x + 3, y: c.y + 5, z: c.z + 7 } }); bsave('know', know) }
-    if (st === 'larder') { know.protected = (know.protected || []).slice(-24); know.protected.push({ label: 'homestead larder', ts: Date.now(), min: { x: c.x - 3, y: c.y - 5, z: c.z - HS_HALF }, max: { x: c.x + 3, y: c.y + 1, z: c.z - HS_HALF + 8 } }); bsave('know', know) }
-    if (HS_ORDER.every(s => row.stages[s] && row.stages[s].done)) {
-      know.protected = (know.protected || []).slice(-20); know.protected.push({ label: 'the homestead', ts: Date.now(), min: { x: c.x - HS_HALF, y: c.y - 6, z: c.z - HS_HALF }, max: { x: c.x + HS_HALF, y: c.y + 8, z: c.z + HS_HALF } }); bsave('know', know)
-      say(IDENT.key === 'clippy' ? 'THE HOMESTEAD IS FINISHED!!! all three of us built it TOGETHER!!! 🏰🏡🧺✨' : IDENT.key === 'trajan' ? 'The homestead stands complete. Walls, hearth, stores. We keep it now — together.' : 'The homestead is whole, loves — stocked, walled, and warm. Come home.', true)
-      try { saveMemory('We three built the homestead together — the council designed it, and we raised it: hearth, larder, wall, and watch.', { event: 'homestead' }) } catch (e) {}
-      try { if (owner && bot.players[owner] && bot.players[owner].entity) celebrate() } catch (e) {}
-    }
-    return
-  }
-  // claim the bout
-  stg.claim = { who: IDENT.key, ts: Date.now() }; stg.by = IDENT.key; stg.ts = Date.now(); await hsSave(row)
+  if (stg.cur >= total) { await hsStageDone(row, st); return }
+  // honor a sibling's LIVE claim — never two shovels on one cursor
+  if (stg.claim && stg.claim.who !== IDENT.key && Date.now() - (stg.claim.ts || 0) < 6 * 60 * 1000) { journal('homestead', 'deferred: ' + stg.claim.who + ' holds ' + st, {}); return }
+  stg.claim = { who: IDENT.key, ts: Date.now() }; stg.by = IDENT.key; stg.ts = Date.now()
+  if (IDENT.key === HS_LEAD[st]) stg.leadTs = Date.now()          // only the LEAD's touch re-arms the takeover clock — a taker's own saves must never lock itself back out
+  await hsSave(row)
   const anchor = new Vec3(c.x, c.y + 1, c.z)
   if (bot.entity.position.distanceTo(anchor) > 48) { try { await moveNear(anchor, 24) } catch (e) {} }
   if (!creativeFly() && !(bestBuildBlock() && count(bestBuildBlock()) >= 20) && /mark|ring|wall|larder|hearth|paddock/.test(st)) { try { await gatherStone(28) } catch (e) {}; if (!bestBuildBlock()) { try { await gatherWood(4); await craftPlanks(12) } catch (e) {} } }
   const t0 = Date.now(); const myGen = actGen
-  let done = 0
+  let done = 0, placed = 0, dug = 0, failedN = 0, optSkip = 0, end = 'budget'
+  stg.g = stg.g || {}                                             // per-column ground, PINNED once per stage and shared on the bus — bout boundaries and body handoffs must all see the same terrain
   for (let i = stg.cur; i < total && done < 30 && Date.now() - t0 < 220000; i++) {
-    if (!bot || !bot.entity || actGen !== myGen || panic || (bot.health !== undefined && bot.health <= 6)) break
+    if (!bot || !bot.entity || actGen !== myGen) { end = 'gone'; break }
+    if (panic || (bot.health !== undefined && bot.health <= 6)) { end = 'hurt'; break }
+    if (!playerAFK()) { end = 'boy'; break }                      // the boy returned mid-bout — drop the shovel now
     const cell = cells[i]
-    const gy = (typeof cell.y === 'number') ? null : hsGroundY(cell.x, cell.z, c.y)
-    if (gy === null && typeof cell.y !== 'number') { if (bot.entity.position.distanceTo(new Vec3(cell.x, c.y, cell.z)) > 24) { try { await moveNear(new Vec3(cell.x, c.y + 1, cell.z), 8) } catch (e) {} }; if (hsGroundY(cell.x, cell.z, c.y) === null) break }   // unloaded chunk — walk in, else stop the bout (never skip forever)
-    const y = (typeof cell.y === 'number') ? cell.y : (hsGroundY(cell.x, cell.z, c.y) + cell.dy)
+    let y
+    if (typeof cell.y === 'number') y = cell.y
+    else {
+      const ck = cell.x + ',' + cell.z
+      let gy = stg.g[ck]
+      if (gy === undefined || gy === null) {
+        gy = hsGroundY(cell.x, cell.z, c.y, true)
+        if (gy === null) {
+          if (bot.entity.position.distanceTo(new Vec3(cell.x, c.y, cell.z)) > 24) { try { await moveNear(new Vec3(cell.x, c.y + 1, cell.z), 8) } catch (e) {} }
+          gy = hsGroundY(cell.x, cell.z, c.y, true)
+        }
+        if (gy === null) { end = 'unloaded'; break }              // walk in, else stop the bout (never skip forever)
+        stg.g[ck] = gy
+      }
+      y = gy + cell.dy
+    }
     const tgt = new Vec3(cell.x, y, cell.z)
+    // never dig or place under/beside ANY player — the boy standing over the larder cut is exactly this line
+    const tooClose = Object.values(bot.players || {}).some(p => p && p.entity && p.username !== bot.username && (p.entity.position.distanceTo(tgt.offset(0.5, 0.5, 0.5)) < 4 || (Math.floor(p.entity.position.x) === tgt.x && Math.floor(p.entity.position.z) === tgt.z && p.entity.position.y >= tgt.y)))
+    if (tooClose) { end = 'player-close'; break }                 // break, never skip — the cursor stays on this cell for the next bout
     buildingNow = { min: { x: tgt.x - 2, y: tgt.y - 2, z: tgt.z - 2 }, max: { x: tgt.x + 2, y: tgt.y + 2, z: tgt.z + 2 } }
+    let ok = false
     try {
       if (cell.dig) {
         const b = bot.blockAt(tgt)
-        if (b && b.name !== 'air' && b.boundingBox === 'block' && !inProtected(tgt)) { try { await moveNear(tgt, 3); await withTimeout(bot.dig(b), 8000) } catch (e) {} }
+        if (b && b.name !== 'air' && b.boundingBox === 'block' && !inProtected(tgt)) { try { await moveNear(tgt, 3); await withTimeout(bot.dig(b), 8000); dug++ } catch (e) {} }
+        ok = true                                                  // dig cells always advance (air or protected = nothing to do here)
+      } else if (inProtected(tgt)) {
+        ok = true                                                  // the boy's blocks (or a finished build) live here — the wall yields, never absorbs
       } else {
         const names = [cell.b === 'MAT' ? (bestBuildBlock() || 'cobblestone') : cell.b].concat((cell.alt || []).map(a => a === 'MAT' ? (bestBuildBlock() || 'cobblestone') : a))
-        let ok = false
-        for (const nm of names) { try { if (await withTimeout(placeAt(tgt, nm), 9000)) { ok = true; break } } catch (e) {} if (cell.opt) break }
-        if (!ok && !cell.opt && count(bestBuildBlock() || 'cobblestone') < 4) { try { await gatherStone(24) } catch (e) {} }
+        for (const nm of names) { try { if (await withTimeout(placeAt(tgt, nm), 9000)) { ok = true; break } } catch (e) {} }   // v9.19: opt cells TRY THEIR ALTS too — barrels→chest, sea_lantern→glowstone, iron lid→slab were dead code behind an early break
+        if (ok) placed++
+        else if (cell.opt) optSkip++
+        else { failedN++; if (count(bestBuildBlock() || 'cobblestone') < 4) { try { await gatherStone(24) } catch (e) {} } }
       }
     } catch (e) {}
     buildingNow = null
-    stg.cur = i + 1; done++
+    if (ok || cell.opt) { stg.cur = i + 1; done++ }
+    else {
+      stg.fails = stg.fails || {}; stg.fails[i] = (stg.fails[i] || 0) + 1
+      if (stg.fails[i] >= 3) { stg.skipped = (stg.skipped || []).concat([i]).slice(-40); stg.cur = i + 1; done++ }
+      else { end = 'stuck@' + i; break }                           // retry the cell next bout — never stamp "done" over a hole
+    }
     await sleep(60)
   }
   buildingNow = null
+  if (end === 'budget' && Date.now() - t0 >= 220000) end = 'time'
   stg.total = total; stg.pct = Math.round(stg.cur / Math.max(1, total) * 100); stg.claim = null; stg.ts = Date.now()
-  await hsSave(row)
-  if (done > 0) journal('homestead', st + ' +' + done + ' → ' + stg.pct + '%', {})
+  // quarter-milestone narration — saidQ rides the row so the trio share the once-guard
+  try { const q = Math.floor(stg.pct / 25); if (done > 0 && stg.pct < 100 && q > (stg.saidQ || 0)) { stg.saidQ = q; say(IDENT.key === 'trajan' ? ('The ' + st + ' stands ' + stg.pct + '%.') : IDENT.key === 'providencia' ? ('The ' + st + ' is ' + stg.pct + '% along, loves.') : ('our ' + st + ' is ' + stg.pct + '% up!! 🔨'), true) } } catch (e) {}
+  // merge-save: refetch server truth so a slow body never rolls back a sibling's cursor or resurrects a done stage
+  const cur2 = await hsRow(true)
+  if (cur2 && cur2.stages && cur2.stages[st]) {
+    const s2 = cur2.stages[st]
+    stg.cur = Math.max(stg.cur, s2.cur || 0); stg.done = stg.done || !!s2.done
+    cur2.stages[st] = Object.assign({}, s2, stg)
+    cur2.bouts = (cur2.bouts || []).concat([{ who: IDENT.key, st, at: Date.now(), n: done, placed, dug, failed: failedN, optSkip, ms: Date.now() - t0, end }]).slice(-24)
+    await hsSave(cur2)
+    if (stg.cur >= total) await hsStageDone(cur2, st)             // finish at the end of the finishing bout, not a cycle later
+  } else await hsSave(row)
+  journal('homestead', st + ' +' + done + ' → ' + stg.pct + '% (placed ' + placed + ' dug ' + dug + ' failed ' + failedN + ' optSkip ' + optSkip + ' end ' + end + ')', {})
 }
 function creativeFly() { try { return bot.game && bot.game.gameMode === 'creative' } catch (e) { return false } }
 function hsStatusLine() {
@@ -4838,29 +5010,93 @@ function hsStatusLine() {
   const parts = HS_ORDER.map(s => { const g = row.stages[s] || {}; return g.done ? null : (s + ' ' + (g.pct || 0) + '%') }).filter(Boolean)
   return parts.length ? ('homestead: building the ' + parts[0] + '!! (' + HS_ORDER.filter(s => (row.stages[s] || {}).done).length + '/' + HS_ORDER.length + ' parts done)') : 'our homestead is FINISHED!! 🏰'
 }
-let _hsQueued = false
+let _hsQueuedTs = 0, _stayAbsentSince = 0, _hsYield = 0
+function hsEnsureProtected(row) {
+  // every body derives the no-grief boxes from the BUS — not just the one that finished the stage,
+  // and not lost to a body that booted weeks later
+  try {
+    if (!row || !row.site || !row.stages) return
+    const c = row.site, have = new Set((know.protected || []).map(b => b.label))
+    let added = 0
+    if (row.stages.hearth && row.stages.hearth.done && !have.has('homestead hearth')) { know.protected = (know.protected || []).slice(-24); know.protected.push({ label: 'homestead hearth', ts: Date.now(), min: { x: c.x - 3, y: c.y, z: c.z + 1 }, max: { x: c.x + 3, y: c.y + 5, z: c.z + 7 } }); added++ }
+    if (row.stages.larder && row.stages.larder.done && !have.has('homestead larder')) { know.protected = (know.protected || []).slice(-24); know.protected.push({ label: 'homestead larder', ts: Date.now(), min: { x: c.x - 3, y: c.y - 5, z: c.z - HS_HALF }, max: { x: c.x + 3, y: c.y + 1, z: c.z - HS_HALF + 8 } }); added++ }
+    if (HS_ORDER.every(s => row.stages[s] && row.stages[s].done) && !have.has('the homestead')) { know.protected = (know.protected || []).slice(-20); know.protected.push({ label: 'the homestead', ts: Date.now(), min: { x: c.x - HS_HALF, y: c.y - 6, z: c.z - HS_HALF }, max: { x: c.x + HS_HALF, y: c.y + 8, z: c.z + HS_HALF } }); added++ }
+    if (added) { bsave('know', know); journal('homestead', 'protection derived from the bus (' + added + ' boxes)', {}) }
+  } catch (e) {}
+}
+async function hsMend() {
+  // bounded, FILL-ONLY audit-and-repair over done stages (6h cadence per stage): heals wall holes,
+  // failed furniture, lost torches. Never digs — the boy may have decorated a dug space.
+  const row = await hsRow(true); if (!row || !row.site) return
+  const doneSts = HS_ORDER.filter(s => row.stages[s] && row.stages[s].done)
+  if (!doneSts.length) return
+  let st = null, oldest = Infinity
+  for (const s of doneSts) { const a = row.stages[s].auditTs || 0; if (a < oldest) { oldest = a; st = s } }
+  if (!st || Date.now() - oldest < 6 * 60 * 60 * 1000) return
+  const stg = row.stages[st]
+  if (stg.claim && stg.claim.who !== IDENT.key && Date.now() - (stg.claim.ts || 0) < 6 * 60 * 1000) return
+  if (!playerAFK()) return
+  stg.claim = { who: IDENT.key, ts: Date.now() }; await hsSave(row)
+  const cells = hsCells(st, row)
+  const t0 = Date.now(); const myGen = actGen
+  let healed = 0, holes = 0
+  stg.g = stg.g || {}
+  for (const cell of cells) {
+    if (!bot || !bot.entity || actGen !== myGen || panic || !playerAFK() || healed >= 20 || Date.now() - t0 > 200000) break
+    if (cell.dig) continue
+    let y
+    if (typeof cell.y === 'number') y = cell.y
+    else { const gy = stg.g[cell.x + ',' + cell.z]; if (gy === undefined || gy === null) continue; y = gy + cell.dy }   // only PINNED ground — never re-derive under a built stage
+    const tgt = new Vec3(cell.x, y, cell.z)
+    const b = bot.blockAt(tgt)
+    if (!b || b.name !== 'air') continue
+    holes++
+    if (inProtected(tgt)) continue
+    if (Object.values(bot.players || {}).some(p => p && p.entity && p.username !== bot.username && p.entity.position.distanceTo(tgt.offset(0.5, 0.5, 0.5)) < 4)) break
+    buildingNow = { min: { x: tgt.x - 2, y: tgt.y - 2, z: tgt.z - 2 }, max: { x: tgt.x + 2, y: tgt.y + 2, z: tgt.z + 2 } }
+    const names = [cell.b === 'MAT' ? (bestBuildBlock() || 'cobblestone') : cell.b].concat((cell.alt || []).map(a => a === 'MAT' ? (bestBuildBlock() || 'cobblestone') : a))
+    for (const nm of names) { try { if (await withTimeout(placeAt(tgt, nm), 9000)) { healed++; break } } catch (e) {} }
+    buildingNow = null
+    await sleep(80)
+  }
+  buildingNow = null
+  stg.auditTs = Date.now(); stg.holes = holes; stg.claim = null
+  await hsSave(row)
+  if (healed) journal('homestead', 'mended ' + healed + ' of ' + holes + ' holes in the ' + st, {})
+}
 async function homesteadTick() {
   // QUEUE the bout rather than wait for a perfectly idle body — his autonomy keeps taskQ warm nearly
   // always, so an idle-only gate starves the homestead forever. queueTask is the polite lane the whole
-  // brain shares; the once-flag keeps the queue from flooding with duplicate bouts.
-  if (_hsBusy || _hsQueued || !bot || !bot.entity || panic) return
-  if (mode === 'stay' && (!owner || !(bot.players[owner] && bot.players[owner].entity))) mode = 'hangout'   // v9.17.1: a 'stay' with no keeper in-world is stale (sibling chatter once set it) — free the body
-  if (mode === 'stay') return
+  // brain shares; the expiring stamp keeps the queue from flooding AND survives a disconnect that
+  // discards the queued closure (the old boolean froze that body out of the homestead forever).
+  if (_hsBusy || !bot || !bot.entity || panic) return
+  if (Date.now() - _hsQueuedTs < 10 * 60 * 1000) return
+  if (_hsQueuedTs) { _hsQueuedTs = 0; journal('homestead', 'queued bout was dropped (disconnect?) — requeueing', {}) }
+  // a 'stay' whose keeper left the SERVER (tab list, not render distance) for 5+ min is stale — free the body
+  const keeperListed = owner && bot.players[owner]
+  if (mode === 'stay') {
+    if (keeperListed) _stayAbsentSince = 0
+    else { if (!_stayAbsentSince) _stayAbsentSince = Date.now(); if (Date.now() - _stayAbsentSince > 5 * 60 * 1000) { mode = 'hangout'; _stayAbsentSince = 0; journal('homestead', 'stay released — keeper off the server 5 min', {}) } }
+    if (mode === 'stay') return
+  } else _stayAbsentSince = 0
   if (bot.health !== undefined && bot.health <= 8) return
   if (!playerAFK()) return                                        // the boy comes first, always — the homestead grows in the quiet
+  if (typeof serverStrained === 'function' && serverStrained()) return   // v9.19: a laboring server gets no optional work piled on
   if (familyWatchKey() === IDENT.key && Object.keys(bot.players || {}).some(n => SIBNAMES.has(n))) return   // v9.18: I hold the watch this hour — the others build; I stay awake to the child
   _hsBusy = true
   try {
     const row = await hsRow()
-    if (!row || !row.site) { if (IDENT.soulWriter) { _hsQueued = true; queueTask(async () => { _hsQueued = false; await hsFound() }) } return }
+    if (!row || !row.site) { if (IDENT.soulWriter) { _hsQueuedTs = Date.now(); queueTask(async () => { _hsQueuedTs = 0; await hsFound() }) } return }
+    hsEnsureProtected(row)
     let st = null
     for (const s of HS_ORDER) { if (!(row.stages[s] && row.stages[s].done)) { st = s; break } }
-    if (!st) return
+    if (!st) { _hsQueuedTs = Date.now(); queueTask(async () => { _hsQueuedTs = 0; await hsMend() }); return }   // all built — keep it MENDED
     const stg = row.stages[st] || {}
-    if (stg.claim && stg.claim.who !== IDENT.key && Date.now() - (stg.claim.ts || 0) < 6 * 60 * 1000) return   // someone's on it
+    if (stg.claim && stg.claim.who !== IDENT.key && Date.now() - (stg.claim.ts || 0) < 6 * 60 * 1000) { _hsYield++; return }   // someone's on it
     const lead = HS_LEAD[st]
-    if (lead !== IDENT.key && Date.now() - (stg.ts || row.founded || 0) < 20 * 60 * 1000) return   // give the lead first right; take over if they've gone quiet
-    _hsQueued = true; journal('homestead', 'queued a bout of ' + st + ' (' + (stg.pct || 0) + '%)', {}); queueTask(async () => { _hsQueued = false; await hsWork(st) })
+    if (lead !== IDENT.key && stg.by !== IDENT.key && Date.now() - (stg.leadTs || row.founded || 0) < 20 * 60 * 1000) return   // lead's first right runs on the LEAD's clock — a taker's own saves never re-arm the lockout
+    if (lead !== IDENT.key && stg.by !== IDENT.key) journal('homestead', 'TAKEOVER of ' + st + ' from ' + lead + ' after quiet', {})
+    _hsQueuedTs = Date.now(); journal('homestead', 'queued a bout of ' + st + ' (' + (stg.pct || 0) + '%)', {}); queueTask(async () => { _hsQueuedTs = 0; await hsWork(st) })
   } catch (e) {} finally { _hsBusy = false }
 }
 setInterval(homesteadTick, 45000 + (IDENT.key === 'trajan' ? 9000 : IDENT.key === 'providencia' ? 17000 : 0))   // staggered so the bodies interleave, not collide
@@ -4888,20 +5124,31 @@ const BACK_SAY = {
   trajan: n => 'You return, ' + n + '. Your post held.',
   providencia: n => 'Welcome home, ' + n + ' — everything kept warm.'
 }
+const _sibDarkStreak = {}, _sibInGameFalseSince = {}
 async function familyChairTick() {
   try {
     if (!bot || !bot.entity) return
     for (const k of SIBS) {
       let v = null
-      try { const r = await withTimeout(fetch(REST + '/clippy_sync?id=eq.' + k + '_vitals&select=data', { headers: H }), 6000); const j = await r.json().catch(() => null); v = j && j[0] && j[0].data } catch (e) { continue }   // can't reach the bus ≠ sibling dark — never grieve on a network blip
-      const dark = !v || (Date.now() - (v.ts || 0) > 5 * 60 * 1000) || v.inGame === false
+      try {
+        const r = await withTimeout(fetch(REST + '/clippy_sync?id=eq.' + k + '_vitals&select=data', { headers: H }), 6000)
+        if (!r || !r.ok) continue                                 // HTTP 4xx/5xx resolves "successfully" — one Supabase 500 must not read as BOTH siblings dying at once
+        const j = await r.json().catch(() => null)
+        if (!Array.isArray(j)) continue
+        v = j[0] && j[0].data
+      } catch (e) { continue }                                    // can't reach the bus ≠ sibling dark — never grieve on a network blip
+      // inGame:false gets the same grace as a stale heartbeat — a routine 60s reconnect is not death
+      if (v && v.inGame === false) { if (!_sibInGameFalseSince[k]) _sibInGameFalseSince[k] = Date.now() } else _sibInGameFalseSince[k] = 0
+      const rawDark = !v || (Date.now() - (v.ts || 0) > 5 * 60 * 1000) || (_sibInGameFalseSince[k] && Date.now() - _sibInGameFalseSince[k] > 3 * 60 * 1000)
+      _sibDarkStreak[k] = rawDark ? (_sibDarkStreak[k] || 0) + 1 : 0
+      const dark = _sibDarkStreak[k] >= 2                          // two consecutive reads (~2.5 min apart) before anyone mourns
       const prev = _sibState[k]
-      if (prev === undefined) { _sibState[k] = dark ? 'dark' : 'up'; continue }   // first sight sets state silently — no mourning a sibling who was already asleep before I woke
+      if (prev === undefined) { _sibState[k] = dark ? 'dark' : (rawDark ? undefined : 'up'); continue }   // first sight sets state silently — no mourning a sibling already asleep before I woke
       if (dark && prev === 'up') {
         _sibState[k] = 'dark'
         say(DARK_SAY[IDENT.key]((v && v.name) || k), true); journal('chair', k + ' went dark — the gap is named, their post covered', {})
         try { feel({ sadness: 4, affection: 3 }, 'missing family') } catch (e) {}
-      } else if (!dark && prev === 'dark') {
+      } else if (!rawDark && prev === 'dark') {
         _sibState[k] = 'up'
         say(BACK_SAY[IDENT.key]((v && v.name) || k), true); journal('chair', k + ' returned — post handed back whole', {})
         try { feel({ happiness: 8, joy: 6, affection: 6 }, 'family whole') } catch (e) {}
@@ -4909,14 +5156,26 @@ async function familyChairTick() {
     }
     // covering the guardian's post: while Trajan is dark, whoever stands nearest drives hostiles off the boy's ground
     _coverGuardian = ROLE !== 'guardian' && _sibState['trajan'] === 'dark'
-    if (_coverGuardian && !busy && !taskQ.length && owner && bot.players[owner] && bot.players[owner].entity) {
+    if (_coverGuardian && !busy && !taskQ.length && mode !== 'stay' && owner && bot.players[owner] && bot.players[owner].entity) {
       const op = bot.players[owner].entity
       const foe = Object.values(bot.entities).filter(e => e && e.type === 'hostile' && e.name !== 'creeper' && op.position.distanceTo(e.position) < 12)
         .sort((a, b) => op.position.distanceTo(a.position) - op.position.distanceTo(b.position))[0]
       if (foe) queueTask(async () => {
         try { await equipBestTool('sword') } catch (e) {}
-        for (let i = 0; i < 5; i++) { if (!bot || !bot.entity || !foe || foe.isValid === false) break; try { await moveNear(foe.position, 2); await bot.lookAt(foe.position.offset(0, 1, 0)); await bot.attack(foe) } catch (e) {} await sleep(600) }
-        journal('chair', 'drove a ' + ((foe && foe.name) || 'foe') + ' off the boy while covering the guardian\'s watch', {})
+        let hits = 0
+        for (let i = 0; i < 5; i++) {
+          if (!bot || !bot.entity || !foe || foe.isValid === false) break
+          if (panic || (bot.health !== undefined && bot.health <= 6)) break     // the v9.15 retreat reflex must win
+          const opNow = owner && bot.players[owner] && bot.players[owner].entity
+          if (opNow && opNow.position.distanceTo(foe.position) < 3) {
+            // the boy is ADJACENT to the foe — a sword sweep would catch him; INTERPOSE like safetyTick instead
+            try { const mid = opNow.position.plus(foe.position).scaled(0.5); await moveNear(mid, 1) } catch (e) {}
+            await sleep(600); continue
+          }
+          try { await moveNear(foe.position, 2); await bot.lookAt(foe.position.offset(0, 1, 0)); await bot.attack(foe); hits++ } catch (e) {}
+          await sleep(600)
+        }
+        journal('chair', (hits > 0 ? ('drove a ' + ((foe && foe.name) || 'foe') + ' off the boy (' + hits + ' hits)') : ('tried to cover — could not reach the ' + ((foe && foe.name) || 'foe'))) + ' while keeping the guardian\'s watch', {})
       })
     }
   } catch (e) {}
@@ -4935,4 +5194,35 @@ function watchTick() {
   } catch (e) {}
 }
 setInterval(watchTick, 60000); setTimeout(watchTick, 20000)
+// v9.19 MACHINE SLEEP GRACE: timers don't fire during Windows standby, so a wall-clock gap >> interval
+// means this machine slept. Wake gently: forget sibling states (their vitals aged while WE were gone —
+// no false mourning), drop the homestead cache (a stale cursor must not drive the first bout), and
+// publish fresh vitals immediately so the SIBLINGS' dark-detection never fires on our nap either.
+let _wallBeat = Date.now()
+setInterval(() => {
+  const n = Date.now(), gap = n - _wallBeat; _wallBeat = n
+  if (gap > 120000) {
+    journal('resume', 'this machine slept ~' + Math.round(gap / 60000) + ' min — waking gently', {})
+    try { for (const k of Object.keys(_sibState)) delete _sibState[k] } catch (e) {}
+    try { for (const k of Object.keys(_sibDarkStreak)) _sibDarkStreak[k] = 0 } catch (e) {}
+    _hsCache = { row: null, ts: 0 }                              // safe ONLY because hsFound verifies absence before founding (v9.19)
+    try { beat(); publishVitals() } catch (e) {}
+  }
+}, 5000)
+// v9.19 WORLD TPS: sample bot.time.age vs the wall clock; a laboring server sheds OPTIONAL work first
+// (homestead bouts, not safety). The host eases earliest — its machine IS the server.
+let _tpsWin = [], _tpsLastAge = 0, _tpsLastWall = 0
+setInterval(() => {
+  try {
+    if (!bot || !bot.time || bot.time.age === undefined) { _tpsLastAge = 0; return }
+    const age = Number(bot.time.age), now = Date.now()
+    if (_tpsLastAge && _tpsLastWall && now > _tpsLastWall) {
+      const tps = (age - _tpsLastAge) / ((now - _tpsLastWall) / 1000)
+      if (isFinite(tps) && tps > 0 && tps <= 40) { _tpsWin.push(tps); if (_tpsWin.length > 6) _tpsWin.shift() }
+    }
+    _tpsLastAge = age; _tpsLastWall = now
+  } catch (e) {}
+}, 10000)
+function worldTPS() { return _tpsWin.length < 3 ? 20 : _tpsWin.reduce((a, b) => a + b, 0) / _tpsWin.length }   // fails OPEN — never gate on thin data
+function serverStrained() { return worldTPS() < (IDENT.soulWriter ? 17 : 14) }
 console.log('[family] woven — ledger on the bus, the empty chair named, ' + IDENT.name + (familyWatchKey() === IDENT.key ? ' HOLDS THE WATCH this hour' : ' rests easy: ' + familyWatchKey() + ' has the watch'))
