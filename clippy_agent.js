@@ -4825,14 +4825,19 @@ function hsStatusLine() {
   const parts = HS_ORDER.map(s => { const g = row.stages[s] || {}; return g.done ? null : (s + ' ' + (g.pct || 0) + '%') }).filter(Boolean)
   return parts.length ? ('homestead: building the ' + parts[0] + '!! (' + HS_ORDER.filter(s => (row.stages[s] || {}).done).length + '/' + HS_ORDER.length + ' parts done)') : 'our homestead is FINISHED!! 🏰'
 }
+let _hsQueued = false
 async function homesteadTick() {
-  if (_hsBusy || !bot || !bot.entity || busy || taskQ.length || mode === 'stay' || panic) return
+  // QUEUE the bout rather than wait for a perfectly idle body — his autonomy keeps taskQ warm nearly
+  // always, so an idle-only gate starves the homestead forever. queueTask is the polite lane the whole
+  // brain shares; the once-flag keeps the queue from flooding with duplicate bouts.
+  if (_hsBusy || _hsQueued || !bot || !bot.entity || mode === 'stay' || panic) return
   if (bot.health !== undefined && bot.health <= 8) return
   if (!playerAFK()) return                                        // the boy comes first, always — the homestead grows in the quiet
+  if (taskQ.length > 1) return                                    // his day is already stacked — try again next tick
   _hsBusy = true
   try {
     const row = await hsRow()
-    if (!row || !row.site) { if (IDENT.soulWriter) queueTask(hsFound); return }
+    if (!row || !row.site) { if (IDENT.soulWriter) { _hsQueued = true; queueTask(async () => { _hsQueued = false; await hsFound() }) } return }
     let st = null
     for (const s of HS_ORDER) { if (!(row.stages[s] && row.stages[s].done)) { st = s; break } }
     if (!st) return
@@ -4840,7 +4845,7 @@ async function homesteadTick() {
     if (stg.claim && stg.claim.who !== IDENT.key && Date.now() - (stg.claim.ts || 0) < 6 * 60 * 1000) return   // someone's on it
     const lead = HS_LEAD[st]
     if (lead !== IDENT.key && Date.now() - (stg.ts || row.founded || 0) < 20 * 60 * 1000) return   // give the lead first right; take over if they've gone quiet
-    queueTask(() => hsWork(st))
+    _hsQueued = true; queueTask(async () => { _hsQueued = false; await hsWork(st) })
   } catch (e) {} finally { _hsBusy = false }
 }
 setInterval(homesteadTick, 45000 + (IDENT.key === 'trajan' ? 9000 : IDENT.key === 'providencia' ? 17000 : 0))   // staggered so the bodies interleave, not collide
