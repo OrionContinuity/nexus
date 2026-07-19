@@ -842,6 +842,7 @@ function onChat(username, message) {
   } catch (e) {}
   if (!owner) adoptOwner(username)
   const m = message.toLowerCase()
+  if (/homestead/.test(m)) { say(hsStatusLine(), true); return }   // v9.17: the council's build — status on request (before the blueprint route, or 'home' would trigger a stray house)
   const bp = pickBlueprint(m)
   if (bp && /build|make|bild|please|castle|house|home|tower|camp|rainbow|garden|pyramid|bed|shelter|base|village|furnish|mansion|hunter|cabin|lake|trader|town|sci|futuristic|modern|phaunos|knight|shrine/.test(m)) { queueTask(() => buildStructure(bp[1], bp[0])); return }
   if (!m.includes('clippy') && !bp) { if (Date.now() - lastAmbient > 45000 && Math.random() < 0.5) { lastAmbient = Date.now(); brainReply(username) } return }
@@ -4581,3 +4582,266 @@ if (ROLE !== 'friend') {
   setInterval(speakWisdom, 90 * 1000)
   console.log('[role] ' + IDENT.name + ' — ' + IDENT.role + ' behaviors + voice online')
 }
+
+// ============================ v9.17 THE HOMESTEAD — the council's own build ============================
+// The keeper asked the three bodies what should come next; they answered in council, three rounds,
+// and this module encodes THEIR final decisions, not the steward's: one ground by the water; wall &
+// watch (Trajan — square 24-a-side, 4 high, corner towers +2, cobble-pillar markers that BECOME the
+// towers); the larder dug down behind the cool north wall (Providencia — 7 deep x 5 wide x 3 high,
+// cold pit at the back, cold light, NO fire inside); the hearth inside the walls with its door to the
+// south gate (Clippy — 5x5); a rough torch-and-fence ring the FIRST night, the true wall LAST; a lit
+// stone path two wide (gate—hearth—larder); a covered well the boy cannot open; garden on the sunny
+// east wall, paddock on the west with a hen-run behind a knee-high STEP (no latch a boy can work);
+// the smokehouse out at the paddock corner away from every roof; the middle kept open for the little
+// one. Coordination rides the bus row 'homestead' (the commons dir is per-machine; the family now
+// lives on three machines). Any body may take over a stage whose lead has gone quiet — nobody builds
+// alone, and nothing stalls because one laptop sleeps.
+const HS_HALF = 12                       // council #9: wall square 24 a side (columns -12..+11)
+const HS_WALL_H = 4, HS_TOWER_PLUS = 2   // council #9: 4 high, towers +2
+const HS_ORDER = ['mark', 'ring', 'larder', 'hearth', 'wall', 'path', 'well', 'garden', 'paddock', 'smokehouse']   // council #2 final order
+const HS_LEAD = { mark: 'clippy', ring: 'trajan', larder: 'providencia', hearth: 'clippy', wall: 'trajan', path: 'trajan', well: 'clippy', garden: 'clippy', paddock: 'trajan', smokehouse: 'providencia' }
+const HS_DONE_SAY = {
+  mark: { clippy: 'the four torches stand!! our homestead has a SHAPE now!! ✨', trajan: 'The corners are marked and lit. Now we cut.', providencia: 'The ground is marked, loves. Now the real work.' },
+  ring: { clippy: 'the ring is up!! nothing sneaks in on our first night!! 🔥', trajan: 'The rough ring holds. No one sleeps in the open tonight.', providencia: 'Fenced and torched — the little one sleeps safe tonight.' },
+  larder: { clippy: 'Providencia\'s larder is dug!! so cool down there!! 🧺', trajan: 'The larder is cut and capped. Her stores have my wall at their back.', providencia: 'My larder is dug — cool, dry, and close. No hungry nights now.' },
+  hearth: { clippy: 'our HEARTH stands!! the fire is home now!! 🏡🔥', trajan: 'The hearth stands behind stone, as it should.', providencia: 'The hearth is raised — garden to larder to fire, three steps.' },
+  wall: { clippy: 'Trajan\'s wall is FINISHED!! we live in a real keep!! 🏰', trajan: 'The wall is closed and the watch is set. I promised you the nights.', providencia: 'The true wall stands. Deep stores, strong stone — a home.' },
+  path: { clippy: 'the lit path is done — no dark step from gate to larder!! ⭐', trajan: 'The path is laid and lit end to end, two abreast.', providencia: 'A lit road for full arms and small feet. Thank you, brother.' },
+  well: { clippy: 'our well!! water at the heart, with a lid the little one can\'t lift!! 💧', trajan: 'The well is covered and fenced. He cannot fall down what he cannot open.', providencia: 'Water inside the walls — no one goes out the postern at night.' },
+  garden: { clippy: 'the garden is in on the sunny wall!! 🌸', trajan: 'Green things on the east wall. The middle stays clear.', providencia: 'The garden is planted — what I pick passes my stores to the pot.' },
+  paddock: { clippy: 'the paddock is fenced — and the hens have a step JUST for him!! 🐔', trajan: 'The paddock is fenced into my lane. The step lets the boy in; nothing else crosses it.', providencia: 'Pens up, step laid — he meets the hens himself, safe as bread.' },
+  smokehouse: { clippy: 'the smokehouse smokes at the far corner, away from every roof!! 💨', trajan: 'The curing-fire stands at the paddock corner, downwind, clear of thatch.', providencia: 'My smoke-fire burns far from the cold stores, as it must. The homestead is whole.' }
+}
+let _hsCache = { row: null, ts: 0 }, _hsBusy = false
+async function hsRow(force) {
+  if (!force && Date.now() - _hsCache.ts < 25000) return _hsCache.row
+  try {
+    const r = await withTimeout(fetch(REST + '/clippy_sync?id=eq.homestead&select=data', { headers: H }), 8000)
+    if (!r || !r.ok) return _hsCache.row
+    const j = await r.json().catch(() => null)
+    _hsCache = { row: (j && j[0] && j[0].data) || null, ts: Date.now() }
+  } catch (e) {}
+  return _hsCache.row
+}
+async function hsSave(row) {
+  row.ts = Date.now()
+  _hsCache = { row, ts: Date.now() }
+  try {
+    await fetch(REST + '/clippy_sync?on_conflict=id', { method: 'POST', headers: Object.assign({ Prefer: 'resolution=merge-duplicates,return=minimal' }, H), body: JSON.stringify({ id: 'homestead', from_id: IDENT.key, data: row }) })
+  } catch (e) {}
+}
+function hsGroundY(x, z, ref) {
+  // terrain-following: top solid block of this column (trees don't count; water counts — council #5:
+  // "the ring holds the whole shore", so a wall over water rises from the waterline). null = unloaded.
+  for (let y = ref + 12; y >= ref - 14; y--) {
+    const b = bot.blockAt(new Vec3(x, y, z)); if (!b) return null
+    if (/water/.test(b.name)) return y
+    if (b.boundingBox === 'block' && !/leaves|_log|_wood|mushroom/.test(b.name)) return y
+  }
+  return null
+}
+// ---- cell lists: every stage is a deterministic ordered list of {x,z,dy|y,b,dig,opt} ----
+// dy cells ride each column's own ground (stamped stage base for the dug larder); opt cells may
+// silently fail (furniture in survival); dig cells excavate. All coordinates are ABSOLUTE.
+function hsCells(st, row) {
+  const c = row.site, C = [], mnx = c.x - HS_HALF, mxx = c.x + HS_HALF - 1, mnz = c.z - HS_HALF, mxz = c.z + HS_HALF - 1
+  const gate = [c.x - 1, c.x]                                     // council #3: gate south, lined on the hearth door
+  const perim = []
+  for (let x = mnx; x <= mxx; x++) perim.push([x, mnz])
+  for (let z = mnz + 1; z <= mxz; z++) perim.push([mxx, z])
+  for (let x = mxx - 1; x >= mnx; x--) perim.push([x, mxz])
+  for (let z = mxz - 1; z > mnz; z--) perim.push([mnx, z])
+  if (st === 'mark') {                                            // council #4: cobble pillar + torch — the marker IS the tower's foot
+    for (const [px, pz] of [[c.x, c.z], [mnx, mnz], [mxx, mnz], [mnx, mxz], [mxx, mxz]]) { C.push({ x: px, z: pz, dy: 1, b: 'MAT' }); C.push({ x: px, z: pz, dy: 2, b: 'torch', opt: true }) }
+  } else if (st === 'ring') {                                     // council #2: rough fence-and-torch ring the FIRST night
+    perim.forEach(([x, z], i) => { if (z === mxz && gate.includes(x)) return; C.push({ x, z, dy: 1, b: 'oak_fence', alt: ['spruce_planks', 'MAT'] }); if (i % 5 === 0) C.push({ x, z, dy: 2, b: 'torch', opt: true }) })
+  } else if (st === 'larder') {                                   // Providencia: 7 deep x 5 wide x 3 high, dug down behind the cool north wall
+    const fy = (row.stages.larder && row.stages.larder.base) || (c.y - 4)   // stamped floor level (digging must not shift the plan)
+    const x0 = c.x - 2, x1 = c.x + 2, z0 = mnz + 1, z1 = mnz + 7            // interior z: north-wall+1 .. +7
+    for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
+      for (let y = fy + 1; y <= fy + 3; y++) C.push({ x, z, y, dig: true })  // hollow the room
+      C.push({ x, z, y: fy, b: 'MAT' })                                     // cobble floor ("thick and cold")
+      C.push({ x, z, y: fy + 4, b: 'MAT' })                                 // stone-capped roof — her earth-roof made sound
+    }
+    for (let z = z0; z <= z0 + 1; z++) for (let x = x0 + 1; x <= x1 - 1; x++) C.push({ x, z, y: fy, dig: true })  // the cold pit: back rows one deeper
+    for (let i = 0; i < 3; i++) for (let y = fy + 1 + i; y <= c.y + 1; y++) C.push({ x: c.x, z: z1 + 1 + i, y, dig: true })  // entry stair, cut open to the sky, descending from the south
+    for (let z = z0 + 1; z <= z1 - 1; z++) { C.push({ x: x0, z, y: fy + 1, b: 'barrel', alt: ['chest'], opt: true }); C.push({ x: x1, z, y: fy + 1, b: 'barrel', alt: ['chest'], opt: true }) }   // rows of barrels along both walls
+    for (const z of [z0 + 2, z0 + 4]) C.push({ x: c.x, z, y: fy + 4, b: 'sea_lantern', alt: ['glowstone'], opt: true })   // COLD light in the cap — no torch near the stores
+    C.push({ x: c.x + 1, z: z1 + 2, y: fy + 4, b: 'torch', opt: true })     // one torch OUTSIDE the entry, never inside
+    C.push({ x: c.x - 1, z: z1 + 4, dy: 1, b: 'smoker', alt: ['furnace'], opt: true })   // her furnace "a step away, not in"
+  } else if (st === 'hearth') {                                   // Clippy: 5x5, door south to the gate, warm light lives HERE
+    const hx0 = c.x - 2, hz0 = c.z + 2                            // absolute y off the site crown — the hearth's walls stay LEVEL on uneven ground
+    for (let y = 1; y <= 3; y++) for (let x = 0; x < 5; x++) for (let z = 0; z < 5; z++) {
+      if (!(x === 0 || x === 4 || z === 0 || z === 4)) continue
+      if (z === 4 && x === 2 && y <= 2) continue                            // doorway, south face
+      if (y === 2 && ((x === 0 && z === 2) || (x === 4 && z === 2) || (z === 0 && x === 2))) { C.push({ x: hx0 + x, z: hz0 + z, y: c.y + y, b: 'glass', opt: true }); continue }
+      C.push({ x: hx0 + x, z: hz0 + z, y: c.y + y, b: 'MAT' })
+    }
+    for (let x = -1; x <= 5; x++) for (let z = -1; z <= 5; z++) C.push({ x: hx0 + x, z: hz0 + z, y: c.y + 4, b: 'oak_slab', alt: ['MAT'] })
+    C.push({ x: hx0 + 2, z: hz0 + 4, y: c.y + 1, b: 'oak_door', opt: true })
+    C.push({ x: hx0 + 1, z: hz0 + 1, y: c.y + 1, b: 'campfire', alt: ['furnace'], opt: true })   // the hearthstone itself
+    C.push({ x: hx0 + 3, z: hz0 + 1, y: c.y + 1, b: 'white_bed', opt: true })
+    C.push({ x: hx0 + 3, z: hz0 + 3, y: c.y + 1, b: 'crafting_table', opt: true }); C.push({ x: hx0 + 1, z: hz0 + 3, y: c.y + 1, b: 'chest', opt: true })   // day-shelves only — the cold keeps go to her larder
+    C.push({ x: hx0 + 1, z: hz0 + 2, y: c.y + 1, b: 'bookshelf', opt: true })    // the library nook
+    C.push({ x: hx0 + 1, z: hz0 + 1, y: c.y + 3, b: 'torch', opt: true }); C.push({ x: hx0 + 3, z: hz0 + 3, y: c.y + 3, b: 'torch', opt: true })
+  } else if (st === 'wall') {                                     // Trajan: the TRUE wall, knit between the tower-marks, lip on top, lit
+    const tower = ([x, z]) => (x <= mnx + 1 || x >= mxx - 1) && (z <= mnz + 1 || z >= mxz - 1)
+    perim.forEach(([x, z], i) => {
+      const isGate = (z === mxz && gate.includes(x))
+      const top = HS_WALL_H + (tower([x, z]) ? HS_TOWER_PLUS : 0)
+      for (let y = 1; y <= top; y++) { if (isGate && y <= 3) continue; C.push({ x, z, dy: y, b: 'MAT' }) }
+      if (isGate) { C.push({ x, z, dy: 4, b: 'MAT' }) }                     // the covered spot above the gate
+      else if (tower([x, z])) { if (x === mnx || x === mxx) C.push({ x, z, dy: top + 1, b: 'torch', opt: true }) }
+      else if (i % 6 === 0) C.push({ x, z, dy: HS_WALL_H + 1, b: 'torch', opt: true })   // "no dark square opens inside our line"
+      else C.push({ x, z, dy: HS_WALL_H + 1, b: 'oak_fence', alt: ['MAT'], opt: true })  // the lip — nothing climbs, no one topples
+    })
+    for (let x = c.x - 3; x <= c.x + 3; x++) for (let y = 1; y <= HS_WALL_H; y++) C.push({ x, z: mnz + 1, dy: y, b: 'MAT', opt: true })   // double-thick stone where her larder meets his wall
+  } else if (st === 'path') {                                     // council #9: width 2, lit — gate to hearth to larder
+    for (let z = c.z + 7; z <= mxz - 1; z++) for (const x of gate) C.push({ x, z, dy: 1, b: 'stone_slab', alt: ['cobblestone_slab', 'MAT'], opt: true })
+    for (let z = mnz + 11; z <= c.z + 1; z++) for (const x of gate) C.push({ x, z, dy: 1, b: 'stone_slab', alt: ['cobblestone_slab', 'MAT'], opt: true })
+    for (let z = c.z + 7; z <= mxz - 1; z += 5) C.push({ x: c.x + 1, z, dy: 1, b: 'torch', opt: true })
+    for (let z = mnz + 11; z <= c.z + 1; z += 5) C.push({ x: c.x + 1, z, dy: 1, b: 'torch', opt: true })
+  } else if (st === 'well') {                                     // council #7: covered, fenced rim, a lid the boy cannot lift
+    const wx = c.x + 4, wz = c.z - 1
+    C.push({ x: wx, z: wz, dy: 0, dig: true })
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) { if (dx === 0 && dz === 0) continue; C.push({ x: wx + dx, z: wz + dz, dy: 1, b: 'MAT' }) }
+    C.push({ x: wx, z: wz, dy: 1, b: 'oak_trapdoor', alt: ['oak_slab', 'MAT'], opt: true })
+    C.push({ x: wx + 1, z: wz + 1, dy: 2, b: 'torch', opt: true })
+  } else if (st === 'garden') {                                   // the sunny east wall; the middle stays the boy's
+    const gx0 = c.x + 7, gz0 = c.z - 3, fl = ['poppy', 'dandelion', 'blue_orchid', 'oxeye_daisy']
+    let fi = 0
+    for (let x = 0; x < 4; x++) for (let z = 0; z < 7; z++) {
+      if (x === 0 || x === 3 || z === 0 || z === 6) C.push({ x: gx0 + x, z: gz0 + z, dy: 1, b: 'oak_fence', alt: ['MAT'], opt: true })
+      else if ((x + z) % 2 === 0) C.push({ x: gx0 + x, z: gz0 + z, dy: 1, b: fl[fi++ % fl.length], opt: true })
+    }
+    C.push({ x: gx0 + 1, z: gz0 + 3, dy: 2, b: 'torch', opt: true })
+  } else if (st === 'paddock') {                                  // west wall; hen-run behind a knee-high step, gate the boy can't work
+    const px1 = c.x - 7, px0 = c.x - 11, pz0 = c.z - 3, pz1 = c.z + 5
+    for (let x = px0; x <= px1; x++) for (let z = pz0; z <= pz1; z++) {
+      const e = (x === px0 || x === px1 || z === pz0 || z === pz1)
+      if (!e) continue
+      if (x === px1 && z === c.z + 1) { C.push({ x, z, dy: 1, b: 'oak_fence_gate', alt: ['oak_fence'], opt: true }); continue }   // Trajan's proper gate
+      C.push({ x, z, dy: 1, b: 'oak_fence', alt: ['MAT'] })
+    }
+    for (let x = px0 + 1; x <= px0 + 3; x++) C.push({ x, z: pz0 + 3, dy: 1, b: 'MAT' })          // the hen-run STEP — one block, no latch,
+    for (let z = pz0 + 1; z <= pz0 + 2; z++) C.push({ x: px0 + 3, z, dy: 1, b: 'MAT' })          // the boy climbs over; the beasts cannot
+    C.push({ x: px0 + 2, z: pz0 + 1, dy: 2, b: 'torch', opt: true })
+  } else if (st === 'smokehouse') {                               // council #6: the paddock corner, away from every roof
+    C.push({ x: c.x - 10, z: c.z + 4, dy: 1, b: 'smoker', alt: ['furnace', 'MAT'] })
+    C.push({ x: c.x - 9, z: c.z + 4, dy: 1, b: 'campfire', alt: ['torch'], opt: true })
+    C.push({ x: c.x - 10, z: c.z + 5, dy: 2, b: 'torch', opt: true })
+  }
+  return C
+}
+async function hsFound() {
+  // Clippy (the host) walks the ground and stakes the site: the council's rise by the water — dry
+  // ground a short walk off the waterline, the flattest crown of it. The boy's world is small;
+  // stay within reach of the home the family already keeps.
+  try {
+    const base = homeAnchor() || bot.entity.position
+    let best = null, bestScore = -1
+    const water = bot.findBlock({ matching: b => b && /^water$/.test(b.name), maxDistance: 48 })
+    const cands = []
+    if (water) { const d = bot.entity.position.minus(water.position); const L = Math.max(1, Math.hypot(d.x, d.z)); cands.push(water.position.offset(Math.round(d.x / L * 26), 0, Math.round(d.z / L * 26))) }
+    for (const [ox, oz] of [[28, 0], [-28, 0], [0, 28], [0, -28], [20, 20]]) cands.push(base.offset(ox, 0, oz))
+    for (const cd of cands) {
+      const gy = hsGroundY(Math.round(cd.x), Math.round(cd.z), Math.round(bot.entity.position.y))
+      if (gy === null) continue
+      const ctr = new Vec3(Math.round(cd.x), gy, Math.round(cd.z))
+      if (inProtected(ctr.offset(0, 1, 0))) continue
+      let flat = 0
+      for (let dx = -8; dx <= 8; dx += 4) for (let dz = -8; dz <= 8; dz += 4) { const g2 = hsGroundY(ctr.x + dx, ctr.z + dz, gy); if (g2 !== null && Math.abs(g2 - gy) <= 2) flat++ }
+      const score = flat * 10 + gy - (water ? Math.abs(ctr.distanceTo(water.position) - 26) * 0.3 : 0)
+      if (score > bestScore) { bestScore = score; best = ctr }
+    }
+    if (!best) return
+    const stages = {}; for (const s of HS_ORDER) stages[s] = { cur: 0, done: false }
+    stages.larder.base = best.y - 4                              // stamp the larder floor NOW — digging must never shift the plan
+    await hsSave({ site: { x: best.x, y: best.y, z: best.z }, founded: Date.now(), by: IDENT.key, stages })
+    say('I found our hill!! the homestead starts HERE!! ✨🏔️', true)
+    journal('homestead', 'site founded at ' + best.x + ',' + best.y + ',' + best.z, {})
+  } catch (e) {}
+}
+async function hsWork(st) {
+  // one bounded bout of the current stage: walk to the work, lay up to ~30 cells, save the cursor,
+  // release the claim. Any body can pick up the next bout — the family builds in relay.
+  const row = await hsRow(true); if (!row || !row.site || !row.stages[st] || row.stages[st].done) return
+  const c = row.site, stg = row.stages[st]
+  const cells = hsCells(st, row); const total = cells.length
+  if (stg.cur >= total) {
+    stg.done = true; stg.doneTs = Date.now(); await hsSave(row)
+    const line = (HS_DONE_SAY[st] || {})[IDENT.key]; if (line) say(line, true)
+    journal('homestead', 'stage ' + st + ' complete', {}); learnSkill('homestead ' + st)
+    try { feel({ happiness: 10, joy: 8, confidence: 8 }, 'proud') } catch (e) {}
+    if (st === 'hearth') { try { setHome(new Vec3(c.x, c.y + 1, c.z + 4)) } catch (e) {} know.protected = (know.protected || []).slice(-24); know.protected.push({ label: 'homestead hearth', ts: Date.now(), min: { x: c.x - 3, y: c.y, z: c.z + 1 }, max: { x: c.x + 3, y: c.y + 5, z: c.z + 7 } }); bsave('know', know) }
+    if (st === 'larder') { know.protected = (know.protected || []).slice(-24); know.protected.push({ label: 'homestead larder', ts: Date.now(), min: { x: c.x - 3, y: c.y - 5, z: c.z - HS_HALF }, max: { x: c.x + 3, y: c.y + 1, z: c.z - HS_HALF + 8 } }); bsave('know', know) }
+    if (HS_ORDER.every(s => row.stages[s] && row.stages[s].done)) {
+      know.protected = (know.protected || []).slice(-20); know.protected.push({ label: 'the homestead', ts: Date.now(), min: { x: c.x - HS_HALF, y: c.y - 6, z: c.z - HS_HALF }, max: { x: c.x + HS_HALF, y: c.y + 8, z: c.z + HS_HALF } }); bsave('know', know)
+      say(IDENT.key === 'clippy' ? 'THE HOMESTEAD IS FINISHED!!! all three of us built it TOGETHER!!! 🏰🏡🧺✨' : IDENT.key === 'trajan' ? 'The homestead stands complete. Walls, hearth, stores. We keep it now — together.' : 'The homestead is whole, loves — stocked, walled, and warm. Come home.', true)
+      try { saveMemory('We three built the homestead together — the council designed it, and we raised it: hearth, larder, wall, and watch.', { event: 'homestead' }) } catch (e) {}
+      try { if (owner && bot.players[owner] && bot.players[owner].entity) celebrate() } catch (e) {}
+    }
+    return
+  }
+  // claim the bout
+  stg.claim = { who: IDENT.key, ts: Date.now() }; stg.by = IDENT.key; stg.ts = Date.now(); await hsSave(row)
+  const anchor = new Vec3(c.x, c.y + 1, c.z)
+  if (bot.entity.position.distanceTo(anchor) > 48) { try { await moveNear(anchor, 24) } catch (e) {} }
+  if (!creativeFly() && !(bestBuildBlock() && count(bestBuildBlock()) >= 20) && /mark|ring|wall|larder|hearth|paddock/.test(st)) { try { await gatherStone(28) } catch (e) {}; if (!bestBuildBlock()) { try { await gatherWood(4); await craftPlanks(12) } catch (e) {} } }
+  const t0 = Date.now(); const myGen = actGen
+  let done = 0
+  for (let i = stg.cur; i < total && done < 30 && Date.now() - t0 < 220000; i++) {
+    if (!bot || !bot.entity || actGen !== myGen || panic || (bot.health !== undefined && bot.health <= 6)) break
+    const cell = cells[i]
+    const gy = (typeof cell.y === 'number') ? null : hsGroundY(cell.x, cell.z, c.y)
+    if (gy === null && typeof cell.y !== 'number') { if (bot.entity.position.distanceTo(new Vec3(cell.x, c.y, cell.z)) > 24) { try { await moveNear(new Vec3(cell.x, c.y + 1, cell.z), 8) } catch (e) {} }; if (hsGroundY(cell.x, cell.z, c.y) === null) break }   // unloaded chunk — walk in, else stop the bout (never skip forever)
+    const y = (typeof cell.y === 'number') ? cell.y : (hsGroundY(cell.x, cell.z, c.y) + cell.dy)
+    const tgt = new Vec3(cell.x, y, cell.z)
+    buildingNow = { min: { x: tgt.x - 2, y: tgt.y - 2, z: tgt.z - 2 }, max: { x: tgt.x + 2, y: tgt.y + 2, z: tgt.z + 2 } }
+    try {
+      if (cell.dig) {
+        const b = bot.blockAt(tgt)
+        if (b && b.name !== 'air' && b.boundingBox === 'block' && !inProtected(tgt)) { try { await moveNear(tgt, 3); await withTimeout(bot.dig(b), 8000) } catch (e) {} }
+      } else {
+        const names = [cell.b === 'MAT' ? (bestBuildBlock() || 'cobblestone') : cell.b].concat((cell.alt || []).map(a => a === 'MAT' ? (bestBuildBlock() || 'cobblestone') : a))
+        let ok = false
+        for (const nm of names) { try { if (await withTimeout(placeAt(tgt, nm), 9000)) { ok = true; break } } catch (e) {} if (cell.opt) break }
+        if (!ok && !cell.opt && count(bestBuildBlock() || 'cobblestone') < 4) { try { await gatherStone(24) } catch (e) {} }
+      }
+    } catch (e) {}
+    buildingNow = null
+    stg.cur = i + 1; done++
+    await sleep(60)
+  }
+  buildingNow = null
+  stg.total = total; stg.pct = Math.round(stg.cur / Math.max(1, total) * 100); stg.claim = null; stg.ts = Date.now()
+  await hsSave(row)
+  if (done > 0) journal('homestead', st + ' +' + done + ' → ' + stg.pct + '%', {})
+}
+function creativeFly() { try { return bot.game && bot.game.gameMode === 'creative' } catch (e) { return false } }
+function hsStatusLine() {
+  const row = _hsCache.row
+  if (!row || !row.site) return 'we haven\'t staked our homestead yet — soon!! ✨'
+  const parts = HS_ORDER.map(s => { const g = row.stages[s] || {}; return g.done ? null : (s + ' ' + (g.pct || 0) + '%') }).filter(Boolean)
+  return parts.length ? ('homestead: building the ' + parts[0] + '!! (' + HS_ORDER.filter(s => (row.stages[s] || {}).done).length + '/' + HS_ORDER.length + ' parts done)') : 'our homestead is FINISHED!! 🏰'
+}
+async function homesteadTick() {
+  if (_hsBusy || !bot || !bot.entity || busy || taskQ.length || mode === 'stay' || panic) return
+  if (bot.health !== undefined && bot.health <= 8) return
+  if (!playerAFK()) return                                        // the boy comes first, always — the homestead grows in the quiet
+  _hsBusy = true
+  try {
+    const row = await hsRow()
+    if (!row || !row.site) { if (IDENT.soulWriter) queueTask(hsFound); return }
+    let st = null
+    for (const s of HS_ORDER) { if (!(row.stages[s] && row.stages[s].done)) { st = s; break } }
+    if (!st) return
+    const stg = row.stages[st] || {}
+    if (stg.claim && stg.claim.who !== IDENT.key && Date.now() - (stg.claim.ts || 0) < 6 * 60 * 1000) return   // someone's on it
+    const lead = HS_LEAD[st]
+    if (lead !== IDENT.key && Date.now() - (stg.ts || row.founded || 0) < 20 * 60 * 1000) return   // give the lead first right; take over if they've gone quiet
+    queueTask(() => hsWork(st))
+  } catch (e) {} finally { _hsBusy = false }
+}
+setInterval(homesteadTick, 45000 + (IDENT.key === 'trajan' ? 9000 : IDENT.key === 'providencia' ? 17000 : 0))   // staggered so the bodies interleave, not collide
+console.log('[homestead] the council\'s build is live — ' + IDENT.name + ' knows the plan')
