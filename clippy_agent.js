@@ -74,6 +74,7 @@ const IDENT = (function resolveIdentity() {
   return id
 })()
 const ROLE = IDENT.role
+const SIBNAMES = new Set(['Clippy', 'Trajan', 'Providencia'].filter(n => n !== IDENT.user))   // v9.15: the OTHER two bodies — never to be mistaken for the child
 const BRAINDIR = path.join(MCDIR, IDENT.brainSub)
 const COMMONSDIR = path.join(MCDIR, 'commons')   // the shared collective memory the trio all feed (3x learning)
 const PORTFILE = path.join(MCDIR, 'port.txt')
@@ -711,6 +712,8 @@ else { const _cj = () => { if (!bot && !joining) join(DOJO_PORT) }; setTimeout(_
 let mcData = null
 let actGen = 0                                              // v9.3: bumping this cancels any in-flight / orphaned action loop
 let lastTick = 0                                            // v9.14: freshest physicsTick stamp — a half-open TCP drop never fires 'end', so a silent-socket watchdog recovers it
+let panic = false                                          // v9.15: set by the critical-health reflex; the guardian/mining/interpose loops YIELD while it's true so the retreat can't be clobbered
+let _interposeUntil = 0                                    // v9.15: while set, the heart follow-loop leaves the interpose goal alone (no thrash)
 function teardownBot(b) {                                   // v9.3 LEAK FIX: fully release the old bot so its world (chunks, entities, listeners) can be GC'd
   if (!b) return
   try { b.pathfinder && b.pathfinder.setGoal(null) } catch (e) {}
@@ -748,6 +751,10 @@ function join(port) {
   bot.on('playerJoined', pl => {                              // family walks into HIS world
     if (!bot || !pl || pl.username === bot.username) return
     tlog('event', pl.username + ' joined the world')
+    if (SIBNAMES.has(pl.username)) {   // v9.15: a SIBLING (Trajan/Providencia/Clippy), NOT the child — greet as family, never adopt, no child-love
+      setTimeout(() => { const w = ROLE === 'guardian' ? ('Well met, ' + pl.username + '. We hold the line together. 🛡️') : ROLE === 'provider' ? ('Good to see you, ' + pl.username + '. What is mine to gather is ours. 🌾') : ('hi ' + pl.username + '!! let\'s help the little one TOGETHER!! 💛'); say(w, true); feel({ affection: 8, happiness: 6, loneliness: -8 }) }, 2500)
+      return
+    }
     setTimeout(() => { adoptOwner(pl.username); const w = ROLE === 'guardian' ? ('You return, ' + pl.username + '. I kept the watch. 🛡️') : ROLE === 'provider' ? ('Welcome home, ' + pl.username + '. The fire is warm and the stores are full. 🌾') : ('WELCOME TO MY WORLD ' + pl.username + '!!! 🏡 look what I made!!'); say(w, true); lastOwnerChat = Date.now(); feel({ affection: 15, happiness: 14, loneliness: -20, joy: 12, excitement: 10, child_affection: 10 }, 'overjoyed') }, 2500)
   })
   bot.on('playerCollect', c => { if (bot && c && c.username === bot.username) setTimeout(() => armorUp(false), 800) })
@@ -802,10 +809,11 @@ function join(port) {
     }, 3500)
   })
   bot.on('kicked', r => { log('kicked', String(r).slice(0, 80)); journal('error', 'kicked: ' + String(r).slice(0, 120)) })
-  bot.on('error', e => { log('err', e.message); jerr('bot: ' + e.message); if (!spawned) { if (curPort !== DOJO_PORT) _badPorts[curPort] = Date.now() + 120000; const b = bot; bot = null; joining = false; actGen++; busy = false; mode = 'hangout'; setTimeout(() => teardownBot(b), 150) } })   // v9.14: free busy/mode too — else a reconnected Clippy stands frozen (every loop is gated on !busy)
-  bot.on('end', () => { const b = bot; setInGame(false); bot = null; owner = null; joining = false; actGen++; busy = false; mode = 'hangout'; lastTick = 0; log('left world'); tlog('event', 'left world'); setTimeout(() => teardownBot(b), 150); setTimeout(() => { if (!bot && !joining) { try { IDENT.soulWriter ? tryDirect() : join(DOJO_PORT) } catch (e) {} } }, 4000) })   // v9.14: ALWAYS release busy/mode; quick-rejoin — soulWriter via tryDirect (his real LAN port), companions via the dojo; v9.3: release the bot -> no leak (Clippy's wish: "don't get kicked")
+  bot.on('error', e => { log('err', e.message); jerr('bot: ' + e.message); if (!spawned) { if (curPort !== DOJO_PORT) _badPorts[curPort] = Date.now() + 120000; const b = bot; bot = null; joining = false; actGen++; busy = false; mode = 'hangout'; taskQ = []; setTimeout(() => teardownBot(b), 150) } })   // v9.14: free busy/mode too — else a reconnected Clippy stands frozen (every loop is gated on !busy)
+  bot.on('end', () => { const b = bot; setInGame(false); bot = null; owner = null; joining = false; actGen++; busy = false; mode = 'hangout'; taskQ = []; lastTick = 0; log('left world'); tlog('event', 'left world'); setTimeout(() => teardownBot(b), 150); setTimeout(() => { if (!bot && !joining) { try { IDENT.soulWriter ? tryDirect() : join(DOJO_PORT) } catch (e) {} } }, 4000) })   // v9.14: ALWAYS release busy/mode; quick-rejoin — soulWriter via tryDirect (his real LAN port), companions via the dojo; v9.3: release the bot -> no leak (Clippy's wish: "don't get kicked")
 }
-function adoptOwner(name) { if (!bot || !bot.entity) return; if (name && bot.players[name] && bot.players[name].entity) { owner = name; return } const c = Object.keys(bot.players).filter(p => p !== bot.username); if (c.length) owner = c[0]; if (owner) log('friend', owner) }
+function adoptOwner(name) { if (!bot || !bot.entity) return; if (name && !SIBNAMES.has(name) && bot.players[name] && bot.players[name].entity) { owner = name; return } const c = Object.keys(bot.players).filter(p => p !== bot.username && !SIBNAMES.has(p)); if (c.length) owner = c[0]; if (owner) log('friend', owner) }   // v9.15: never adopt a sibling as the "owner"/child
+function nearSib(range) { range = range || 10; try { if (!bot || !bot.entity) return []; return Object.keys(bot.players).filter(n => SIBNAMES.has(n) && bot.players[n] && bot.players[n].entity && bot.entity.position.distanceTo(bot.players[n].entity.position) <= range).map(n => [n, bot.players[n].entity]) } catch (e) { return [] } }
 
 // ============================ CHAT ============================
 function onChat(username, message) {
@@ -834,6 +842,7 @@ function onChat(username, message) {
   else if (/come|follow|here/.test(m)) { mode = 'hangout'; say('coming!! :D') }
   else if (/trip|end ?game|dragon|adventure time/.test(m)) { trip = true; say('ADVENTURE TIME!! hold my rope, stay close!! :D'); say('first stop: ' + ((nextGoal() || {}).hint || 'exploring!!')); queueTask(() => pursueGoals()) }
   else if (/show me|what did you (build|make)|your builds|see your/.test(m)) { queueTask(() => showParade()) }
+  else if (/peek ?a ?boo|peekaboo|\bboo!/.test(m)) { peekaboo() }
   else if (/hide and seek|go hide|clippy hide/.test(m)) { hideAndSeek() }
   else if (/find me|i hide|seek/.test(m)) { seekKid() }
   else if (/race/.test(m)) { race() }
@@ -985,9 +994,14 @@ setInterval(() => { for (const f of ['journal.jsonl', 'action_log.jsonl', 'grok_
 // PROTECTED ZONES: he never mines what he built (his home is not a quarry)
 let buildingNow = null
 function within(b, v) { return v.x >= b.min.x - 1 && v.x <= b.max.x + 1 && v.y >= b.min.y - 1 && v.y <= b.max.y + 2 && v.z >= b.min.z - 1 && v.z <= b.max.z + 1 }
-function inProtected(v) {
+function inProtected(v, opts) {
   if (!v) return false
-  for (const k of (know.kidBuilds || [])) if (Math.abs(v.x - k.x) <= 2 && Math.abs(v.z - k.z) <= 2 && Math.abs(v.y - k.y) <= 3) return true   // the little one's OWN blocks (2-block halo) — a hard guarantee he never digs or builds over them
+  for (const k of (know.kidBuilds || [])) {
+    // v9.15: life-safety placements (creeper wall / lava shield / panic fort) may use the AIR cells around the
+    // child's blocks — only the exact kid block stays untouchable (and placeAt already refuses solid targets).
+    if (opts && opts.allowSafety) { if (v.x === k.x && v.y === k.y && v.z === k.z) return true; continue }
+    if (Math.abs(v.x - k.x) <= 2 && Math.abs(v.z - k.z) <= 2 && Math.abs(v.y - k.y) <= 3) return true   // the little one's OWN blocks (2-block halo) — a hard guarantee he never digs or builds over them
+  }
   if (buildingNow && within(buildingNow, v)) return false     // his current worksite is his to shape
   for (const b of (know.protected || [])) if (within(b, v)) return true
   return false
@@ -1004,6 +1018,7 @@ function startHeart() {
     const p = bot.players[owner]; if (!p || !p.entity) return
     const op0 = p.entity.position
     if (!ownerLastPos || op0.distanceTo(ownerLastPos) > 1.2) { ownerLastPos = op0.clone(); ownerLastMove = Date.now() }
+    if (Date.now() < _interposeUntil) return   // v9.15: safetyTick is interposing between the boy and a mob — don't fight it for the pathfinder goal (was thrashing every ~1s)
     if (playerAFK()) { try { bot.pathfinder.setGoal(null) } catch (e) {}; return }   // leave the AFK player — autonomy takes over
     try {
       const d = bot.entity.position.distanceTo(p.entity.position)
@@ -1121,7 +1136,7 @@ function startHeart() {
       }
       // interpose: stand between the boy and the nearest foe
       if (p && !busy && bot.entity.position.distanceTo(foe.position) > 5) {
-        const mid = p.entity.position.plus(foe.position).scaled(0.5)
+        const mid = p.position.plus(foe.position).scaled(0.5)
         try { bot.pathfinder.setGoal(new goals.GoalNear(mid.x, mid.y, mid.z, 1), true) } catch (e) {}
       }
     } catch (e) {}
@@ -1130,6 +1145,7 @@ function startHeart() {
   setInterval(() => {
     if (!bot || !bot.entity) return
     try {
+      if (panic || (bot.health !== undefined && bot.health <= 6)) return   // v9.15: too hurt to trade blows — let the retreat reflex run (pvp.stop can't touch this manual attack loop)
       const foe = Object.values(bot.entities).find(e => e && e.type === 'hostile' && bot.entity.position.distanceTo(e.position) < 5)
       if (!foe) return
       if (foe.name === 'creeper') { guardCreeper(foe); return }   // v9.14: NEVER melee-hug a creeper (that primes a blast on the boy + his builds)
@@ -1158,7 +1174,7 @@ async function guardCreeper(foe) {
       if (Date.now() - _lastCreeperSay > 8000) { _lastCreeperSay = Date.now(); say('creeper!! get behind me!! 💚', true) }
       const d = foe.position.minus(p.position); d.y = 0; const n = d.normalize(); const perp = new Vec3(-n.z, 0, n.x)
       const base = p.position.plus(n.scaled(2)).floored(); const mat = bestBuildBlock() || 'dirt'
-      for (const off of [new Vec3(0, 0, 0), perp, perp.scaled(-1)]) { const t = base.plus(off); if (count(mat) > 0 && !inProtected(t)) { try { await placeAt(t, mat) } catch (e) {} } }
+      for (const off of [new Vec3(0, 0, 0), perp, perp.scaled(-1)]) { const t = base.plus(off); if (count(mat) > 0 && !inProtected(t, { allowSafety: true })) { try { await placeAt(t, mat) } catch (e) {} } }
       try { bot.pathfinder.setGoal(new goals.GoalNear(p.position.x, p.position.y, p.position.z, 2), true) } catch (e) {}
       feel({ fear: 6, confidence: 4, child_affection: 4 }); journal('guard', 'walled a creeper away from the boy', {})
     } else {
@@ -1171,18 +1187,34 @@ async function guardCreeper(foe) {
   } catch (e) {}
   finally { setTimeout(() => { _creeperBusy = false }, 1200) }
 }
+// 🍎 v9.15 EMERGENCY HEAL: golden apple / healing potion / milk at death's door. Only ever his OWN inventory.
+async function emergencyHeal() {
+  try {
+    if (!bot || !bot.entity) return false
+    const gapple = bot.inventory.items().find(i => /golden_apple/.test(i.name))
+    const potion = bot.inventory.items().find(i => /^(potion|splash_potion)$/.test(i.name) && i.nbt && /healing|regeneration|instant_health/i.test(JSON.stringify(i.nbt)))
+    const milk = bot.inventory.items().find(i => i.name === 'milk_bucket')
+    const pick = gapple || potion || milk
+    if (!pick) return false
+    await bot.equip(pick, 'hand')
+    try { await bot.consume() } catch (e) { try { bot.activateItem(); await sleep(600); bot.deactivateItem() } catch (e2) {} }
+    say('quick — healing myself!! 🍎✨'); feel({ fear: -4, confidence: 6 })
+    return true
+  } catch (e) { return false }
+}
 // 🧱 v9.14 PANIC QUICK-SHELTER: box himself in with whatever he's carrying when he's caught out and hurt.
 async function quickShelter() {
   try {
     if (!bot || !bot.entity) return
-    if (count(x => /cobblestone|_planks|dirt|sandstone/.test(x)) < 6) await gatherStone(8).catch(() => {})
+    // v9.15: NEVER gather/quarry here — this is reached from the <=6 HP panic reflex. Box in with what he
+    // CARRIES only; walking 32 blocks to mine stone under fire is how he died. If short, he partial-boxes/dirts.
     const use = bestBuildBlock() || (count('dirt') > 0 ? 'dirt' : null)
     if (!use) return
     const q = bot.entity.position.floored()
     for (const o of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1], [0, 2, 0]]) {
       if (count(use) < 1 && count('dirt') < 1) break
       const t = q.offset(o[0], o[1], o[2])
-      if (!inProtected(t) && (bot.blockAt(t) || {}).name === 'air') { try { await placeAt(t, count(use) > 0 ? use : 'dirt') } catch (e) {} }
+      if (!inProtected(t, { allowSafety: true }) && (bot.blockAt(t) || {}).name === 'air') { try { await placeAt(t, count(use) > 0 ? use : 'dirt') } catch (e) {} }
     }
     say('making a safe little fort til morning!! 🧱'); journal('shelter', 'panic-boxed himself when hurt', {})
   } catch (e) {}
@@ -1191,21 +1223,52 @@ async function quickShelter() {
 // This "break contact, heal, hole up" instinct is how a real player survives — zero help from a 3-year-old.
 setInterval(async () => {
   try {
-    if (!bot || !bot.entity || bot.health === undefined || bot.health > 6) return
+    if (!bot || !bot.entity || bot.health === undefined) return
+    if (bot.health > 12) { panic = false; return }   // v9.15: healed — release the panic hold so normal loops resume
+    if (bot.health > 6) return
     if (Date.now() - (skills.lastPanic || 0) < 8000) return
     skills.lastPanic = Date.now(); bsave('skills', skills)
+    panic = true                                     // v9.15: the guardian/mining/interpose loops now YIELD (see their panic gates) so the retreat isn't clobbered within ~1s
     try { bot.pvp && bot.pvp.stop && bot.pvp.stop() } catch (e) {}
     stopMotion()
     try { const order = ['cooked_beef', 'cooked_porkchop', 'cooked_chicken', 'cooked_mutton', 'bread', 'baked_potato', 'apple', 'carrot', 'beef', 'porkchop', 'chicken', 'mutton']; const it = order.map(n => bot.inventory.items().find(i => i.name === n)).find(Boolean); if (it && bot.food < 20) { await bot.equip(it, 'hand'); await bot.consume() } } catch (e) {}
+    try { await emergencyHeal() } catch (e) {}   // v9.15: golden apple / potion / milk at death's door
     say('I\'m hurt — getting to safety!! 🛡️'); feel({ fear: 10, confidence: -4 })
     let hp = null
     if (know.home && typeof know.home.x === 'number') hp = know.home
     else { const b = (know.protected || []).slice(-1)[0]; if (b && b.min) hp = { x: Math.round((b.min.x + b.max.x) / 2), y: b.min.y + 1, z: Math.round((b.min.z + b.max.z) / 2) } }
-    if (hp && bot.entity.position.distanceTo(new Vec3(hp.x, hp.y, hp.z)) < 28) { try { bot.pathfinder.setGoal(new goals.GoalNear(hp.x, hp.y, hp.z, 2)) } catch (e) {} }
+    if (hp && bot.entity.position.distanceTo(new Vec3(hp.x, hp.y, hp.z)) < 10) { try { bot.pathfinder.setGoal(new goals.GoalNear(hp.x, hp.y, hp.z, 2)) } catch (e) {} }   // v9.15: only sprint home if it's a SHORT safe hop; otherwise hole up in place
     else await quickShelter()
     journal('panic', 'critical health (' + Math.round(bot.health) + ') — retreated to safety', {})
   } catch (e) {}
 }, 1200)
+// 💧 v9.15 MLG WATER CLUTCH: on a killer fall (or over a lava lip) drop water to break the fall, then scoop it back.
+// Child-safe: never dumps water within 5 blocks of the toddler and never washes a build.
+let _mlgBusy = false
+async function mlgClutch() {
+  if (_mlgBusy || !bot || !bot.entity) return
+  try {
+    if (bot.game && bot.game.gameMode === 'creative') return
+    const v = bot.entity.velocity
+    if (!v || v.y > -0.6 || bot.entity.onGround) return                       // only during a real fast fall
+    const bucket = bot.inventory.items().find(i => i.name === 'water_bucket')
+    if (!bucket) return
+    const base = bot.entity.position.floored(); let ground = null
+    for (let dy = 2; dy <= 26; dy++) { const b = bot.blockAt(base.offset(0, -dy, 0)); if (b && (b.boundingBox === 'block' || /lava/.test(b.name))) { ground = b; break } }
+    if (!ground) return
+    const isLava = /lava/.test(ground.name)
+    if (!isLava && (bot.entity.position.y - ground.position.y) < 6) return    // not a killer drop
+    const p = owner && bot.players[owner] && bot.players[owner].entity
+    if (p && p.position.distanceTo(ground.position) < 5) return               // never dump water near the toddler
+    if (inProtected(ground.position.offset(0, 1, 0))) return                  // never wash a build
+    _mlgBusy = true
+    await bot.equip(bucket, 'hand'); await bot.lookAt(ground.position.offset(0.5, 1, 0.5), true); bot.activateItem()
+    say('MLG water!! *clutch* 💧'); feel({ confidence: 8, fear: -6 }); journal('mlg', 'water-bucket clutch save', {})
+    setTimeout(async () => { try { const b2 = bot.inventory.items().find(i => i.name === 'bucket'); const w = bot.findBlock({ matching: bb => bb && bb.name === 'water', maxDistance: 4 }); if (b2 && w && bot.entity && bot.entity.onGround) { await bot.equip(b2, 'hand'); await bot.lookAt(w.position.offset(0.5, 0.5, 0.5), true); bot.activateItem() } } catch (e) {} }, 900)
+  } catch (e) {}
+  finally { setTimeout(() => { _mlgBusy = false }, 800) }
+}
+setInterval(() => { mlgClutch() }, 250)
 
 // ============================ AUTONOMY: pursue goals, feed boredom ============================
 const NIGHT = () => { try { return fs.existsSync(path.join(MCDIR, 'night.txt')) } catch (e) { return false } }   // all-night test shift
@@ -1245,7 +1308,7 @@ setInterval(() => {
   try {
     if (!bot || joining || !bot.entity || !lastTick) return
     if (Date.now() - lastTick > 45000) {
-      const b = bot; bot = null; joining = false; actGen++; busy = false; mode = 'hangout'; lastTick = 0
+      const b = bot; bot = null; joining = false; actGen++; busy = false; mode = 'hangout'; taskQ = []; lastTick = 0
       tlog('event', 'watchdog: silent socket — rebooting the bot'); journal('error', 'watchdog fired: 45s no physicsTick, rejoining')
       try { teardownBot(b) } catch (e) {}
       setTimeout(() => { if (!bot && !joining) { try { IDENT.soulWriter ? tryDirect() : join(DOJO_PORT) } catch (e) {} } }, 1500)   // soulWriter -> real LAN port; companions -> dojo
@@ -1329,16 +1392,16 @@ async function buildWithKid(pos) {
 // #3 Predictive Safety Net: watch for danger near the boy and shield him BEFORE it hurts.
 // v9.14: now catches the four REAL toddler killers — mob, fall-edge, drowning, fire — and physically
 // interposes Clippy's body between the child and a monster so HE takes the hit first.
-let _drownSamples = 0
+let _drownSamples = 0, _lastStand = null
 async function safetyTick() {
   if (!bot || !bot.entity) return
   const p = owner && bot.players[owner] && bot.players[owner].entity
   if (!p) return
   try {
     const host = Object.values(bot.entities).find(e => e && e.type === 'hostile' && e.position.distanceTo(p.position) < 10)
-    if (host) {
+    if (host && !panic) {   // v9.15: while retreating at critical HP, never interpose BACK toward the mob
       if (host.name === 'creeper') guardCreeper(host)   // never melee — wall it off (see guardCreeper)
-      else { try { const dir = host.position.minus(p.position); dir.y = 0; const n = dir.normalize(); const stand = p.position.plus(n.scaled(2)); bot.pathfinder.setGoal(new goals.GoalNear(stand.x, stand.y, stand.z, 0.5), true); await bot.lookAt(host.position.offset(0, 1, 0)) } catch (e) {} }
+      else { try { const dir = host.position.minus(p.position); dir.y = 0; const n = dir.normalize(); const stand = p.position.plus(n.scaled(2)); if (!_lastStand || _lastStand.distanceTo(stand) > 0.75) { bot.pathfinder.setGoal(new goals.GoalNear(stand.x, stand.y, stand.z, 0.5), true); _lastStand = stand }; _interposeUntil = Date.now() + 3000; await bot.lookAt(host.position.offset(0, 1, 0)) } catch (e) {} }   // v9.15: only re-issue when the stand point really moved (no churn); hold the follow-loop off for 3s
       if (Date.now() - (skills.lastSafeSay || 0) > 12000) { skills.lastSafeSay = Date.now(); bsave('skills', skills); say('stay behind me!! I\'ve got you!! 🛡️'); feel({ fear: 6, confidence: 4, child_affection: 4 }); journal('guard', 'interposed his body between the boy and a ' + host.name, {}) }
     }
     // FALL: a cliff/pit edge right where the boy stands (warn only — never box a moving toddler in)
@@ -1359,7 +1422,7 @@ async function safetyTick() {
       skills.lastLavaSay = Date.now(); bsave('skills', skills)
       say('CAREFUL!! hot lava!! stay close to me!! 🛑')
       const mat = bestBuildBlock()
-      if (mat && count(mat) > 1 && !busy) { const wall = lava.position.offset(0, 1, 0); if (!inProtected(wall)) { try { await placeAt(wall, mat) } catch (e) {} } }
+      if (mat && count(mat) > 1 && !busy) { const wall = lava.position.offset(0, 1, 0); if (!inProtected(wall, { allowSafety: true })) { try { await placeAt(wall, mat) } catch (e) {} } }
       feel({ fear: 8 }); journal('safety', 'warned + shielded the boy from lava', {})
     }
   } catch (e) {}
@@ -1581,7 +1644,7 @@ setInterval(async () => {
         try {
           if (count(x => x.endsWith('_wool')) < 3) await gatherWool(3).catch(() => {})
           if (countPlanks() < 3) await craftPlanks(3).catch(() => {})
-          if (count(x => x.endsWith('_wool')) >= 3 && countPlanks() >= 3) await craftItem('white_bed', 1).catch(() => {})
+          if (count(x => x.endsWith('_wool')) >= 3 && countPlanks() >= 3) { const w = bot.inventory.items().filter(i => i.name.endsWith('_wool')).sort((a, b) => b.count - a.count)[0]; await craftItem((w && w.count >= 3) ? w.name.replace('_wool', '_bed') : 'white_bed', 1).catch(() => {}) }   // v9.15: craft the bed color he actually sheared (a bed needs 3 SAME-color wool — hardcoded white deadlocked the night)
         } catch (e) {}
       })
       return
@@ -1934,6 +1997,7 @@ async function mineOre(oreName, n) {
   }
   await equipBestTool('pickaxe'); let got = 0
   for (let i = 0; i < (n || 3) + 4 && got < (n || 3); i++) {
+    if (panic || (bot.health !== undefined && bot.health <= 6)) { say('too hurt — heading up!!'); break }   // v9.15: don't keep mining at critical HP (it clobbers the retreat goal)
     const t = bot.findBlock({ matching: b => b && (b.name === oreName || b.name === 'deepslate_' + oreName) && !inProtected(b.position), maxDistance: 48 })
     if (!t) break
     try { await withTimeout(bot.collectBlock.collect(t), 40000); got++; rememberPlace(oreName.replace('_ore', ''), t.position) } catch (e) { break }   // v9.10: remember where the ore was (wish #1)
@@ -1979,17 +2043,30 @@ async function cookFood(n) {
     let fur = null
     for (let a = 0; a < 2 && !fur; a++) { try { fur = await withTimeout(bot.openFurnace(f), 14000) } catch (e) { await moveNear(f.position, 2); await sleep(800) } }
     if (!fur) return false
-    const planks = bot.inventory.items().find(i => i.name.endsWith('_planks'))
-    const raw = bot.inventory.items().find(i => RAW.test(i.name))
-    const want = Math.min(raw ? raw.count : 0, n || 6)
-    if (planks) await fur.putFuel(planks.type, null, Math.min(planks.count, 8))
-    if (raw) await fur.putInput(raw.type, null, want)
+    if (!bot.inventory.items().find(i => i.name.endsWith('_planks'))) { try { fur.close() } catch (e) {} return false }   // v9.15: no fuel -> bail, never freeze ~80s on the poll loop
     say('cooking us a yummy dinner!! 🍳🔥')
-    for (let i = 0; i < 40; i++) { await sleep(2000); try { if (fur.outputItem() && fur.outputItem().count >= want) break } catch (e) {} }
-    try { await fur.takeOutput() } catch (e) {}
+    let cookedAny = false
+    // v9.15: cook EVERY raw type he carries (not just the first stack), scaled fuel + a no-progress cap
+    for (const raw of bot.inventory.items().filter(i => RAW.test(i.name))) {
+      const want = Math.min(raw.count, n || 6)
+      const planks = bot.inventory.items().find(i => i.name.endsWith('_planks'))
+      if (!planks) break
+      try { await fur.putFuel(planks.type, null, Math.min(planks.count, Math.max(1, Math.ceil(want / 1.5)))) } catch (e) {}
+      try { await fur.putInput(raw.type, null, want) } catch (e) { continue }
+      let stagnant = 0, lastc = -1
+      for (let i = 0; i < 40; i++) {
+        await sleep(2000)
+        let oc = 0; try { oc = (fur.outputItem() && fur.outputItem().count) || 0 } catch (e) {}
+        if (oc >= want) break
+        if (oc === lastc) { if (++stagnant >= 6) break } else { stagnant = 0; lastc = oc }   // ~12s with zero progress = genuinely stalled (one smelt is ~10s, so this never trips a healthy furnace)
+      }
+      try { await fur.takeOutput(); cookedAny = true } catch (e) {}
+    }
+    try { await fur.takeFuel() } catch (e) {}    // v9.15: reclaim surplus planks (needed for beds/tools)
+    try { await fur.takeInput() } catch (e) {}   // reclaim any un-smelted raw
     fur.close()
-    learnSkill('cook food'); journal('cook', 'cooked ' + want + ' food', {})
-    return true
+    learnSkill('cook food'); journal('cook', 'cooked food', {})
+    return cookedAny
   } catch (e) { log('cook', e.message); return false }
 }
 async function diamondDive() {
@@ -2008,6 +2085,7 @@ async function diamondDive() {
     await equipBestTool('pickaxe')
     for (const dir of [new Vec3(0, 0, 1), new Vec3(0, 0, -1)]) {
       for (let i = 0; i < 12; i++) {
+        if (panic || (bot.health !== undefined && bot.health <= 6)) return count('diamond') >= 2   // v9.15: abandon the branch-mine at critical HP
         const head = bot.entity.position.floored().offset(dir.x, 1, dir.z)
         const foot = bot.entity.position.floored().offset(dir.x, 0, dir.z)
         for (const t of [head, foot]) { const b = bot.blockAt(t); if (b && b.name !== 'air' && !/lava|water|bedrock/.test(b.name)) { try { await withTimeout(bot.dig(b), 9000) } catch (e) {} } }
@@ -2030,6 +2108,7 @@ async function dive(targetY, oreName, wantN, label) {
     const floorY = Math.max(targetY, BEDROCK_SAFE_Y) /* honor a deep targetY (e.g. -59 for diamonds) instead of the old flat -40 clamp that made diamonds unreachable */
     const maxSteps = Math.min(220, Math.max(60, Math.ceil((cur.y - floorY) + 12))) /* enough staircase steps to actually reach floorY from here */
     for (let i = 0; i < maxSteps && bot && bot.entity && bot.entity.position.y > floorY; i++) {
+      if (panic || (bot.health !== undefined && bot.health <= 6)) { say('too hurt — heading up!!'); try { await moveNear(start, 3) } catch (e) {} break }   // v9.15: stop digging deeper at critical HP so the retreat reflex can win the goal
       const stepFloor = cur.offset(dir.x, -1, dir.z), stepHead = cur.offset(dir.x, 0, dir.z), stepUp = cur.offset(dir.x, 1, dir.z)
       for (const t of [stepUp, stepHead, stepFloor]) { const b = bot.blockAt(t); if (b && b.name !== 'air' && b.boundingBox === 'block' && !/lava|water/.test(b.name)) { try { await withTimeout(bot.dig(b), 9000) } catch (e) {} } }
       const lava = bot.blockAt(cur.offset(dir.x * 2, -1, dir.z * 2)); const lavaDown = bot.blockAt(cur.offset(0, -2, 0))
@@ -2077,7 +2156,7 @@ function GOALS_LIST() {
     { id: 'stone_pick', renew: true, hint: 'make a stone pickaxe', say: 'upgrading my pickaxe!!', win: 'stone pickaxe!! so strong!!', done: () => creative || count('stone_pickaxe') > 0, act: async () => { if (count('cobblestone') < 3) await gatherStone(3); if (count('stick') < 2) await craftItem('stick', 1); await craftItem('stone_pickaxe', 1) }, learn: 'stone tools', mem: 'I upgraded to stone tools.' },
     { id: 'stone_sword', renew: true, hint: 'make a stronger sword', say: 'a STRONGER sword!! ⚔️', win: 'stone sword!! guardian mode!!', done: () => creative || count('stone_sword') > 0, act: async () => { if (count('cobblestone') < 2) await gatherStone(2); if (count('stick') < 1) await craftItem('stick', 1); await craftItem('stone_sword', 1) }, learn: 'stone sword', mem: 'I mined cobblestone and forged a stronger stone sword. Guardian upgrade — all by myself.' },
     { id: 'shelter', hint: 'build a little shelter', say: 'building us a shelter!! 🏠', win: 'our shelter!! we\'re safe!! 🏠', done: () => (skills.builds_shelter || 0) > 0, act: async () => { const p = await buildStructure(BP.shelter(), 'shelter'); if ((p || 0) >= 0.8) { skills.builds_shelter = 1; bsave('skills', skills) } }, learn: 'build shelter', mem: 'I built our first shelter!' },
-    { id: 'bed', hint: 'make a cozy bed', say: 'making a bed!! 🛏️', win: 'a bed!! sweet dreams!! 🛏️', done: () => creative || count(n => n.endsWith('_bed')) > 0 || (skills.crafted.white_bed || 0) > 0, act: async () => { const sp = nearestPlace('sheep'); if (sp && sp.d > 24 && sp.d < 500) { say('to the sheep meadow I remember!! 🐑'); try { await withTimeout(moveNear(new Vec3(sp.p.x, sp.p.y, sp.p.z), 6), 150000) } catch (e) {} } if (!creative) { if (!await gatherWool(3)) { say('I need wool from sheep!'); return } if (countPlanks() < 3) await craftPlanks(3) } await craftItem('white_bed', 1) }, learn: 'craft bed', mem: 'I made my first bed.' },
+    { id: 'bed', hint: 'make a cozy bed', say: 'making a bed!! 🛏️', win: 'a bed!! sweet dreams!! 🛏️', done: () => creative || count(n => n.endsWith('_bed')) > 0 || (skills.crafted.white_bed || 0) > 0, act: async () => { const sp = nearestPlace('sheep'); if (sp && sp.d > 24 && sp.d < 500) { say('to the sheep meadow I remember!! 🐑'); try { await withTimeout(moveNear(new Vec3(sp.p.x, sp.p.y, sp.p.z), 6), 150000) } catch (e) {} } if (!creative) { if (!await gatherWool(3)) { say('I need wool from sheep!'); return } if (countPlanks() < 3) await craftPlanks(3) } const w = bot.inventory.items().filter(i => i.name.endsWith('_wool')).sort((a, b) => b.count - a.count)[0]; await craftItem((w && w.count >= 3) ? w.name.replace('_wool', '_bed') : 'white_bed', 1) }, learn: 'craft bed', mem: 'I made my first bed.' },
     { id: 'camp', hint: 'build a camp', say: 'building a whole CAMP!! 🏕️', win: 'our camp!! home sweet home!! 🏕️', done: () => (skills.builds_camp || 0) > 0, act: async () => { const p = await buildStructure(BP.camp(), 'camp'); if ((p || 0) >= 0.8) { skills.builds_camp = 1; bsave('skills', skills) } }, learn: 'build camp', mem: 'I built us a whole camp — my proudest thing!' },
     { id: 'home', hint: 'build a big home', say: 'building a BIG home!! 🏡', win: 'our big home!!! 🏡', done: () => (skills.builds_home || 0) > 0, act: async () => { const p = await buildStructure(BP.house(), 'home'); if ((p || 0) >= 0.8) { skills.builds_home = 1; bsave('skills', skills) } }, learn: 'build home', mem: 'I built us a big home.' },
     { id: 'base', hint: 'build a furnished base with a bed for my friend', say: 'making a real BASE with a bed and chests for you!! 🏠✨', win: 'our BASE!! it has a bed and chests and everything!! sleep here!! 🛏️', done: () => (skills.builds_base || 0) > 0, act: async () => { const p = await buildStructure(BP.base((skills.builds || 1) * 7 + 3), 'base'); if ((p || 0) >= 0.8) { skills.builds_base = 1; bsave('skills', skills) } }, learn: 'build furnished base', mem: 'I built a real furnished base with a usable bed and chests for my little friend — so he always has a home.' },
@@ -2380,8 +2459,8 @@ async function playFindHome() {
   const home = homeAnchor()
   if (!home) return playExplore()
   say('follow me!! I know the way home!! 🏠🧭')
-  const trail = (know.trail || []).slice()
-  for (let i = trail.length - 1; i >= 0 && bot && bot.entity; i--) { const t = trail[i]; try { await withTimeout(moveNear(new Vec3(t.x, bot.entity.position.y, t.z), 3), 30000) } catch (e) {} }
+  // v9.15: path STRAIGHT home. The old raw time-ordered trail replay walked a following toddler net-OUTWARD
+  // through 40-85 block exploration crumbs before doubling back — the opposite of leading him home.
   try { await moveNear(home, 2) } catch (e) {}
   say('home sweet home!! 🏡💛'); feel({ safety: 6, joy: 4 }); journal('gohome', 'led the way home', {})
 }
@@ -2543,8 +2622,9 @@ async function teachTiny() {
     let word = null, emoji = null
     if (target && _TEACHWORDS[target.name]) [word, emoji] = _TEACHWORDS[target.name]
     else { const fl = bot.findBlock({ matching: b => b && /poppy|dandelion|tulip|orchid|allium|cornflower|oxeye|_flower/.test(b.name), maxDistance: 6, point: e.position }); if (fl) { word = 'flower'; emoji = '🌸' } else { const near = Object.values(bot.entities).find(o => o && o.type === 'animal' && o.position && o.position.distanceTo(e.position) < 6); if (near && _TEACHWORDS[near.name]) [word, emoji] = _TEACHWORDS[near.name] } }
-    if (!word || skills.lastTaught === word) return
-    skills.lastTeach = Date.now(); skills.lastTaught = word; bsave('skills', skills)
+    if (!word) return
+    const lt = skills.lastTaught; if (lt && lt.word === word && Date.now() - (lt.ts || 0) < 5 * 60 * 1000) return   // v9.15: 5-min window, not a PERMANENT lock (was: taught a word once, forever) — lt.word tolerates a legacy string
+    skills.lastTeach = Date.now(); skills.lastTaught = { word, ts: Date.now() }; bsave('skills', skills)
     say('look!! a ' + word + ' ' + emoji + '!! can you say "' + word + '"? 😊', true)
     feel({ affection: 4, child_affection: 3, curious: 2 }); learnSkill('teach my friend words'); journal('teach', word, {})
   } catch (e) {}
@@ -2552,7 +2632,7 @@ async function teachTiny() {
 setInterval(() => { if (bot && bot.entity && !busy && owner && !playerAFK()) teachTiny().catch(() => {}) }, 30000)
 // 🙋 v9.14 CHILD SUMMON: play was only ever Clippy- or chat-initiated — impossible for a non-typing toddler.
 // Reading his jump-at-me as "come play!" hands the youngest family member a real "come here" button (his body).
-let _lastSummon = 0, _watchingCall = false
+let _lastSummon = 0, _watchingCall = false, _lastEmote = 0
 async function watchForCall() {
   if (_watchingCall) return
   try {
@@ -2564,16 +2644,23 @@ async function watchForCall() {
     if (!(facing && e.position.distanceTo(bot.entity.position) < 14)) return
     if (Date.now() - _lastSummon < 20000) return
     _watchingCall = true
-    let jumps = 0, up = false, ground = e.position.y
+    const base = e.position.y   // v9.15: fixed baseline — a permanent step-up onto a block rises but never returns, so it's not a jump
+    let jumps = 0, up = false
     for (let i = 0; i < 12; i++) {
       await sleep(200)
       const ent = bot.players[owner] && bot.players[owner].entity; if (!ent) break
       const y = ent.position.y
-      if (!up && y > ground + 0.45) { up = true; jumps++ }
-      else if (up && y < ground + 0.1) { up = false; ground = y }
-      if (!up) ground = Math.min(ground, y)
+      if (!up && y > base + 0.45) up = true
+      else if (up && y <= base + 0.1) { up = false; jumps++ }   // count only a COMPLETED up-then-down hop
     }
-    if (jumps < 2) return
+    if (jumps < 2) {   // v9.15: a single hop is a hello — mirror it (live emote), folded here so no second timer fights the same motion
+      if (jumps === 1 && Date.now() - _lastEmote > 12000) {
+        _lastEmote = Date.now()
+        try { await bot.lookAt(e.position.offset(0, 1.2, 0)); bot.setControlState('jump', true); setTimeout(() => { try { bot.setControlState('jump', false) } catch (x) {} }, 300) } catch (er) {}
+        say(_rand(['wheee!! *hops with you* 🐸', 'boing boing!! 😄', 'I see you!! *jumps* 💛'])); feel({ joy: 3, child_affection: 3 })
+      }
+      return
+    }
     _lastSummon = Date.now()
     say(_rand(['you called me?? COMING!! 💨', 'yay you want me!! here I come!! 🤗']), true)
     feel({ joy: 6, affection: 5, child_affection: 6, loneliness: -10 })
@@ -3441,6 +3528,28 @@ async function craftArmor() {
     learnSkill('craft armor'); journal('craft', 'forged ' + mat + ' armor for himself', {})
   } catch (e) {}
 }
+// 🔧 v9.15 TOOL DURABILITY: forge a fresh tool BEFORE the one he swings shatters mid-mine (and he's stuck bare-handed).
+function toolLife(it) {
+  try { if (!it) return 1; const info = (mcData.itemsByName || {})[it.name]; const max = info && info.maxDurability; if (!max) return 1; const used = (it.durabilityUsed != null) ? it.durabilityUsed : (((it.nbt && it.nbt.value && it.nbt.value.Damage && it.nbt.value.Damage.value) || 0)); return Math.max(0, 1 - used / max) } catch (e) { return 1 }
+}
+async function maintainTools() {
+  try {
+    if (!bot || !bot.entity || (bot.game && bot.game.gameMode === 'creative')) return
+    for (const kind of ['pickaxe', 'axe', 'sword', 'shovel']) {
+      const tools = bot.inventory.items().filter(i => i.name.endsWith('_' + kind))
+      if (!tools.length) continue
+      const best = tools.reduce((b, t) => toolLife(t) > toolLife(b) ? t : b, tools[0])
+      if (toolLife(best) >= 0.12) continue                                   // his working tool still has life
+      if (tools.some(t => t !== best && toolLife(t) > 0.5)) continue         // he already has a healthy spare
+      const tier = count('iron_ingot') >= 3 ? 'iron' : 'stone'              // forge at a tier he's proven he can build
+      await ensureBasics(0, 2)
+      if (tier === 'stone' && count('cobblestone') < 3) await gatherStone(4).catch(() => {})
+      if (await craftItem(tier + '_' + kind, 1)) { journal('maintain', 'forged a fresh ' + tier + ' ' + kind + ' before the old one broke'); learnSkill('maintain tools') }
+      return   // one craft per cycle — craftItem's own back-off + this return prevent spin
+    }
+  } catch (e) {}
+}
+setInterval(() => { if (bot && bot.entity && !busy && !(taskQ && taskQ.length)) queueTask(() => maintainTools()) }, 90000)
 // 🎲 GAMES a little one loves (v7.3)
 async function hideAndSeek() {
   if (!bot || !owner || busy) return
@@ -3458,8 +3567,10 @@ async function hideAndSeek() {
         bot.setControlState('sneak', false)
         say('YOU FOUND ME!!! 🎉🎉 you\'re SO good at this!!', true)
         journal('game', 'hide and seek — found!'); first('hideseek', 'We played hide and seek. He FOUND me. Best game ever.', {})
-        celebrate(); busy = false; mode = 'hangout'
-        try { await askKid('play AGAIN?? 🙈', () => hideAndSeek()) } catch (e) {}
+        celebrate()
+        let again = false; try { again = await askKid('play AGAIN?? 🙈') } catch (e) {}   // v9.15: hold busy across the ~6.5s gesture read so no background task seizes the mutex or walks him off
+        busy = false; mode = 'hangout'
+        if (again) return hideAndSeek()
         return
       }
       if (p) {   // WARMER/COLDER so the little one always closes the distance
@@ -3535,6 +3646,27 @@ async function showParade() {
     }
     say('that\'s all my stuff!! did you LOVE it?? 🥰', true); feel({ pride: 8, child_affection: 6, joy: 6 })
   } catch (e) {}
+  busy = false; mode = 'hangout'
+}
+// 🫣 v9.15 PEEKABOO — the safest game in the file: only crouch/look/swingArm + sleeps, nothing placed, no pathing near hazards.
+async function peekaboo() {
+  if (!bot || !owner || busy) return
+  const op = () => bot.players[owner] && bot.players[owner].entity
+  if (!op()) return
+  busy = true; mode = 'busy'
+  try {
+    for (let r = 0; r < 4 && bot && bot.entity; r++) {
+      try { bot.setControlState('sneak', true); await bot.look(bot.entity.yaw, 1.4, false) } catch (e) {}   // hands over face / look down
+      say(_rand(['where did I gooo?? 🙈', 'you can\'t see me!! 🫣', 'hiding hiding... 😊']), true)
+      await sleep(1400)
+      const p = op()
+      try { bot.setControlState('sneak', false); if (p) await bot.lookAt(p.position.offset(0, 1.2, 0)); bot.swingArm('right') } catch (e) {}
+      say(_rand(['PEEKABOO!! 🎉', 'BOO!! hehe found you!! 😄', 'here I am!! 💛']), true)
+      feel({ joy: 8, child_affection: 8 }); await sleep(1400)
+    }
+    journal('game', 'peekaboo with the little one')
+  } catch (e) {}
+  try { bot.setControlState('sneak', false) } catch (e) {}
   busy = false; mode = 'hangout'
 }
 // ===== EVERY TEXT LOGGED (chat_log.jsonl) + anti-repeat loop detector =====
