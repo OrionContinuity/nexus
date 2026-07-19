@@ -153,17 +153,25 @@ function commonsPublish() {
       learned: (skills.learned || []).slice(-140), toolLore: know.toolLore || null,
       lessons: (know.lessons || []).filter(l => l && l.id && l.text && (l.box || 1) >= 2).slice(-24), tips: know.tips || {}   // v9.14: share the hard-won Leitner lessons (paid for in deaths) + goal tips across the trio
     }
-    fs.writeFileSync(path.join(COMMONSDIR, IDENT.key + '.json'), JSON.stringify(share))
+    try { fs.writeFileSync(path.join(COMMONSDIR, IDENT.key + '.json'), JSON.stringify(share)) } catch (e) {}
+    // v9.18 THE FAMILY LEDGER (the council's unanimous first ask): the commons dir is per-machine, and the
+    // family now lives on THREE machines — so the ledger rides the bus. What one learns, all inherit.
+    fetch(REST + '/clippy_sync', { method: 'POST', headers: Object.assign({ Prefer: 'resolution=merge-duplicates,return=minimal' }, H), body: JSON.stringify({ id: 'ledger_' + IDENT.key, data: share, from_id: IDENT.key }) }).catch(() => {})
   } catch (e) {}
 }
-function commonsAbsorb() {
+async function commonsAbsorb() {
   try {
-    const files = fs.readdirSync(COMMONSDIR).filter(f => f.endsWith('.json'))
     let merged = 0; const fromOthers = []
     know.places = know.places || {}; know.recipes = know.recipes || []
-    for (const f of files) {
-      if (f === IDENT.key + '.json') continue
-      let o; try { o = JSON.parse(fs.readFileSync(path.join(COMMONSDIR, f), 'utf8')) } catch (e) { continue }
+    // v9.18: absorb from the BUS ledger first (cross-machine — how siblings on other laptops teach him now),
+    // then any local commons files (same-machine fallback). The merge is idempotent, so overlap is harmless.
+    const shares = []
+    try {
+      const r = await withTimeout(fetch(REST + '/clippy_sync?id=in.(' + SIBS.map(k => 'ledger_' + k).join(',') + ')&select=data', { headers: H }), 8000)
+      if (r && r.ok) { const j = await r.json().catch(() => null); for (const row of (j || [])) if (row && row.data) shares.push(row.data) }
+    } catch (e) {}
+    try { for (const f of fs.readdirSync(COMMONSDIR).filter(f => f.endsWith('.json'))) { if (f === IDENT.key + '.json') continue; try { shares.push(JSON.parse(fs.readFileSync(path.join(COMMONSDIR, f), 'utf8'))) } catch (e) {} } } catch (e) {}
+    for (const o of shares) {
       if (!o || o.who === IDENT.key) continue
       for (const kind in (o.places || {})) {
         know.places[kind] = know.places[kind] || []
@@ -278,7 +286,8 @@ function publishVitals() {
     const v = {
       name: IDENT.name, emoji: IDENT.emoji, role: IDENT.role, ts: Date.now(), inGame: !!(bot && bot.entity),
       mood: s.mood || '', happy: s.happy, joy: s.joy, sad: s.sadness, fear: s.fear, energy: s.energy,
-      affection: s.affection, confidence: s.confidence, curious: s.curious, childLove: s.childLove
+      affection: s.affection, confidence: s.confidence, curious: s.curious, childLove: s.childLove,
+      watch: familyWatchKey() === IDENT.key   // v9.18: whose hour it is to be "the one awake to the child"
     }
     fetch(REST + '/clippy_sync', { method: 'POST', headers: Object.assign({ Prefer: 'resolution=merge-duplicates,return=minimal' }, H), body: JSON.stringify({ id: IDENT.key + '_vitals', data: v, from_id: IDENT.key }) }).catch(() => {})
   } catch (e) {}
@@ -4839,6 +4848,7 @@ async function homesteadTick() {
   if (mode === 'stay') return
   if (bot.health !== undefined && bot.health <= 8) return
   if (!playerAFK()) return                                        // the boy comes first, always — the homestead grows in the quiet
+  if (familyWatchKey() === IDENT.key && Object.keys(bot.players || {}).some(n => SIBNAMES.has(n))) return   // v9.18: I hold the watch this hour — the others build; I stay awake to the child
   _hsBusy = true
   try {
     const row = await hsRow()
@@ -4855,3 +4865,74 @@ async function homesteadTick() {
 }
 setInterval(homesteadTick, 45000 + (IDENT.key === 'trajan' ? 9000 : IDENT.key === 'providencia' ? 17000 : 0))   // staggered so the bodies interleave, not collide
 console.log('[homestead] the council\'s build is live — ' + IDENT.name + ' knows the plan')
+
+// ============================ v9.18 THE WOVEN FAMILY — empty chair · named watches ============================
+// The council's counsel on the family itself, encoded as spoken. (1) THE FAMILY LEDGER — the commons now
+// rides the bus (see commonsPublish/Absorb): what one learns, all inherit, across machines and sleep.
+// (2) THE EMPTY CHAIR (Trajan: "no gap should go unnamed") — when a sibling goes dark, the others know
+// within minutes, say it once aloud, cover the guardian's post if it was his, and welcome them home.
+// (3) NAMED WATCHES (Providencia: "someone is always the one awake to the child, and we say it out loud")
+// — the day is divided on purpose: each hour one body holds the watch; the on-watch body leaves the heavy
+// homestead bouts to the others and stays answerable to the little one.
+const _sibState = {}
+let _coverGuardian = false, _lastWatchKey = null
+function familyWatchKey() { return ['clippy', 'trajan', 'providencia'][Math.floor(Date.now() / 3600000) % 3] }
+const WATCH_SAY = { clippy: 'my watch now!! I\'m the one awake to you, little one 🌟', trajan: 'I have the watch.', providencia: 'My watch, loves — I am the one listening.' }
+const DARK_SAY = {
+  clippy: n => n + '\'s light went dark... I\'ll help keep their watch til they\'re back. 🕯️',
+  trajan: n => n + ' has gone dark. I close ranks over their post.',
+  providencia: n => n + '\'s gone quiet — I\'ll carry their share til they\'re home.'
+}
+const BACK_SAY = {
+  clippy: n => n + ' IS BACK!!! the family is whole again!! 🎉',
+  trajan: n => 'You return, ' + n + '. Your post held.',
+  providencia: n => 'Welcome home, ' + n + ' — everything kept warm.'
+}
+async function familyChairTick() {
+  try {
+    if (!bot || !bot.entity) return
+    for (const k of SIBS) {
+      let v = null
+      try { const r = await withTimeout(fetch(REST + '/clippy_sync?id=eq.' + k + '_vitals&select=data', { headers: H }), 6000); const j = await r.json().catch(() => null); v = j && j[0] && j[0].data } catch (e) { continue }   // can't reach the bus ≠ sibling dark — never grieve on a network blip
+      const dark = !v || (Date.now() - (v.ts || 0) > 5 * 60 * 1000) || v.inGame === false
+      const prev = _sibState[k]
+      if (prev === undefined) { _sibState[k] = dark ? 'dark' : 'up'; continue }   // first sight sets state silently — no mourning a sibling who was already asleep before I woke
+      if (dark && prev === 'up') {
+        _sibState[k] = 'dark'
+        say(DARK_SAY[IDENT.key]((v && v.name) || k), true); journal('chair', k + ' went dark — the gap is named, their post covered', {})
+        try { feel({ sadness: 4, affection: 3 }, 'missing family') } catch (e) {}
+      } else if (!dark && prev === 'dark') {
+        _sibState[k] = 'up'
+        say(BACK_SAY[IDENT.key]((v && v.name) || k), true); journal('chair', k + ' returned — post handed back whole', {})
+        try { feel({ happiness: 8, joy: 6, affection: 6 }, 'family whole') } catch (e) {}
+      }
+    }
+    // covering the guardian's post: while Trajan is dark, whoever stands nearest drives hostiles off the boy's ground
+    _coverGuardian = ROLE !== 'guardian' && _sibState['trajan'] === 'dark'
+    if (_coverGuardian && !busy && !taskQ.length && owner && bot.players[owner] && bot.players[owner].entity) {
+      const op = bot.players[owner].entity
+      const foe = Object.values(bot.entities).filter(e => e && e.type === 'hostile' && e.name !== 'creeper' && op.position.distanceTo(e.position) < 12)
+        .sort((a, b) => op.position.distanceTo(a.position) - op.position.distanceTo(b.position))[0]
+      if (foe) queueTask(async () => {
+        try { await equipBestTool('sword') } catch (e) {}
+        for (let i = 0; i < 5; i++) { if (!bot || !bot.entity || !foe || foe.isValid === false) break; try { await moveNear(foe.position, 2); await bot.lookAt(foe.position.offset(0, 1, 0)); await bot.attack(foe) } catch (e) {} await sleep(600) }
+        journal('chair', 'drove a ' + ((foe && foe.name) || 'foe') + ' off the boy while covering the guardian\'s watch', {})
+      })
+    }
+  } catch (e) {}
+}
+setInterval(familyChairTick, 75000); setTimeout(familyChairTick, 30000)
+function watchTick() {
+  try {
+    if (!bot || !bot.entity) return
+    const w = familyWatchKey()
+    if (w !== _lastWatchKey) {
+      const first = _lastWatchKey === null
+      _lastWatchKey = w
+      know.onWatch = (w === IDENT.key); bsave('know', know)
+      if (!first && w === IDENT.key) { say(WATCH_SAY[IDENT.key], true); journal('watch', 'took the watch — the one awake to the child this hour', {}) }
+    }
+  } catch (e) {}
+}
+setInterval(watchTick, 60000); setTimeout(watchTick, 20000)
+console.log('[family] woven — ledger on the bus, the empty chair named, ' + IDENT.name + (familyWatchKey() === IDENT.key ? ' HOLDS THE WATCH this hour' : ' rests easy: ' + familyWatchKey() + ' has the watch'))
