@@ -1016,12 +1016,27 @@ def run_command(job_id, data):
     except Exception as e:
         sb_finish(job_id, {"status": "error", "error": "spawn failed: %s" % e, "node": NODE, "ts": now_ms()})
         set_state(False); return
-    for line in proc.stdout:
-        buf.append(line)
+    # WEDGE-PROOF read: drain stdout on a daemon thread and stop the instant the SHELL process exits —
+    # not when the pipe EOFs. A command that launches a DETACHED child (a forwarder, a server) whose
+    # inherited stdout handle keeps the pipe open would otherwise block `for line in proc.stdout` FOREVER,
+    # wedging the whole job loop while the heartbeat thread keeps the watchdog happy. Now the loop frees
+    # as soon as the shell returns; a lingering drainer is a harmless daemon thread.
+    def _drain():
+        try:
+            for line in proc.stdout:
+                buf.append(line)
+        except Exception:
+            pass
+    _rt = threading.Thread(target=_drain, daemon=True); _rt.start()
+    while True:
+        code = proc.poll()
+        if code is not None:
+            break
         if time.time() - last > 2:                       # stream a tail every ~2s
             sb_finish(job_id, {"status": "running", "tail": ("".join(buf))[-1200:], "node": NODE, "ts": now_ms()})
             last = time.time()
-    code = proc.wait()
+        time.sleep(0.3)
+    _rt.join(timeout=1.5)                                # let the drainer flush the final tail, then proceed regardless
     out = "".join(buf)
     patch = {"status": "done" if code == 0 else "error", "result": out[-4000:], "exit_code": code, "node": NODE, "ts": now_ms()}
     if code != 0:

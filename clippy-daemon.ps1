@@ -170,6 +170,23 @@ function Start-BotProc {
     Log "[ok] clippy_agent.js (Minecraft) started (log: $bLog)" 'Green'; return $true
   } catch { Log "[bot] start failed: $($_.Exception.Message)" 'Yellow'; return $false }
 }
+# On a COMPANION laptop the bot dials 127.0.0.1:25599, but the shared world server lives on the HOME RIG.
+# A tiny userspace TCP forwarder (127.0.0.1:25599 -> home rig) bridges that with NO admin and NO netsh portproxy.
+# (Migrating a companion to a fresh install used to silently drop this, leaving the bot stuck on ECONNREFUSED.)
+$HOME_RIG_IP = '192.168.0.44'   # the home rig's stable wired LAN address (confirmed reachable on 25599)
+function Get-FwdProc { return (Get-CimInstance Win32_Process -EA SilentlyContinue | Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -match 'mc-forward\.js' } | Select-Object -First 1) }
+function Ensure-McForward {
+  if ($env:COMPUTERNAME -eq 'DESKTOP-N6PACMM') { return }   # the home rig hosts the server; it needs no forward
+  if (Get-FwdProc) { return }
+  $node = Get-Command node -EA SilentlyContinue; if (-not $node) { return }
+  $fwd = Join-Path $env:USERPROFILE '.clippy\mc-forward.js'
+  # single-line, self-restarting-on-listen-fail forwarder; stdout goes to a file so it never wedges a reader
+  $js = 'const net=require("net");const HOST="' + $HOME_RIG_IP + '",PORT=25599;const s=net.createServer(c=>{c.on("error",()=>{});const u=net.connect(PORT,HOST);u.on("error",()=>{try{c.destroy()}catch(e){}});c.pipe(u);u.pipe(c)});s.on("error",function(e){process.exit(1)});s.listen(PORT,"127.0.0.1");'
+  Set-Content -Path $fwd -Value $js -Encoding ASCII
+  $flog = Join-Path $env:USERPROFILE '.clippy\mc-forward.log'
+  Start-Process -FilePath $node.Source -ArgumentList ('"' + $fwd + '"') -WindowStyle Hidden -RedirectStandardOutput $flog -RedirectStandardError ($flog -replace '\.log$', '.err.log') | Out-Null
+  Log "[fwd] mc-forward 127.0.0.1:25599 -> $HOME_RIG_IP started" 'Green'
+}
 function Get-PetProc {
   return Get-CimInstance Win32_Process -EA SilentlyContinue |
          Where-Object { $_.CommandLine -and $_.CommandLine -match 'clippy-pet-comp\.ps1' -and $_.CommandLine -notmatch '(?i)-Command' }
@@ -462,6 +479,7 @@ function Invoke-Supervisor {
     # Minecraft bot (Clippy himself): opt-in via bot.on. Provisions Node+deps once, then keeps him alive
     # and REVIVED (his old soft-OOM exit had no reviver). Same crash-loop backoff as the worker.
     if (Test-Path (Join-Path $env:USERPROFILE '.clippy\bot.on')) {
+      try { Ensure-McForward } catch {}   # companions: keep the 127.0.0.1:25599 -> home-rig bridge alive so the bot can reach the shared world
       if (-not (Get-BotProc)) {
         $nowB = Get-Date
         if ($botBackoffUntil -and $nowB -lt $botBackoffUntil) {
