@@ -842,6 +842,10 @@ function onChat(username, message) {
   } catch (e) {}
   if (!owner) adoptOwner(username)
   const m = message.toLowerCase()
+  if (SIBNAMES.has(username)) {   // v9.17.1: a SIBLING is family, never a commander — bot chatter must not trip stay/trip/build/log-off (a stray 'stays clear' in council talk froze a body in stay-mode; 'bye' could even exit the process). Warm ambient replies only.
+    if (Date.now() - lastAmbient > 60000 && Math.random() < 0.3) { lastAmbient = Date.now(); brainReply(username) }
+    return
+  }
   if (/homestead/.test(m)) { say(hsStatusLine(), true); return }   // v9.17: the council's build — status on request (before the blueprint route, or 'home' would trigger a stray house)
   const bp = pickBlueprint(m)
   if (bp && /build|make|bild|please|castle|house|home|tower|camp|rainbow|garden|pyramid|bed|shelter|base|village|furnish|mansion|hunter|cabin|lake|trader|town|sci|futuristic|modern|phaunos|knight|shrine/.test(m)) { queueTask(() => buildStructure(bp[1], bp[0])); return }
@@ -4830,7 +4834,9 @@ async function homesteadTick() {
   // QUEUE the bout rather than wait for a perfectly idle body — his autonomy keeps taskQ warm nearly
   // always, so an idle-only gate starves the homestead forever. queueTask is the polite lane the whole
   // brain shares; the once-flag keeps the queue from flooding with duplicate bouts.
-  if (_hsBusy || _hsQueued || !bot || !bot.entity || mode === 'stay' || panic) return
+  if (_hsBusy || _hsQueued || !bot || !bot.entity || panic) return
+  if (mode === 'stay' && (!owner || !(bot.players[owner] && bot.players[owner].entity))) mode = 'hangout'   // v9.17.1: a 'stay' with no keeper in-world is stale (sibling chatter once set it) — free the body
+  if (mode === 'stay') return
   if (bot.health !== undefined && bot.health <= 8) return
   if (!playerAFK()) return                                        // the boy comes first, always — the homestead grows in the quiet
   _hsBusy = true
