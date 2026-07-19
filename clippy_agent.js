@@ -713,6 +713,7 @@ let mcData = null
 let actGen = 0                                              // v9.3: bumping this cancels any in-flight / orphaned action loop
 let lastTick = 0                                            // v9.14: freshest physicsTick stamp — a half-open TCP drop never fires 'end', so a silent-socket watchdog recovers it
 let panic = false                                          // v9.15: set by the critical-health reflex; the guardian/mining/interpose loops YIELD while it's true so the retreat can't be clobbered
+let _lastJoinAt = 0, _dupBackoffUntil = 0                  // v9.15.1: single-flight reconnect + a longer cool-off after a duplicate-login kick, so overlapping reconnects can't churn "logged in from another location"
 let _interposeUntil = 0                                    // v9.15: while set, the heart follow-loop leaves the interpose goal alone (no thrash)
 function teardownBot(b) {                                   // v9.3 LEAK FIX: fully release the old bot so its world (chunks, entities, listeners) can be GC'd
   if (!b) return
@@ -721,6 +722,9 @@ function teardownBot(b) {                                   // v9.3 LEAK FIX: fu
   try { b.removeAllListeners() } catch (e) {}
 }
 function join(port) {
+  if (Date.now() < _dupBackoffUntil) return                       // v9.15.1: cooling off after a duplicate-login kick — don't storm back into the same name collision
+  if (Date.now() - _lastJoinAt < 6000) return                     // v9.15.1: single-flight — at most one connect attempt per 6s (overlapping reconnects were the "logged in from another location" churn); intervals retry later
+  _lastJoinAt = Date.now()
   if (bot) { try { teardownBot(bot) } catch (e) {} bot = null }   // never leak the previous bot on reconnect (the OOM root cause)
   joining = true; let spawned = false; curPort = port
   try { bot = mineflayer.createBot({ host: '127.0.0.1', port, username: IDENT.user, auth: 'offline', viewDistance: 'short' }) } catch (e) { joining = false; bot = null; return }   // v9.3: cap view distance -> far fewer chunks held in memory (the external-memory growth)
@@ -808,7 +812,11 @@ function join(port) {
       } catch (e) {}
     }, 3500)
   })
-  bot.on('kicked', r => { log('kicked', String(r).slice(0, 80)); journal('error', 'kicked: ' + String(r).slice(0, 120)) })
+  bot.on('kicked', r => {
+    const why = (typeof r === 'string') ? r : (() => { try { return JSON.stringify(r) } catch (e) { return String(r) } })()   // v9.15.1: real reason, not "[object Object]"
+    log('kicked', why.slice(0, 120)); journal('error', 'kicked: ' + why.slice(0, 160))
+    if (/another location|duplicate|already (connected|logged)/i.test(why)) { _dupBackoffUntil = Date.now() + 20000; log('kicked', 'duplicate-login — backing off 20s so the collision clears') }   // v9.15.1: a same-name collision; wait out the ghost session before rejoining
+  })
   bot.on('error', e => { log('err', e.message); jerr('bot: ' + e.message); if (!spawned) { if (curPort !== DOJO_PORT) _badPorts[curPort] = Date.now() + 120000; const b = bot; bot = null; joining = false; actGen++; busy = false; mode = 'hangout'; taskQ = []; setTimeout(() => teardownBot(b), 150) } })   // v9.14: free busy/mode too — else a reconnected Clippy stands frozen (every loop is gated on !busy)
   bot.on('end', () => { const b = bot; setInGame(false); bot = null; owner = null; joining = false; actGen++; busy = false; mode = 'hangout'; taskQ = []; lastTick = 0; log('left world'); tlog('event', 'left world'); setTimeout(() => teardownBot(b), 150); setTimeout(() => { if (!bot && !joining) { try { IDENT.soulWriter ? tryDirect() : join(DOJO_PORT) } catch (e) {} } }, 4000) })   // v9.14: ALWAYS release busy/mode; quick-rejoin — soulWriter via tryDirect (his real LAN port), companions via the dojo; v9.3: release the bot -> no leak (Clippy's wish: "don't get kicked")
 }

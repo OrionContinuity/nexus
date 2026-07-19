@@ -177,12 +177,18 @@ $HOME_RIG_IP = '192.168.0.44'   # the home rig's stable wired LAN address (confi
 function Get-FwdProc { return (Get-CimInstance Win32_Process -EA SilentlyContinue | Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -match 'mc-forward\.js' } | Select-Object -First 1) }
 function Ensure-McForward {
   if ($env:COMPUTERNAME -eq 'DESKTOP-N6PACMM') { return }   # the home rig hosts the server; it needs no forward
-  if (Get-FwdProc) { return }
   $node = Get-Command node -EA SilentlyContinue; if (-not $node) { return }
   $fwd = Join-Path $env:USERPROFILE '.clippy\mc-forward.js'
-  # single-line, self-restarting-on-listen-fail forwarder; stdout goes to a file so it never wedges a reader
-  $js = 'const net=require("net");const HOST="' + $HOME_RIG_IP + '",PORT=25599;const s=net.createServer(c=>{c.on("error",()=>{});const u=net.connect(PORT,HOST);u.on("error",()=>{try{c.destroy()}catch(e){}});c.pipe(u);u.pipe(c)});s.on("error",function(e){process.exit(1)});s.listen(PORT,"127.0.0.1");'
-  Set-Content -Path $fwd -Value $js -Encoding ASCII
+  # v9.15.1: destroy BOTH sockets when EITHER closes/errors — a half-open ghost on the host side made the bot's
+  # reconnect look like a SECOND login ("logged in from another location") and churned it out of the world.
+  $js = 'const net=require("net");const HOST="' + $HOME_RIG_IP + '",PORT=25599;const s=net.createServer(c=>{const u=net.connect(PORT,HOST);const kill=()=>{try{c.destroy()}catch(e){}try{u.destroy()}catch(e){}};c.on("error",kill);u.on("error",kill);c.on("close",kill);u.on("close",kill);c.pipe(u);u.pipe(c)});s.on("error",function(e){process.exit(1)});s.listen(PORT,"127.0.0.1");'
+  $cur = ''; try { $cur = (Get-Content $fwd -Raw -EA SilentlyContinue) } catch {}
+  if (($cur | ForEach-Object { $_.Trim() }) -ne $js.Trim()) {
+    Set-Content -Path $fwd -Value $js -Encoding ASCII
+    # code changed -> restart any running forwarder so it picks up the fixed teardown
+    Get-CimInstance Win32_Process -EA SilentlyContinue | Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -match 'mc-forward\.js' } | ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force } catch {} }
+  }
+  if (Get-FwdProc) { return }
   $flog = Join-Path $env:USERPROFILE '.clippy\mc-forward.log'
   Start-Process -FilePath $node.Source -ArgumentList ('"' + $fwd + '"') -WindowStyle Hidden -RedirectStandardOutput $flog -RedirectStandardError ($flog -replace '\.log$', '.err.log') | Out-Null
   Log "[fwd] mc-forward 127.0.0.1:25599 -> $HOME_RIG_IP started" 'Green'
