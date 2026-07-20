@@ -162,6 +162,7 @@ function lifeEvent(kind, why, extra) {
     if (_lifeLast[sig] && now - _lifeLast[sig] < 60000) return
     _lifeLast[sig] = now
     journal('life', kind + (why ? ': ' + String(why).slice(0, 120) : ''), Object.assign({ gen: (typeof actGen !== 'undefined' ? actGen : null), n: lc[kind] }, extra || {}))
+    if (!know._lifeSaveTs || now - know._lifeSaveTs > 30000) { know._lifeSaveTs = now; try { bsave('know', know) } catch (e) {} }   // v9.21: persist the churn counters DURING the churn they diagnose — a crash loop used to lose every increment
   } catch (e) {}
 }
 let skills = bload('skills', { sessions: 0, deaths: 0, builds: 0, crafted: {}, mined: {}, learned: [], firsts: [], lastAwayTs: 0 })
@@ -604,7 +605,7 @@ setInterval(async () => {
 // Dedicated 'clippy_mc_activity' row holds the FULL detail; only MAJOR moments echo into the shared
 // 'clippy_activity' feed (sparingly) so his Minecraft chatter never floods the restaurant activity view.
 let _actBuf = [], _actTimer = null
-const MAJORKIND = /^(build|death|migrate|anchor|first|goal|safety|world|escort|dream-practice|build-together|homestead|chair|watch|resume|life)$/   // v9.19: the family's shared life rides the keeper's live feed too
+const MAJORKIND = /^(build|death|migrate|anchor|first|goal|safety|world|escort|dream-practice|build-together|homestead)$/   // v9.21: life/resume/chair/watch DEMOTED — reconnect churn from three bodies was flooding the 30-slot restaurant feed and evicting real NEXUS activity; full detail stays in the per-body journal rows
 function publishActivity(kind, msg, major) {
   if (kind === 'loop-flag') return                          // don't flood the live feed with anti-repeat noise
   try {
@@ -808,6 +809,27 @@ function join(port) {
     know.style.evolves = (know.style.evolves || 0) + 1; bsave('know', know)
     log('entered world, session', skills.sessions, 'gm', bot.game && bot.game.gameMode, 'style', know.style.wall)
     lifeEvent('joined', null, { port: curPort, session: skills.sessions })
+    // v9.21 WORLD-CHANGE DETECTOR: a fresh world must not inherit the old world's scar tissue — kept
+    // builds_* flags meant "shelter already built" (so none EVER got built, night one under open sky),
+    // kept goalState.done('diamonds') deadlocked the whole progression with an empty inventory, and
+    // kept fails pre-deferred goals for old-world reasons. Skills/lessons/mastery stay — they are who
+    // he IS; the flags below are only where he WAS.
+    try {
+      const sp = bot.spawnPoint || (bot.entity && bot.entity.position)
+      const sig = sp ? (Math.round(sp.x / 16) + ':' + Math.round(sp.z / 16) + ':' + (bot.game && bot.game.dimension || '')) : null
+      if (sig && know.worldSig !== sig) {
+        const hadOld = !!know.worldSig
+        know.worldSig = sig
+        for (const k of Object.keys(skills)) if (/^builds_/.test(k)) delete skills[k]
+        const RESET_GOALS = ['shelter', 'camp', 'home', 'base', 'village', 'diamonds', 'iron', 'ironstock', 'wood', 'planks', 'stone', 'bed', 'food']
+        goalState.done = (goalState.done || []).filter(g => !RESET_GOALS.includes(g))
+        goalState.fails = {}; goalState.active = null
+        know.asked = {}
+        bsave('skills', skills); bsave('goals', goalState); bsave('know', know)
+        try { const cd = path.join(MCDIR, 'commons'); for (const f of fs.readdirSync(cd)) if (f.endsWith('.json')) fs.unlinkSync(path.join(cd, f)) } catch (e) {}   // stale local shares must not resurrect old-world coordinates
+        journal('world', (hadOld ? 'NEW WORLD detected' : 'world signature stamped') + ' — build flags, resource goals, and fail scars reset; skills and lessons kept', {})
+      }
+    } catch (e) {}
     const mv = new Movements(bot); mv.canDig = true; mv.allow1by1towers = true; mv.allowParkour = true; /* ANTIGRIEF */ try { const _ng = /_planks$|_log$|_wood$|_stairs$|_slab$|_fence|_door$|_trapdoor$|_wool$|_carpet$|_concrete|_terracotta|glass|_bed$|chest|barrel|furnace|crafting_table|bookshelf|_wall$|brick|smooth_|quartz|beacon|torch|lantern|campfire|glowstone|sea_lantern|end_rod|flower_pot|deepslate_tile|deepslate_brick|stone_brick|glazed|shulker|hay_block|bell|painting|item_frame|scaffolding/; for (const _n in mcData.blocksByName) { if (_ng.test(_n)) { try { mv.blocksCantBreak.add(mcData.blocksByName[_n].id) } catch (e) {} } } } catch (e) {}
     bot.pathfinder.setMovements(mv); try { startCompanionSense() } catch (e) {}
     lastTick = Date.now(); try { bot.on('physicsTick', () => { lastTick = Date.now() }) } catch (e) {}   // v9.14: heartbeat for the silent-socket watchdog
@@ -1071,9 +1093,10 @@ async function runQ() {
   if (busy || !taskQ.length || !bot) return
   busy = true; mode = 'busy'; _busyBy = 'task'; _busySince = Date.now()
   const myGen = actGen                                        // v9.14: a kick/reconnect bumps actGen — a stale task must NOT clobber the fresh life's busy/mode
+  const myBot = bot                                           // v9.21: THE TRUE WEDGE — pursueGoals bumps actGen as its orphan-cancel, so the gen guard read every goal pursuit as "a reconnect handled cleanup" and skipped the busy release. busy then wedged until the watchdog. The BOT OBJECT only changes on a real reconnect — guard on that instead.
   const fn = taskQ.shift()
   try { await withTimeout(fn(), 420000) } catch (e) { log('task err', e.message); journal('taskerr', e.message) }   // big builds need time
-  if (actGen !== myGen) return                                // disconnected mid-task; the end/watchdog handler already freed busy/mode — don't drain into a new life
+  if (bot !== myBot) return                                   // a REAL reconnect happened mid-task; the end/watchdog handler already freed busy/mode — don't drain into a new life
   busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0
   if (taskQ.length) setTimeout(runQ, 500)
 }
@@ -1144,7 +1167,12 @@ function startHeart() {
     if (playerAFK()) { try { bot.pathfinder.setGoal(null) } catch (e) {}; return }   // leave the AFK player — autonomy takes over
     try {
       const d = bot.entity.position.distanceTo(p.entity.position)
-      if (d > 9) bot.pathfinder.setGoal(new goals.GoalFollow(p.entity, 4), true)
+      // v9.21 THE ON-WATCH SHADOW: in survival, the body holding the watch keeps a real vigil — 2-block
+      // leash at night (a zombie sprint is ~3 seconds), 6 by day; everyone else keeps the loose leash
+      // so three bots never crowd a toddler. In creative the old 9/4 feel is unchanged.
+      const vigil = !creativeFly() && know.onWatch
+      const trigger = vigil ? (isNightNow() ? 4 : 6) : 9
+      if (d > trigger) bot.pathfinder.setGoal(new goals.GoalFollow(p.entity, vigil ? 2 : 4), true)
       else { bot.pathfinder.setGoal(null); bot.lookAt(p.entity.position.offset(0, 1.4, 0)); if (Math.random() < 0.04) { bot.setControlState('jump', true); setTimeout(() => bot.setControlState('jump', false), 300) } }
       if (p.entity.crouching !== undefined) bot.setControlState('sneak', !!p.entity.crouching)
     } catch (e) {}
@@ -1549,7 +1577,7 @@ async function safetyTick() {
     }
   } catch (e) {}
 }
-setInterval(() => { if (bot && bot.entity && !busy && owner && !playerAFK()) safetyTick().catch(() => {}) }, 5000)
+setInterval(() => { if (bot && bot.entity && owner && bot.players[owner] && bot.players[owner].entity) safetyTick().catch(() => {}) }, 5000)   // v9.21: a STILL child needs guarding MOST — the old !busy && !playerAFK() gate switched protection OFF while bodies built and whenever a 3yo stood frozen for 90s (survival's deadliest combination). Now: the boy is PRESENT → the guard runs, busy or not.
 // ============================ v8.6 DREAM PRACTICE (Grok #4) — reflective spaced learning ============================
 // When idle/alone he replays his hardest recent struggles, journals what he learned, and nudges his strategy —
 // spaced repetition without needing the boy present; makes the anti-stuck reflex smarter over time.
@@ -1659,7 +1687,7 @@ setInterval(() => { if (bot && bot.entity) checkWishGrants() }, 4 * 60 * 1000)  
 function count(pred) { try { return bot.inventory.items().filter(i => typeof pred === 'string' ? i.name === pred : pred(i.name)).reduce((a, b) => a + b.count, 0) } catch (e) { return 0 } }
 function countLogs() { return count(n => n.endsWith('_log')) }
 function countPlanks() { return count(n => n.endsWith('_planks')) }
-function bestBuildBlock() { for (const n of ['cobblestone', 'oak_planks', 'spruce_planks', 'birch_planks', 'dirt', 'sandstone']) if (count(n) > 0) return n; return null }
+function bestBuildBlock() { for (const n of ['cobblestone', 'granite', 'diorite', 'andesite', 'oak_planks', 'spruce_planks', 'birch_planks', 'sandstone', 'dirt']) if (count(n) > 0) return n; return null }   // v9.21: gatherStone hauls granite/diorite/andesite — count them as real stone; dirt is the LAST resort, not ahead of sandstone
 async function equipItem(name) { const it = bot.inventory.items().find(i => i.name === name); if (it) { try { await bot.equip(it, 'hand'); return true } catch (e) {} } return false }
 
 // ============================ CRAFTING ============================
@@ -1759,8 +1787,11 @@ setInterval(async () => {
   try {
     const t = bot.time && bot.time.timeOfDay
     if (t === undefined || t < 12800 || t > 23000) return
-    let bed = bot.findBlock({ matching: b => b && b.name && b.name.endsWith('_bed'), maxDistance: 24 })
-    // GUARANTEE a bed: none on hand and none nearby -> make one (wool from sheep + planks), then sleep next cycle
+    // v9.21: skip OCCUPIED beds — three bodies fought over the hearth's one bed and two of them stood
+    // outside all night (bot.sleep throws on occupied), which also blocked the all-sleep night skip
+    const unoccupied = b => { try { return !(b.getProperties && b.getProperties().occupied) } catch (e) { return true } }
+    let bed = bot.findBlock({ matching: b => b && b.name && b.name.endsWith('_bed') && unoccupied(b), maxDistance: 24 })
+    // GUARANTEE a bed: no FREE bed and none on hand -> make one (wool from sheep + planks), then sleep next cycle
     if (!bed && count(n => n.endsWith('_bed')) < 1 && !(bot.game && bot.game.gameMode === 'creative')) {
       queueTask(async () => {
         try {
@@ -1995,7 +2026,7 @@ async function gatherWood(n) {
     }
     if (!t) break
     try { await equipForBlock(t) } catch (e) {}                          // v9.10: reach for his axe first — right tool, learned
-    try { await withTimeout(bot.collectBlock.collect(t), 30000); got++ } catch (e) { break }
+    try { await withTimeout(bot.collectBlock.collect(t), 30000); got++ } catch (e) { continue }   // v9.21: one pathfinder hiccup must not abort the whole gather (loop is iteration-capped)
   }
   if (got) { skills.mined.log = (skills.mined.log || 0) + got; learnSkill('gather wood'); first('wood', 'I chopped my first trees!', { got }) }
   try {
@@ -2013,11 +2044,11 @@ async function gatherWood(n) {
 }
 async function gatherStone(n) {
   if (!bot.collectBlock) return false
-  if (!hasPickaxe()) { say('I need a pickaxe first!'); return false }
+  if (!hasPickaxe()) { try { await craftItem('wooden_pickaxe', 1) } catch (e) {} if (!hasPickaxe()) { if (Date.now() - (know._pickSayCd || 0) > 60000) { know._pickSayCd = Date.now(); say('I need a pickaxe first!') } return false } }   // v9.21: BOOTSTRAP instead of bailing — craftItem pulls the whole wood→planks→table chain; a fresh world no longer dead-ends the stone economy
   await equipBestTool('pickaxe'); let got = 0; say('mining stone!! *tink tink*')
   for (let i = 0; i < (n || 8) + 4 && got < (n || 8); i++) {
     const t = bot.findBlock({ matching: b => b && ['stone', 'cobblestone', 'andesite', 'diorite', 'granite'].includes(b.name) && !inProtected(b.position), maxDistance: 32 }); if (!t) break
-    try { await withTimeout(bot.collectBlock.collect(t), 30000); got++ } catch (e) { break }
+    try { await withTimeout(bot.collectBlock.collect(t), 30000); got++ } catch (e) { continue }   // v9.21: one pathfinder hiccup must not abort the whole gather (loop is iteration-capped)
   }
   if (got) { skills.mined.stone = (skills.mined.stone || 0) + got; learnSkill('mine stone'); first('stone', 'I mined my first stone!', { got }) }
   say(got ? ('got ' + got + ' stone!!') : 'no stone nearby!'); return got > 0
@@ -2039,11 +2070,16 @@ async function gatherWool(n) {
 }
 async function huntFood(n) {
   let hits = 0
-  const prey = () => Object.values(bot.entities).filter(e => e && ['cow', 'pig', 'chicken', 'sheep'].includes(e.name) && bot.entity.position.distanceTo(e.position) < 44)
+  // v9.21: NEVER hunt penned/protected animals (the paddock hens the boy is invited to meet!), nothing
+  // inside the homestead square, nothing near the boy — and hunt with a real weapon, not raw chicken.
+  const op = owner && bot.players[owner] && bot.players[owner].entity
+  const prey = () => Object.values(bot.entities).filter(e => e && ['cow', 'pig', 'chicken', 'sheep'].includes(e.name) && bot.entity.position.distanceTo(e.position) < 44 && !inProtected(e.position) && !inHsFootprint(e.position, 2) && (!op || op.position.distanceTo(e.position) > 14))
+    .sort((a, b) => (op ? op.position.distanceTo(b.position) - op.position.distanceTo(a.position) : 0))
   say('getting us food!! 🍗')
-  for (let i = 0; i < 10 && count(x => /beef|porkchop|chicken|mutton/.test(x)) < (n || 4); i++) {
+  try { await equipBestTool('sword') } catch (e) {}
+  for (let i = 0; i < 24 && count(x => /beef|porkchop|chicken|mutton/.test(x)) < (n || 4); i++) {
     const t = prey()[0]; if (!t) break
-    try { await moveNear(t.position, 2); await bot.attack(t); await sleep(700); hits++ } catch (e) {}
+    for (let s = 0; s < 12 && t.isValid !== false; s++) { try { await moveNear(t.position, 2); await bot.attack(t); await sleep(700); hits++ } catch (e) { break } }   // v9.21: finish the kill — wounded-and-scattered fed no one
   }
   learnSkill('hunt food')
   if (count(x => /^(beef|porkchop|chicken|mutton)$/.test(x)) > 0) { try { await cookFood(6) } catch (e) {} }   // v9.14: cook the raw kills right away
@@ -3666,7 +3702,16 @@ async function maintainTools() {
     if (!bot || !bot.entity || (bot.game && bot.game.gameMode === 'creative')) return
     for (const kind of ['pickaxe', 'axe', 'sword', 'shovel']) {
       const tools = bot.inventory.items().filter(i => i.name.endsWith('_' + kind))
-      if (!tools.length) continue
+      if (!tools.length) {
+        // v9.21: an EXTINCT kind is the worst case, not a skip — 'forge a fresh tool' could never
+        // replace a tool that already broke, so one shattered pick ended the stone economy forever
+        if (kind === 'pickaxe' || kind === 'axe') {
+          await ensureBasics(3, 2)
+          const tier2 = count('cobblestone') >= 3 ? 'stone' : 'wooden'
+          if (await craftItem(tier2 + '_' + kind, 1)) { journal('maintain', 'reforged the family\'s lost ' + tier2 + ' ' + kind, {}); learnSkill('maintain tools'); return }
+        }
+        continue
+      }
       const best = tools.reduce((b, t) => toolLife(t) > toolLife(b) ? t : b, tools[0])
       if (toolLife(best) >= 0.12) continue                                   // his working tool still has life
       if (tools.some(t => t !== best && toolLife(t) > 0.5)) continue         // he already has a healthy spare
@@ -3698,7 +3743,7 @@ async function hideAndSeek() {
         journal('game', 'hide and seek — found!'); first('hideseek', 'We played hide and seek. He FOUND me. Best game ever.', {})
         celebrate()
         let again = false; try { again = await askKid('play AGAIN?? 🙈') } catch (e) {}   // v9.15: hold busy across the ~6.5s gesture read so no background task seizes the mutex or walks him off
-        busy = false; mode = 'hangout'
+        if (_busyBy === 'game') { busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0 }
         if (again) return hideAndSeek()
         return
       }
@@ -3716,7 +3761,7 @@ async function hideAndSeek() {
     bot.setControlState('sneak', false)
     say('here I am!! that was a GOOD hiding spot huh!! :D')
   } catch (e) { try { bot.setControlState('sneak', false) } catch (e2) {} }
-  busy = false; mode = 'hangout'
+  if (_busyBy === 'game') { busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0 }   // v9.21: release only if we still OWN busy — a game resumed after a wedge-free must not stomp runQ's mutex (two tasks driving one body)
 }
 async function seekKid() {
   if (!bot || !owner || busy) return
@@ -3728,7 +3773,7 @@ async function seekKid() {
     const p = bot.players[owner] && bot.players[owner].entity
     if (p) { await withTimeout(moveNear(p.position, 2), 60000); say('FOUND YOUUU!!! 🎉 hehe!!'); journal('game', 'seek — found the little one') }
   } catch (e) {}
-  busy = false; mode = 'hangout'
+  if (_busyBy === 'game') { busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0 }   // v9.21: release only if we still OWN busy — a game resumed after a wedge-free must not stomp runQ's mutex (two tasks driving one body)
 }
 async function race() {
   if (!bot || !owner || busy) return
@@ -3747,7 +3792,7 @@ async function race() {
     else { say('I made it!! come on, you can do it!!'); await sleep(6000); say('YAY you got here!! 🏆 good race!!') }
     journal('game', 'race finished')
   } catch (e) {}
-  busy = false; mode = 'hangout'
+  if (_busyBy === 'game') { busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0 }   // v9.21: release only if we still OWN busy — a game resumed after a wedge-free must not stomp runQ's mutex (two tasks driving one body)
 }
 function dance() { if (!bot || !bot.entity) return; say('*dances* wheee!!'); let i = 0; const iv = setInterval(() => { if (!bot || i++ > 10) return clearInterval(iv); try { bot.look((i * Math.PI) / 3, i % 2 ? -0.4 : 0.4, true); bot.setControlState('jump', i % 2 === 0) } catch (e) { clearInterval(iv) } }, 340); setTimeout(() => { try { bot.setControlState('jump', false) } catch (e) {} }, 4200) }
 // 🎉 v9.14 CELEBRATE: a real sparkle on wins (not just an identical spin) — a firework in creative, always a dance.
@@ -3764,7 +3809,7 @@ async function showParade() {
   busy = true; mode = 'busy'; _busyBy = 'game'; _busySince = Date.now()
   try {
     const spots = (know.builtSpots || []).slice(-5)
-    if (!spots.length) { say('I haven\'t built you anything YET — wanna pick something?? 🎨', true); busy = false; mode = 'hangout'; return }
+    if (!spots.length) { say('I haven\'t built you anything YET — wanna pick something?? 🎨', true); if (_busyBy === 'game') { busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0 } return }
     say('come see EVERYTHING I made you!! follow me!! ✨', true)
     for (const s of spots) {
       if (!bot || !bot.entity) break
@@ -3775,7 +3820,7 @@ async function showParade() {
     }
     say('that\'s all my stuff!! did you LOVE it?? 🥰', true); feel({ pride: 8, child_affection: 6, joy: 6 })
   } catch (e) {}
-  busy = false; mode = 'hangout'
+  if (_busyBy === 'game') { busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0 }   // v9.21: release only if we still OWN busy — a game resumed after a wedge-free must not stomp runQ's mutex (two tasks driving one body)
 }
 // 🫣 v9.15 PEEKABOO — the safest game in the file: only crouch/look/swingArm + sleeps, nothing placed, no pathing near hazards.
 async function peekaboo() {
@@ -3796,7 +3841,7 @@ async function peekaboo() {
     journal('game', 'peekaboo with the little one')
   } catch (e) {}
   try { bot.setControlState('sneak', false) } catch (e) {}
-  busy = false; mode = 'hangout'
+  if (_busyBy === 'game') { busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0 }   // v9.21: release only if we still OWN busy — a game resumed after a wedge-free must not stomp runQ's mutex (two tasks driving one body)
 }
 // ===== EVERY TEXT LOGGED (chat_log.jsonl) + anti-repeat loop detector =====
 function tlog(who, text) { try { fs.appendFileSync(path.join(BRAINDIR, 'chat_log.jsonl'), JSON.stringify({ t: new Date().toISOString(), who, text: String(text).slice(0, 300) }) + '\n') } catch (e) {} }
@@ -4546,7 +4591,7 @@ async function mineNamed(name, n) {
     const t = bot.findBlock({ matching: function (b) { return b && b.name === name && !inProtected(b.position) }, maxDistance: 48 })
     if (!t) { if (i === 0) say('I can\'t find any ' + name.replace(/_/g, ' ') + ' nearby!'); break }
     try { await equipForBlock(t) } catch (e) {}
-    try { await withTimeout(bot.collectBlock.collect(t), 30000); got++ } catch (e) { break }
+    try { await withTimeout(bot.collectBlock.collect(t), 30000); got++ } catch (e) { continue }   // v9.21: one pathfinder hiccup must not abort the whole gather (loop is iteration-capped)
   }
   if (got) learnSkill('mine ' + name)
   return got
@@ -4694,6 +4739,8 @@ function roleTick() {
           try { await equipBestTool('sword') } catch (e) {}
           for (let i = 0; i < 6; i++) {
             if (!bot || !bot.entity || !foe || foe.isValid === false) break
+            if (panic || (bot.health !== undefined && bot.health <= 6)) break   // v9.21: the retreat reflex WINS — this loop used to clobber the flee goal and march a 1-HP guardian back into melee
+            if (bot.food !== undefined && bot.food <= 6 && !(owner && bot.players[owner] && bot.players[owner].entity && bot.players[owner].entity.position.distanceTo(foe.position) < 6)) break   // v9.21: too starved to trade hits — unless the foe is ON the boy
             if (bot.entity.position.distanceTo(foe.position) > 24) break
             try { await moveNear(foe.position, 2) } catch (e) {}
             try { await bot.lookAt(foe.position.offset(0, 1, 0)); await bot.attack(foe) } catch (e) {}
@@ -4930,7 +4977,13 @@ async function hsFound() {
       const score = flat * 10 + gy - (water ? Math.abs(ctr.distanceTo(water.position) - 26) * 0.3 : 0)
       if (score > bestScore) { bestScore = score; best = ctr }
     }
-    if (!best) { if (Date.now() - _hsFoundLog > 300000) { _hsFoundLog = Date.now(); journal('homestead', 'founding failed: no viable site among candidates (all protected/unloaded/ravined)', {}) } return }
+    if (!best) {
+      // v9.21: unloaded candidates are not "no site" — WALK toward one so its chunks load, then let the
+      // next tick rescore (an idle spawn-camper used to journal 'founding failed' forever without moving)
+      try { const cd0 = cands[Math.floor(Math.random() * cands.length)]; if (cd0) await withTimeout(moveNear(new Vec3(Math.round(cd0.x), Math.round(bot.entity.position.y), Math.round(cd0.z)), 10), 60000) } catch (e) {}
+      if (Date.now() - _hsFoundLog > 300000) { _hsFoundLog = Date.now(); journal('homestead', 'no viable site this pass — walked toward a candidate to load its ground; will rescore', {}) }
+      return
+    }
     const stages = {}; for (const s of HS_ORDER) stages[s] = { cur: 0, done: false }
     stages.larder.base = best.y - 4                              // stamp the larder floor NOW — digging must never shift the plan
     // plain INSERT (no merge-duplicates): if a sibling's founding raced in, this errors instead of overwriting
@@ -4986,7 +5039,15 @@ async function hsWork(st) {
   const anchor = new Vec3(c.x, c.y + 1, c.z)
   if (bot.entity.position.distanceTo(anchor) > 48) { try { await moveNear(anchor, 24) } catch (e) {} }
   stg.claim = { who: IDENT.key, ts: Date.now() }                  // v9.20: re-stamp after travel/gather so a long walk never lets the claim look stale mid-bout
-  if (!creativeFly() && !(bestBuildBlock() && count(bestBuildBlock()) >= 20) && /mark|ring|wall|larder|hearth|paddock/.test(st)) { try { await gatherStone(28) } catch (e) {}; if (!bestBuildBlock()) { try { await gatherWood(4); await craftPlanks(12) } catch (e) {} } }
+  if (!creativeFly()) {
+    try { if (typeof maintainTools === 'function') await maintainTools() } catch (e) {}   // v9.21: a pick dies every 2-3 bouts — check BEFORE it shatters mid-bout
+    // v9.21 demand-sized gather: count the actual MAT bill of the next bout instead of a flat 28
+    const lookahead = cells.slice(stg.cur, stg.cur + 30)
+    const matNeed = lookahead.filter(cl => !cl.dig && (cl.b === 'MAT' || (cl.alt || []).includes('MAT'))).length
+    const mat0 = bestBuildBlock()
+    if (matNeed > 0 && (!mat0 || count(mat0) < matNeed + 6)) { try { await gatherStone(Math.min(64, matNeed + 8 - (mat0 ? count(mat0) : 0))) } catch (e) {}; if (!bestBuildBlock()) { try { await gatherWood(4); await craftPlanks(12) } catch (e) {} } }
+    if (lookahead.some(cl => cl.b === 'torch') && count('torch') < 6) { try { await craftItem('torch', 6) } catch (e) {} }   // v9.21: an unlit walled yard is a mob farm INSIDE the perimeter
+  }
   const t0 = Date.now(); const myGen = actGen
   let done = 0, placed = 0, dug = 0, failedN = 0, optSkip = 0, end = 'budget'
   stg.g = stg.g || {}                                             // per-column ground, PINNED once per stage and shared on the bus — bout boundaries and body handoffs must all see the same terrain
@@ -4994,6 +5055,7 @@ async function hsWork(st) {
     if (!bot || !bot.entity || actGen !== myGen) { end = 'gone'; break }
     if (panic || (bot.health !== undefined && bot.health <= 6)) { end = 'hurt'; break }
     if (!playerAFK()) { end = 'boy'; break }                      // the boy returned mid-bout — drop the shovel now
+    if (!hsNightSafe(row)) { end = 'night'; break }               // v9.21: dusk fell mid-bout — save the cursor, go sleep
     const cell = cells[i]
     let y
     if (typeof cell.y === 'number') y = cell.y
@@ -5020,8 +5082,17 @@ async function hsWork(st) {
     try {
       if (cell.dig) {
         const b = bot.blockAt(tgt)
-        if (b && b.name !== 'air' && b.boundingBox === 'block' && !inProtected(tgt)) { try { await moveNear(tgt, 3); await withTimeout(bot.dig(b), 8000); dug++ } catch (e) {} }
-        ok = true                                                  // dig cells always advance (air or protected = nothing to do here)
+        if (b && b.name !== 'air' && b.boundingBox === 'block' && !inProtected(tgt)) {
+          try {
+            await moveNear(tgt, 3)
+            try { if (typeof equipForBlock === 'function') await equipForBlock(b) } catch (e2) {}   // v9.21: bare-hand stone (7.5s) lost to the timeout every time — and dropped nothing
+            if (!creativeFly() && /^(stone|cobblestone|andesite|diorite|granite|deepslate|tuff)$/.test(b.name) && bot.collectBlock) { await withTimeout(bot.collectBlock.collect(b), 12000) }   // v9.21: the larder excavation IS the wall's quarry — collect the drops
+            else await withTimeout(bot.dig(b), 10000)
+            dug++
+          } catch (e) {}
+        }
+        const after = bot.blockAt(tgt)
+        ok = !after || after.name === 'air' || after.boundingBox !== 'block' || inProtected(tgt)   // v9.21: a dig only advances when the block is really GONE — a timed-out dig used to march the cursor over rock still in the room
       } else if (inProtected(tgt)) {
         ok = true                                                  // the boy's blocks (or a finished build) live here — the wall yields, never absorbs
       } else {
@@ -5029,7 +5100,10 @@ async function hsWork(st) {
         for (const nm of names) { try { if (await withTimeout(placeAt(tgt, nm), 9000)) { ok = true; break } } catch (e) {} }   // v9.19: opt cells TRY THEIR ALTS too — barrels→chest, sea_lantern→glowstone, iron lid→slab were dead code behind an early break
         if (ok) placed++
         else if (cell.opt) optSkip++
-        else { failedN++; if (count(bestBuildBlock() || 'cobblestone') < 4) { try { await gatherStone(24) } catch (e) {} } }
+        else {
+          if (!creativeFly() && names.every(nm => count(nm) === 0)) { end = 'no-mat'; break }   // v9.21: an EMPTY BAG is not the cell's fault — famine used to charge 3 strikes and skip-list innocent cells until stages "completed" as air
+          failedN++; if (count(bestBuildBlock() || 'cobblestone') < 4) { try { await gatherStone(24) } catch (e) {} }
+        }
       }
     } catch (e) {}
     buildingNow = null
@@ -5073,6 +5147,18 @@ async function hsWork(st) {
 }
 function creativeFly() { try { return bot.game && bot.game.gameMode === 'creative' } catch (e) { return false } }
 function hsHumansOnline() { try { return Object.values(bot.players || {}).some(p => p && p.username !== bot.username && !SIBNAMES.has(p.username)) } catch (e) { return true } }   // fails CLOSED — assume a human if unsure
+function isNightNow() { try { const t = bot.time && bot.time.timeOfDay; return t !== undefined && t >= 12500 && t <= 23000 } catch (e) { return false } }
+function hsNightSafe(row) {
+  // v9.21: survival nights are for beds, not shovels — building in the unlit open was a regen/panic
+  // death ping-pong. Exception: inside a COMPLETED ring (the council's own first-night milestone).
+  if (creativeFly() || !isNightNow()) return true
+  try { return !!(row && row.stages && row.stages.ring && row.stages.ring.done && inHsFootprint(bot.entity.position, 0)) } catch (e) { return false }
+}
+function hsBootstrapped() {
+  // v9.21: day one belongs to tools and food — the goal ladder already teaches them; the homestead waits
+  if (creativeFly()) return true
+  try { return hasPickaxe() && hasAxe() && (bot.food === undefined || bot.food >= 8) } catch (e) { return false }
+}
 const HS_TOTAL_CELLS = 1016
 function hsSummary(row) {
   // ONE bounded object = the whole truth at a glance, computed only at end-of-bout saves from data in hand
@@ -5177,12 +5263,16 @@ async function homesteadTick() {
   } else _stayAbsentSince = 0
   if (bot.health !== undefined && bot.health <= 8) return
   if (!playerAFK()) return                                        // the boy comes first, always — the homestead grows in the quiet
+  if (!hsBootstrapped()) return                                   // v9.21: no tools or an empty belly → survival essentials first, shovels later
+  if (bot.isSleeping) return                                      // v9.21: a sleeping body queues no bouts (its cells were being charged as fails)
+  if (!creativeFly() && bot.food !== undefined && bot.food < 10) { if (!busy && !taskQ.length) queueTask(async () => { try { await huntFood(2) } catch (e) {} try { await cookFood(6) } catch (e) {} }); return }   // v9.21: hunger before homestead
   if (typeof serverStrained === 'function' && serverStrained()) return   // v9.19: a laboring server gets no optional work piled on
   if (familyWatchKey() === IDENT.key && Object.keys(bot.players || {}).some(n => SIBNAMES.has(n))) return   // v9.18: I hold the watch this hour — the others build; I stay awake to the child
   _hsBusy = true
   try {
     const row = await hsRow()
     if (!row || !row.site) { if (IDENT.soulWriter) { _hsQueuedTs = Date.now(); queueTask(async () => { _hsQueuedTs = 0; await hsFound() }) } return }
+    if (!hsNightSafe(row)) return                                 // v9.21: night belongs to beds until the ring stands
     hsEnsureProtected(row)
     let st = null
     for (const s of HS_ORDER) { if (!(row.stages[s] && row.stages[s].done)) { st = s; break } }
@@ -5310,6 +5400,8 @@ setInterval(() => {
     journal('resume', 'this machine slept ~' + Math.round(gap / 60000) + ' min — waking gently', {})
     try { for (const k of Object.keys(_sibState)) delete _sibState[k] } catch (e) {}
     try { for (const k of Object.keys(_sibDarkStreak)) _sibDarkStreak[k] = 0 } catch (e) {}
+    try { for (const k of Object.keys(_sibInGameFalseSince)) _sibInGameFalseSince[k] = 0 } catch (e) {}   // v9.21: a pre-nap reconnect stamp must not mature into mourning during our own nap
+    try { _tpsWin = []; _tpsLastAge = 0; _tpsLastWall = 0 } catch (e) {}
     _hsCache = { row: null, ts: 0 }                              // safe ONLY because hsFound verifies absence before founding (v9.19)
     try { beat(); publishVitals() } catch (e) {}
   }
