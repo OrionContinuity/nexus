@@ -122,6 +122,19 @@
   background: radial-gradient(circle, #f5e8ff 22%, rgba(200, 168, 255, 0.75) 55%, transparent 100%);
   box-shadow: 0 0 6px rgba(200, 168, 255, 0.85), 0 0 14px rgba(170, 140, 255, 0.3);
 }
+/* v334 — the FRONT firefly layer (z-index:2) drifts ACROSS his face; the
+   two default-cyan dots (firefly-e / firefly-g) cross the cheek line and
+   read as a wrong-colored "cyan blush" on his cheeks (Alfredo). Warm those
+   two so every front dot is a soft, kawaii-friendly sparkle — his native
+   cyan stays on the BACK layer (z-index:-1), behind the body, off his face. */
+.clippy-orbit-front .clippy-orbital:nth-child(1) {
+  background: radial-gradient(circle, #fff3e2 22%, rgba(255, 199, 138, 0.78) 55%, transparent 100%);
+  box-shadow: 0 0 6px rgba(255, 199, 138, 0.85), 0 0 14px rgba(255, 176, 110, 0.32);
+}
+.clippy-orbit-front .clippy-orbital:nth-child(3) {
+  background: radial-gradient(circle, #fff2f5 22%, rgba(255, 175, 190, 0.78) 55%, transparent 100%);
+  box-shadow: 0 0 6px rgba(255, 175, 190, 0.85), 0 0 14px rgba(255, 150, 175, 0.30);
+}
 
 /* Eight unique firefly paths. Each fades in, drifts across an arc near
    Trajan's body, then fades out at a different point. Periods are all

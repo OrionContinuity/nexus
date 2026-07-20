@@ -9871,3 +9871,33 @@ body.ord-overlay-open .nav {
   .ord-entry-section-count { font-size: 10px; min-width: 24px; padding: 3px 8px; }
   .ord-entry-section-collapse { width: 34px; height: 34px; }
 }
+
+/* ──────────────────────────────────────────────────────────────────────
+   v334 — LIGHT-THEME STEPPERS  ·  "do light theme steppers"
+   ──────────────────────────────────────────────────────────────────────
+   In dark, the steppers' soft --nx-surface-2 fill reads fine. In light that
+   token is near-white (rgba(255,255,252,.80)) sitting on a cream section —
+   the buttons washed out into the background. Give them a faint cool tint +
+   a hairline border so they read as buttons on cream. Ordering-only scope
+   (.ord-item-controls) → the catalog editor is untouched.
+   ────────────────────────────────────────────────────────────────────── */
+[data-theme="light"] .ord-item-controls .ord-qty-btn {
+  background: rgba(31, 79, 125, 0.07) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  color: var(--nx-text) !important;
+}
+[data-theme="light"] .ord-item-controls .ord-qty-btn:hover {
+  background: var(--nx-gold-soft) !important;
+  color: var(--nx-gold) !important;
+}
+[data-theme="light"] .ord-item-controls .ord-qty-btn:active {
+  background: var(--nx-gold) !important;
+  color: var(--nx-gold-on, #fff) !important;
+}
+[data-theme="light"] .ord-item-controls .ord-qty-input {
+  background: rgba(31, 79, 125, 0.06) !important;
+  box-shadow: inset 0 0 0 1px var(--nx-gold-line);
+}
+[data-theme="light"] .ord-item-row.has-qty .ord-item-controls .ord-qty-input {
+  background: var(--nx-gold-faint) !important;
+}
