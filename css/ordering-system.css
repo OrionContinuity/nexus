@@ -9901,3 +9901,254 @@ body.ord-overlay-open .nav {
 [data-theme="light"] .ord-item-row.has-qty .ord-item-controls .ord-qty-input {
   background: var(--nx-gold-faint) !important;
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   v335 — CATALOG CARD REVAMP  ·  mirror the ordering screen (v332–v334)
+   ──────────────────────────────────────────────────────────────────────
+   Alfredo: "now catalog. full revamp. same thing we did with ordering."
+   The order-ENTRY screen became: section = the single frame (gutter inside
+   it), items = flat tight hairline rows (name on top, a controls bar below
+   with the soft par/qty pill + outlined unit chip on the left and two big
+   soft squircle −/+ steppers on the right), and a BIG Outfit section
+   headline. This brings the CATALOG EDITOR (.ord-catalog-overlay .ved-*)
+   to the same look.
+
+   The row DOM was restructured to mirror ordering: a .ved-item-head (Tier 1
+   — drag grip · name/meta tap · move-to-section chip) over a
+   .ord-item-controls bar (Tier 2 — PAR label + par pill + unit chip on the
+   left, the two −/+ buttons on the right). The par field moved into
+   .ord-item-controls-left as .ord-qty-input and .ord-qty is now just the two
+   buttons — so the steppers, pill and unit chip INHERIT ordering's
+   .ord-item-controls styling (incl. the v334 light-theme skin) for FREE.
+   This block owns only the section FRAME, the big HEADER, the flat ROW +
+   has-par state, the name head, the move-to-section CHIP, and the drag GRIP.
+
+   Everything is scoped .ord-catalog-overlay so no other surface moves.
+   Ordering rows are .ord-item-row (a different class) and stay untouched.
+   Tokens flip per theme (nx-system.css), so navy+gold dark and cream+bronze
+   light both read. `!important` appears ONLY to out-specify the pre-existing
+   `!important` on the bare .ved-item-row rule (~9130) and the phone media
+   blocks (~9214 / ~5125).
+
+   Rules that go INERT with the new DOM (left as-is, they just stop matching):
+     • ~9508 `.ord-catalog-overlay .ved-item-row > .ord-qty` (align-self) —
+       .ord-qty is now inside .ord-item-controls, not a direct row child.
+     • ~9155 `.ved-item-row.has-par .ord-qty { border-color }` — beaten by
+       `.ord-item-controls .ord-qty { border:none!important }`.
+     • ~9587 v264 `.ord-qty-btn { gold }` — beaten by the more-specific
+       `.ord-item-controls .ord-qty-btn` (the desired neutral soft look).
+   Rule KEPT + relied on: ~9151 `.ved-item-row.has-par .ord-qty-input`
+   (par number goes gold on a set row — mirrors ordering's has-qty).
+   ────────────────────────────────────────────────────────────────────── */
+
+/* ── Section is the frame: the gutter lives INSIDE it, around the items ── */
+.ord-catalog-overlay .ved-section-items { padding: 6px; }
+.ord-catalog-overlay .ved-section-block { margin: 0 0 12px; }
+
+/* ── The item — flat column row; the section bg shows through. Overrides the
+   old flex/border-top model (~5042) AND the bare .ved-item-row !important
+   padding/gap/bg/shadow (~9130). ── */
+.ord-catalog-overlay .ved-item-row {
+  position: relative;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px !important;
+  padding: 9px 10px !important;
+  margin: 0;
+  border: none;
+  border-radius: 10px;
+  border-top: 0;
+  border-bottom: 1px solid var(--nx-gold-line, var(--border));
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.ord-catalog-overlay .ved-section-items > .ved-item-row:last-child { border-bottom: none; }
+.ord-catalog-overlay .ved-item-row:hover { background: var(--nx-gold-faint) !important; }
+
+/* ── Set state — mirror ordering's .has-qty: a single 3px gold inset bar +
+   a whisper of gold fill (a soft tab, NOT a loud full border). ── */
+.ord-catalog-overlay .ved-item-row.has-par {
+  background: var(--nx-gold-faint, rgba(212, 164, 78, .07)) !important;
+  box-shadow: inset 3px 0 0 0 var(--nx-gold) !important;
+  border-bottom-color: var(--nx-gold-line, var(--border));
+}
+.ord-catalog-overlay .ved-item-row.has-par:hover {
+  background: var(--nx-gold-mist, rgba(212, 164, 78, .12)) !important;
+}
+.ord-catalog-overlay .ved-item-row.has-par .ord-item-unit-input {
+  border-color: var(--nx-gold-line) !important;
+  color: var(--nx-gold);
+}
+
+/* ── Tier 1 · name row: [grip] [tap: name/meta] [section chip] ── */
+.ord-catalog-overlay .ved-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.ord-catalog-overlay .ved-item-drag-handle {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 26px;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  opacity: 0.4;
+  color: var(--nx-faint, var(--faint));
+  cursor: grab;
+  touch-action: none;
+}
+.ord-catalog-overlay .ved-item-drag-handle:hover { opacity: 0.85; color: var(--nx-text, var(--text)); }
+.ord-catalog-overlay .ved-item-drag-handle:active { opacity: 1; color: var(--nx-gold, var(--accent)); cursor: grabbing; }
+.ord-catalog-overlay .ved-item-tap {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: block;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+}
+.ord-catalog-overlay .ved-item-tap:active { background: transparent; }
+.ord-catalog-overlay .ved-item-tap .ved-item-main { min-width: 0; }
+.ord-catalog-overlay .ved-item-head .ved-item-name {
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 1.25;
+  color: var(--nx-text, var(--text));
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  word-break: break-word;
+}
+.ord-catalog-overlay .ved-item-tap:hover .ved-item-name,
+.ord-catalog-overlay .ved-item-tap:active .ved-item-name { color: var(--nx-gold); }
+.ord-catalog-overlay .ved-item-head .ved-item-meta {
+  margin-top: 2px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  line-height: 1.35;
+  color: var(--nx-faint, var(--muted));
+}
+
+/* Move-to-section chip — compact outlined pill, trailing on the name row. */
+.ord-catalog-overlay .ved-item-area { flex: 0 0 auto; max-width: 150px; display: flex; align-items: center; }
+.ord-catalog-overlay .ved-item-area-select {
+  max-width: 150px;
+  height: 30px;
+  padding: 0 8px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--nx-faint, var(--muted));
+  background: transparent;
+  border: 1px solid var(--nx-gold-line, var(--border));
+  border-radius: 999px;
+  cursor: pointer;
+  text-overflow: ellipsis;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.ord-catalog-overlay .ved-item-area-select:hover { border-color: var(--nx-gold); color: var(--nx-text, var(--text)); }
+.ord-catalog-overlay .ved-item-area-select:focus { outline: none; border-color: var(--nx-gold); background: var(--nx-gold-faint, rgba(212, 164, 78, .06)); }
+
+/* Tier 2 controls bar spans the row under the name. */
+.ord-catalog-overlay .ved-item-row .ord-item-controls { width: 100%; }
+/* PAR label — the quiet "what is this pill" token (mirrors ordering context). */
+.ved-par-label {
+  flex: 0 0 auto;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--nx-faint, var(--muted));
+}
+
+/* ══ BIG section header — the card's headline, mirroring
+   .ord-entry-section-name. Mono voice lives on in the count pill + kebab. ══ */
+.ord-catalog-overlay .ved-section-row {
+  gap: 10px;
+  padding: 14px 14px;
+  background: var(--nx-gold-faint);
+  border: 0;
+  border-bottom: 1px solid var(--nx-gold-line);
+  border-radius: 0;
+}
+.ord-catalog-overlay .ved-section-name {
+  flex: 1;
+  min-width: 0;
+  font-family: 'Outfit', sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--nx-text, var(--text));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ord-catalog-overlay .ved-section-name[data-section]:hover { color: var(--nx-gold); }
+.ord-catalog-overlay .ved-section-name.is-uncat {
+  font-weight: 600;
+  font-style: italic;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  color: var(--nx-faint, var(--faint));
+}
+.ord-catalog-overlay .ved-section-count {
+  flex-shrink: 0;
+  min-width: 26px;
+  padding: 3px 9px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-align: center;
+  color: var(--nx-muted, var(--muted));
+  background: var(--nx-surface-1, var(--elevated));
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.18));
+  border-radius: 999px;
+}
+.ord-catalog-overlay .ved-section-kebab { width: 36px; height: 36px; font-size: 19px; }
+.ord-catalog-overlay .ved-section-collapse { width: 36px; height: 36px; margin-left: -2px; }
+
+/* Tablet+ — title runs a touch larger. */
+@media (min-width: 501px) {
+  .ord-catalog-overlay .ved-section-row { padding: 16px 16px; }
+  .ord-catalog-overlay .ved-section-name { font-size: 22px; }
+  .ord-catalog-overlay .ved-section-count { font-size: 12px; }
+}
+
+/* Phone — tighter items; header still much bigger than the old 11px mono.
+   Out-specifies the phone !important at ~9214 (.ved-item-row) + ~5125. */
+@media (max-width: 500px) {
+  .ord-catalog-overlay .ved-section-items { padding: 5px; }
+  .ord-catalog-overlay .ved-item-row { padding: 8px 9px !important; gap: 7px !important; }
+  .ord-catalog-overlay .ved-item-area,
+  .ord-catalog-overlay .ved-item-area-select { max-width: 118px; }
+  .ord-catalog-overlay .ved-section-row { padding: 14px 12px; gap: 8px; }
+  .ord-catalog-overlay .ved-section-name { font-size: 19px; letter-spacing: 0.025em; }
+  .ord-catalog-overlay .ved-section-count { font-size: 10px; min-width: 24px; padding: 3px 8px; }
+  .ord-catalog-overlay .ved-section-kebab,
+  .ord-catalog-overlay .ved-section-collapse { width: 34px; height: 34px; }
+}
+
+/* Light theme — inherited [data-theme=light] .ord-item-controls steppers
+   already read as buttons on cream (v334). Just keep the chip + count pill
+   from washing out (transparent-on-cream reads a hair weak). */
+[data-theme="light"] .ord-catalog-overlay .ved-item-area-select { background: rgba(31, 79, 125, 0.05); }
+[data-theme="light"] .ord-catalog-overlay .ved-item-area-select:focus { background: var(--nx-gold-faint); }
+[data-theme="light"] .ord-catalog-overlay .ved-section-count { background: rgba(31, 79, 125, 0.05); }

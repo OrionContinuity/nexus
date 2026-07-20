@@ -6373,52 +6373,58 @@ Thanks for your help sorting this out.`;
         </select>
       </div>`;
 
+    // v335 — CATALOG CARD REVAMP: mirror the ordering row so the catalog
+    // inherits ordering's button styling for free. Two tiers:
+    //   Tier 1 (.ved-item-head): drag grip · name/meta tap area · section chip
+    //   Tier 2 (.ord-item-controls): PAR label + par pill + unit chip · −/+ stepper
+    // The par INPUT moved OUT of .ord-qty into .ord-item-controls-left (exactly
+    // like ordering's qty input); .ord-qty is now just the two buttons. Because
+    // ordering's stepper/pill/unit CSS keys off .ord-item-controls (not
+    // .ord-item-row), wrapping the catalog controls in it pulls in the soft
+    // squircle steppers, the qty pill, the unit chip, AND the light-theme
+    // treatment automatically. All .ved-* classes + data-attrs are unchanged so
+    // every catalog handler still wires; data-item-id stays on .ved-item-row.
     return `
       <div class="ved-item-row${hasPar ? ' has-par' : ''}" data-item-id="${esc(item.id)}">
-        <!-- v294 — drag handle: hold and drag to reorder / move between areas -->
-        <button class="ved-item-drag-handle" data-drag-item="${esc(item.id)}" type="button" aria-label="Drag to reorder" title="Drag to reorder">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg>
-        </button>
-        <!-- Name area is the tap target that opens the full edit form -->
-        <button class="ved-item-tap" data-item-id="${esc(item.id)}" type="button">
-          <div class="ved-item-main">
-            <div class="ved-item-name">${esc(primary)}</div>
-            ${meta.length ? `<div class="ved-item-meta">${meta.join('<span class="ved-meta-sep">·</span>')}</div>` : ''}
+        <!-- Tier 1 — name row: drag grip · tap(name/meta) · move-to-section chip -->
+        <div class="ved-item-head">
+          <!-- v294 — drag handle: hold and drag to reorder / move between areas -->
+          <button class="ved-item-drag-handle" data-drag-item="${esc(item.id)}" type="button" aria-label="Drag to reorder" title="Drag to reorder">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg>
+          </button>
+          <!-- Name area is the tap target that opens the full edit form. It
+               wraps ONLY the name/meta, so stepper/pill taps never open it. -->
+          <button class="ved-item-tap" data-item-id="${esc(item.id)}" type="button">
+            <div class="ved-item-main">
+              <div class="ved-item-name">${esc(primary)}</div>
+              ${meta.length ? `<div class="ved-item-meta">${meta.join('<span class="ved-meta-sep">·</span>')}</div>` : ''}
+            </div>
+          </button>
+          <!-- v294 — inline "move to section" chip. Items already sit under a
+               section-group header, so this is a compact reassign control. -->
+          ${sectionSelect}
+        </div>
+
+        <!-- Tier 2 — controls bar. Same container as ordering (.ord-item-controls)
+             so the par pill / unit chip / big soft −/+ steppers + light-theme
+             skin are inherited. .ved-par-*/.ved-unit-* stay as handler hooks. -->
+        <div class="ord-item-controls">
+          <div class="ord-item-controls-left">
+            <span class="ved-par-label">PAR</span>
+            <input type="number" inputmode="numeric" min="0" step="1"
+                   class="ord-qty-input ved-par-input" data-item-id="${esc(item.id)}"
+                   value="${esc(String(parVal))}" aria-label="Default par">
+            <div class="ord-item-unit ved-unit-cell">
+              <input type="text" class="ord-item-unit-input ved-unit-input" data-item-id="${esc(item.id)}"
+                     value="${esc(unitVal)}" placeholder="ea" autocomplete="off"
+                     spellcheck="false" maxlength="8" aria-label="Unit">
+            </div>
           </div>
-        </button>
-
-        <!-- v18.29 — par stepper uses the EXACT same component as
-             ordering's qty pill (.ord-qty + .ord-qty-btn + .ord-qty-input).
-             Identical visual — same pill shape, same dimensions, same
-             behavior. The .ved-par-* classes are additional hooks so
-             handlers wire to the catalog-specific save flow, not the
-             ordering one. The gold-fill hero treatment from ordering
-             is scoped to .ord-item-row.has-qty, so it does NOT apply
-             here (catalog row is .ved-item-row). -->
-        <div class="ord-qty" role="group" aria-label="Default par">
-          <button type="button" class="ord-qty-btn ved-par-btn" data-par-step="-1" data-item-id="${esc(item.id)}" aria-label="Decrease par">−</button>
-          <input type="number" inputmode="numeric" min="0" step="1"
-                 class="ord-qty-input ved-par-input" data-item-id="${esc(item.id)}"
-                 value="${esc(String(parVal))}" aria-label="Default par">
-          <button type="button" class="ord-qty-btn ved-par-btn" data-par-step="1" data-item-id="${esc(item.id)}" aria-label="Increase par">+</button>
+          <div class="ord-qty" role="group" aria-label="Default par">
+            <button type="button" class="ord-qty-btn ved-par-btn" data-par-step="-1" data-item-id="${esc(item.id)}" aria-label="Decrease par">−</button>
+            <button type="button" class="ord-qty-btn ved-par-btn" data-par-step="1" data-item-id="${esc(item.id)}" aria-label="Increase par">+</button>
+          </div>
         </div>
-
-        <!-- v18.29 — Unit input uses ordering's .ord-item-unit-input
-             visual. Same input the chef uses on the order entry screen
-             — typing here changes the catalog default, which becomes
-             the per-line default in every subsequent order for this
-             vendor. (Per-line overrides on the ordering screen are
-             session-only and don't write back to catalog.) -->
-        <div class="ord-item-unit ved-unit-cell">
-          <input type="text" class="ord-item-unit-input ved-unit-input" data-item-id="${esc(item.id)}"
-                 value="${esc(unitVal)}" placeholder="ea" autocomplete="off"
-                 spellcheck="false" maxlength="8" aria-label="Unit">
-        </div>
-
-        <!-- v294 — the up/down stack is replaced by drag (handle on the
-             left) + this inline area picker. Tap the row name to open the
-             edit form for advanced fields (day-of-week pars, notes, rename). -->
-        ${sectionSelect}
       </div>
     `;
   }
