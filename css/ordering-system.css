@@ -9623,61 +9623,67 @@ body.ord-overlay-open .nav {
 .ord-item-last { color: var(--nx-muted, var(--muted)); font-weight: 600; white-space: nowrap; }
 
 /* ══════════════════════════════════════════════════════════════════════
-   v332 — ORDERING CARD REVAMP  ·  "I really like the button style"
+   v332 → v333 — ORDERING CARD REVAMP  ·  "I really like the button style"
    ──────────────────────────────────────────────────────────────────────
    Alfredo shared a vendor's order-guide screen and asked to revamp
    ordering "to something more like this. I really like the button style."
-   His ask is the BUTTON STYLE: big, soft, friendly, well-separated −/+
-   steppers, and a roomy card per item — the opposite of the old dense
-   hairline rows (v294/v18.28) that were tuned to cram many items on screen.
+   His ask is the BUTTON STYLE: soft, friendly, well-separated −/+ steppers,
+   and a name free to wrap — the opposite of the old dense hairline rows
+   (v294/v18.28) that clipped names mid-word to cram items on screen.
 
-   Rendered in NEXUS's own skin (his app is navy+gold in dark, cream+bronze
-   in light — the vendor app was just light). Every value is a theme token
-   so it reads right in both. Each item is now its own rounded card:
-     • Tier 1 — the name, free to wrap to as many lines as it needs.
-     • Tier 2 — a controls bar: quantity pill + unit chip on the left, the
-       two big soft squircle steppers anchored right.
+   v333 refinement (his next note, viewing v332 live): "make the items a bit
+   tighter and smaller with padding living inside sections. and the section
+   font much larger." So the SECTION is now the single frame: its item
+   container holds the gutter (padding INSIDE the section), and items became
+   flat, tight, hairline-separated rows — no floating per-item card (that
+   was a double frame inside the section border). The soft squircle steppers
+   he liked stay, just smaller. And the section header stopped being a 12px
+   mono micro-label — it's now the card's headline (Outfit, display weight).
 
-   SCOPING: the new geometry is scoped to `.ord-item-controls` (ordering
-   only). The catalog editor (`.ved-item-row`) deliberately reuses the bare
-   `.ord-qty*` classes and is left exactly as it was. `!important` appears
-   only on the width/height/font-size properties that the phone (max-width
-   500) and tablet (min-width 501) media blocks force with `!important` —
-   without it those older rules would keep the steppers tiny on his phone.
+   Rendered in NEXUS's own skin (navy+gold dark, cream+bronze light). Every
+   value is a theme token so both themes read right.
+
+   SCOPING: item geometry is scoped to `.ord-item-row` / `.ord-item-controls`
+   and the section rules to `.ord-entry-section*` — all ordering-only. The
+   catalog editor (`.ved-item-row`) deliberately reuses the bare `.ord-qty*`
+   classes and is left exactly as it was. `!important` appears only where the
+   phone/tablet media blocks force width/height/font-size with `!important`.
    ────────────────────────────────────────────────────────────────────── */
 
-/* ── The card ── */
+/* ── The item — flat row, no card chrome; the section bg shows through ── */
 .ord-item-row {
   flex-direction: column;
   align-items: stretch;
-  gap: 12px;
-  padding: 14px 16px;
-  margin: 0 0 10px;
-  border: 1px solid var(--nx-gold-line, var(--border));
-  border-radius: 18px;
-  background: var(--nx-surface-1, var(--nx-surface, var(--surface)));
-  box-shadow: 0 1px 2px rgba(0, 0, 0, .16);
+  gap: 8px;
+  padding: 9px 8px;
+  margin: 0;
+  border: none;
+  border-radius: 10px;                 /* only visible when .has-qty paints a bg */
+  border-bottom: 1px solid var(--nx-gold-line, var(--border));
+  background: transparent;
+  box-shadow: none;
 }
-.ord-entry-section .ord-item-row:last-child { margin-bottom: 0; }
+.ord-entry-section-items .ord-item-row:last-child { border-bottom: none; margin-bottom: 0; }
 .ord-item-row.has-qty {
-  /* Set row — gold border + a whisper of gold behind + the 3px left bar
-     that has marked set rows since v280. The one loud gold thing on the
-     screen stays the Send button. */
-  border-color: var(--nx-gold);
-  background: var(--nx-gold-faint, rgba(212, 164, 78, .09));
-  box-shadow: inset 3px 0 0 0 var(--nx-gold), 0 1px 2px rgba(0, 0, 0, .16);
+  /* Set row — the one gold mark per item: a 3px inset bar + a whisper of
+     gold fill on the rounded row (a soft highlighted tab, not a loud
+     bordered card). The loudest gold on screen stays the Send button. */
+  border-bottom-color: var(--nx-gold-line, var(--border));
+  background: var(--nx-gold-faint, rgba(212, 164, 78, .07));
+  box-shadow: inset 3px 0 0 0 var(--nx-gold);
 }
 .ord-item-row.is-disabled { opacity: .5; }
 
-/* ── Tier 1 · name (now free to wrap) ── */
-.ord-item-head { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding-right: 22px; }
+/* ── Tier 1 · name (free to wrap) ── */
+.ord-item-head { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding-right: 20px; }
 .ord-item-row .ord-item-name {
   white-space: normal;
   overflow: visible;
   overflow-wrap: anywhere;
   text-overflow: clip;
+  font-size: 14px;
   font-weight: 600;
-  line-height: 1.3;
+  line-height: 1.25;
 }
 .ord-item-row .ord-item-meta {
   white-space: normal;
@@ -9688,24 +9694,24 @@ body.ord-overlay-open .nav {
 }
 
 /* ── Tier 2 · controls bar ── */
-.ord-item-controls { display: flex; align-items: center; gap: 12px; }
+.ord-item-controls { display: flex; align-items: center; gap: 8px; }
 .ord-item-controls-left {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: 6px;
   flex: 1 1 auto; min-width: 0; flex-wrap: wrap;
 }
 
 /* Quantity — a soft filled pill you can also type into. */
 .ord-item-controls .ord-qty-input {
-  width: 60px !important;
-  height: 48px !important;
+  width: 48px !important;
+  height: 42px !important;
   flex: 0 0 auto;
   text-align: center;
   border: none !important;
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--nx-surface-2, rgba(255, 255, 255, .05));
   color: var(--nx-text);
   font-family: 'Outfit', sans-serif;
-  font-size: 19px !important;
+  font-size: 17px !important;
   font-weight: 700;
 }
 .ord-item-controls .ord-qty-input::placeholder { color: var(--nx-faint); font-weight: 600; }
@@ -9728,9 +9734,9 @@ body.ord-overlay-open .nav {
      its default size=20 (~178px) and would balloon into a full-width bar
      that shoves the layout into a wrap. Units are short ("cs"/"gal"/"lbs"),
      so a uniform pill reads clean. */
-  width: 58px !important;
+  width: 50px !important;
   min-width: 0 !important;
-  height: 36px;
+  height: 32px;
   padding: 0 8px !important;
   box-sizing: border-box;
   text-align: center;
@@ -9739,7 +9745,7 @@ body.ord-overlay-open .nav {
   background: transparent;
   color: var(--nx-faint);
   font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 12px !important;
+  font-size: 11px !important;
   font-weight: 600;
   letter-spacing: 1px;
   text-transform: uppercase;
@@ -9765,20 +9771,20 @@ body.ord-overlay-open .nav {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   border: none !important;
   background: transparent !important;
   border-radius: 0;
   overflow: visible;
 }
 .ord-item-controls .ord-qty-btn {
-  width: 52px !important;
-  height: 48px !important;
-  border-radius: 16px !important;
+  width: 44px !important;
+  height: 42px !important;
+  border-radius: 13px !important;
   background: var(--nx-surface-2, rgba(255, 255, 255, .05)) !important;
   border: none !important;
   color: var(--nx-text) !important;
-  font-size: 26px !important;
+  font-size: 23px !important;
   font-weight: 400;
   line-height: 1;
   display: flex;
@@ -9801,16 +9807,67 @@ body.ord-overlay-open .nav {
    top-right corner so it never fights the two-tier layout. */
 .ord-item-row > .ord-item-grip {
   position: absolute;
-  top: 12px;
-  right: 12px;
+  top: 8px;
+  right: 8px;
   padding: 0;
   opacity: .4;
   font-size: 14px;
 }
 
-/* Phone — keep the big tap targets; the card just wraps its name more. */
+/* ── Section is the frame: the gutter lives INSIDE it, around the items ── */
+.ord-entry-section-items { padding: 6px; }
+.ord-entry-section { margin-bottom: 12px; }
+
+/* ── Section header — much larger; the card's headline (Outfit display).
+   The mono voice lives on in the count + unit chips beside it, so
+   editorial × terminal reads as contrast, not monotone. ── */
+.ord-entry-section-head { gap: 12px; padding: 15px 16px; align-items: center; }
+.ord-entry-section-name {
+  flex: 1;
+  min-width: 0;
+  font-family: 'Outfit', sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--nx-text, var(--text));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ord-entry-section-count {
+  flex-shrink: 0;
+  min-width: 26px;
+  padding: 3px 9px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  background: var(--nx-surface-1, var(--elevated));
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.18));
+  border-radius: 999px;
+  color: var(--nx-muted, var(--muted));
+}
+.ord-entry-section-collapse { flex-shrink: 0; width: 36px; height: 36px; }
+
+/* Tablet+ — the title has room to run a touch larger. */
+@media (min-width: 501px) {
+  .ord-entry-section-head { padding: 16px 18px; }
+  .ord-entry-section-name { font-size: 22px; }
+  .ord-entry-section-count { font-size: 12px; }
+}
+
+/* Phone (his device) — one notch tighter items; header still much bigger
+   than the old 12px, sized so a long name doesn't ellipsize too early. */
 @media (max-width: 500px) {
-  .ord-item-row { padding: 13px 14px !important; gap: 11px !important; }
-  .ord-item-controls .ord-qty-btn   { width: 50px !important; height: 46px !important; font-size: 25px !important; }
-  .ord-item-controls .ord-qty-input { width: 56px !important; height: 46px !important; font-size: 18px !important; }
+  .ord-entry-section-items { padding: 5px; }
+  .ord-item-row { padding: 8px 8px !important; gap: 7px !important; }
+  .ord-item-controls .ord-qty-btn        { width: 42px !important; height: 40px !important; font-size: 22px !important; }
+  .ord-item-controls .ord-qty-input      { width: 46px !important; height: 40px !important; font-size: 16px !important; }
+  .ord-item-controls .ord-item-unit-input{ width: 48px !important; height: 30px !important; font-size: 11px !important; }
+  .ord-entry-section-head  { padding: 14px 14px; gap: 10px; }
+  .ord-entry-section-name  { font-size: 19px; letter-spacing: 0.025em; }
+  .ord-entry-section-count { font-size: 10px; min-width: 24px; padding: 3px 8px; }
+  .ord-entry-section-collapse { width: 34px; height: 34px; }
 }
