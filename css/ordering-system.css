@@ -9621,3 +9621,196 @@ body.ord-overlay-open .nav {
 /* "last: 3 cs" — ordering memory, quiet gold. */
 /* v280 — "last:" is a hint, not an action; it lost the gold voice. */
 .ord-item-last { color: var(--nx-muted, var(--muted)); font-weight: 600; white-space: nowrap; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   v332 — ORDERING CARD REVAMP  ·  "I really like the button style"
+   ──────────────────────────────────────────────────────────────────────
+   Alfredo shared a vendor's order-guide screen and asked to revamp
+   ordering "to something more like this. I really like the button style."
+   His ask is the BUTTON STYLE: big, soft, friendly, well-separated −/+
+   steppers, and a roomy card per item — the opposite of the old dense
+   hairline rows (v294/v18.28) that were tuned to cram many items on screen.
+
+   Rendered in NEXUS's own skin (his app is navy+gold in dark, cream+bronze
+   in light — the vendor app was just light). Every value is a theme token
+   so it reads right in both. Each item is now its own rounded card:
+     • Tier 1 — the name, free to wrap to as many lines as it needs.
+     • Tier 2 — a controls bar: quantity pill + unit chip on the left, the
+       two big soft squircle steppers anchored right.
+
+   SCOPING: the new geometry is scoped to `.ord-item-controls` (ordering
+   only). The catalog editor (`.ved-item-row`) deliberately reuses the bare
+   `.ord-qty*` classes and is left exactly as it was. `!important` appears
+   only on the width/height/font-size properties that the phone (max-width
+   500) and tablet (min-width 501) media blocks force with `!important` —
+   without it those older rules would keep the steppers tiny on his phone.
+   ────────────────────────────────────────────────────────────────────── */
+
+/* ── The card ── */
+.ord-item-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  padding: 14px 16px;
+  margin: 0 0 10px;
+  border: 1px solid var(--nx-gold-line, var(--border));
+  border-radius: 18px;
+  background: var(--nx-surface-1, var(--nx-surface, var(--surface)));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .16);
+}
+.ord-entry-section .ord-item-row:last-child { margin-bottom: 0; }
+.ord-item-row.has-qty {
+  /* Set row — gold border + a whisper of gold behind + the 3px left bar
+     that has marked set rows since v280. The one loud gold thing on the
+     screen stays the Send button. */
+  border-color: var(--nx-gold);
+  background: var(--nx-gold-faint, rgba(212, 164, 78, .09));
+  box-shadow: inset 3px 0 0 0 var(--nx-gold), 0 1px 2px rgba(0, 0, 0, .16);
+}
+.ord-item-row.is-disabled { opacity: .5; }
+
+/* ── Tier 1 · name (now free to wrap) ── */
+.ord-item-head { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding-right: 22px; }
+.ord-item-row .ord-item-name {
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.ord-item-row .ord-item-meta {
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  line-height: 1.35;
+}
+
+/* ── Tier 2 · controls bar ── */
+.ord-item-controls { display: flex; align-items: center; gap: 12px; }
+.ord-item-controls-left {
+  display: flex; align-items: center; gap: 8px;
+  flex: 1 1 auto; min-width: 0; flex-wrap: wrap;
+}
+
+/* Quantity — a soft filled pill you can also type into. */
+.ord-item-controls .ord-qty-input {
+  width: 60px !important;
+  height: 48px !important;
+  flex: 0 0 auto;
+  text-align: center;
+  border: none !important;
+  border-radius: 14px;
+  background: var(--nx-surface-2, rgba(255, 255, 255, .05));
+  color: var(--nx-text);
+  font-family: 'Outfit', sans-serif;
+  font-size: 19px !important;
+  font-weight: 700;
+}
+.ord-item-controls .ord-qty-input::placeholder { color: var(--nx-faint); font-weight: 600; }
+.ord-item-controls .ord-qty-input:focus {
+  background: var(--nx-gold-faint, rgba(212, 164, 78, .10));
+  box-shadow: inset 0 0 0 1.5px var(--nx-gold);
+}
+.ord-item-row.has-qty .ord-item-controls .ord-qty-input {
+  color: var(--nx-gold);
+  background: var(--nx-gold-faint, rgba(212, 164, 78, .14));
+}
+
+/* Unit — an outlined chip (still a real input; tap to override). */
+.ord-item-controls .ord-item-unit {
+  width: auto !important; min-width: 0 !important; max-width: none !important;
+  flex: 0 0 auto; display: block;
+}
+.ord-item-controls .ord-item-unit-input {
+  /* Fixed compact width — a bare text input with width:auto falls back to
+     its default size=20 (~178px) and would balloon into a full-width bar
+     that shoves the layout into a wrap. Units are short ("cs"/"gal"/"lbs"),
+     so a uniform pill reads clean. */
+  width: 58px !important;
+  min-width: 0 !important;
+  height: 36px;
+  padding: 0 8px !important;
+  box-sizing: border-box;
+  text-align: center;
+  border: 1px solid var(--nx-gold-line, var(--border)) !important;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--nx-faint);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px !important;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.ord-item-controls .ord-item-unit-input:focus {
+  border-color: var(--nx-gold) !important;
+  background: var(--nx-gold-faint, rgba(212, 164, 78, .06));
+  color: var(--nx-text);
+}
+.ord-item-row.has-qty .ord-item-controls .ord-item-unit-input {
+  border-color: var(--nx-gold-line) !important;
+  color: var(--nx-gold);
+}
+
+/* PAR — quiet reference chip under the name (pars are reference numbers
+   only; they whisper). Sits in the head column, its own soft line. */
+.ord-item-head .ord-item-par-chip { margin-top: 4px; opacity: .8; }
+
+/* The stepper — two big soft squircle buttons, separated. THE button style
+   he pointed at. Neutral soft fill; gold arrives only on press. */
+.ord-item-controls .ord-qty {
+  margin-left: auto;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: none !important;
+  background: transparent !important;
+  border-radius: 0;
+  overflow: visible;
+}
+.ord-item-controls .ord-qty-btn {
+  width: 52px !important;
+  height: 48px !important;
+  border-radius: 16px !important;
+  background: var(--nx-surface-2, rgba(255, 255, 255, .05)) !important;
+  border: none !important;
+  color: var(--nx-text) !important;
+  font-size: 26px !important;
+  font-weight: 400;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .12s, color .12s, transform .1s !important;
+}
+.ord-item-controls .ord-qty-btn:hover {
+  background: var(--nx-gold-soft, rgba(212, 164, 78, .16)) !important;
+  color: var(--nx-gold) !important;
+}
+.ord-item-controls .ord-qty-btn:active {
+  transform: scale(.92);
+  background: var(--nx-gold) !important;
+  color: var(--nx-gold-on, #101626) !important;
+}
+.ord-item-controls .ord-qty-btn[disabled] { opacity: .4; }
+
+/* Grip — the quiet "hold to reorder" affordance, tucked to the card's
+   top-right corner so it never fights the two-tier layout. */
+.ord-item-row > .ord-item-grip {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 0;
+  opacity: .4;
+  font-size: 14px;
+}
+
+/* Phone — keep the big tap targets; the card just wraps its name more. */
+@media (max-width: 500px) {
+  .ord-item-row { padding: 13px 14px !important; gap: 11px !important; }
+  .ord-item-controls .ord-qty-btn   { width: 50px !important; height: 46px !important; font-size: 25px !important; }
+  .ord-item-controls .ord-qty-input { width: 56px !important; height: 46px !important; font-size: 18px !important; }
+}

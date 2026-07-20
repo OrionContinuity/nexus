@@ -3902,7 +3902,7 @@ Thanks for your help sorting this out.`;
     if (hint.disabled) {
       return `
         <div class="ord-item-row is-disabled" data-item-id="${esc(item.id)}" data-item-name="${esc(searchKey)}">
-          <div class="ord-item-main">
+          <div class="ord-item-head">
             <div class="ord-item-name">${esc(primary)}</div>
             <div class="ord-item-meta">not stocked at ${esc(location)}</div>
           </div>
@@ -3961,33 +3961,43 @@ Thanks for your help sorting this out.`;
     return `
       <div class="ord-item-row${qty > 0 ? ' has-qty' : ''}" data-item-id="${esc(item.id)}" data-item-name="${esc(searchKey)}">
         ${readOnly ? '' : `<span class="ord-item-grip" aria-hidden="true" title="Hold to reorder">⠿</span>`}
-        <div class="ord-item-main">
+        <div class="ord-item-head">
           <div class="ord-item-name">${esc(primary)}</div>
           ${meta.length ? `<div class="ord-item-meta">${meta.join(' · ')}</div>` : ''}
           ${parChip}
         </div>
-        <div class="ord-qty">
-          <button class="ord-qty-btn" data-action="dec" aria-label="Decrease" ${readOnly ? 'disabled' : ''}>−</button>
-          <input class="ord-qty-input" type="number" min="0" step="1" inputmode="numeric" value="${qty || ''}" placeholder="0" ${readOnly ? 'readonly' : ''}>
-          <button class="ord-qty-btn" data-action="inc" aria-label="Increase" ${readOnly ? 'disabled' : ''}>+</button>
-        </div>
-        <div class="ord-item-unit">
-          <!-- v18.25 — Unit is now a free text input per row. Lets the
-               chef override the catalog unit on-the-fly (1 bag of beans
-               instead of 1 cs, 20 lbs of garlic instead of 1 ea, etc.)
-               Defaults to the catalog item's unit. Saves to entryState
-               .lines[id].unit so it persists through draft save + makes
-               it into the order email exactly as typed. -->
-          <input class="ord-item-unit-input" type="text"
-                 value="${esc(rowUnit)}"
-                 placeholder="ea"
-                 maxlength="8"
-                 autocomplete="off"
-                 spellcheck="false"
-                 aria-label="Unit of measure"
-                 list="ordUnitList"
-                 ${readOnly ? 'readonly' : ''}>
-          ${pack.secondary ? `<div class="ord-item-unit-sub">${esc(pack.secondary)}</div>` : ''}
+        <!-- v332 — card revamp (Alfredo's reference: "I really like the
+             button style"). Two tiers: name on top (with the quiet PAR
+             reference chip — his law: pars are reference numbers only), a
+             controls bar below. The bar reads left→right like the vendor
+             app he shared — the quantity + unit sit together on the left,
+             the big soft −/+ steppers anchor the right. -->
+        <div class="ord-item-controls">
+          <div class="ord-item-controls-left">
+            <input class="ord-qty-input" type="number" min="0" step="1" inputmode="numeric"
+                   value="${qty || ''}" placeholder="0" aria-label="Quantity" ${readOnly ? 'readonly' : ''}>
+            <div class="ord-item-unit">
+              <!-- v18.25 — Unit is a free text input per row. Lets the
+                   chef override the catalog unit on-the-fly (1 bag of beans
+                   instead of 1 cs, 20 lbs of garlic instead of 1 ea, etc.)
+                   Defaults to the catalog item's unit. Saves to entryState
+                   .lines[id].unit so it persists through draft save + makes
+                   it into the order email exactly as typed. -->
+              <input class="ord-item-unit-input" type="text"
+                     value="${esc(rowUnit)}"
+                     placeholder="ea"
+                     maxlength="8"
+                     autocomplete="off"
+                     spellcheck="false"
+                     aria-label="Unit of measure"
+                     list="ordUnitList"
+                     ${readOnly ? 'readonly' : ''}>
+            </div>
+          </div>
+          <div class="ord-qty">
+            <button class="ord-qty-btn" data-action="dec" aria-label="Decrease" ${readOnly ? 'disabled' : ''}>−</button>
+            <button class="ord-qty-btn" data-action="inc" aria-label="Increase" ${readOnly ? 'disabled' : ''}>+</button>
+          </div>
         </div>
       </div>`;
   }
