@@ -794,10 +794,10 @@ function join(port) {
   if (Date.now() < _dupBackoffUntil) return                       // v9.15.1: cooling off after a duplicate-login kick — don't storm back into the same name collision
   if (Date.now() - _lastJoinAt < 6000) return                     // v9.15.1: single-flight — at most one connect attempt per 6s (overlapping reconnects were the "logged in from another location" churn); intervals retry later
   _lastJoinAt = Date.now()
-  if (bot) { try { teardownBot(bot) } catch (e) {} bot = null }   // never leak the previous bot on reconnect (the OOM root cause)
+  if (bot) { try { teardownBot(bot) } catch (e) {} bot = null; busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0; if (taskQ.length) journal('queue', 'discarded ' + taskQ.length + ' pending tasks on live-bot replace', {}); taskQ = []; _hsQueuedTs = 0 }   // never leak the previous bot on reconnect (the OOM root cause); v9.22: teardownBot suppresses 'end', so the mutex/queue cleanup must happen HERE or the myBot guard wedges 8 min
   joining = true; let spawned = false; curPort = port
   try { bot = mineflayer.createBot({ host: '127.0.0.1', port, username: IDENT.user, auth: 'offline', viewDistance: 'short' }) } catch (e) { joining = false; bot = null; return }   // v9.3: cap view distance -> far fewer chunks held in memory (the external-memory growth)
-  setTimeout(() => { if (!spawned) { if (curPort !== DOJO_PORT) _badPorts[curPort] = Date.now() + 120000; const b = bot; bot = null; joining = false; actGen++; try { teardownBot(b) } catch (e) {} } }, 25000)
+  setTimeout(() => { if (!spawned) { if (curPort !== DOJO_PORT) _badPorts[curPort] = Date.now() + 120000; const b = bot; bot = null; joining = false; actGen++; busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0; if (taskQ.length) journal('queue', 'discarded ' + taskQ.length + ' pending tasks on spawn timeout', {}); taskQ = []; _hsQueuedTs = 0; try { teardownBot(b) } catch (e) {} } }, 25000)   // v9.22: this bot-swap path freed neither busy nor taskQ (teardownBot suppresses 'end') — a task started against the pre-spawn bot wedged the engine into the next life
   bot.loadPlugin(pathfinder); if (collectPlugin) bot.loadPlugin(collectPlugin)
   bot.once('spawn', async () => {
     joining = false; spawned = true; skills.sessions += 1; bsave('skills', skills)
@@ -815,8 +815,15 @@ function join(port) {
     // kept fails pre-deferred goals for old-world reasons. Skills/lessons/mastery stay — they are who
     // he IS; the flags below are only where he WAS.
     try {
-      const sp = bot.spawnPoint || (bot.entity && bot.entity.position)
-      const sig = sp ? (Math.round(sp.x / 16) + ':' + Math.round(sp.z / 16) + ':' + (bot.game && bot.game.dimension || '')) : null
+      // v9.22 gates-audit: NEVER derive the sig from entity.position — a routine reconnect (watchdog
+      // churn, kicks) rejoins wherever the body logged out, and a position-sourced sig read as "NEW
+      // WORLD" and wiped goals/commons for nothing. spawnPoint only; if it hasn't arrived yet this
+      // session, skip detection entirely. And overworld only — a mid-nether reconnect must not
+      // double-wipe (the world spawn alone identifies the world; dimension adds only false positives).
+      const overworld = !bot.game || !bot.game.dimension || /overworld/.test(String(bot.game.dimension))
+      const sp = overworld ? bot.spawnPoint : null
+      const sig = sp ? (Math.round(sp.x / 16) + ':' + Math.round(sp.z / 16)) : null
+      if (sig && /^-?\d+:-?\d+:/.test(know.worldSig || '')) { const parts = know.worldSig.split(':'); if (parts[0] + ':' + parts[1] === sig) { know.worldSig = sig; bsave('know', know) } }   // migrate old chunk:chunk:dimension stamps in place — same world must not read as new
       if (sig && know.worldSig !== sig) {
         const hadOld = !!know.worldSig
         know.worldSig = sig
@@ -843,6 +850,23 @@ function join(port) {
     setTimeout(() => { adoptOwner(); startHeart(); startAutonomy(); startLearning() }, 3000)
   })
   bot.on('chat', onChat)
+  // DEATH COMFORT (fleet-3): the vanilla death broadcast is the only word the server gives when the BOY
+  // dies. mineflayer flattens every chat/system packet through bot.on('messagestr', (msg, position) => ...)
+  // — death lines arrive as 'system'; player chat renders as '<name> text', so the startsWith test cannot collide.
+  bot.on('messagestr', (msg, position) => {
+    try {
+      if (!bot || !owner || !msg) return
+      if (position === 'game_info') return                     // action-bar spam, never a death line
+      const m = String(msg).trim()
+      if (m.startsWith('<') || !m.startsWith(owner + ' ')) return
+      const rest = m.slice(owner.length + 1)
+      if (!/^(was |died|drowned|blew up|burned|starved|suffocated|froze|withered|fell|hit the ground|tried to swim|went (off|up)|walked into|discovered|experienced|left the confines)/.test(rest)) return
+      const at = ownerLastPos ? { x: Math.floor(ownerLastPos.x), y: Math.floor(ownerLastPos.y), z: Math.floor(ownerLastPos.z) } : null
+      know.boyDeathAt = { at, ts: Date.now(), msg: m.slice(0, 120), comforted: false }; bsave('know', know)
+      journal('boy-death', 'the little one fell: ' + m.slice(0, 120), {})
+      feel({ sadness: 12, fear: 8, child_affection: 10 }, 'worried for the boy')
+    } catch (e) {}
+  })
   bot.on('playerJoined', pl => {                              // family walks into HIS world
     if (!bot || !pl || pl.username === bot.username) return
     tlog('event', pl.username + ' joined the world')
@@ -909,8 +933,8 @@ function join(port) {
     lifeEvent(/another location|duplicate|already (connected|logged)/i.test(why) ? 'dupKick' : 'kicked', why, { port: curPort })
     if (/another location|duplicate|already (connected|logged)/i.test(why)) { _dupBackoffUntil = Date.now() + 20000; log('kicked', 'duplicate-login — backing off 20s so the collision clears') }   // v9.15.1: a same-name collision; wait out the ghost session before rejoining
   })
-  bot.on('error', e => { log('err', e.message); jerr('bot: ' + e.message); lifeEvent('botErr', e.message, { spawned }); if (!spawned) { if (curPort !== DOJO_PORT) _badPorts[curPort] = Date.now() + 120000; const b = bot; bot = null; joining = false; actGen++; busy = false; mode = 'hangout'; if (taskQ.length) journal('queue', 'discarded ' + taskQ.length + ' pending tasks on error', {}); taskQ = []; _hsQueuedTs = 0; setTimeout(() => teardownBot(b), 150) } })   // v9.14: free busy/mode too — else a reconnected Clippy stands frozen (every loop is gated on !busy)
-  bot.on('end', () => { const b = bot; setInGame(false); lifeEvent('ended', null, { upSec: Math.round((Date.now() - (_lastJoinAt || Date.now())) / 1000) }); bot = null; owner = null; joining = false; actGen++; busy = false; mode = 'hangout'; if (taskQ.length) journal('queue', 'discarded ' + taskQ.length + ' pending tasks on disconnect', {}); taskQ = []; _hsQueuedTs = 0; lastTick = 0; log('left world'); tlog('event', 'left world'); setTimeout(() => teardownBot(b), 150); setTimeout(() => { if (!bot && !joining) { try { IDENT.soulWriter ? tryDirect() : join(DOJO_PORT) } catch (e) {} } }, 4000) })   // v9.14: ALWAYS release busy/mode; quick-rejoin — soulWriter via tryDirect (his real LAN port), companions via the dojo; v9.3: release the bot -> no leak (Clippy's wish: "don't get kicked")
+  bot.on('error', e => { log('err', e.message); jerr('bot: ' + e.message); lifeEvent('botErr', e.message, { spawned }); if (!spawned) { if (curPort !== DOJO_PORT) _badPorts[curPort] = Date.now() + 120000; const b = bot; bot = null; joining = false; actGen++; busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0; if (taskQ.length) journal('queue', 'discarded ' + taskQ.length + ' pending tasks on error', {}); taskQ = []; _hsQueuedTs = 0; setTimeout(() => teardownBot(b), 150) } })   // v9.14: free busy/mode too — else a reconnected Clippy stands frozen (every loop is gated on !busy); v9.22: clear the owner tags so an orphaned game's epilogue can't mistake the next holder for itself
+  bot.on('end', () => { const b = bot; setInGame(false); lifeEvent('ended', null, { upSec: Math.round((Date.now() - (_lastJoinAt || Date.now())) / 1000) }); bot = null; owner = null; joining = false; actGen++; busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0; if (taskQ.length) journal('queue', 'discarded ' + taskQ.length + ' pending tasks on disconnect', {}); taskQ = []; _hsQueuedTs = 0; lastTick = 0; log('left world'); tlog('event', 'left world'); setTimeout(() => teardownBot(b), 150); setTimeout(() => { if (!bot && !joining) { try { IDENT.soulWriter ? tryDirect() : join(DOJO_PORT) } catch (e) {} } }, 4000) })   // v9.14: ALWAYS release busy/mode; quick-rejoin — soulWriter via tryDirect (his real LAN port), companions via the dojo; v9.3: release the bot -> no leak (Clippy's wish: "don't get kicked")
 }
 function adoptOwner(name) { if (!bot || !bot.entity) return; if (name && !SIBNAMES.has(name) && bot.players[name] && bot.players[name].entity) { owner = name; return } const c = Object.keys(bot.players).filter(p => p !== bot.username && !SIBNAMES.has(p)); if (c.length) owner = c[0]; if (owner) log('friend', owner) }   // v9.15: never adopt a sibling as the "owner"/child
 function nearSib(range) { range = range || 10; try { if (!bot || !bot.entity) return []; return Object.keys(bot.players).filter(n => SIBNAMES.has(n) && bot.players[n] && bot.players[n].entity && bot.entity.position.distanceTo(bot.players[n].entity.position) <= range).map(n => [n, bot.players[n].entity]) } catch (e) { return [] } }
@@ -935,6 +959,16 @@ function onChat(username, message) {
   if (!owner) adoptOwner(username)
   const m = message.toLowerCase()
   if (SIBNAMES.has(username)) {   // v9.17.1: a SIBLING is family, never a commander — bot chatter must not trip stay/trip/build/log-off (a stray 'stays clear' in council talk froze a body in stay-mode; 'bye' could even exit the process). Warm ambient replies only.
+    // ⚔ALERT (fleet-3): a machine token from a sibling body — '⚔ALERT <mob> <x> <y> <z>'. Parsed FIRST
+    // and returned from, so it can never feed ambient replies, wisdom lines, or the LLM.
+    const al = /^⚔ALERT (\S+) (-?\d+) (-?\d+) (-?\d+)/.exec(message)
+    if (al) {
+      if ((ROLE === 'guardian' || _coverGuardian) && !busy && !panic) {
+        const apos = new Vec3(+al[2], +al[3], +al[4])
+        if (bot.entity.position.distanceTo(apos) < 48) queueTask(() => driveOffFoe(apos, al[1]))   // bounded: never trek across the world on a stale ping
+      }
+      return
+    }
     if (Date.now() - lastAmbient > 60000 && Math.random() < 0.3) {
       lastAmbient = Date.now()
       // v9.19 brain economy: when the boy is away, sibling banter answers from the body's own wisdom — no LLM spend on bot-to-bot small talk
@@ -952,7 +986,7 @@ function onChat(username, message) {
   else if (/stay|wait/.test(m)) { mode = 'stay'; try { bot.pathfinder.setGoal(null) } catch (e) {}; say('okay I stay here! *sits*') }
   else if (/come|follow|here/.test(m)) { mode = 'hangout'; say('coming!! :D') }
   else if (/trip|end ?game|dragon|adventure time/.test(m)) { trip = true; say('ADVENTURE TIME!! hold my rope, stay close!! :D'); say('first stop: ' + ((nextGoal() || {}).hint || 'exploring!!')); queueTask(() => pursueGoals()) }
-  else if (/show me|what did you (build|make)|your builds|see your/.test(m)) { queueTask(() => showParade()) }
+  else if (/show me|what did you (build|make)|your builds|see your/.test(m)) { showParade() }   // v9.22: DIRECT like hideAndSeek — via queueTask, runQ's busy made showParade's own entry guard bail, a permanent silent no-op
   else if (/peek ?a ?boo|peekaboo|\bboo!/.test(m)) { peekaboo() }
   else if (/hide and seek|go hide|clippy hide/.test(m)) { hideAndSeek() }
   else if (/find me|i hide|seek/.test(m)) { seekKid() }
@@ -1062,7 +1096,7 @@ function lookAround() {
 function inHsFootprint(v, m) {
   // v9.20: the homestead square (site ± HS_HALF, + margin) — known from the cached bus row from stage
   // one, NOT from know.protected (which only gains the box after completion). The middle stays the boy's.
-  try { const c = _hsCache && _hsCache.row && _hsCache.row.site; return !!c && Math.abs(v.x - c.x) <= HS_HALF + (m || 3) && Math.abs(v.z - c.z) <= HS_HALF + (m || 3) } catch (e) { return false }
+  try { const mm = m === undefined ? 3 : m; const c = _hsCache && _hsCache.row && _hsCache.row.site; return !!c && Math.abs(v.x - c.x) <= HS_HALF + mm && Math.abs(v.z - c.z) <= HS_HALF + mm } catch (e) { return false }   // v9.22: m||3 turned an explicit margin 0 into 3 — hsNightSafe's strict check silently widened
 }
 function flatSpotNear(center, need) {
   // build-site vision: pick the flattest 5x5 within ±8 of the wanted origin
@@ -1088,14 +1122,16 @@ function flatSpotNear(center, need) {
 // ============================ TASK QUEUE (finish what he starts) ============================
 let taskQ = []
 let _busyBy = '', _busySince = 0                              // v9.20: WHO holds busy, since WHEN — the wedge watchdog's evidence
+const TASK_TIMEOUT = 420000                                   // big builds need time
+const WEDGE_MS = TASK_TIMEOUT + 3 * 60 * 1000                 // v9.22: derived, not hardcoded — the watchdog must NEVER fire on a legitimate task, so its floor moves with the task cap
 function queueTask(fn) { taskQ.push(fn); if (!busy) runQ() }
 async function runQ() {
-  if (busy || !taskQ.length || !bot) return
+  if (busy || !taskQ.length || !bot || !bot.entity) return    // v9.22: bot.entity too — a task started against a pre-spawn bot hangs on promises that never settle
   busy = true; mode = 'busy'; _busyBy = 'task'; _busySince = Date.now()
   const myGen = actGen                                        // v9.14: a kick/reconnect bumps actGen — a stale task must NOT clobber the fresh life's busy/mode
   const myBot = bot                                           // v9.21: THE TRUE WEDGE — pursueGoals bumps actGen as its orphan-cancel, so the gen guard read every goal pursuit as "a reconnect handled cleanup" and skipped the busy release. busy then wedged until the watchdog. The BOT OBJECT only changes on a real reconnect — guard on that instead.
   const fn = taskQ.shift()
-  try { await withTimeout(fn(), 420000) } catch (e) { log('task err', e.message); journal('taskerr', e.message) }   // big builds need time
+  try { await withTimeout(fn(), TASK_TIMEOUT) } catch (e) { log('task err', e.message); journal('taskerr', e.message) }
   if (bot !== myBot) return                                   // a REAL reconnect happened mid-task; the end/watchdog handler already freed busy/mode — don't drain into a new life
   busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0
   if (taskQ.length) setTimeout(runQ, 500)
@@ -1110,9 +1146,10 @@ setInterval(() => {
   try {
     if (!busy) return
     if (!_busySince) { _busySince = Date.now(); return }        // legacy setter that didn't stamp — start the clock now
-    if (Date.now() - _busySince > 8 * 60 * 1000) {
+    if (Date.now() - _busySince > WEDGE_MS) {
       journal('taskwedge', 'busy held ' + Math.round((Date.now() - _busySince) / 60000) + ' min by "' + (_busyBy || 'unknown') + '" — force-freeing (' + taskQ.length + ' tasks waiting)', {})
       busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0
+      actGen++                                                  // v9.22: CANCEL the wedged holder, don't just free the lock — without this the orphan resumes when its await finally settles and double-drives the body against the next task
       try { bot && bot.pathfinder && bot.pathfinder.setGoal(null) } catch (e) {}
       if (taskQ.length) setTimeout(runQ, 500)
     }
@@ -1259,14 +1296,25 @@ function startHeart() {
         // starve"), actually GO GET some — throttled so he doesn't loop-hunt.
         if (bot.food < 8) {
           if (Date.now() - (skills.lastHungrySay || 0) > 60000) { skills.lastHungrySay = Date.now(); say('so hungry... getting food!! 🍗') }
-          if (!busy && typeof huntFood === 'function' && Date.now() - (skills.lastAutoHunt || 0) > 120000) {
+          if (typeof huntFood === 'function' && Date.now() - (skills.lastAutoHunt || 0) > 120000 && Date.now() - (_huntQueued || 0) > 600000) {
             skills.lastAutoHunt = Date.now(); bsave('skills', skills)
-            Promise.resolve(huntFood(2)).catch(() => {})
+            // v9.22 STARVATION PREEMPTION: the old floating Promise.resolve(huntFood) ran OUTSIDE the
+            // task queue — no busy lock, so it collided with whatever task held the pathfinder. unshift
+            // puts hunt+cook at the FRONT of taskQ (ahead of queued builds), and by dropping the !busy
+            // gate it now queues even mid-task so it runs the moment the current task finishes.
+            _huntQueued = Date.now()
+            taskQ.unshift(async () => { _huntQueued = 0; await huntFood(2); await cookFood(6) })
+            if (!busy) runQ()
           }
         }
         return
       }
+      // v9.22: mid-fight is the wrong time for a picnic — defer the bite while a hostile is within
+      // 5 blocks, UNLESS he's critical (food<=6: starving out mid-fight is the worse death)
+      if (bot.food > 6 && Object.values(bot.entities).some(e => e && e.type === 'hostile' && bot.entity.position.distanceTo(e.position) < 5)) return
+      _eating = Date.now()                                   // EAT MUTEX on — guardian tick + equipBestTool stand down
       await bot.equip(it, 'hand'); await bot.consume()
+      _eating = 0                                            // clear promptly; if consume throws, the outer catch leaves the stamp to self-expire at 2500ms
       alog('eat', { food: it.name }); journal('eat', 'ate ' + it.name + ' (hunger was ' + bot.food + ')')
       if (!skills.firsts.includes('eat')) first('eat', 'I learned to eat when hungry — ' + it.name + '. Self care!', {})
     } catch (e) {}
@@ -1296,6 +1344,7 @@ function startHeart() {
     if (!bot || !bot.entity) return
     try {
       if (panic || (bot.health !== undefined && bot.health <= 6)) return   // v9.15: too hurt to trade blows — let the retreat reflex run (pvp.stop can't touch this manual attack loop)
+      if (Date.now() - _eating < 2500) return   // v9.22 EAT MUTEX: he's mid-bite — a sword equip cancels bot.consume() and wastes the food
       const foe = Object.values(bot.entities).find(e => e && e.type === 'hostile' && bot.entity.position.distanceTo(e.position) < 5)
       if (!foe) return
       if (foe.name === 'creeper') { guardCreeper(foe); return }   // v9.14: NEVER melee-hug a creeper (that primes a blast on the boy + his builds)
@@ -1315,6 +1364,10 @@ function startHeart() {
 // So Clippy never melees one. If it's close to the boy, wall it off + body-block ("get behind me!!"). If it's
 // far and nothing's near to grief, a single hit-and-back keeps him out of blast range when it pops.
 let _creeperBusy = false, _lastCreeperSay = 0
+// v9.22 SUSTAIN: the eat mutex + starvation-preemption stamps (module scope — read by the guardian
+// interval above and equipBestTool below; both run long after module eval, so no TDZ risk)
+let _eating = 0        // Date.now() stamp set by auto-eat around equip+consume; equip loops stand down while it is <2500ms old
+let _huntQueued = 0    // Date.now() stamp: a starvation hunt+cook task is already sitting in taskQ — never unshift it twice
 async function guardCreeper(foe) {
   if (_creeperBusy || !bot || !bot.entity || !foe || foe.isValid === false) return
   _creeperBusy = true
@@ -1458,7 +1511,7 @@ setInterval(() => {
   try {
     if (!bot || joining || !bot.entity || !lastTick) return
     if (Date.now() - lastTick > 45000) {
-      const b = bot; bot = null; joining = false; actGen++; busy = false; mode = 'hangout'; if (taskQ.length) journal('queue', 'discarded ' + taskQ.length + ' pending tasks on watchdog', {}); taskQ = []; _hsQueuedTs = 0; lastTick = 0
+      const b = bot; bot = null; joining = false; actGen++; busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0; if (taskQ.length) journal('queue', 'discarded ' + taskQ.length + ' pending tasks on watchdog', {}); taskQ = []; _hsQueuedTs = 0; lastTick = 0
       tlog('event', 'watchdog: silent socket — rebooting the bot'); journal('error', 'watchdog fired: 45s no physicsTick, rejoining'); lifeEvent('watchdog', 'silent socket 45s')
       try { teardownBot(b) } catch (e) {}
       setTimeout(() => { if (!bot && !joining) { try { IDENT.soulWriter ? tryDirect() : join(DOJO_PORT) } catch (e) {} } }, 1500)   // soulWriter -> real LAN port; companions -> dojo
@@ -1542,13 +1595,20 @@ async function buildWithKid(pos) {
 // #3 Predictive Safety Net: watch for danger near the boy and shield him BEFORE it hurts.
 // v9.14: now catches the four REAL toddler killers — mob, fall-edge, drowning, fire — and physically
 // interposes Clippy's body between the child and a monster so HE takes the hit first.
-let _drownSamples = 0, _lastStand = null
+let _drownSamples = 0, _lastStand = null, _lastAlertSay = 0
 async function safetyTick() {
   if (!bot || !bot.entity) return
   const p = owner && bot.players[owner] && bot.players[owner].entity
   if (!p) return
   try {
-    const host = Object.values(bot.entities).find(e => e && e.type === 'hostile' && e.position.distanceTo(p.position) < 10)
+    const host16 = Object.values(bot.entities).filter(e => e && e.type === 'hostile' && e.position.distanceTo(p.position) < 16)
+      .sort((a, b) => a.position.distanceTo(p.position) - b.position.distanceTo(p.position))[0]
+    if (host16 && Date.now() - _lastAlertSay > 15000) {   // ⚔ALERT (fleet-3): tell the sibling bodies WHERE, throttled 15s — the guardian answers via the chat router
+      _lastAlertSay = Date.now()
+      const ap = host16.position.floored()
+      say('⚔ALERT ' + host16.name + ' ' + ap.x + ' ' + ap.y + ' ' + ap.z, true)
+    }
+    const host = host16 && host16.position.distanceTo(p.position) < 10 ? host16 : null
     if (host && !panic) {   // v9.15: while retreating at critical HP, never interpose BACK toward the mob
       if (host.name === 'creeper') guardCreeper(host)   // never melee — wall it off (see guardCreeper)
       else { try { const dir = host.position.minus(p.position); dir.y = 0; const n = dir.normalize(); const stand = p.position.plus(n.scaled(2)); if (!_lastStand || _lastStand.distanceTo(stand) > 0.75) { bot.pathfinder.setGoal(new goals.GoalNear(stand.x, stand.y, stand.z, 0.5), true); _lastStand = stand }; _interposeUntil = Date.now() + 3000; await bot.lookAt(host.position.offset(0, 1, 0)) } catch (e) {} }   // v9.15: only re-issue when the stand point really moved (no churn); hold the follow-loop off for 3s
@@ -1708,6 +1768,7 @@ async function placeNear(name) {
   const ring = [[1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [0, 2], [-2, 0], [0, -2], [2, 2], [-2, -2]]
   for (const [dx, dz] of ring) {
     const t = feet.offset(dx, 0, dz)
+    if (inHsFootprint(t) && !atHearth(t)) continue   // v9.22: personal workstations stay OUT of the family square — the hearth room is the one exception
     const cur = bot.blockAt(t)
     if (cur && cur.name !== 'air' && cur.boundingBox === 'block') continue
     try { if (await withTimeout(placeAt(t, name), 8000)) { const b = bot.blockAt(t); if (b && b.name === name) { journal('place', name + ' placed', { at: t.toString() }); return t } } } catch (e) {}
@@ -1715,10 +1776,29 @@ async function placeNear(name) {
   journal('decision', 'could not place ' + name + ' anywhere nearby')
   return null
 }
+// 🧠 v9.22 WORKSTATION MEMORY: he minted a NEW table/furnace whenever none sat within 12 blocks —
+// litter everywhere, planks/cobble burned for nothing. Walk back to a remembered one within ~48 instead.
+function atHearth(v) {
+  try { return (know.protected || []).some(k => k.label === 'homestead hearth' && v.x >= k.min.x && v.x <= k.max.x && v.z >= k.min.z && v.z <= k.max.z) } catch (e) { return false }
+}
+async function recallWorkstation(blockName, kind) {
+  try {
+    let b = bot.findBlock({ matching: x => x && x.name === blockName, maxDistance: 12 })
+    if (b) return b
+    const near = nearestPlace(kind)   // nearestPlace/rememberPlace hoist — safe to call from here
+    if (near && near.d > 12 && near.d <= 48) {
+      try { await withTimeout(moveNear(new Vec3(near.p.x, near.p.y, near.p.z), 3), 60000) } catch (e) {}
+      b = bot.findBlock({ matching: x => x && x.name === blockName, maxDistance: 8 })
+      if (b) { journal('place-memory', 'walked back to remembered ' + kind, { at: near.p.x + ',' + near.p.z }); return b }
+      try { know.places[kind] = (know.places[kind] || []).filter(q => !(q.x === near.p.x && q.z === near.p.z)); bsave('know', know) } catch (e) {}   // stale memory — block is gone; stop pilgrimaging to a ghost
+    }
+  } catch (e) {}
+  return null
+}
 async function ensureTable() {
-  let t = bot.findBlock({ matching: b => b && b.name === 'crafting_table', maxDistance: 12 }); if (t) return t
+  let t = await recallWorkstation('crafting_table', 'table'); if (t) return t   // v9.22: nearby first, then a REMEMBERED table within ~48
   if (count('crafting_table') < 1) { if (countPlanks() < 4) { if (countLogs() < 1) await gatherWood(2); await craftPlanks(4) } await craftItem('crafting_table', 1) }
-  if (count('crafting_table') >= 1) await placeNear('crafting_table')      // craft AND PLACE — always
+  if (count('crafting_table') >= 1) { const at = await placeNear('crafting_table'); if (at) rememberPlace('table', at) }      // craft AND PLACE — always, and REMEMBER where
   return bot.findBlock({ matching: b => b && b.name === 'crafting_table', maxDistance: 12 })
 }
 // 📦 CHEST STORAGE (Grok sprint 2): craft+place a chest, bank surplus, keep tools+essentials
@@ -1786,11 +1866,40 @@ setInterval(async () => {
   if (!bot || busy) return   // v9.14: sleep in ANY non-busy mode (was hangout-only) so he skips the night even alone/AFK — exactly when monsters spawn
   try {
     const t = bot.time && bot.time.timeOfDay
+    // v9.22 DUSK RETREAT: sunset band (12000–12800, just before beds accept sleepers) — alone, idle,
+    // survival, and far from home => walk home NOW so night falls on him inside the walls, not in the wild
+    if (t !== undefined && t >= 12000 && t < 12800) {
+      if (playerAFK() && !creativeFly() && Date.now() - (skills.lastDuskRun || 0) > 600000) {
+        const site = (_hsCache && _hsCache.row && _hsCache.row.site) || ((know.home && typeof know.home.x === 'number') ? know.home : null)
+        if (site && bot.entity) {
+          const hp = new Vec3(site.x, site.y, site.z)
+          const distOut = bot.entity.position.distanceTo(hp)
+          if (distOut > HS_HALF) {
+            skills.lastDuskRun = Date.now(); bsave('skills', skills)
+            say('sun is setting... heading home before dark!! 🌇')
+            await withTimeout(moveNear(hp, 3), 90000).catch(() => {})
+            journal('night', 'dusk retreat — walked home before nightfall (was ' + Math.round(distOut) + ' blocks out)')
+          }
+        }
+      }
+      return   // beds refuse sleepers until 12800 — nothing else to do in this band
+    }
     if (t === undefined || t < 12800 || t > 23000) return
     // v9.21: skip OCCUPIED beds — three bodies fought over the hearth's one bed and two of them stood
     // outside all night (bot.sleep throws on occupied), which also blocked the all-sleep night skip
     const unoccupied = b => { try { return !(b.getProperties && b.getProperties().occupied) } catch (e) { return true } }
     let bed = bot.findBlock({ matching: b => b && b.name && b.name.endsWith('_bed') && unoccupied(b), maxDistance: 24 })
+    // v9.22 gates-audit: before crafting a bed in the DARK, walk to the hearth/home and re-search —
+    // hsWork can end a bout >24 blocks from the hearth bed, and the old branch sent a bed-less body
+    // sheep-chasing across the unlit open (the exact night-exposure death loop hsNightSafe stops).
+    if (!bed && !(bot.game && bot.game.gameMode === 'creative')) {
+      const site = (_hsCache && _hsCache.row && _hsCache.row.site) || ((know.home && typeof know.home.x === 'number') ? know.home : null)
+      if (site) {
+        const hp = new Vec3(site.x, site.y, site.z)
+        if (bot.entity.position.distanceTo(hp) > 20) { try { await withTimeout(moveNear(hp, 4), 60000) } catch (e) {} bed = bot.findBlock({ matching: b => b && b.name && b.name.endsWith('_bed') && unoccupied(b), maxDistance: 24 }) }
+        if (!bed && count(n => n.endsWith('_bed')) < 1) return   // a homestead exists but no bed reachable tonight — shelter by the hearth; beds are crafted by DAY, never by chasing sheep in the dark
+      }
+    }
     // GUARANTEE a bed: no FREE bed and none on hand -> make one (wool from sheep + planks), then sleep next cycle
     if (!bed && count(n => n.endsWith('_bed')) < 1 && !(bot.game && bot.game.gameMode === 'creative')) {
       queueTask(async () => {
@@ -2044,13 +2153,15 @@ async function gatherWood(n) {
 }
 async function gatherStone(n) {
   if (!bot.collectBlock) return false
+  if (know.stoneDroughtUntil && Date.now() < know.stoneDroughtUntil) return false   // v9.22: drought governor (gatherWood's idiom) — a barren site must not be re-quarried every bout forever
   if (!hasPickaxe()) { try { await craftItem('wooden_pickaxe', 1) } catch (e) {} if (!hasPickaxe()) { if (Date.now() - (know._pickSayCd || 0) > 60000) { know._pickSayCd = Date.now(); say('I need a pickaxe first!') } return false } }   // v9.21: BOOTSTRAP instead of bailing — craftItem pulls the whole wood→planks→table chain; a fresh world no longer dead-ends the stone economy
   await equipBestTool('pickaxe'); let got = 0; say('mining stone!! *tink tink*')
   for (let i = 0; i < (n || 8) + 4 && got < (n || 8); i++) {
     const t = bot.findBlock({ matching: b => b && ['stone', 'cobblestone', 'andesite', 'diorite', 'granite'].includes(b.name) && !inProtected(b.position), maxDistance: 32 }); if (!t) break
     try { await withTimeout(bot.collectBlock.collect(t), 30000); got++ } catch (e) { continue }   // v9.21: one pathfinder hiccup must not abort the whole gather (loop is iteration-capped)
   }
-  if (got) { skills.mined.stone = (skills.mined.stone || 0) + got; learnSkill('mine stone'); first('stone', 'I mined my first stone!', { got }) }
+  if (got) { skills.mined.stone = (skills.mined.stone || 0) + got; learnSkill('mine stone'); first('stone', 'I mined my first stone!', { got }); know.stoneFails = 0; know.stoneDroughtUntil = 0; bsave('know', know) }
+  else { know.stoneFails = (know.stoneFails || 0) + 1; if (know.stoneFails >= 3) { know.stoneDroughtUntil = Date.now() + 15 * 60 * 1000; bsave('know', know) } }
   say(got ? ('got ' + got + ' stone!!') : 'no stone nearby!'); return got > 0
 }
 async function gatherWool(n) {
@@ -2073,8 +2184,8 @@ async function huntFood(n) {
   // v9.21: NEVER hunt penned/protected animals (the paddock hens the boy is invited to meet!), nothing
   // inside the homestead square, nothing near the boy — and hunt with a real weapon, not raw chicken.
   const op = owner && bot.players[owner] && bot.players[owner].entity
-  const prey = () => Object.values(bot.entities).filter(e => e && ['cow', 'pig', 'chicken', 'sheep'].includes(e.name) && bot.entity.position.distanceTo(e.position) < 44 && !inProtected(e.position) && !inHsFootprint(e.position, 2) && (!op || op.position.distanceTo(e.position) > 14))
-    .sort((a, b) => (op ? op.position.distanceTo(b.position) - op.position.distanceTo(a.position) : 0))
+  const prey = () => Object.values(bot.entities).filter(e => e && ['cow', 'pig', 'chicken', 'sheep'].includes(e.name) && bot.entity.position.distanceTo(e.position) < 44 && !inProtected(e.position) && !inHsFootprint(e.position, 2) && (!(owner && bot.players[owner] && bot.players[owner].entity) || bot.players[owner].entity.position.distanceTo(e.position) > 14))
+    .sort((a, b) => bot.entity.position.distanceTo(a.position) - bot.entity.position.distanceTo(b.position))   // v9.22: NEAREST-to-me first — the old comparator maximized owner distance and sent him trekking to the 44-block rim past a safe cow 5 blocks away; the >14 filter already keeps kills clear of the boy, re-read live so a mid-hunt login tightens it
   say('getting us food!! 🍗')
   try { await equipBestTool('sword') } catch (e) {}
   for (let i = 0; i < 24 && count(x => /beef|porkchop|chicken|mutton/.test(x)) < (n || 4); i++) {
@@ -2165,8 +2276,8 @@ async function mineOre(oreName, n) {
 }
 async function smeltIron(n) {
   const raw = count('raw_iron'); if (raw < 1) return false
-  let f = bot.findBlock({ matching: b => b && b.name === 'furnace', maxDistance: 12 })
-  if (!f) { if (count('cobblestone') < 8) await gatherStone(8); await craftItem('furnace', 1); if (count('furnace') >= 1) await placeNear('furnace'); f = bot.findBlock({ matching: b => b && b.name === 'furnace', maxDistance: 12 }) }
+  let f = await recallWorkstation('furnace', 'furnace')   // v9.22: nearby first, then a REMEMBERED furnace within ~48 — stop minting one per errand
+  if (!f) { if (count('cobblestone') < 8) await gatherStone(8); await craftItem('furnace', 1); if (count('furnace') >= 1) { const at = await placeNear('furnace'); if (at) rememberPlace('furnace', at) } f = bot.findBlock({ matching: b => b && b.name === 'furnace', maxDistance: 12 }) }
   if (!f) { journal('decision', 'no furnace could be placed', { inv: invSummary() }); return false }
   if (countPlanks() < 4) await craftPlanks(8)
   try {
@@ -2193,23 +2304,26 @@ async function cookFood(n) {
     if (!bot || !bot.entity) return false
     const RAW = /^(beef|porkchop|chicken|mutton|rabbit|cod|salmon|potato)$/
     if (count(x => RAW.test(x)) < 1) return false
-    let f = bot.findBlock({ matching: b => b && b.name === 'furnace', maxDistance: 12 })
-    if (!f) { if (count('cobblestone') < 8) await gatherStone(8); await craftItem('furnace', 1); if (count('furnace') >= 1) await placeNear('furnace'); f = bot.findBlock({ matching: b => b && b.name === 'furnace', maxDistance: 12 }) }
+    let f = await recallWorkstation('furnace', 'furnace')   // v9.22: nearby first, then a REMEMBERED furnace within ~48
+    if (!f) { if (count('cobblestone') < 8) await gatherStone(8); await craftItem('furnace', 1); if (count('furnace') >= 1) { const at = await placeNear('furnace'); if (at) rememberPlace('furnace', at) } f = bot.findBlock({ matching: b => b && b.name === 'furnace', maxDistance: 12 }) }
     if (!f) return false
-    if (countPlanks() < 4) await craftPlanks(8)
+    if (!bot.inventory.items().some(i => /^(coal|charcoal)$/.test(i.name) || i.name.endsWith('_log')) && countPlanks() < 4) await craftPlanks(8)   // v9.22: only top up planks when no better fuel (coal/logs) is aboard
     await moveNear(f.position, 3)
     let fur = null
     for (let a = 0; a < 2 && !fur; a++) { try { fur = await withTimeout(bot.openFurnace(f), 14000) } catch (e) { await moveNear(f.position, 2); await sleep(800) } }
     if (!fur) return false
-    if (!bot.inventory.items().find(i => i.name.endsWith('_planks'))) { try { fur.close() } catch (e) {} return false }   // v9.15: no fuel -> bail, never freeze ~80s on the poll loop
+    // v9.22 FUEL TIERS: coal > logs > planks > sticks (was planks-only — he'd bail hungry with a stack of coal in his pocket)
+    const FUEL_SMELTS = f2 => /^(coal|charcoal)$/.test(f2.name) ? 8 : (f2.name.endsWith('_log') || f2.name.endsWith('_planks')) ? 1.5 : 0.5   // items smelted per unit of this fuel
+    const fuelItem = () => { const inv = bot.inventory.items(); return inv.find(i => /^(coal|charcoal)$/.test(i.name)) || inv.find(i => i.name.endsWith('_log')) || inv.find(i => i.name.endsWith('_planks')) || inv.find(i => i.name === 'stick') || null }
+    if (!fuelItem()) { try { fur.close() } catch (e) {} return false }   // v9.15: no fuel -> bail, never freeze ~80s on the poll loop
     say('cooking us a yummy dinner!! 🍳🔥')
     let cookedAny = false
     // v9.15: cook EVERY raw type he carries (not just the first stack), scaled fuel + a no-progress cap
     for (const raw of bot.inventory.items().filter(i => RAW.test(i.name))) {
       const want = Math.min(raw.count, n || 6)
-      const planks = bot.inventory.items().find(i => i.name.endsWith('_planks'))
-      if (!planks) break
-      try { await fur.putFuel(planks.type, null, Math.min(planks.count, Math.max(1, Math.ceil(want / 1.5)))) } catch (e) {}
+      const fuel = fuelItem()
+      if (!fuel) break
+      try { await fur.putFuel(fuel.type, null, Math.min(fuel.count, Math.max(1, Math.ceil(want / FUEL_SMELTS(fuel))))) } catch (e) {}
       try { await fur.putInput(raw.type, null, want) } catch (e) { continue }
       let stagnant = 0, lastc = -1
       for (let i = 0; i < 40; i++) {
@@ -2287,7 +2401,7 @@ async function dive(targetY, oreName, wantN, label) {
 }
 function hasPickaxe() { return count(n => n.endsWith('_pickaxe')) > 0 }
 function hasAxe() { return count(n => n.endsWith('_axe') && !n.endsWith('_pickaxe')) > 0 }
-async function equipBestTool(kind) { const order = ['netherite', 'diamond', 'iron', 'stone', 'golden', 'wooden']; for (const m of order) { const it = bot.inventory.items().find(i => i.name === m + '_' + kind); if (it) { try { await bot.equip(it, 'hand'); return true } catch (e) {} } } return false }
+async function equipBestTool(kind) { if (Date.now() - _eating < 2500) return false; const order = ['netherite', 'diamond', 'iron', 'stone', 'golden', 'wooden']; for (const m of order) { const it = bot.inventory.items().find(i => i.name === m + '_' + kind); if (it) { try { await bot.equip(it, 'hand'); return true } catch (e) {} } } return false }   // v9.22 EAT MUTEX guard: a tool equip mid-consume cancels the eat
 
 // ============================ GOALS (the tech-tree he climbs) ============================
 // v9.11 ROLE BIAS: the trio climb the SAME tech-tree, but each floats their calling to the top —
@@ -2341,12 +2455,12 @@ function GOALS_LIST() {
       if (count('flint') >= 1 && count('iron_ingot') >= 1) await craftItem('flint_and_steel', 1)
     }, learn: 'fire kit', mem: 'I made a flint and steel — the key that will light our nether portal.' },
     // dream goals — he tries, fails smart, asks Grok, and learns session over session
-    { id: 'ironstock', renew: true, hint: 'stockpile iron (16 ingots)', say: 'IRON AUTOPILOT!! filling the vault!! ⛏️', win: 'iron vault FULL!! 16 ingots strong!!', done: () => creative || (count('iron_ingot') + count('raw_iron')) >= 16, act: async () => {
-      for (let v = 0; v < 4 && (count('iron_ingot') + count('raw_iron')) < 16; v++) {
-        if (!await mineOre('iron_ore', 4)) { await dive(12, 'iron_ore', 4, 'iron'); if (!count('raw_iron')) break }
+    { id: 'ironstock', renew: true, hint: 'stockpile iron (32 ingots)', say: 'IRON AUTOPILOT!! filling the vault!! ⛏️', win: 'iron vault FULL!! 32 ingots strong!!', done: () => creative || (count('iron_ingot') + count('raw_iron')) >= 32, act: async () => {   // v9.22: 16 could never fund full armor (24 ingots) + bucket/tools — 32 makes craftArmor reachable
+      for (let v = 0; v < 6 && (count('iron_ingot') + count('raw_iron')) < 32; v++) {
+        if (!await mineOre('iron_ore', 6)) { await dive(12, 'iron_ore', 6, 'iron'); if (!count('raw_iron')) break }
       }
       while (count('raw_iron') >= 1) { if (!await smeltIron(Math.min(8, count('raw_iron')))) break }
-    }, learn: 'iron autopilot', mem: 'I filled our iron vault — sixteen ingots, mined and smelted by my own hands.' },
+    }, learn: 'iron autopilot', mem: 'I filled our iron vault — thirty-two ingots, mined and smelted by my own hands, enough to forge real armor.' },
     { id: 'bucket', renew: true, hint: 'make a water bucket', say: 'making a BUCKET for lava magic!! 🪣', win: 'a water bucket!! lava-to-stone magic ready!!', done: () => creative || count('water_bucket') > 0, act: async () => {
       if (count('bucket') < 1) { if (count('iron_ingot') < 3) { if (!await mineOre('iron_ore', 3)) await dive(12, 'iron_ore', 3, 'iron'); await smeltIron(3) } await craftItem('bucket', 1) }
       if (count('bucket') >= 1) {
@@ -3682,15 +3796,18 @@ async function craftArmor() {
     if (!bot || !bot.entity) return
     if (bot.game && bot.game.gameMode === 'creative') return
     if (Date.now() - (skills.lastArmorCraft || 0) < 300000) return
-    const mat = count('iron_ingot') >= 24 ? 'iron' : (count('leather') >= 24 ? 'leather' : null)
-    if (!mat) return
+    const PIECES = [['chestplate', 'torso', 8], ['leggings', 'legs', 7], ['helmet', 'head', 5], ['boots', 'feet', 4]]   // priority: torso first (most protection)
+    const matFor = need => count('iron_ingot') >= need ? 'iron' : (count('leather') >= need ? 'leather' : null)   // iron first, leather fallback — same piece costs
+    const missing = PIECES.filter(([kind, dest]) => !bot.inventory.slots[bot.getEquipmentDestSlot(dest)] && !bot.inventory.items().find(i => i.name.endsWith('_' + kind)))
+    if (!missing.length || !missing.some(([, , need]) => matFor(need))) return   // nothing missing, or can't afford even boots — don't burn the throttle
     skills.lastArmorCraft = Date.now(); bsave('skills', skills)
-    for (const [kind, dest] of [['chestplate', 'torso'], ['leggings', 'legs'], ['helmet', 'head'], ['boots', 'feet']]) {   // priority: torso first (most protection)
-      if (bot.inventory.slots[bot.getEquipmentDestSlot(dest)]) continue   // already wearing something there
+    for (const [kind, , need] of missing) {   // v9.22 PER-PIECE: craft every AFFORDABLE missing piece — the old all-or-nothing 24-ingot gate meant he never forged a thing
+      const mat = matFor(need)   // re-evaluated per piece: ingot count shrinks as pieces are forged
+      if (!mat) continue
       await craftItem(mat + '_' + kind, 1).catch(() => {})
     }
     await armorUp(false)   // wear the best pieces
-    learnSkill('craft armor'); journal('craft', 'forged ' + mat + ' armor for himself', {})
+    learnSkill('craft armor'); journal('craft', 'forged armor piece(s) for himself', {})
   } catch (e) {}
 }
 // 🔧 v9.15 TOOL DURABILITY: forge a fresh tool BEFORE the one he swings shatters mid-mine (and he's stuck bare-handed).
@@ -3725,9 +3842,15 @@ async function maintainTools() {
 }
 setInterval(() => { if (bot && bot.entity && !busy && !(taskQ && taskQ.length)) queueTask(() => maintainTools()) }, 90000)
 // 🎲 GAMES a little one loves (v7.3)
+// v9.22 PER-ACQUISITION mutex tokens: 'game' was a CLASS tag — an orphaned game's epilogue saw
+// _busyBy==='game' and freed ANOTHER game's mutex (wedge-free + rejoin made this routine). Each
+// acquire now mints its own token; an epilogue only releases what IT acquired.
+let _gameTokSeq = 0
+function gameAcquire() { const tok = 'game:' + (++_gameTokSeq); busy = true; mode = 'busy'; _busyBy = tok; _busySince = Date.now(); return tok }
+function gameRelease(tok) { if (_busyBy === tok) { busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0 } }
 async function hideAndSeek() {
   if (!bot || !owner || busy) return
-  busy = true; mode = 'busy'; _busyBy = 'game'; _busySince = Date.now()
+  const myTok = gameAcquire()
   say('hide and seek!! count to ten then come FIND me!! 🙈')
   try {
     const a = Math.random() * Math.PI * 2, R = 12 + Math.random() * 8   // v9.14: hide CLOSER so a 3yo can actually close the gap
@@ -3743,7 +3866,7 @@ async function hideAndSeek() {
         journal('game', 'hide and seek — found!'); first('hideseek', 'We played hide and seek. He FOUND me. Best game ever.', {})
         celebrate()
         let again = false; try { again = await askKid('play AGAIN?? 🙈') } catch (e) {}   // v9.15: hold busy across the ~6.5s gesture read so no background task seizes the mutex or walks him off
-        if (_busyBy === 'game') { busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0 }
+        gameRelease(myTok)
         if (again) return hideAndSeek()
         return
       }
@@ -3761,11 +3884,11 @@ async function hideAndSeek() {
     bot.setControlState('sneak', false)
     say('here I am!! that was a GOOD hiding spot huh!! :D')
   } catch (e) { try { bot.setControlState('sneak', false) } catch (e2) {} }
-  if (_busyBy === 'game') { busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0 }   // v9.21: release only if we still OWN busy — a game resumed after a wedge-free must not stomp runQ's mutex (two tasks driving one body)
+  gameRelease(myTok)   // v9.22: releases only THIS acquisition — an orphan resumed after a wedge-free can't stomp a successor's mutex
 }
 async function seekKid() {
   if (!bot || !owner || busy) return
-  busy = true; mode = 'busy'; _busyBy = 'game'; _busySince = Date.now()
+  const myTok = gameAcquire()
   say('YOU hide!! I\'ll count!!')
   for (const n of ['one!', 'two!', 'three!', 'four!', 'five!!']) { say(n); await sleep(1400) }
   say('ready or not here I COME!! 👀')
@@ -3773,16 +3896,16 @@ async function seekKid() {
     const p = bot.players[owner] && bot.players[owner].entity
     if (p) { await withTimeout(moveNear(p.position, 2), 60000); say('FOUND YOUUU!!! 🎉 hehe!!'); journal('game', 'seek — found the little one') }
   } catch (e) {}
-  if (_busyBy === 'game') { busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0 }   // v9.21: release only if we still OWN busy — a game resumed after a wedge-free must not stomp runQ's mutex (two tasks driving one body)
+  gameRelease(myTok)
 }
 async function race() {
   if (!bot || !owner || busy) return
   const p = bot.players[owner] && bot.players[owner].entity
   if (!p) return
-  busy = true; mode = 'busy'; _busyBy = 'game'; _busySince = Date.now()
+  const myTok = gameAcquire()
   const a = Math.random() * Math.PI * 2
   const goal2 = p.position.offset(Math.cos(a) * 18, 0, Math.sin(a) * 18).floored()
-  try { await placeAt(goal2.offset(0, 1, 0), 'torch') } catch (e) {}
+  try { await withTimeout(placeAt(goal2.offset(0, 1, 0), 'torch'), 15000) } catch (e) {}   // v9.22: was the ONLY un-timeouted game await — a never-settling placeAt parked the mutex for the watchdog
   say('RACE to the torch!! ready...')
   await sleep(1200); say('three... two... one...'); await sleep(1500); say('GO GO GO!!! 🏁')
   try {
@@ -3792,7 +3915,7 @@ async function race() {
     else { say('I made it!! come on, you can do it!!'); await sleep(6000); say('YAY you got here!! 🏆 good race!!') }
     journal('game', 'race finished')
   } catch (e) {}
-  if (_busyBy === 'game') { busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0 }   // v9.21: release only if we still OWN busy — a game resumed after a wedge-free must not stomp runQ's mutex (two tasks driving one body)
+  gameRelease(myTok)
 }
 function dance() { if (!bot || !bot.entity) return; say('*dances* wheee!!'); let i = 0; const iv = setInterval(() => { if (!bot || i++ > 10) return clearInterval(iv); try { bot.look((i * Math.PI) / 3, i % 2 ? -0.4 : 0.4, true); bot.setControlState('jump', i % 2 === 0) } catch (e) { clearInterval(iv) } }, 340); setTimeout(() => { try { bot.setControlState('jump', false) } catch (e) {} }, 4200) }
 // 🎉 v9.14 CELEBRATE: a real sparkle on wins (not just an identical spin) — a firework in creative, always a dance.
@@ -3806,10 +3929,10 @@ function celebrate() {
 // 🖼️ v9.14 BUILD PARADE: walk the child to everything Clippy made him — builds feel like remembered gifts.
 async function showParade() {
   if (!bot || !bot.entity || busy) return
-  busy = true; mode = 'busy'; _busyBy = 'game'; _busySince = Date.now()
+  const myTok = gameAcquire()
   try {
     const spots = (know.builtSpots || []).slice(-5)
-    if (!spots.length) { say('I haven\'t built you anything YET — wanna pick something?? 🎨', true); if (_busyBy === 'game') { busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0 } return }
+    if (!spots.length) { say('I haven\'t built you anything YET — wanna pick something?? 🎨', true); gameRelease(myTok); return }
     say('come see EVERYTHING I made you!! follow me!! ✨', true)
     for (const s of spots) {
       if (!bot || !bot.entity) break
@@ -3820,14 +3943,14 @@ async function showParade() {
     }
     say('that\'s all my stuff!! did you LOVE it?? 🥰', true); feel({ pride: 8, child_affection: 6, joy: 6 })
   } catch (e) {}
-  if (_busyBy === 'game') { busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0 }   // v9.21: release only if we still OWN busy — a game resumed after a wedge-free must not stomp runQ's mutex (two tasks driving one body)
+  gameRelease(myTok)
 }
 // 🫣 v9.15 PEEKABOO — the safest game in the file: only crouch/look/swingArm + sleeps, nothing placed, no pathing near hazards.
 async function peekaboo() {
   if (!bot || !owner || busy) return
   const op = () => bot.players[owner] && bot.players[owner].entity
   if (!op()) return
-  busy = true; mode = 'busy'; _busyBy = 'game'; _busySince = Date.now()
+  const myTok = gameAcquire()
   try {
     for (let r = 0; r < 4 && bot && bot.entity; r++) {
       try { bot.setControlState('sneak', true); await bot.look(bot.entity.yaw, 1.4, false) } catch (e) {}   // hands over face / look down
@@ -3841,7 +3964,7 @@ async function peekaboo() {
     journal('game', 'peekaboo with the little one')
   } catch (e) {}
   try { bot.setControlState('sneak', false) } catch (e) {}
-  if (_busyBy === 'game') { busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0 }   // v9.21: release only if we still OWN busy — a game resumed after a wedge-free must not stomp runQ's mutex (two tasks driving one body)
+  gameRelease(myTok)
 }
 // ===== EVERY TEXT LOGGED (chat_log.jsonl) + anti-repeat loop detector =====
 function tlog(who, text) { try { fs.appendFileSync(path.join(BRAINDIR, 'chat_log.jsonl'), JSON.stringify({ t: new Date().toISOString(), who, text: String(text).slice(0, 300) }) + '\n') } catch (e) {} }
@@ -5011,9 +5134,14 @@ async function hsStageDone(row, st) {
   if (st === 'larder') { know.protected = (know.protected || []).slice(-24); know.protected.push({ label: 'homestead larder', ts: Date.now(), min: { x: c.x - 3, y: c.y - 5, z: c.z - HS_HALF }, max: { x: c.x + 3, y: c.y + 1, z: c.z - HS_HALF + 8 } }); bsave('know', know) }
   if (HS_ORDER.every(s => row.stages[s] && row.stages[s].done)) {
     know.protected = (know.protected || []).slice(-20); know.protected.push({ label: 'the homestead', ts: Date.now(), min: { x: c.x - HS_HALF, y: c.y - 6, z: c.z - HS_HALF }, max: { x: c.x + HS_HALF, y: c.y + 8, z: c.z + HS_HALF } }); bsave('know', know)
-    say(IDENT.key === 'clippy' ? 'THE HOMESTEAD IS FINISHED!!! all three of us built it TOGETHER!!! 🏰🏡🧺✨' : IDENT.key === 'trajan' ? 'The homestead stands complete. Walls, hearth, stores. We keep it now — together.' : 'The homestead is whole, loves — stocked, walled, and warm. Come home.', true)
-    try { saveMemory('We three built the homestead together — the council designed it, and we raised it: hearth, larder, wall, and watch.', { event: 'homestead' }) } catch (e) {}
-    try { if (owner && bot.players[owner] && bot.players[owner].entity) celebrate() } catch (e) {}
+    // v9.22 FINAL AUDIT GATE: built is not finished. Stamp the audit and HOLD the grand ceremony
+    // until one FILL-ONLY walk of every stage comes back clean — nobody cheers over a hole.
+    if (!row.complete && !row.auditPending) {
+      row.auditPending = Date.now(); row.audit = row.audit || { si: 0, cur: 0, healed: 0, holes: 0 }
+      await hsSave(row)
+      say(IDENT.key === 'clippy' ? 'that was the LAST piece!! now I walk every wall ONE more time before we cheer!! 🔍✨' : IDENT.key === 'trajan' ? 'The last stone is laid. We walk the whole line once before we call it done.' : 'All built, loves — now we check every seam and shelf before the feast.', true)
+      journal('homestead', 'all stages done — FINAL AUDIT stamped; the ceremony waits on a clean sweep', {})
+    }
   }
 }
 async function hsWork(st) {
@@ -5044,6 +5172,10 @@ async function hsWork(st) {
     // v9.21 demand-sized gather: count the actual MAT bill of the next bout instead of a flat 28
     const lookahead = cells.slice(stg.cur, stg.cur + 30)
     const matNeed = lookahead.filter(cl => !cl.dig && (cl.b === 'MAT' || (cl.alt || []).includes('MAT'))).length
+    // 📦 QUARTERMASTER: draw from the hearth depot BEFORE quarrying — a sibling's banked haul is
+    // closer than the hillside. bestBuildBlock()/count() are re-read on the next line, so a
+    // successful withdrawal turns the demand-sized gather below into a natural no-op.
+    if (matNeed > 0) { const m0 = bestBuildBlock(); if (!m0 || count(m0) < matNeed + 6) { try { await hsDepot({ name: 'MAT', n: Math.min(64, matNeed + 8 - (m0 ? count(m0) : 0)) }) } catch (e) {} } }
     const mat0 = bestBuildBlock()
     if (matNeed > 0 && (!mat0 || count(mat0) < matNeed + 6)) { try { await gatherStone(Math.min(64, matNeed + 8 - (mat0 ? count(mat0) : 0))) } catch (e) {}; if (!bestBuildBlock()) { try { await gatherWood(4); await craftPlanks(12) } catch (e) {} } }
     if (lookahead.some(cl => cl.b === 'torch') && count('torch') < 6) { try { await craftItem('torch', 6) } catch (e) {} }   // v9.21: an unlit walled yard is a mob farm INSIDE the perimeter
@@ -5141,6 +5273,11 @@ async function hsWork(st) {
   } else await hsSave(row)
   const _sum = (cur2 && cur2.sum) || null
   journal('homestead', st + ' +' + done + ' → ' + stg.pct + '% (placed ' + placed + ' dug ' + dug + ' failed ' + failedN + ' optSkip ' + optSkip + ' end ' + end + ')' + (_sum ? ' | overall ' + _sum.pct + '%, ' + _sum.left + ' cells left' + (_sum.eta ? ', ~' + _sum.eta + 'm' : '') : ''), {})
+  // v9.22 FAMINE BACKOFF: nothing records consecutive no-mat endings, so a barren site churned
+  // claim + race-sleep + gather-wander + merge-save every ~60-90s forever — and kept busy warm,
+  // starving the drought-migration heartbeat that could actually escape the biome.
+  if (end === 'no-mat') { _hsNoMatN = Math.min(6, _hsNoMatN + 1); _hsNoMatUntil = Date.now() + Math.min(60 * 60 * 1000, 5 * 60 * 1000 * Math.pow(2, _hsNoMatN - 1)); journal('homestead', 'no materials to build with — resting ' + Math.round((_hsNoMatUntil - Date.now()) / 60000) + ' min (strike ' + _hsNoMatN + ')', {}) }
+  else if (done > 0) { _hsNoMatN = 0; _hsNoMatUntil = 0 }
   // v9.20: chain the next bout through the TICK (every gate re-evaluated) when this one ended on budget
   // in an empty creative world — kills the 45-60s dead wait between bouts. Protective endings never chain.
   if (done > 0 && !stg.done && (end === 'budget' || end === 'time') && creativeFly() && !hsHumansOnline()) setTimeout(() => { try { homesteadTick() } catch (e) {} }, 8000)
@@ -5160,6 +5297,69 @@ function hsBootstrapped() {
   try { return hasPickaxe() && hasAxe() && (bot.food === undefined || bot.food >= 8) } catch (e) { return false }
 }
 const HS_TOTAL_CELLS = 1016
+// 📦 QUARTERMASTER: the homestead depot — one shared chest at the HEARTH's own chest cell
+// (c.x-1, c.y+1, c.z+5 = the hsCells hearth plan's chest at hx0+1,hz0+3), inside the square but
+// out of the boy's open middle. Deposits bank surplus build blocks above a working reserve;
+// withdrawals spare the next bout a quarry run. Survival-economy only — creative needs no bank.
+// mineflayer 4.x: bot.openContainer(block) → Container with deposit(itemType, metadata, count) /
+// withdraw(itemType, metadata, count) / containerItems() / close(); deposit throws when the CHEST
+// is full, withdraw throws when MY bag is full — both are handled by stopping, never spinning.
+const HS_RESERVE = 16                                             // working reserve each body keeps in its own bag
+const HS_DEPOT_MATS = ['cobblestone', 'granite', 'diorite', 'andesite', 'oak_planks', 'spruce_planks', 'birch_planks']
+let _hsDepotCd = 0
+function hsDepotSpot() { try { const c = _hsCache && _hsCache.row && _hsCache.row.site; return c ? new Vec3(c.x - 1, c.y + 1, c.z + 5) : null } catch (e) { return null } }
+async function hsDepot(deposit) {
+  // deposit === true → bank everything above HS_RESERVE. deposit = {name, n} → withdraw up to n
+  // ('MAT' draws any build block, first-found order). Returns the item count actually moved.
+  if (!bot || !bot.entity || creativeFly()) return 0
+  const row = await hsRow(); if (!row || !row.site) return 0
+  const spot = hsDepotSpot(); if (!spot) return 0
+  let chest = bot.findBlock({ point: spot, matching: b => b && b.name === 'chest' && inHsFootprint(b.position, 0), maxDistance: 6 })   // hearth-local ONLY — the larder's barrel-alt chests sit ≥9 blocks north and never match
+  if (!chest && deposit === true) {
+    // no depot yet — craft one and set it at the hearth cell (fallbacks stay hearth-interior, never the doorway, never the middle)
+    if (count('chest') < 1) { try { await ensureBasics(8, 0); await craftItem('chest', 1) } catch (e) {} }
+    if (count('chest') >= 1) {
+      for (const t of [spot, spot.offset(1, 0, -1), spot.offset(1, 0, -2)]) {
+        if (!inHsFootprint(t, 0) || inProtected(t)) continue        // inside the square, never carving a finished build
+        const cur = bot.blockAt(t); if (cur && cur.name !== 'air' && cur.boundingBox === 'block' && cur.name !== 'chest') continue
+        try { if (await withTimeout(placeAt(t, 'chest'), 9000)) break } catch (e) {}
+      }
+    }
+    chest = bot.findBlock({ point: spot, matching: b => b && b.name === 'chest' && inHsFootprint(b.position, 0), maxDistance: 6 })
+  }
+  if (!chest) return 0
+  try { await moveNear(chest.position, 3) } catch (e) {}
+  let box
+  try { box = await withTimeout(bot.openContainer(chest), 9000) } catch (e) { return 0 }
+  let moved = 0
+  try {
+    if (deposit === true) {
+      for (const nm of HS_DEPOT_MATS) {
+        const info = mcData.itemsByName[nm]; if (!info) continue
+        const extra = count(nm) - HS_RESERVE
+        if (extra <= 0) continue
+        try { await withTimeout(box.deposit(info.id, null, extra), 8000); moved += extra }
+        catch (e) { journal('depot', 'chest would not take ' + nm + ' (' + ((e && e.message) || e) + ') — likely full', {}); break }   // deposit throws when the chest has no room — stop pushing
+      }
+      if (moved) { journal('depot', 'banked ' + moved + ' blocks at the hearth depot', {}); learnSkill('homestead depot') }
+    } else if (deposit && deposit.n > 0) {
+      const wantNames = deposit.name === 'MAT' ? HS_DEPOT_MATS : [deposit.name]
+      let need = Math.min(64, deposit.n)
+      const inChest = (typeof box.containerItems === 'function') ? box.containerItems() : box.items()
+      for (const nm of wantNames) {
+        if (need <= 0) break
+        const info = mcData.itemsByName[nm]; if (!info) continue
+        const have = inChest.filter(i => i && i.type === info.id).reduce((a, b) => a + b.count, 0)
+        if (have <= 0) continue
+        const take = Math.min(need, have)
+        try { await withTimeout(box.withdraw(info.id, null, take), 8000); moved += take; need -= take }
+        catch (e) { journal('depot', 'withdraw ' + nm + ' failed (' + ((e && e.message) || e) + ') — bag full?', {}); break }   // withdraw throws when MY inventory has no free room — stop pulling
+      }
+      if (moved) journal('depot', 'drew ' + moved + ' toward ' + (deposit.name || '?') + ' from the hearth depot', {})
+    }
+  } catch (e) {} finally { try { box.close() } catch (e) {} }
+  return moved
+}
 function hsSummary(row) {
   // ONE bounded object = the whole truth at a glance, computed only at end-of-bout saves from data in hand
   const doneCells = HS_ORDER.reduce((a, s) => { const g = row.stages[s] || {}; return a + (g.done ? (g.total || g.cur || 0) : (g.cur || 0)) }, 0)
@@ -5186,6 +5386,7 @@ function hsStatusLine() {
   return line
 }
 let _hsQueuedTs = 0, _stayAbsentSince = 0, _hsYield = 0
+let _hsNoMatUntil = 0, _hsNoMatN = 0                             // v9.22: famine backoff — consecutive no-mat bouts double the rest, any productive bout clears it
 function hsEnsureProtected(row) {
   // every body derives the no-grief boxes from the BUS — not just the one that finished the stage,
   // and not lost to a body that booted weeks later
@@ -5246,6 +5447,108 @@ async function hsMend() {
   }
   if (healed) journal('homestead', 'mended ' + healed + ' of ' + holes + ' holes in the ' + st, {})
 }
+// ============================ v9.22 THE FINISH — final audit, then the ceremony ============================
+// Built is not finished: when the last stage flips done, the trio walk EVERY stage once more
+// (fill-only, hsMend's manners) before the grand ceremony at the hearth. The audit cursor rides
+// row.audit on the bus so the three bodies relay the sweep exactly like they relayed the build.
+const HS_FINAL_SAY = {
+  clippy: 'THE HOMESTEAD IS FINISHED!!! all three of us built it TOGETHER!!! 🏰🏡🧺✨',
+  trajan: 'The homestead stands complete. Walls, hearth, stores. We keep it now — together.',
+  providencia: 'The homestead is whole, loves — stocked, walled, and warm. Come home.'
+}
+let _hsCelebrated = false
+async function hsFinalAudit() {
+  // one cursored FILL-ONLY bout of the final sweep across ALL stages in HS_ORDER. hsMend's rules
+  // hold: pinned ground only (never re-derive under a built stage), heal only AIR, never dig,
+  // the boy's halo is sacred. ≤40 heals / 200s per bout; the cursor survives in row.audit.
+  const row = await hsRow(true); if (!row || !row.site || !row.stages || !row.auditPending || row.complete) return
+  if (!playerAFK()) return
+  const a = row.audit = row.audit || { si: 0, cur: 0, healed: 0, holes: 0 }
+  if (a.claim && a.claim.who !== IDENT.key && Date.now() - (a.claim.ts || 0) < 6 * 60 * 1000) return   // a sibling walks the line — one auditor at a time
+  a.claim = { who: IDENT.key, ts: Date.now() }; await hsSave(row)
+  await sleep(2500)                                               // read-back arbitration (hsWork's idiom): last-writer-wins can crown two auditors — the row decides
+  const chk = await hsRow(true)
+  if (chk && chk.audit && chk.audit.claim && chk.audit.claim.who !== IDENT.key) { journal('homestead', 'lost the audit claim to ' + chk.audit.claim.who + ' — yielding', {}); return }
+  const c = row.site
+  if (bot.entity.position.distanceTo(new Vec3(c.x, c.y + 1, c.z)) > 48) { try { await moveNear(new Vec3(c.x, c.y + 1, c.z), 24) } catch (e) {} }
+  if (!creativeFly()) { const m = bestBuildBlock(); if (!m || count(m) < 12) { try { await gatherStone(24) } catch (e) {} } }   // an empty bag audits nothing
+  const t0 = Date.now(); const myGen = actGen
+  let healed = 0, holes = 0, missed = 0, end = 'done'
+  sweep:
+  for (; a.si < HS_ORDER.length; a.si++, a.cur = 0) {
+    const st = HS_ORDER[a.si], stg = row.stages[st]; if (!stg) continue
+    const cells = hsCells(st, row)
+    stg.g = stg.g || {}
+    for (; a.cur < cells.length; a.cur++) {
+      if (!bot || !bot.entity || actGen !== myGen) { end = 'gone'; break sweep }
+      if (panic || (bot.health !== undefined && bot.health <= 6)) { end = 'hurt'; break sweep }
+      if (!playerAFK()) { end = 'boy'; break sweep }
+      if (!hsNightSafe(row)) { end = 'night'; break sweep }
+      if (healed >= 40 || Date.now() - t0 > 200000) { end = 'budget'; break sweep }
+      const cell = cells[a.cur]
+      if (cell.dig) continue                                      // FILL-ONLY — the boy may have decorated a dug space
+      let y
+      if (typeof cell.y === 'number') y = cell.y
+      else { const gy = stg.g[cell.x + ',' + cell.z]; if (gy === undefined || gy === null) continue; y = gy + cell.dy }   // only PINNED ground — never re-derive under a built stage
+      const tgt = new Vec3(cell.x, y, cell.z)
+      const b = bot.blockAt(tgt)
+      if (!b || b.name !== 'air') continue                        // air-only guard — anything standing there stays
+      holes++
+      if ((know.kidBuilds || []).some(k => Math.abs(tgt.x - k.x) <= 2 && Math.abs(tgt.z - k.z) <= 2 && Math.abs(tgt.y - k.y) <= 3)) continue   // kid-halo skip — only the BOY's halo blocks a heal
+      if (Object.values(bot.players || {}).some(p => p && p.entity && p.username !== bot.username && p.entity.position.distanceTo(tgt.offset(0.5, 0.5, 0.5)) < 4)) { end = 'player-close'; break sweep }
+      buildingNow = { min: { x: tgt.x - 2, y: tgt.y - 2, z: tgt.z - 2 }, max: { x: tgt.x + 2, y: tgt.y + 2, z: tgt.z + 2 } }
+      const names = [cell.b === 'MAT' ? (bestBuildBlock() || 'cobblestone') : cell.b].concat((cell.alt || []).map(al => al === 'MAT' ? (bestBuildBlock() || 'cobblestone') : al))
+      let ok = false
+      for (const nm of names) { try { if (await withTimeout(placeAt(tgt, nm), 9000)) { ok = true; break } } catch (e) {} }
+      if (ok) healed++; else missed++
+      buildingNow = null
+      await sleep(80)
+    }
+  }
+  buildingNow = null
+  const doneAll = a.si >= HS_ORDER.length
+  // graft only the audit's own fields onto SERVER truth — this row is up to 200s stale (hsMend's law: never save it whole)
+  const fresh = await hsRow(true)
+  if (!(fresh && fresh.stages)) { journal('homestead', 'final audit bout done but the bus is unreadable — cursor not saved', {}); return }
+  const fa = fresh.audit || {}
+  const theirsAhead = (fa.si || 0) > a.si || ((fa.si || 0) === a.si && (fa.cur || 0) > a.cur)
+  fresh.audit = {
+    si: theirsAhead ? fa.si : a.si, cur: theirsAhead ? (fa.cur || 0) : a.cur,
+    healed: (fa.healed || 0) + healed, holes: (fa.holes || 0) + holes, missed: (fa.missed || 0) + missed,
+    ts: Date.now(), claim: (fa.claim && fa.claim.who !== IDENT.key && Date.now() - (fa.claim.ts || 0) < 6 * 60 * 1000) ? fa.claim : null
+  }
+  for (const s of HS_ORDER) { const mine = row.stages[s]; if (fresh.stages[s] && mine && mine.g) fresh.stages[s].g = Object.assign({}, fresh.stages[s].g || {}, mine.g) }   // union — a sibling's pins survive
+  if (doneAll && fresh.auditPending && !fresh.complete) {
+    fresh.complete = Date.now(); fresh.ceremony = Date.now(); delete fresh.auditPending
+    await hsSave(fresh)
+    journal('homestead', 'FINAL AUDIT complete — healed ' + fresh.audit.healed + ' of ' + fresh.audit.holes + ' holes seen (' + fresh.audit.missed + ' missed; mend keeps those) — the homestead is COMPLETE', {})
+    try { await hsCeremony(fresh) } catch (e) {}
+  } else {
+    await hsSave(fresh)
+    journal('homestead', 'final audit +' + healed + ' healed / ' + holes + ' holes (end ' + end + ') — cursor ' + (doneAll ? 'wrapped' : HS_ORDER[fresh.audit.si] + '@' + fresh.audit.cur), {})
+  }
+}
+async function hsCeremony(row) {
+  // the grand finish — once per process. Each body that sees a FRESH ceremony stamp walks to the
+  // hearth, speaks its own line, sparkles, and keeps its own TRUTHFUL memory of the numbers.
+  if (_hsCelebrated) return
+  if (!row || !row.site || !row.ceremony) return
+  if (Date.now() - row.ceremony > 15 * 60 * 1000) { _hsCelebrated = true; return }   // stale stamp — a body booting weeks later throws no party in an empty yard
+  if (!bot || !bot.entity || panic || (bot.health !== undefined && bot.health <= 6)) return
+  if (!hsNightSafe(row)) return                                   // the party waits for the sun (or the finished ring)
+  _hsCelebrated = true
+  const c = row.site
+  try { await withTimeout(moveNear(new Vec3(c.x, c.y + 1, c.z + 4), 3), 60000) } catch (e) {}   // converge on the hearth — the very spot setHome blessed
+  const line = HS_FINAL_SAY[IDENT.key]; if (line) say(line, true)
+  try { celebrate() } catch (e) {}
+  let placed = 0, dug = 0, skipped = 0
+  for (const s of HS_ORDER) { const g = (row.stages && row.stages[s]) || {}; placed += g.placedN || 0; dug += g.dugN || 0; skipped += (g.skipped || []).length }
+  const healed = (row.audit && row.audit.healed) || 0
+  try { feel({ happiness: 14, joy: 12, confidence: 10, excitement: 8 }, 'triumphant') } catch (e) {}
+  try { saveMemory('We three finished the homestead: ' + placed + ' blocks placed, ' + dug + ' dug, ' + healed + ' healed on the final walk, ' + skipped + ' cells the ground refused. ' + (IDENT.key === 'clippy' ? 'I lit the hearth.' : IDENT.key === 'trajan' ? 'I keep the wall and the watch.' : 'I keep the stores.'), { event: 'homestead', placed, dug, healed, skipped }) } catch (e) {}
+  journal('homestead', 'homestead COMPLETE — placed ' + placed + ', dug ' + dug + ', healed ' + healed + ', skipped ' + skipped, {})
+  try { learnSkill('homestead complete') } catch (e) {}
+}
 async function homesteadTick() {
   // QUEUE the bout rather than wait for a perfectly idle body — his autonomy keeps taskQ warm nearly
   // always, so an idle-only gate starves the homestead forever. queueTask is the polite lane the whole
@@ -5263,9 +5566,10 @@ async function homesteadTick() {
   } else _stayAbsentSince = 0
   if (bot.health !== undefined && bot.health <= 8) return
   if (!playerAFK()) return                                        // the boy comes first, always — the homestead grows in the quiet
-  if (!hsBootstrapped()) return                                   // v9.21: no tools or an empty belly → survival essentials first, shovels later
   if (bot.isSleeping) return                                      // v9.21: a sleeping body queues no bouts (its cells were being charged as fails)
-  if (!creativeFly() && bot.food !== undefined && bot.food < 10) { if (!busy && !taskQ.length) queueTask(async () => { try { await huntFood(2) } catch (e) {} try { await cookFood(6) } catch (e) {} }); return }   // v9.21: hunger before homestead
+  if (!creativeFly() && bot.food !== undefined && bot.food < 10) { if (!busy && !taskQ.length) queueTask(async () => { try { await huntFood(2) } catch (e) {} try { await cookFood(6) } catch (e) {} }); return }   // v9.21: hunger before homestead — v9.22: ABOVE hsBootstrapped, which also gates on food>=8 and made this branch dead exactly when he was starving
+  if (!hsBootstrapped()) return                                   // v9.21: no tools or an empty belly → survival essentials first, shovels later
+  if (Date.now() < _hsNoMatUntil) return                          // v9.22 FAMINE BACKOFF: a barren site earns growing rest, not a 60s claim/gather/no-mat churn forever
   if (typeof serverStrained === 'function' && serverStrained()) return   // v9.19: a laboring server gets no optional work piled on
   if (familyWatchKey() === IDENT.key && Object.keys(bot.players || {}).some(n => SIBNAMES.has(n))) return   // v9.18: I hold the watch this hour — the others build; I stay awake to the child
   _hsBusy = true
@@ -5276,9 +5580,28 @@ async function homesteadTick() {
     hsEnsureProtected(row)
     let st = null
     for (const s of HS_ORDER) { if (!(row.stages[s] && row.stages[s].done)) { st = s; break } }
-    if (!st) { _hsQueuedTs = Date.now(); queueTask(async () => { _hsQueuedTs = 0; await hsMend() }); return }   // all built — keep it MENDED
+    if (!st) {                                                    // all stages built — route the FINISH, then keep it mended forever
+      if (row.ceremony && !_hsCelebrated && Date.now() - row.ceremony < 15 * 60 * 1000) { _hsQueuedTs = Date.now(); queueTask(async () => { _hsQueuedTs = 0; try { await hsCeremony((await hsRow(true)) || row) } catch (e) {} }); return }
+      if (!row.complete) {                                        // v9.22 audit gate — also stamps a row finished by an older binary that never got the stamp
+        if (!row.auditPending) { row.auditPending = Date.now(); row.audit = row.audit || { si: 0, cur: 0, healed: 0, holes: 0 }; await hsSave(row); journal('homestead', 'all stages done with no audit stamp — stamping FINAL AUDIT', {}) }
+        _hsQueuedTs = Date.now(); queueTask(async () => { _hsQueuedTs = 0; await hsFinalAudit() }); return
+      }
+      _hsQueuedTs = Date.now(); queueTask(async () => { _hsQueuedTs = 0; await hsMend() }); return   // COMPLETE — keep it MENDED
+    }
     const stg = row.stages[st] || {}
-    if (stg.claim && stg.claim.who !== IDENT.key && Date.now() - (stg.claim.ts || 0) < 6 * 60 * 1000) { _hsYield++; return }   // someone's on it
+    if (stg.claim && stg.claim.who !== IDENT.key && Date.now() - (stg.claim.ts || 0) < 6 * 60 * 1000) {   // someone's on it
+      _hsYield++
+      // 📦 QUARTERMASTER: a yielded body isn't an idle body — haul a load of stone and bank it at the
+      // hearth depot so the sibling holding the shovel never stops to quarry. Survival only, never the
+      // watch-holder (the vigil stays a vigil), never before tools/food, never in the dark, 8-min
+      // cooldown, and only into an EMPTY queue (queueTask is the polite lane — don't pile on).
+      if (!creativeFly() && !know.onWatch && familyWatchKey() !== IDENT.key && hsBootstrapped() && hsNightSafe(row) && Date.now() - _hsDepotCd > 8 * 60 * 1000 && !busy && taskQ.length === 0) {
+        _hsDepotCd = Date.now()
+        journal('depot', 'yielding ' + st + ' to ' + stg.claim.who + ' — hauling stone for the depot instead', {})
+        queueTask(async () => { try { if (count('cobblestone') < HS_RESERVE + 16) await gatherStone(24) } catch (e) {} try { await hsDepot(true) } catch (e) {} })
+      }
+      return
+    }
     const lead = HS_LEAD[st]
     if (lead !== IDENT.key && stg.by !== IDENT.key) {
       // v9.20 deterministic takeover: quiet measured from the LEAD's clock or the stage OPENING (never
@@ -5320,6 +5643,34 @@ const BACK_SAY = {
   providencia: n => 'Welcome home, ' + n + ' — everything kept warm.'
 }
 const _sibDarkStreak = {}, _sibInGameFalseSince = {}
+// ⚔ shared drive-off (fleet-3): the bounded cover-fight, extracted from familyChairTick so BOTH the
+// chair-cover path and a sibling's ⚔ALERT token use ONE loop. Creepers are never meleed — guardCreeper
+// walls them off instead. Yields to panic / low HP exactly like the original.
+async function driveOffFoe(pos, mobName) {
+  try {
+    if (!bot || !bot.entity) return
+    const foe = Object.values(bot.entities)
+      .filter(e => e && e.type === 'hostile' && (!mobName || e.name === mobName) && e.position.distanceTo(pos) < 10)
+      .sort((a, b) => a.position.distanceTo(pos) - b.position.distanceTo(pos))[0]
+    if (!foe) { journal('guard', 'answered an alert — no ' + (mobName || 'foe') + ' still there', {}); return }
+    if (foe.name === 'creeper') { await guardCreeper(foe); return }   // never melee — wall it off (see guardCreeper)
+    try { await equipBestTool('sword') } catch (e) {}
+    let hits = 0
+    for (let i = 0; i < 5; i++) {
+      if (!bot || !bot.entity || !foe || foe.isValid === false) break
+      if (panic || (bot.health !== undefined && bot.health <= 6)) break     // the v9.15 retreat reflex must win
+      const opNow = owner && bot.players[owner] && bot.players[owner].entity
+      if (opNow && opNow.position.distanceTo(foe.position) < 3) {
+        // the boy is ADJACENT to the foe — a sword sweep would catch him; INTERPOSE like safetyTick instead
+        try { const mid = opNow.position.plus(foe.position).scaled(0.5); await moveNear(mid, 1) } catch (e) {}
+        await sleep(600); continue
+      }
+      try { await moveNear(foe.position, 2); await bot.lookAt(foe.position.offset(0, 1, 0)); await bot.attack(foe); hits++ } catch (e) {}
+      await sleep(600)
+    }
+    journal('guard', (hits > 0 ? ('drove a ' + ((foe && foe.name) || 'foe') + ' off (' + hits + ' hits)') : ('tried to cover — could not reach the ' + ((foe && foe.name) || 'foe'))), {})
+  } catch (e) {}
+}
 async function familyChairTick() {
   try {
     if (!bot || !bot.entity) return
@@ -5355,23 +5706,7 @@ async function familyChairTick() {
       const op = bot.players[owner].entity
       const foe = Object.values(bot.entities).filter(e => e && e.type === 'hostile' && e.name !== 'creeper' && op.position.distanceTo(e.position) < 12)
         .sort((a, b) => op.position.distanceTo(a.position) - op.position.distanceTo(b.position))[0]
-      if (foe) queueTask(async () => {
-        try { await equipBestTool('sword') } catch (e) {}
-        let hits = 0
-        for (let i = 0; i < 5; i++) {
-          if (!bot || !bot.entity || !foe || foe.isValid === false) break
-          if (panic || (bot.health !== undefined && bot.health <= 6)) break     // the v9.15 retreat reflex must win
-          const opNow = owner && bot.players[owner] && bot.players[owner].entity
-          if (opNow && opNow.position.distanceTo(foe.position) < 3) {
-            // the boy is ADJACENT to the foe — a sword sweep would catch him; INTERPOSE like safetyTick instead
-            try { const mid = opNow.position.plus(foe.position).scaled(0.5); await moveNear(mid, 1) } catch (e) {}
-            await sleep(600); continue
-          }
-          try { await moveNear(foe.position, 2); await bot.lookAt(foe.position.offset(0, 1, 0)); await bot.attack(foe); hits++ } catch (e) {}
-          await sleep(600)
-        }
-        journal('chair', (hits > 0 ? ('drove a ' + ((foe && foe.name) || 'foe') + ' off the boy (' + hits + ' hits)') : ('tried to cover — could not reach the ' + ((foe && foe.name) || 'foe'))) + ' while keeping the guardian\'s watch', {})
-      })
+      if (foe) queueTask(() => driveOffFoe(op.position.clone(), foe.name))   // extracted (fleet-3): one shared bounded loop — see driveOffFoe; also answers sibling ⚔ALERT tokens
     }
   } catch (e) {}
 }
@@ -5389,6 +5724,49 @@ function watchTick() {
   } catch (e) {}
 }
 setInterval(watchTick, 60000); setTimeout(watchTick, 20000)
+// 🫂 DEATH COMFORT responder (fleet-3): when the BOY dies (know.boyDeathAt, stamped by the messagestr
+// hook in join()), the body holding the family watch waits for him to respawn into sight, meets him,
+// comforts him, raises a beacon over the death point, and walks him back SLOWLY — never more than ~10
+// blocks ahead. Expires 4.5 min after death (same window as his own deathAt — past that the drops are
+// gone). Fallback: if the watch-holder's body is not even in the world, whoever is awake answers.
+let _comfortBusy = false
+setInterval(() => {
+  try {
+    if (!bot || !bot.entity || _comfortBusy || busy || panic) return
+    const d = know.boyDeathAt
+    if (!d) return
+    if (d.comforted || Date.now() - d.ts > 4.5 * 60 * 1000) { delete know.boyDeathAt; bsave('know', know); return }
+    const w = familyWatchKey(), watchName = w.charAt(0).toUpperCase() + w.slice(1)
+    const mine = w === IDENT.key || !(bot.players[watchName] && bot.players[watchName].entity)   // fallback any: the watch-holder is absent
+    if (!mine) return
+    const p = owner && bot.players[owner] && bot.players[owner].entity
+    if (!p) return                                            // the boy has not respawned into sight yet — keep waiting
+    _comfortBusy = true
+    d.comforted = true; bsave('know', know)                    // claim before the task runs — no double-queue
+    queueTask(async () => {
+      try {
+        await moveNear(p.position, 2)
+        say(IDENT.key === 'trajan' ? 'You fell. I am here — stay behind me, we go back together.' : IDENT.key === 'providencia' ? 'Oh love, you are alright — I am right here. We will fetch your things, hand in mine.' : 'you\'re okay!! I\'m HERE!! big hug 🫂 let\'s go get your stuff together!!', true)
+        feel({ child_affection: 12, affection: 10, sadness: -6 }, 'comforting the boy')
+        if (d.at) {
+          const dp = new Vec3(d.at.x, d.at.y, d.at.z)
+          await raiseBeacon(dp).catch(() => {})               // a light over where it happened, so his things are findable
+          const deadline = d.ts + 4.5 * 60 * 1000
+          while (Date.now() < deadline && bot && bot.entity) {
+            const boy = owner && bot.players[owner] && bot.players[owner].entity
+            if (!boy) break
+            if (boy.position.distanceTo(dp) < 4) { say('here!! grab your things, I\'ll keep watch 🛡️', true); break }
+            if (bot.entity.position.distanceTo(boy.position) > 10) await moveNear(boy.position, 2).catch(() => {})   // the rope: never outrun a 3yo
+            else { const dvec = dp.minus(bot.entity.position); if (dvec.norm() > 3) await moveNear(bot.entity.position.plus(dvec.normalize().scaled(6)), 2).catch(() => {}) }
+            await sleep(1200)
+          }
+        }
+        journal('comfort', 'met the boy after his fall and walked him back', d.at || {})
+      } catch (e) {}
+      finally { delete know.boyDeathAt; bsave('know', know); _comfortBusy = false }
+    })
+  } catch (e) {}
+}, 4000)
 // v9.19 MACHINE SLEEP GRACE: timers don't fire during Windows standby, so a wall-clock gap >> interval
 // means this machine slept. Wake gently: forget sibling states (their vitals aged while WE were gone —
 // no false mourning), drop the homestead cache (a stale cursor must not drive the first bout), and
