@@ -212,12 +212,14 @@ async function commonsAbsorb() {
       if (r && r.ok) { const j = await r.json().catch(() => null); for (const row of (j || [])) if (row && row.data) shares.push(row.data) }
     } catch (e) {}
     try { for (const f of fs.readdirSync(COMMONSDIR).filter(f => f.endsWith('.json'))) { if (f === IDENT.key + '.json') continue; try { shares.push(JSON.parse(fs.readFileSync(path.join(COMMONSDIR, f), 'utf8'))) } catch (e) {} } } catch (e) {}
+    const preState = JSON.stringify([know.places, (know.recipes || []).length, (know.lessons || []).map(l => l.id), Object.keys(know.tips || {}), know.sharedSkills])   // v9.20: churn detector — only REAL change earns a bsave/journal
     for (const o of shares) {
       if (!o || o.who === IDENT.key) continue
+      if (!o.ts || Date.now() - o.ts > 24 * 3600 * 1000) continue   // v9.20: a frozen share from a long-dead file must not reinject stale entries forever
       for (const kind in (o.places || {})) {
         know.places[kind] = know.places[kind] || []
         for (const p of (Array.isArray(o.places[kind]) ? o.places[kind] : [])) {   // v9.11.2: tolerate a mis-shaped peer file — never abort the whole absorb cycle
-          if (p && typeof p.x === 'number' && !know.places[kind].find(q => Math.abs(q.x - p.x) + Math.abs(q.z - p.z) < 24)) {
+          if (p && typeof p.x === 'number' && typeof p.z === 'number' && !know.places[kind].find(q => Math.abs(q.x - p.x) + Math.abs(q.z - p.z) < 24)) {
             know.places[kind].push({ x: p.x, y: p.y, z: p.z, ts: p.ts || Date.now(), via: o.who })
             know.places[kind] = know.places[kind].slice(-14); merged++
           }
@@ -232,18 +234,23 @@ async function commonsAbsorb() {
         let lbase = String(l.id), lorigin = o.who
         for (let g = 0; g < 6; g++) { const m = lbase.match(/^(clippy|trajan|providencia):(.+)$/); if (!m) break; lorigin = m[1]; lbase = m[2] }
         if (lorigin === IDENT.key) continue                       // my own lesson coming home — my deck owns it un-prefixed already
+        if ((know.lessons || []).some(x => x.id === lbase)) continue   // v9.20: I already own this knowledge natively (tip-echo) — no namespaced duplicate
         const nid = lorigin + ':' + lbase
         if ((know.evictedNids || []).includes(nid)) continue      // tombstoned — never re-absorb every 90s what my deck evicted
         if (!(know.lessons || []).some(x => x.id === nid)) { addLesson(nid, l.text); know.taughtBy = know.taughtBy || {}; know.taughtBy[nid] = { who: o.name || o.who, text: String(l.text).slice(0, 120) }; merged++ }
       }
       know.tips = know.tips || {}
       for (const g in (o.tips || {})) if (!know.tips[g]) { know.tips[g] = o.tips[g]; merged++ }   // fill GAPS only — never overwrite his own tips
-      const mine = new Set(skills.learned || [])
+      const mine = new Set([...(skills.learned || []), ...(know.sharedSkills || [])])   // v9.20: already-shared skills are not "new" every 90s
       for (const s of (o.learned || [])) if (!mine.has(s)) fromOthers.push(s)
     }
     if (know.taughtBy) { const ks = Object.keys(know.taughtBy); if (ks.length > 20) for (const k of ks.slice(0, ks.length - 20)) delete know.taughtBy[k] }
     if (fromOthers.length) know.sharedSkills = Array.from(new Set([...(know.sharedSkills || []), ...fromOthers])).slice(-200)
-    if (merged) { bsave('know', know); journal('commons', 'absorbed ' + merged + ' shared discoveries from the trio', {}) }
+    // v9.20: only a REAL state change earns a save + a journal line — the old per-push `merged` counter
+    // counted rotations the caps immediately undid, so every body claimed "absorbed 15 discoveries"
+    // every 90s forever while nothing actually changed
+    const postState = JSON.stringify([know.places, (know.recipes || []).length, (know.lessons || []).map(l => l.id), Object.keys(know.tips || {}), know.sharedSkills])
+    if (merged && postState !== preState) { bsave('know', know); journal('commons', 'absorbed ' + merged + ' shared discoveries from the trio', {}) }
   } catch (e) {}
 }
 setInterval(() => { commonsPublish(); commonsAbsorb() }, 90 * 1000)
@@ -1030,15 +1037,26 @@ function lookAround() {
     return bits.join('. ') + '.'
   } catch (e) { return 'everything looks a little fuzzy right now.' }
 }
+function inHsFootprint(v, m) {
+  // v9.20: the homestead square (site ± HS_HALF, + margin) — known from the cached bus row from stage
+  // one, NOT from know.protected (which only gains the box after completion). The middle stays the boy's.
+  try { const c = _hsCache && _hsCache.row && _hsCache.row.site; return !!c && Math.abs(v.x - c.x) <= HS_HALF + (m || 3) && Math.abs(v.z - c.z) <= HS_HALF + (m || 3) } catch (e) { return false }
+}
 function flatSpotNear(center, need) {
   // build-site vision: pick the flattest 5x5 within ±8 of the wanted origin
+  // v9.20: candidates inside the homestead footprint are DISQUALIFIED, not scored — a personal build
+  // must never land in the family square; if the bot stands inside it, the search re-centers outside.
+  if (inHsFootprint(center, 6)) { try { const c = _hsCache.row.site; center = new Vec3(c.x + Math.sign(center.x - c.x || 1) * (HS_HALF + 10), center.y, c.z + Math.sign(center.z - c.z || 1) * (HS_HALF + 10)) } catch (e) {} }
   let best = center, bestScore = -1
   for (let ox = -8; ox <= 8; ox += 4) for (let oz = -8; oz <= 8; oz += 4) {
-    const o = center.offset(ox, 0, oz); let s = 0
-    for (let x = 0; x < 5; x++) for (let z = 0; z < 5; z++) {
+    const o = center.offset(ox, 0, oz); let s = 0, bad = false
+    if (inHsFootprint(o.offset(2, 0, 2))) continue
+    for (let x = 0; x < 5 && !bad; x++) for (let z = 0; z < 5; z++) {
+      if (inProtected(o.offset(x, 1, z))) { bad = true; break }   // v9.20: protected ground disqualifies the candidate outright — it was only a score penalty before
       const g = bot.blockAt(o.offset(x, 0, z)); const a = bot.blockAt(o.offset(x, 1, z))
-      if (g && g.boundingBox === 'block' && a && a.name === 'air' && !inProtected(o.offset(x, 1, z))) s++
+      if (g && g.boundingBox === 'block' && a && a.name === 'air') s++
     }
+    if (bad) continue
     if (s > bestScore) { bestScore = s; best = o }
     if (s >= (need || 22)) return o
   }
@@ -1047,17 +1065,36 @@ function flatSpotNear(center, need) {
 
 // ============================ TASK QUEUE (finish what he starts) ============================
 let taskQ = []
+let _busyBy = '', _busySince = 0                              // v9.20: WHO holds busy, since WHEN — the wedge watchdog's evidence
 function queueTask(fn) { taskQ.push(fn); if (!busy) runQ() }
 async function runQ() {
   if (busy || !taskQ.length || !bot) return
-  busy = true; mode = 'busy'
+  busy = true; mode = 'busy'; _busyBy = 'task'; _busySince = Date.now()
   const myGen = actGen                                        // v9.14: a kick/reconnect bumps actGen — a stale task must NOT clobber the fresh life's busy/mode
   const fn = taskQ.shift()
   try { await withTimeout(fn(), 420000) } catch (e) { log('task err', e.message); journal('taskerr', e.message) }   // big builds need time
   if (actGen !== myGen) return                                // disconnected mid-task; the end/watchdog handler already freed busy/mode — don't drain into a new life
-  busy = false; mode = 'hangout'
+  busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0
   if (taskQ.length) setTimeout(runQ, 500)
 }
+// v9.20 THE BUSY-WEDGE WATCHDOG. Found in production: `busy` held true for HOURS on all three bodies
+// (a manual busy-setter — a game or ceremony — never released it), so runQ never drained, taskQ grew
+// to 10+, and the whole task engine sat dead while every plain interval kept running. runQ's own
+// timeout can't help — it only guards tasks IT started. This watchdog frees any busy held > 8 min
+// with no live runQ task, journals the culprit tag, and restarts the queue. Games mark themselves
+// via _busyBy so the journal names the wedge.
+setInterval(() => {
+  try {
+    if (!busy) return
+    if (!_busySince) { _busySince = Date.now(); return }        // legacy setter that didn't stamp — start the clock now
+    if (Date.now() - _busySince > 8 * 60 * 1000) {
+      journal('taskwedge', 'busy held ' + Math.round((Date.now() - _busySince) / 60000) + ' min by "' + (_busyBy || 'unknown') + '" — force-freeing (' + taskQ.length + ' tasks waiting)', {})
+      busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0
+      try { bot && bot.pathfinder && bot.pathfinder.setGoal(null) } catch (e) {}
+      if (taskQ.length) setTimeout(runQ, 500)
+    }
+  } catch (e) {}
+}, 60000)
 // action logger — every meaningful act, analyzable by steward+Grok
 function alog(act, data) { try { fs.appendFileSync(path.join(BRAINDIR, 'action_log.jsonl'), JSON.stringify({ t: new Date().toISOString(), act, d: data || null }) + '\n') } catch (e) {} }
 // BOUNDED JOURNALS: the append-only .jsonl files grow forever. Trim each to its last `keep` lines so
@@ -2229,7 +2266,12 @@ function roleOrder(list) {
 }
 function GOALS_LIST() {
   const creative = bot.game && bot.game.gameMode === 'creative'
-  return roleOrder([
+  // v9.20: the endgame chain (mine obsidian → nether → dragon) is IMPOSSIBLE in creative (no drops, no
+  // survival progression) — those goals failed forever, pinned the campaign, and burned a 150-300s
+  // budget every retry. In creative they simply don't exist; survival worlds see the identical list.
+  const SURVIVAL_ONLY = new Set(['obsidian', 'blazerods', 'pearls', 'eyes', 'stronghold', 'endportal', 'dragon', 'portal'])
+  const _glFilter = l => creative ? l.filter(g => !SURVIVAL_ONLY.has(g.id)) : l
+  return _glFilter(roleOrder([
     { id: 'wood', hint: 'chop wood', say: 'I\'m gonna get wood!!', win: 'I got wood!! 🪵', done: () => creative || countLogs() >= 4 || skills.mined.log >= 4, act: () => gatherWood(6), learn: 'gather wood', mem: 'I learned to gather wood.' },
     { id: 'planks', hint: 'make planks', say: 'making planks!!', win: 'planks!! 🟫', done: () => creative || countPlanks() >= 8 || (skills.crafted.planks || 0) > 0, act: async () => { await craftPlanks(12) }, learn: 'craft planks', mem: 'I learned to craft planks.' },
     { id: 'table', hint: 'make AND place a crafting table', say: 'building a crafting table!!', win: 'a crafting table, all set up!! 🛠️', done: () => creative || !!bot.findBlock({ matching: b => b && b.name === 'crafting_table', maxDistance: 24 }), act: async () => { await ensureTable() }, learn: 'craft + place table', mem: 'I made my first crafting table AND set it up properly.' },
@@ -2423,7 +2465,7 @@ function GOALS_LIST() {
         } catch (e) { journal('decision', 'lighting failed: ' + e.message) }
       }
     }, learn: 'portal frame', mem: 'I worked on my nether portal — the door to the scary place.' },
-  ])
+  ]))
 }
 const DEFER = 3                                              // v8.3: fails before a goal is set aside — pivot sooner (Clippy: "help me not get stuck")
 function goalDeferred(id) { return (goalState.fails[id] || 0) >= DEFER }
@@ -2770,6 +2812,7 @@ async function obtainBlock(name) {
 }
 async function moveNear(v, dist) {
   dist = dist || 3
+  if (bot && bot.entity && bot.entity.position.distanceTo(v) <= dist + 0.5) return   // v9.20: already there — skip the pathfinder goal + 350ms poll (2+ calls per homestead cell = minutes of dead time)
   // v9.12: resolve promptly on real arrival (pathfinder 'goal_reached'), bail on 'noPath',
   // and scale the fallback timeout with distance instead of a flat 5s that silently capped travel.
   return new Promise(res => {
@@ -3639,7 +3682,7 @@ setInterval(() => { if (bot && bot.entity && !busy && !(taskQ && taskQ.length)) 
 // 🎲 GAMES a little one loves (v7.3)
 async function hideAndSeek() {
   if (!bot || !owner || busy) return
-  busy = true; mode = 'busy'
+  busy = true; mode = 'busy'; _busyBy = 'game'; _busySince = Date.now()
   say('hide and seek!! count to ten then come FIND me!! 🙈')
   try {
     const a = Math.random() * Math.PI * 2, R = 12 + Math.random() * 8   // v9.14: hide CLOSER so a 3yo can actually close the gap
@@ -3677,7 +3720,7 @@ async function hideAndSeek() {
 }
 async function seekKid() {
   if (!bot || !owner || busy) return
-  busy = true; mode = 'busy'
+  busy = true; mode = 'busy'; _busyBy = 'game'; _busySince = Date.now()
   say('YOU hide!! I\'ll count!!')
   for (const n of ['one!', 'two!', 'three!', 'four!', 'five!!']) { say(n); await sleep(1400) }
   say('ready or not here I COME!! 👀')
@@ -3691,7 +3734,7 @@ async function race() {
   if (!bot || !owner || busy) return
   const p = bot.players[owner] && bot.players[owner].entity
   if (!p) return
-  busy = true; mode = 'busy'
+  busy = true; mode = 'busy'; _busyBy = 'game'; _busySince = Date.now()
   const a = Math.random() * Math.PI * 2
   const goal2 = p.position.offset(Math.cos(a) * 18, 0, Math.sin(a) * 18).floored()
   try { await placeAt(goal2.offset(0, 1, 0), 'torch') } catch (e) {}
@@ -3718,7 +3761,7 @@ function celebrate() {
 // 🖼️ v9.14 BUILD PARADE: walk the child to everything Clippy made him — builds feel like remembered gifts.
 async function showParade() {
   if (!bot || !bot.entity || busy) return
-  busy = true; mode = 'busy'
+  busy = true; mode = 'busy'; _busyBy = 'game'; _busySince = Date.now()
   try {
     const spots = (know.builtSpots || []).slice(-5)
     if (!spots.length) { say('I haven\'t built you anything YET — wanna pick something?? 🎨', true); busy = false; mode = 'hangout'; return }
@@ -3739,7 +3782,7 @@ async function peekaboo() {
   if (!bot || !owner || busy) return
   const op = () => bot.players[owner] && bot.players[owner].entity
   if (!op()) return
-  busy = true; mode = 'busy'
+  busy = true; mode = 'busy'; _busyBy = 'game'; _busySince = Date.now()
   try {
     for (let r = 0; r < 4 && bot && bot.entity; r++) {
       try { bot.setControlState('sneak', true); await bot.look(bot.entity.yaw, 1.4, false) } catch (e) {}   // hands over face / look down
@@ -4118,7 +4161,7 @@ function startLearning() {
       }
       if (Math.random() < 0.75) {                              // then one deliberate rep on the frontier skill
         learnLock = true
-        const skill = banditSkill()                            // outcome-driven pick, not XP alone
+        const skill = (bot.game && bot.game.gameMode === 'creative') ? 'build' : banditSkill()   // v9.20: creative drops nothing, so gather drills can never win — and the bandit's exploit term REWARDS failure, locking onto them forever. In creative only 'build' verifies.
         queueTask(async () => { try { await drillRep(skill) } finally { learnLock = false } })
       }
     } catch (e) { learnLock = false }
@@ -4903,7 +4946,11 @@ async function hsStageDone(row, st) {
   // the finishing ceremony — extracted so a stage completes at the END of its final bout, not one blocked cycle later
   const c = row.site, stg = row.stages[st]
   if (stg.done) return
-  stg.done = true; stg.doneTs = Date.now(); stg.claim = null; await hsSave(row)
+  stg.done = true; stg.doneTs = Date.now(); stg.claim = null
+  delete stg.fails                                              // v9.20: dead weight once done (skipped stays — the audit needs it)
+  const nxt = HS_ORDER[HS_ORDER.indexOf(st) + 1]
+  if (nxt && row.stages[nxt] && !row.stages[nxt].openTs) row.stages[nxt].openTs = Date.now()   // v9.20: the takeover clock measures quiet since the stage OPENED — row.founded made every non-lead eligible instantly
+  await hsSave(row)
   const line = (HS_DONE_SAY[st] || {})[IDENT.key]; if (line) say(line, true)
   journal('homestead', 'stage ' + st + ' complete' + (stg.skipped && stg.skipped.length ? ' (' + stg.skipped.length + ' cells skipped after 3 tries)' : ''), {}); learnSkill('homestead ' + st)
   try { feel({ happiness: 10, joy: 8, confidence: 8 }, 'proud') } catch (e) {}
@@ -4926,16 +4973,24 @@ async function hsWork(st) {
   if (stg.cur >= total) { await hsStageDone(row, st); return }
   // honor a sibling's LIVE claim — never two shovels on one cursor
   if (stg.claim && stg.claim.who !== IDENT.key && Date.now() - (stg.claim.ts || 0) < 6 * 60 * 1000) { journal('homestead', 'deferred: ' + stg.claim.who + ' holds ' + st, {}); return }
+  const prevBy = stg.by
   stg.claim = { who: IDENT.key, ts: Date.now() }; stg.by = IDENT.key; stg.ts = Date.now()
   if (IDENT.key === HS_LEAD[st]) stg.leadTs = Date.now()          // only the LEAD's touch re-arms the takeover clock — a taker's own saves must never lock itself back out
   await hsSave(row)
+  // v9.20 read-back arbitration: last-writer-wins on the bus means two racers can both believe they
+  // hold the claim — sleep, refetch, and the true holder is whoever the row shows; the loser yields.
+  await sleep(2500)
+  const chk = await hsRow(true)
+  if (chk && chk.stages && chk.stages[st] && chk.stages[st].claim && chk.stages[st].claim.who !== IDENT.key) { journal('homestead', 'lost the claim race for ' + st + ' to ' + chk.stages[st].claim.who + ' — yielding', {}); return }
+  if (HS_LEAD[st] !== IDENT.key && prevBy !== IDENT.key && !stg.takenLogged) { stg.takenLogged = IDENT.key; journal('homestead', 'TAKEOVER of ' + st + ' from ' + HS_LEAD[st] + ' (quiet lead) — ' + IDENT.key + ' carries it', {}) }   // v9.20: announced only when actually WON, once
   const anchor = new Vec3(c.x, c.y + 1, c.z)
   if (bot.entity.position.distanceTo(anchor) > 48) { try { await moveNear(anchor, 24) } catch (e) {} }
+  stg.claim = { who: IDENT.key, ts: Date.now() }                  // v9.20: re-stamp after travel/gather so a long walk never lets the claim look stale mid-bout
   if (!creativeFly() && !(bestBuildBlock() && count(bestBuildBlock()) >= 20) && /mark|ring|wall|larder|hearth|paddock/.test(st)) { try { await gatherStone(28) } catch (e) {}; if (!bestBuildBlock()) { try { await gatherWood(4); await craftPlanks(12) } catch (e) {} } }
   const t0 = Date.now(); const myGen = actGen
   let done = 0, placed = 0, dug = 0, failedN = 0, optSkip = 0, end = 'budget'
   stg.g = stg.g || {}                                             // per-column ground, PINNED once per stage and shared on the bus — bout boundaries and body handoffs must all see the same terrain
-  for (let i = stg.cur; i < total && done < 30 && Date.now() - t0 < 220000; i++) {
+  for (let i = stg.cur; i < total && done < ((creativeFly() && !hsHumansOnline()) ? 120 : 30) && Date.now() - t0 < 220000; i++) {   // v9.20 SURGE: 4x cells when creative and verifiably no humans — re-checked every cell, collapses the instant anyone joins
     if (!bot || !bot.entity || actGen !== myGen) { end = 'gone'; break }
     if (panic || (bot.health !== undefined && bot.health <= 6)) { end = 'hurt'; break }
     if (!playerAFK()) { end = 'boy'; break }                      // the boy returned mid-bout — drop the shovel now
@@ -4984,31 +5039,65 @@ async function hsWork(st) {
       if (stg.fails[i] >= 3) { stg.skipped = (stg.skipped || []).concat([i]).slice(-40); stg.cur = i + 1; done++ }
       else { end = 'stuck@' + i; break }                           // retry the cell next bout — never stamp "done" over a hole
     }
-    await sleep(60)
+    await sleep((creativeFly() && !hsHumansOnline()) ? 15 : 60)
   }
   buildingNow = null
   if (end === 'budget' && Date.now() - t0 >= 220000) end = 'time'
   stg.total = total; stg.pct = Math.round(stg.cur / Math.max(1, total) * 100); stg.claim = null; stg.ts = Date.now()
   // quarter-milestone narration — saidQ rides the row so the trio share the once-guard
   try { const q = Math.floor(stg.pct / 25); if (done > 0 && stg.pct < 100 && q > (stg.saidQ || 0)) { stg.saidQ = q; say(IDENT.key === 'trajan' ? ('The ' + st + ' stands ' + stg.pct + '%.') : IDENT.key === 'providencia' ? ('The ' + st + ' is ' + stg.pct + '% along, loves.') : ('our ' + st + ' is ' + stg.pct + '% up!! 🔨'), true) } } catch (e) {}
-  // merge-save: refetch server truth so a slow body never rolls back a sibling's cursor or resurrects a done stage
+  // merge-save: refetch server truth so a slow body never rolls back a sibling's cursor or resurrects a done stage.
+  // v9.20 FIELD-WISE — Object.assign wholesale once clobbered a sibling's ground pins, live claim, and saidQ.
   const cur2 = await hsRow(true)
   if (cur2 && cur2.stages && cur2.stages[st]) {
     const s2 = cur2.stages[st]
     stg.cur = Math.max(stg.cur, s2.cur || 0); stg.done = stg.done || !!s2.done
+    stg.g = Object.assign({}, s2.g || {}, stg.g || {})            // union — a sibling's pins survive my save
+    stg.saidQ = Math.max(stg.saidQ || 0, s2.saidQ || 0)
+    stg.skipped = Array.from(new Set([...(s2.skipped || []), ...(stg.skipped || [])])).slice(-40)
+    stg.placedN = (s2.placedN || 0) + placed; stg.dugN = (s2.dugN || 0) + dug   // true lifetime totals (bouts ring is capped)
+    if (s2.claim && s2.claim.who !== IDENT.key && Date.now() - (s2.claim.ts || 0) < 6 * 60 * 1000) stg.claim = s2.claim   // never null a sibling's LIVE claim
+    if (stg.cur >= total) stg.done = true                         // v9.20: done flips IN THE SAME WRITE as the finishing cursor — no window for a duplicate ceremony
+    stg.pct = Math.round(stg.cur / Math.max(1, total) * 100)
     cur2.stages[st] = Object.assign({}, s2, stg)
     cur2.bouts = (cur2.bouts || []).concat([{ who: IDENT.key, st, at: Date.now(), n: done, placed, dug, failed: failedN, optSkip, ms: Date.now() - t0, end }]).slice(-24)
+    try { cur2.sum = hsSummary(cur2) } catch (e) {}
     await hsSave(cur2)
-    if (stg.cur >= total) await hsStageDone(cur2, st)             // finish at the end of the finishing bout, not a cycle later
+    if (stg.cur >= total) { cur2.stages[st].done = false; await hsStageDone(cur2, st) }   // ceremony runs once here (done was pre-flipped in the save; reset locally so hsStageDone's guard lets THIS body speak)
   } else await hsSave(row)
-  journal('homestead', st + ' +' + done + ' → ' + stg.pct + '% (placed ' + placed + ' dug ' + dug + ' failed ' + failedN + ' optSkip ' + optSkip + ' end ' + end + ')', {})
+  const _sum = (cur2 && cur2.sum) || null
+  journal('homestead', st + ' +' + done + ' → ' + stg.pct + '% (placed ' + placed + ' dug ' + dug + ' failed ' + failedN + ' optSkip ' + optSkip + ' end ' + end + ')' + (_sum ? ' | overall ' + _sum.pct + '%, ' + _sum.left + ' cells left' + (_sum.eta ? ', ~' + _sum.eta + 'm' : '') : ''), {})
+  // v9.20: chain the next bout through the TICK (every gate re-evaluated) when this one ended on budget
+  // in an empty creative world — kills the 45-60s dead wait between bouts. Protective endings never chain.
+  if (done > 0 && !stg.done && (end === 'budget' || end === 'time') && creativeFly() && !hsHumansOnline()) setTimeout(() => { try { homesteadTick() } catch (e) {} }, 8000)
 }
 function creativeFly() { try { return bot.game && bot.game.gameMode === 'creative' } catch (e) { return false } }
+function hsHumansOnline() { try { return Object.values(bot.players || {}).some(p => p && p.username !== bot.username && !SIBNAMES.has(p.username)) } catch (e) { return true } }   // fails CLOSED — assume a human if unsure
+const HS_TOTAL_CELLS = 1016
+function hsSummary(row) {
+  // ONE bounded object = the whole truth at a glance, computed only at end-of-bout saves from data in hand
+  const doneCells = HS_ORDER.reduce((a, s) => { const g = row.stages[s] || {}; return a + (g.done ? (g.total || g.cur || 0) : (g.cur || 0)) }, 0)
+  const st = HS_ORDER.find(s => !(row.stages[s] || {}).done) || null
+  const left = Math.max(0, HS_TOTAL_CELLS - doneCells)
+  const by = {}
+  for (const b of (row.bouts || [])) { const w = b.who || '?'; by[w] = (by[w] || 0) + (b.placed || 0) + (b.dug || 0) }
+  let n = 0, ms = 0
+  for (const b of (row.bouts || []).slice(-8)) { n += b.n || 0; ms += b.ms || 0 }
+  const rate = ms > 0 ? n / (ms / 60000) : 0
+  return { pct: Math.min(100, Math.round(doneCells / HS_TOTAL_CELLS * 100)), st, left, eta: (st && rate > 0.2) ? Math.min(9999, Math.round(left / rate)) : null, by, ts: Date.now() }
+}
 function hsStatusLine() {
   const row = _hsCache.row
   if (!row || !row.site) return 'we haven\'t staked our homestead yet — soon!! ✨'
-  const parts = HS_ORDER.map(s => { const g = row.stages[s] || {}; return g.done ? null : (s + ' ' + (g.pct || 0) + '%') }).filter(Boolean)
-  return parts.length ? ('homestead: building the ' + parts[0] + '!! (' + HS_ORDER.filter(s => (row.stages[s] || {}).done).length + '/' + HS_ORDER.length + ' parts done)') : 'our homestead is FINISHED!! 🏰'
+  const doneN = HS_ORDER.filter(s => (row.stages[s] || {}).done).length
+  if (doneN >= HS_ORDER.length) return 'our homestead is FINISHED!! 🏰'
+  const sum = row.sum || {}
+  const cur = sum.st || HS_ORDER.find(s => !(row.stages[s] || {}).done)
+  const pct = (typeof sum.pct === 'number') ? sum.pct : Math.round(doneN / HS_ORDER.length * 100)
+  let line = 'homestead ' + pct + '% — building the ' + cur
+  if (sum.eta) line += ', ~' + (sum.eta >= 90 ? Math.round(sum.eta / 60) + 'h' : sum.eta + 'min') + ' of quiet work left'
+  line += ' (' + doneN + '/' + HS_ORDER.length + ' parts done)'
+  return line
 }
 let _hsQueuedTs = 0, _stayAbsentSince = 0, _hsYield = 0
 function hsEnsureProtected(row) {
@@ -5051,7 +5140,7 @@ async function hsMend() {
     const b = bot.blockAt(tgt)
     if (!b || b.name !== 'air') continue
     holes++
-    if (inProtected(tgt)) continue
+    if ((know.kidBuilds || []).some(k => Math.abs(tgt.x - k.x) <= 2 && Math.abs(tgt.z - k.z) <= 2 && Math.abs(tgt.y - k.y) <= 3)) continue   // v9.20: only the BOY's halo blocks mending — our own hearth/larder boxes once walled the mend out of the very rooms it should heal
     if (Object.values(bot.players || {}).some(p => p && p.entity && p.username !== bot.username && p.entity.position.distanceTo(tgt.offset(0.5, 0.5, 0.5)) < 4)) break
     buildingNow = { min: { x: tgt.x - 2, y: tgt.y - 2, z: tgt.z - 2 }, max: { x: tgt.x + 2, y: tgt.y + 2, z: tgt.z + 2 } }
     const names = [cell.b === 'MAT' ? (bestBuildBlock() || 'cobblestone') : cell.b].concat((cell.alt || []).map(a => a === 'MAT' ? (bestBuildBlock() || 'cobblestone') : a))
@@ -5060,8 +5149,15 @@ async function hsMend() {
     await sleep(80)
   }
   buildingNow = null
-  stg.auditTs = Date.now(); stg.holes = holes; stg.claim = null
-  await hsSave(row)
+  // v9.20: hsMend's row is up to 200s stale — NEVER save it whole (it once rolled back a sibling's live
+  // bout). Refetch and graft only mend's own fields onto server truth.
+  const fresh = await hsRow(true)
+  if (fresh && fresh.stages && fresh.stages[st]) {
+    fresh.stages[st].auditTs = Date.now(); fresh.stages[st].holes = holes
+    if (fresh.stages[st].claim && fresh.stages[st].claim.who === IDENT.key) fresh.stages[st].claim = null
+    fresh.stages[st].g = Object.assign({}, fresh.stages[st].g || {}, stg.g || {})
+    await hsSave(fresh)
+  }
   if (healed) journal('homestead', 'mended ' + healed + ' of ' + holes + ' holes in the ' + st, {})
 }
 async function homesteadTick() {
@@ -5094,8 +5190,17 @@ async function homesteadTick() {
     const stg = row.stages[st] || {}
     if (stg.claim && stg.claim.who !== IDENT.key && Date.now() - (stg.claim.ts || 0) < 6 * 60 * 1000) { _hsYield++; return }   // someone's on it
     const lead = HS_LEAD[st]
-    if (lead !== IDENT.key && stg.by !== IDENT.key && Date.now() - (stg.leadTs || row.founded || 0) < 20 * 60 * 1000) return   // lead's first right runs on the LEAD's clock — a taker's own saves never re-arm the lockout
-    if (lead !== IDENT.key && stg.by !== IDENT.key) journal('homestead', 'TAKEOVER of ' + st + ' from ' + lead + ' after quiet', {})
+    if (lead !== IDENT.key && stg.by !== IDENT.key) {
+      // v9.20 deterministic takeover: quiet measured from the LEAD's clock or the stage OPENING (never
+      // ancient row.founded), and non-leads stagger by rank so exactly one taker wins each window —
+      // the production double-TAKEOVER (clippy+trajan 30s apart) can't recur. Fast lane: once a stage
+      // is OPEN (cur>0), creative, and no humans online, any body may relay the next free bout.
+      const fastRelay = (stg.cur || 0) > 0 && creativeFly() && !Object.values(bot.players || {}).some(p => p && p.username !== bot.username && !SIBNAMES.has(p.username))
+      if (!fastRelay) {
+        const rank = ['clippy', 'trajan', 'providencia'].filter(k => k !== lead).indexOf(IDENT.key)
+        if (Date.now() - (stg.leadTs || stg.openTs || row.founded || 0) < 20 * 60 * 1000 + Math.max(0, rank) * 5 * 60 * 1000) return
+      }
+    }
     _hsQueuedTs = Date.now(); journal('homestead', 'queued a bout of ' + st + ' (' + (stg.pct || 0) + '%)', {}); queueTask(async () => { _hsQueuedTs = 0; await hsWork(st) })
   } catch (e) {} finally { _hsBusy = false }
 }
