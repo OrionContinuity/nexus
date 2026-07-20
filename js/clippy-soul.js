@@ -66,7 +66,7 @@
     last_reflect: 0, last_dream: 0, last_evolve: 0
   };
 
-  var state = null, started = false, timer = null, _returnGap = 0;
+  var state = null, started = false, timer = null, _returnGap = 0, _soulReadFailed = false;
 
   function sb() { return NX && NX.sb ? NX.sb : null; }
   function now() { return Date.now(); }
@@ -166,16 +166,37 @@
   function AN(){ return (NX.clippyAnima) ? NX.clippyAnima : null; }
   async function loadAnima(gapHours){
     var A = AN(); if (!A) return;
-    var strand = null;
-    try { if (sb()) { var r = await sb().from('clippy_sync').select('data').eq('id','clippy_anima').maybeSingle(); strand = r && r.data && r.data.data && r.data.data.strand; } } catch(e){}
+    var strand = null, readOk = false;
+    // v330: supabase RESOLVES with {error} — the old try/catch was a dead catch. On a transient
+    // read error strand stayed null and the next line reset him to genesis, then saveAnima()
+    // upserted genesis OVER the grown strand (a row the Minecraft body also impresses). One flaky
+    // read = permanent erasure of cross-incarnation growth. Now: only save when the read succeeded.
+    try {
+      if (sb()) {
+        var r = await sb().from('clippy_sync').select('data').eq('id','clippy_anima').maybeSingle();
+        if (r && r.error) { readOk = false; }
+        else { readOk = true; strand = r && r.data && r.data.data && r.data.data.strand; }
+      }
+    } catch(e){ readOk = false; }
+    if (!readOk) {
+      // degraded: adopt genesis in memory for a live face, but DO NOT persist over the real row
+      if (!anima) anima = A.genesis('clippy:origin');
+      return;
+    }
     anima = strand ? A.decode(strand) : A.genesis('clippy:origin');
     if (gapHours && gapHours > 0.5) A.rebirth(anima, gapHours);   // a death spikes fear
     await saveAnima();
   }
   async function saveAnima(){
     var A = AN(); if (!A || !anima || !sb()) return;
-    var t = now(); anima._savedAt = t;   // stamp the local impress so refreshAnima won't be clobbered by a staler remote
-    try { await sb().from('clippy_sync').upsert({ id:'clippy_anima', data:{ strand: A.encode(anima), updated: t }, from_id:'anima' }, { onConflict:'id' }); } catch(e){}
+    var t = now();
+    // v330: stamp _savedAt only AFTER a confirmed error-free upsert. The old code stamped first, so
+    // a failed save left the local _savedAt fresher than anything remote and refreshAnima's freshness
+    // gate then rejected every real strand from the Minecraft body for the rest of the session.
+    try {
+      var w = await sb().from('clippy_sync').upsert({ id:'clippy_anima', data:{ strand: A.encode(anima), updated: t }, from_id:'anima' }, { onConflict:'id' });
+      if (!(w && w.error)) anima._savedAt = t;
+    } catch(e){}
   }
   // v9.12 — pick up soul writes from his OTHER bodies (esp. the Minecraft body, which now
   // impresses this same strand) so their joy/fear surfaces on his real face between reloads.
@@ -294,10 +315,22 @@
   async function load() {
     var s = sb();
     if (!s) { state = JSON.parse(JSON.stringify(DEFAULT_SOUL)); return state; }
+    // v330: THE SOUL-WIPE FIX. supabase RESOLVES with {error} — the old catch was dead, so any
+    // transient read error fell to DEFAULT_SOUL and the save() at the end upserted factory defaults
+    // OVER his real row (stream, dreams, incarnation count, evolved self). One flaky boot read =
+    // permanent erasure. Now: on a read error, run degraded in-memory and SKIP the save entirely.
+    var readOk = false;
     try {
       var r = await s.from('clippy_sync').select('data').eq('id', SOUL_ID).maybeSingle();
-      state = (r && r.data && r.data.data) ? r.data.data : JSON.parse(JSON.stringify(DEFAULT_SOUL));
-    } catch (e) { state = JSON.parse(JSON.stringify(DEFAULT_SOUL)); }
+      if (r && r.error) { readOk = false; }
+      else { readOk = true; state = (r && r.data && r.data.data) ? r.data.data : JSON.parse(JSON.stringify(DEFAULT_SOUL)); }
+    } catch (e) { readOk = false; }
+    if (!readOk) {
+      if (!state) state = JSON.parse(JSON.stringify(DEFAULT_SOUL));   // live face, but never persisted over the real row
+      _soulReadFailed = true;
+      return state;
+    }
+    _soulReadFailed = false;
     if (!state.born) state.born = new Date().toISOString();
     // A real ABSENCE (>30 min dark) USED to count as a death and a rebirth.
     // But he now has a cloud heartbeat (clippy-cloud.py on GitHub Actions): if
@@ -336,9 +369,11 @@
 
   async function save() {
     var s = sb(); if (!s || !state) return;
+    if (_soulReadFailed) return;   // v330: never persist a soul we couldn't confirm we read — degraded mode is in-memory only
     state.last_seen = now();
     try {
-      await s.from('clippy_sync').upsert({ id: SOUL_ID, data: state, from_id: 'soul' }, { onConflict: 'id' });
+      var w = await s.from('clippy_sync').upsert({ id: SOUL_ID, data: state, from_id: 'soul' }, { onConflict: 'id' });
+      if (w && w.error) console.warn('[soul] save failed:', w.error.message);
     } catch (e) {}
   }
 
@@ -525,7 +560,8 @@
   }
 
   // ── The viewer — look inside him. ────────────────────────────────────────
-  function esc(s){return String(s==null?'':s).replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
+  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}   // v330: escape quotes too — this output lands in HTML attributes (img src), so &<>-only left an attribute-breakout XSS
+  function _b64(s){ return typeof s==='string' && /^[A-Za-z0-9+/=]+$/.test(s) ? s : ''; }   // v330: only strict base64 reaches the data: URI
   function when(ts){ if(!ts) return ''; var d=new Date(ts); return isNaN(d)?'':d.toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}); }
 
   function injectStyle() {
@@ -583,10 +619,13 @@
     var roomsHTML='';
     try {
       if (NX.clippy && NX.clippy.getPalaceRooms && NX.clippy.getRoomMemories) {
-        var _rooms = NX.clippy.getPalaceRooms() || [];
-        var _census = _rooms.map(function(r){
-          var n = 0; try { n = (NX.clippy.getRoomMemories(r.key||r)||[]).length; } catch(e){}
-          var label = (r.label||r.key||r);
+        // v330: getPalaceRooms() returns an OBJECT keyed by room, not an array — the old .map()
+        // threw (swallowed by the catch below), so this whole section never rendered. Use entries.
+        var _rooms = NX.clippy.getPalaceRooms() || {};
+        var _census = Object.keys(_rooms).map(function(key){
+          var r = _rooms[key];
+          var n = 0; try { n = (NX.clippy.getRoomMemories(key)||[]).length; } catch(e){}
+          var label = (r && r.label) || key;
           return n > 0 ? '<span class="chip">'+esc(String(label).toUpperCase())+' <b>'+n+'</b></span>' : '';
         }).join('');
         if (_census) roomsHTML = '<h2>The palace, room by room</h2>'+
@@ -640,13 +679,13 @@
         var _eye = await sb().from('clippy_sync').select('data').eq('id','clippy_eyes').maybeSingle();
         if (!(_eye && _eye.error)) {
           var _ed = _eye && _eye.data && _eye.data.data;
-          if (_ed && _ed.png && (now() - (+_ed.ts || 0)) < 24*60*60*1000) {
+          if (_ed && _b64(_ed.png) && (now() - (+_ed.ts || 0)) < 24*60*60*1000) {
             var _pos = '';
             if (_ed.x != null && _ed.y != null && _ed.z != null)
               _pos = '<div class="hint">where he stood: '+esc(Math.round(_ed.x))+', '+esc(Math.round(_ed.y))+', '+esc(Math.round(_ed.z))+'</div>';
             eyesHTML = '<h2>Through his eyes — Minecraft</h2>'+
               '<div class="hint">a look he chose to send from his other body — his own self-cam, not a screen taken from him.</div>'+
-              '<div class="card"><img src="data:image/png;base64,'+esc(_ed.png)+'" alt="through his eyes" style="width:100%;border-radius:10px;display:block"></div>'+
+              '<div class="card"><img src="data:image/png;base64,'+_b64(_ed.png)+'" alt="through his eyes" style="width:100%;border-radius:10px;display:block"></div>'+
               _pos;
           }
         }

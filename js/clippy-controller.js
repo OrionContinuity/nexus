@@ -73,7 +73,7 @@
       buttons: { a: 'jump', b: 'sneak', x: 'camera', y: 'inventory', lt: 'use', rt: 'attack',
                  lb: 'hotprev', rb: 'hotnext', start: 'none', back: 'none', l3: 'none', r3: 'none',
                  dup: 'none', ddown: 'none', dleft: 'none', dright: 'none' },
-      tuning: { camX: 22, camY: 14, easing: 'easing-quadratic', easingDur: 1.0,
+      tuning: { camX: 35, camY: 22, easing: 'easing-quadratic', easingDur: 1.0,   // v330: 35/22 matches the committed minecraft.gamecontroller.amgp (the x1.6 raise, commit 2370c01) — the old 22/14 here silently reverted it on any panel Save
                 rightDead: 7500, rightMax: 30000, leftDead: 6000, diagRange: 25,
                 stickDelay: 10, wheelSpeed: 1, trigDead: 2000 },
     },
@@ -90,8 +90,8 @@
 
   // Numeric tuning fields: [key, label, min, max, step, unit, help]
   var TUNING = [
-    ['camX',       'Camera speed — horizontal', 5, 100, 1, '', 'higher = faster look left/right (toddler 22, adult 50)'],
-    ['camY',       'Camera speed — vertical',   5, 100, 1, '', 'keep ~64% of horizontal so the sky/feet stare stops (toddler 14)'],
+    ['camX',       'Camera speed — horizontal', 5, 100, 1, '', 'higher = faster look left/right (toddler 35, adult 50)'],
+    ['camY',       'Camera speed — vertical',   5, 100, 1, '', 'keep ~64% of horizontal so the sky/feet stare stops (toddler 22)'],
     ['easingDur',  'Camera ramp-up time',       0.1, 2, 0.1, 's', 'how long a full tilt takes to reach top speed'],
     ['rightDead',  'Camera stick dead zone',    2000, 15000, 500, '', 'bigger = ignores more resting-thumb wobble (toddler 7500)'],
     ['leftDead',   'Move stick dead zone',      2000, 15000, 500, '', 'when walking starts (toddler 6000)'],
@@ -121,36 +121,39 @@
   }
   async function saveCfg(game, cfg) {
     var c = sb(); if (!c) return { error: 'no bus' };
-    // merge-preserve other games' configs
-    var full = { games: {}, ts: Date.now(), by: 'nexus-panel' };
-    try {
-      var r = await c.from('clippy_sync').select('data').eq('id', ROW_ID).maybeSingle();
-      if (!r.error && r.data && r.data.data && r.data.data.games) full.games = r.data.data.games;
-    } catch (_) {}
+    // v330: start from the WHOLE existing row, not a games-only skeleton — the old code discarded
+    // top-level keys (esp. enable_all) on every save, and treated a failed pre-read as an empty
+    // row, wiping every other game's config. Abort on read error instead.
+    var r = await c.from('clippy_sync').select('data').eq('id', ROW_ID).maybeSingle();
+    if (r.error) return { error: 'could not read existing config: ' + (r.error.message || 'read failed') };
+    var full = (r.data && r.data.data && typeof r.data.data === 'object') ? clone(r.data.data) : {};
+    if (!full.games) full.games = {};
     full.games[game] = cfg;
+    full.ts = Date.now(); full.by = 'nexus-panel';
     var w = await c.from('clippy_sync').upsert({ id: ROW_ID, data: full, from_id: 'nexus' }, { onConflict: 'id' });
     return { error: w.error ? (w.error.message || 'save failed') : null };
   }
   async function clearCfg(game) {
-    var c = sb(); if (!c) return;
-    try {
-      var r = await c.from('clippy_sync').select('data').eq('id', ROW_ID).maybeSingle();
-      var full = (!r.error && r.data && r.data.data) ? r.data.data : { games: {} };
-      if (full.games) delete full.games[game];
-      full.ts = Date.now(); full.by = 'nexus-panel';
-      await c.from('clippy_sync').upsert({ id: ROW_ID, data: full, from_id: 'nexus' }, { onConflict: 'id' });
-    } catch (_) {}
+    var c = sb(); if (!c) return { error: 'no bus' };
+    // v330: report the outcome (Reset used to always claim success even when the clear failed) and
+    // abort on read error so a flaky read can't blow away every other game's override.
+    var r = await c.from('clippy_sync').select('data').eq('id', ROW_ID).maybeSingle();
+    if (r.error) return { error: 'could not read existing config: ' + (r.error.message || 'read failed') };
+    var full = (r.data && r.data.data && typeof r.data.data === 'object') ? clone(r.data.data) : { games: {} };
+    if (full.games) delete full.games[game];
+    full.ts = Date.now(); full.by = 'nexus-panel';
+    var w = await c.from('clippy_sync').upsert({ id: ROW_ID, data: full, from_id: 'nexus' }, { onConflict: 'id' });
+    return { error: w.error ? (w.error.message || 'clear failed') : null };
   }
   async function setEnableAll(on) {
     // One switch for every machine: workers see enable_all on the bus and
     // create/remove their local controller.on flag — no per-PC setup ever.
     var c = sb(); if (!c) return { error: 'no bus' };
-    var full = { games: {}, ts: 0 };
-    try {
-      var r = await c.from('clippy_sync').select('data').eq('id', ROW_ID).maybeSingle();
-      if (!r.error && r.data && r.data.data) full = r.data.data;
-      if (!full.games) full.games = {};
-    } catch (_) {}
+    // v330: abort on read error (was proceeding with an empty skeleton → wiped all game configs)
+    var r = await c.from('clippy_sync').select('data').eq('id', ROW_ID).maybeSingle();
+    if (r.error) return { error: 'could not read existing config: ' + (r.error.message || 'read failed') };
+    var full = (r.data && r.data.data && typeof r.data.data === 'object') ? clone(r.data.data) : {};
+    if (!full.games) full.games = {};
     full.enable_all = { on: !!on, ts: Date.now() };
     var w = await c.from('clippy_sync').upsert({ id: ROW_ID, data: full, from_id: 'nexus' }, { onConflict: 'id' });
     return { error: w.error ? (w.error.message || 'save failed') : null };

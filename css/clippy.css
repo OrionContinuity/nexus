@@ -60,12 +60,13 @@
   filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.45))
           drop-shadow(0 0 14px rgba(92, 176, 255, 0.30))
           drop-shadow(0 0 22px var(--clippy-soul-glow));
-  transition: opacity 280ms ease, filter 1600ms ease;
   --pos-transition: left 700ms cubic-bezier(0.34, 1.36, 0.64, 1),
                     top  700ms cubic-bezier(0.34, 1.36, 0.64, 1),
                     bottom 700ms cubic-bezier(0.34, 1.36, 0.64, 1),
                     right  700ms cubic-bezier(0.34, 1.36, 0.64, 1);
-  transition: var(--pos-transition), opacity 280ms ease, filter 200ms ease;
+  /* v330: single transition — the old first declaration (filter 1600ms, the soul-glow "breathe")
+     was silently discarded by this second one (filter 200ms snap). Merged so the aura breathes. */
+  transition: var(--pos-transition), opacity 280ms ease, filter 1600ms ease;
 }
 
 /* Center-stage moment: he glides to the middle, lifts a little, and glows
@@ -228,7 +229,8 @@
 
 /* Subtle breathing scale on the body */
 .clippy-svg .cl-body {
-  transform-origin: 60px 130px;
+  transform-origin: 100px 100px;   /* v330: was 60px 130px — a leftover from the old 120x160 paperclip viewBox; in the 200x200 orb it made the body breathe around its bottom edge instead of its center */
+  transform-box: view-box;
   animation: clBreathe 4.2s ease-in-out infinite;
 }
 @keyframes clBreathe {
@@ -525,18 +527,16 @@
    ACTION ANIMATIONS — one-shot
    ════════════════════════════════════════════════════════════════════ */
 
-/* Wave — arm appears, waves 3 times, retracts */
-#clippy-shell.is-waving .cl-arms { opacity: 1; }
-#clippy-shell.is-waving .cl-arm-r,
-#clippy-shell.is-waving .cl-hand-r {
-  animation: clWave 700ms ease-in-out 3;
-  transform-origin: 80px 78px;
-  transform-box: fill-box;
+/* Wave — v330: the orb has no arms (kawaii regen), so the old .cl-arms/.cl-hand-r targets were dead.
+   Retarget to a friendly whole-body tilt-wave so the gesture actually reads. */
+#clippy-shell.is-waving .clippy-svg {
+  animation: clWave 640ms ease-in-out 3;
+  transform-origin: 50% 80%;
 }
 @keyframes clWave {
   0%, 100% { transform: rotate(0); }
-  25%      { transform: rotate(28deg); }
-  75%      { transform: rotate(-18deg); }
+  30%      { transform: rotate(11deg) translateY(-2px); }
+  70%      { transform: rotate(-9deg) translateY(-2px); }
 }
 
 /* Boing — entrance from below, springy */
@@ -591,14 +591,15 @@
   100% { transform: rotate(-360deg) translateX(0); }
 }
 
-/* Magic — sparkles appear, slight glow pulse */
-#clippy-shell.is-magic .cl-sparkles { opacity: 1; }
-#clippy-shell.is-magic .cl-sparkles text {
-  animation: clSparkle 1.2s ease-in-out infinite;
+/* Magic — v330: no .cl-sparkles group exists (kawaii regen); the JS spawns particles for sparkle,
+   so make the body itself do a bright magic pulse+bob so the gesture reads even without them. */
+#clippy-shell.is-magic .clippy-svg {
+  animation: clMagicPulse 900ms ease-in-out 2;
+  transform-origin: 50% 55%;
 }
-@keyframes clSparkle {
-  0%, 100% { opacity: 0.3; transform: scale(0.7); }
-  50%      { opacity: 1;   transform: scale(1.2); }
+@keyframes clMagicPulse {
+  0%, 100% { transform: scale(1) translateY(0); filter: brightness(1); }
+  40%      { transform: scale(1.07) translateY(-4px); filter: brightness(1.35); }
 }
 
 /* Listening (music) — gentle sway */
@@ -1756,14 +1757,20 @@ body.clippy-game-open .clippy-bubble {
   50%      { opacity: 1.00; }
 }
 
-/* Glints — tiny float so eyes feel wet/alive */
+/* Glints — tiny float so eyes feel wet/alive.
+   v330: the float animation used to fully OVERRIDE the cursor-gaze translate on .cl-glint (the
+   kawaii regen made the pupil invisible, so nothing tracked the cursor). Fold the gaze offset
+   (--eye-x/--eye-y, set by updateGaze) INTO the keyframes so the glints both float AND follow. */
 .cl-glint {
   animation: clippy-glint-float 2.6s ease-in-out infinite;
 }
 @keyframes clippy-glint-float {
-  0%, 100% { transform: translateY(0); }
-  50%      { transform: translateY(-0.4px); }
+  0%, 100% { transform: translate(calc(var(--eye-x, 0) * 1px), calc(var(--eye-y, 0) * 1px)); }
+  50%      { transform: translate(calc(var(--eye-x, 0) * 1px), calc(var(--eye-y, 0) * 1px - 0.4px)); }
 }
+/* v330: pupil catchlight — slightly lighter than the #0a0d1f iris so its gaze translate is visible
+   (near-invisible at rest, catches the light as it shifts toward the eye's edge). */
+.clippy-svg .cl-pupil { fill: #26305a; }
 
 /* When SUPPRESSED (modal open), pause the heavier animations */
 #clippy-shell.is-suppressed .cl-nodes,

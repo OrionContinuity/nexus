@@ -55,12 +55,19 @@
     var out = { key: key, label: h.label, lines: [] };
     try {
       var res = await Promise.all([
-        client.from('kanban_cards').select('id,title,priority,location,created_at,archived'),
+        client.from('kanban_cards').select('id,title,priority,location,created_at,archived,closed_at').eq('archived', false).is('closed_at', null),
         client.from('v_pm_due_soon').select('*'),
         client.from('equipment').select('id,name,location,status,status_note'),
       ]);
+      // v330: supabase RESOLVES with {error} — the old `.data || []` turned a failed read into
+      // empty lists and cheerfully reported "Quiet house". If any query errored, say so instead.
+      if (res[0].error || res[1].error || res[2].error) {
+        out.lines.push({ kind: 'err', text: 'I couldn’t reach the records just now — walk on, I’ll catch up.' });
+        return out;
+      }
       var cards = (res[0].data || []).filter(function (c) {
-        return c.archived !== true && norm(c.location) === key;
+        // closed_at filtered server-side now; belt-and-suspenders here too — a Done card is not "open work"
+        return c.archived !== true && !c.closed_at && norm(c.location) === key;
       }).sort(function (a, b) { return new Date(a.created_at) - new Date(b.created_at); });
       var pms = (res[1].data || []).filter(function (p) {
         return norm(p.restaurant) === key && p.days_until_due != null && p.days_until_due <= 7;

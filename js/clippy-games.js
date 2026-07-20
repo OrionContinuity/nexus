@@ -140,6 +140,9 @@
     const scores = getHighScores();
     const game = GAMES[gameId];
     if (!game) return false;
+    // v330: a higher-is-better game's very first score — even 0 (quit at level 1) — used to count
+    // as a NEW HIGH SCORE and get posted to the shared leaderboard. Require a positive score there.
+    if (game.higherIsBetter && !(score > 0)) return false;
     const current = scores[gameId];
     const better = current == null ||
       (game.higherIsBetter ? score > current : score < current);
@@ -348,7 +351,7 @@
     extra = extra || {};
     const game = GAMES[gameId];
     if (!game) { closeGameOverlay(); return; }
-    const newRecord = saveHighScore(gameId, score);
+    const newRecord = extra.aborted ? false : saveHighScore(gameId, score);   // v330: aborted runs never save/celebrate/post
     const allScores = getHighScores();
     const medal = medalForScore(gameId, score);
     // v18.11 — wire game outcomes to emotion deltas.
@@ -816,8 +819,13 @@
       { text: 'GO!', cls: 'is-go' },
     ];
     let i = 0;
+    // v330: a quit during the 3-2-1 used to leave this chain running on a detached container;
+    // its onComplete then restarted a headless rAF loop and (for timed games) popped a GHOST
+    // results overlay over the app. Abort the moment the overlay closes or the container detaches.
+    const live = () => state.gameOverlay && container.isConnected;
     function show() {
-      if (i >= sequence.length) { onComplete && onComplete(); return; }
+      if (!live()) return;
+      if (i >= sequence.length) { if (live()) onComplete && onComplete(); return; }
       const step = sequence[i++];
       const existing = container.querySelector('.clippy-game-countdown');
       if (existing) existing.remove();
@@ -1467,12 +1475,14 @@
       const delay = 1200 + Math.random() * 2800;
       let goAt = 0, earlyClick = false;
       const earlyHandler = () => {
+        if (earlyClick) return;   // v330: a single fast double-tap fired this twice in ~50ms → instant "two false starts" abort; ignore repeats within one wait phase
         if (goAt === 0) {
           earlyClick = true;
           earlyCount++;
           if (earlyCount >= 2) {
             msg.textContent = 'Two false starts — game over.';
             setTimeout(() => showGameResult('reaction', 999, {
+              aborted: true,   // v330: don't save/celebrate/post the 999 penalty sentinel as a personal best
               stats: [{ label: 'Aborted', value: 'too many false starts' }],
             }), 1400);
             return;
@@ -1708,6 +1718,7 @@
       let started = false, alive = true, isRetryShown = false;
       let deadFace = 'dead';
       const columns = [];
+      let colSeq = 0;   // v330: monotonic column id — idx:columns.length reused ids after front-splice, so bonus stars bound to the wrong (older) column and teleported
       const trail = [];
       const bonusStars = [];
       let nextColumnX = W + 60;
@@ -1789,7 +1800,7 @@
         const col = {
           x: nextColumnX,
           gapY: baseGapY, baseGapY,
-          gap: GAP, scored: false, idx: columns.length,
+          gap: GAP, scored: false, idx: colSeq++,
           oscillate, oscAmp, oscFreq, oscPhase,
         };
         columns.push(col);
@@ -3570,6 +3581,7 @@
       closeOverlay: closeGameOverlay,
       offer:        offerGame,
       showResult:   showGameResult,
+      getHighScores: getHighScores,   // v330: clippy.js's maybePullLesson calls this; it lived only in this IIFE, so the bare call threw a ReferenceError every 2s
       // Internal helpers also surfaced for completeness — used by
       // command palette + the bored-mischief "offer a game" hook.
       _GAMES:       GAMES,

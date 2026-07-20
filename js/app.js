@@ -1248,6 +1248,9 @@ td.check{background:#F0EDE6 !important}
       }
       // Re-apply language after view switch
       if(this.i18n)setTimeout(()=>this.i18n.applyUI(),100);
+      // v330: emit the view-change event that core.js (NXRM.views.onSwitch) and detail.js
+      // (autoMount-on-nav) already listen for but nothing ever dispatched.
+      try { document.dispatchEvent(new CustomEvent('nx-view-changed', { detail: { view } })); } catch (_) {}
     };
     // Bind top nav tabs. Action tabs (data-nav-action, e.g. Ordering /
     // Transactions / Clock) have no data-view — they route through

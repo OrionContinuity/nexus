@@ -130,7 +130,7 @@
     var tickets = await q(function () {
       return sb.from('tickets')
         .select('id,title,notes,location,status,priority,created_at,equipment_id')
-        .eq('status', 'open').order('created_at', { ascending: false }).limit(25);
+        .eq('status', 'open').eq('is_deleted', false).order('created_at', { ascending: false }).limit(25);   // v330: filter is_deleted server-side — the client `!t.is_deleted` guard was dead (the column was never selected, always undefined)
     });
     var issues = await q(function () {
       return sb.from('equipment_issues')
@@ -139,8 +139,8 @@
     });
     var cards = await q(function () {
       return sb.from('kanban_cards')
-        .select('id,title,column_name,status,location,priority,created_at')
-        .neq('column_name', 'done').eq('is_deleted', false).eq('is_archived', false)
+        .select('id,title,column_name,status,location,priority,created_at,closed_at')
+        .neq('column_name', 'done').eq('is_deleted', false).eq('archived', false).is('closed_at', null)   // v330: the app archives via `archived` (not `is_archived`) and marks Done via closed_at — the old filter surfaced already-archived cards as OPEN WORK, which the brain then answered from "exactly"
         .order('created_at', { ascending: false }).limit(25);
     });
     tickets = tickets.filter(function (t) { return !t.is_deleted && (!loc || locNorm(t.location) === loc); });
@@ -171,7 +171,13 @@
     var sb = sbClient(); if (!sb) return null;
     var ql = String(question || '').toLowerCase();
     var term = null;
-    for (var i = 0; i < EQ_TERMS.length; i++) { if (ql.indexOf(EQ_TERMS[i]) >= 0) { term = EQ_TERMS[i]; break; } }
+    // v330: word-boundary match, longest term first. Raw indexOf let bare 'ice' fire inside
+    // "serv-ICE" and 'ac' inside dozens of words, so an oven question got grounded in ice machines.
+    var _terms = EQ_TERMS.slice().sort(function (a, b) { return b.length - a.length; });
+    for (var i = 0; i < _terms.length; i++) {
+      var esc = _terms[i].replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/[-\s]+/g, '[-\\s]?');   // escape specials, then let spaces/hyphens flex ("walk-in" ~ "walk in")
+      if (new RegExp('\\b' + esc + '\\b', 'i').test(ql)) { term = _terms[i]; break; }
+    }
     var sel = 'id,name,location,area,category,status,status_note,manufacturer,model,serial_number,health_score,last_pm_date,next_pm_date,service_contractor_name';
     var rows;
     if (term) {
@@ -209,7 +215,7 @@
     var sb = sbClient(); if (!sb) return null;
     var orders = await q(function () {
       return sb.from('orders').select('id,location,delivery_date,status,vendor_id,created_at')
-        .in('status', ['draft', 'sent']).order('created_at', { ascending: false }).limit(15);
+        .in('status', ['draft', 'sent', 'confirmed']).order('created_at', { ascending: false }).limit(15);   // v330: 'confirmed' too — a vendor-confirmed order is still awaiting delivery (ordering.js treats sent||confirmed as pending); without it Clippy denied deliveries actually en route
     });
     if (loc) orders = orders.filter(function (o) { return locNorm(o.location) === loc; });
     var vmap = {};
@@ -304,9 +310,12 @@
       // grounded answer wears it — his tap outranks keyword detection.
       // Normalize: perceivers speak location KEYS ('suerte'), the scope
       // global carries the display label ('Suerte').
-      var loc = (typeof window !== 'undefined' && window._NX_HOUSE_SCOPE)
-        ? locNorm(window._NX_HOUSE_SCOPE)
-        : c.location;
+      // v330: a house NAMED in the question wins over the walk-with-me scope. The old code let the
+      // buddy scope unconditionally override, so while walking Este, "what's broken at Suerte?" was
+      // answered from Este rows — a confident wrong-house answer the brain is told to trust "exactly".
+      var loc = c.location
+        ? c.location
+        : ((typeof window !== 'undefined' && window._NX_HOUSE_SCOPE) ? locNorm(window._NX_HOUSE_SCOPE) : null);
       // Perceivers (live records) and MONETA MIND (semantic memory) run
       // concurrently. Memory can carry a brief alone — recall by meaning
       // catches what keyword domain classification misses.

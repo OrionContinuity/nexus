@@ -49,7 +49,7 @@
     // Perm keys match app.js PERM_RESOURCES; steps the user can't see
     // are skipped silently.
     const STEPS = [
-      { view: 'home', perm: 'home', mood: 'happy',
+      { view: 'home', perm: null, mood: 'happy',   // v330: 'home' isn't a permission resource — hasPermission returned false for every non-admin, so the Home step (ungated for everyone) was silently skipped for exactly the new staff the tour is for
         text: 'Home is the pulse: what’s down, what’s overdue, what needs a human with keys. I refresh it obsessively. One of us has to.' },
       { view: 'clean', perm: 'clean', mood: 'disgusted',
         text: 'Cleaning lives here — today’s checklist, zone by zone. Some tasks want a photo before they count. The dish pit knows when it’s been skipped. I’ve seen it.' },
@@ -133,6 +133,7 @@
         actionBubble(s.text, {
           eyebrow: '🧭 TOUR · ' + n + '/' + steps.length,
           autoHide: 0,
+          fromChat: true,   // v330: the tour IS an explicit user interaction — without this the step bubble was dropped by the "don't talk over a chat" gate if the user had opened chat, leaving the tour stalled (running=true, spotlight stuck) with no Next button
           actions: [
             { label: n < steps.length ? 'Next ›' : 'Finish', cls: 'is-primary',
               onClick: () => { closeBubble(); runStep(steps, i + 1); } },
@@ -151,6 +152,10 @@
       const opener = 'Welcome to NEXUS. I live here — officially the facilities daemon, unofficially the only employee who never clocks out. Want the tour? Takes a minute. I’ve done the route.';
       const opts = {
         text: opener, eyebrow: '👋 WELCOME', mood: 'happy',
+        // v330: reset running on ANY dismiss (× button, replacement) — the old code cleared it only
+        // on "Maybe later", so closing the welcome any other way wedged running=true forever and
+        // "Show me around" became a silent no-op for the rest of the session.
+        onDismiss: () => { running = false; },
         actions: [
           { label: 'Show me around', cls: 'is-primary', onClick: () => { closeBubble(); runStep(steps, 0); } },
           { label: 'Maybe later', onClick: () => { closeBubble(); running = false; } },
@@ -161,7 +166,7 @@
       let ok = false;
       try { ok = NX.clippy.moment ? NX.clippy.moment(opts) : false; } catch (_) {}
       if (!ok) {
-        actionBubble(opener, { eyebrow: '👋 WELCOME', autoHide: 0, actions: opts.actions });
+        actionBubble(opener, { eyebrow: '👋 WELCOME', autoHide: 0, actions: opts.actions, onDismiss: () => { running = false; } });
       }
     }
 

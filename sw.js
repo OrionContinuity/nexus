@@ -217,7 +217,7 @@
    - composer onSend now reports method: 'gmail-api' | 'draft'.
    - Empty ledger (first use) = exactly the old today-only behavior.
 */
-const CACHE_NAME = 'nexus-v329-kawaii-face';
+const CACHE_NAME = 'nexus-v330-clippy-audit';
 const SW_VERSION = CACHE_NAME.replace(/^nexus-/, '');
 
 // ─── App shell — everything needed to run offline ─────────────────
@@ -292,6 +292,8 @@ const APP_SHELL = [
   './js/clippy-senses.js',
   './js/clippy-buddy.js',
   './js/clippy-power.js',
+  './js/clippy-controller.js',
+  './clippy-character.json',
   './js/equipment.js',
   './js/equipment-ai.js',
   './js/equipment-badge-choice.js',
@@ -372,7 +374,10 @@ self.addEventListener('install', event => {
       console.log('[SW ' + SW_VERSION + '] Caching app shell');
       // Use allSettled so one bad file doesn't poison the whole install
       return Promise.allSettled(
-        APP_SHELL.map(url => cache.add(url).catch(err => {
+        // cache:'reload' bypasses the browser HTTP cache — GitHub Pages serves max-age=600,
+        // so without this a freshly-bumped SW could re-cache stale bytes for up to 10 min
+        // (exactly what defeated the kawaii-face bump).
+        APP_SHELL.map(url => cache.add(new Request(url, { cache: 'reload' })).catch(err => {
           console.warn('[SW ' + SW_VERSION + '] Skip:', url, err.message);
         }))
       ).then(() =>
@@ -411,8 +416,9 @@ self.addEventListener('fetch', event => {
 
   // ─── NETWORK-FIRST for JS / CSS / HTML ──────────────────────────
   // Always try latest code. Fall back to cache only if offline.
-  const isCode = /\.(js|css|html)($|\?)/.test(url.pathname) ||
+  const isCode = /\.(js|css|html|svg)($|\?)/.test(url.pathname) ||   // v329: .svg too — clippy.svg is the pet's face; a cache-bump must actually refetch it (the old regex left it cache-first, so a face change never reached devices)
                  /model-config\.json($|\?)/.test(url.pathname) ||  // model "save file" — must reflect edits, like code
+                 /clippy-(dialog|character)\.json($|\?)/.test(url.pathname) ||  // pet persona + dialog pools — edits must reach devices, and must stay paired with the JS that reads them
                  url.pathname === '/' ||
                  url.pathname.endsWith('/nexus/') ||
                  url.pathname.endsWith('/nexus');
@@ -425,7 +431,7 @@ self.addEventListener('fetch', event => {
         }
         return response;
       }).catch(() =>
-        caches.match(event.request).then(cached =>
+        caches.match(event.request, { ignoreSearch: true }).then(cached =>   // ignoreSearch: clippy-power.js?v=1 is precached without the query — an exact match would miss it offline
           cached || new Response('<h1>NEXUS Offline</h1><p>No cached version available. Connect to WiFi to load.</p>', {
             headers: { 'Content-Type': 'text/html' }
           })

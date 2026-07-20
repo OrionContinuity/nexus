@@ -90,19 +90,28 @@
     /* ── Persistence + roll mechanics ────────────────────────────── */
 
     function getGachaState() {
+      // v330: NORMALIZE every field. The blob is cloud-synced (clippy.js installs data.gacha from
+      // the shared bus), so `parsed || {...}` used to accept any truthy JSON — a missing `collection`
+      // then threw mid-reveal AFTER the buttons were hidden, trapping the user under a closeless
+      // fullscreen overlay with Clippy suppressed until reload; missing pity fields became NaN and
+      // silently disabled pity forever.
+      let parsed = null;
       try {
         const raw = localStorage.getItem(ix.userKey('clippy_gacha'));
-        const parsed = raw ? JSON.parse(raw) : null;
-        return parsed || {
-          collection: {},          // id -> count
-          pity_no_rare: 0,
-          pity_no_legendary: 0,
-          last_pull_date: null,    // YYYY-MM-DD
-          total_pulls: 0,
-        };
-      } catch (e) {
-        return { collection: {}, pity_no_rare: 0, pity_no_legendary: 0, last_pull_date: null, total_pulls: 0 };
+        parsed = raw ? JSON.parse(raw) : null;
+      } catch (e) {}
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) parsed = {};
+      const coll = {};
+      if (parsed.collection && typeof parsed.collection === 'object' && !Array.isArray(parsed.collection)) {
+        for (const k in parsed.collection) { const n = Number(parsed.collection[k]); if (n > 0) coll[k] = Math.floor(n); }
       }
+      return {
+        collection: coll,
+        pity_no_rare: Number(parsed.pity_no_rare) || 0,
+        pity_no_legendary: Number(parsed.pity_no_legendary) || 0,
+        last_pull_date: (typeof parsed.last_pull_date === 'string') ? parsed.last_pull_date : null,
+        total_pulls: Number(parsed.total_pulls) || 0,
+      };
     }
     function saveGachaState(s) {
       try { localStorage.setItem(ix.userKey('clippy_gacha'), JSON.stringify(s)); } catch (e) {}
@@ -110,14 +119,17 @@
     function pickGachaRarity(g) {
       // Pity overrides — guaranteed rare every 10 pulls, legendary every 30
       if (g.pity_no_legendary >= 29) return 'legendary';
-      if (g.pity_no_rare >= 9) return 'rare';
       const r = Math.random();
-      let cum = 0;
+      let cum = 0, rolled = 'common';
       for (const rar of ['legendary', 'rare', 'uncommon', 'common']) {
         cum += GACHA_RATES[rar];
-        if (r < cum) return rar;
+        if (r < cum) { rolled = rar; break; }
       }
-      return 'common';
+      // v330: rare-pity is a FLOOR, not a ceiling. The old early `return 'rare'` fired BEFORE the
+      // roll, so a pity pull could never be legendary — deflating the advertised legendary rate on
+      // exactly the pulls pity is meant to improve. Roll first, then upgrade only if it came up low.
+      if (g.pity_no_rare >= 9 && (rolled === 'common' || rolled === 'uncommon')) return 'rare';
+      return rolled;
     }
     function pickGachaCard(rarity) {
       const pool = GACHA_CARDS.filter(c => c.rarity === rarity);
@@ -272,7 +284,7 @@
         <div class="clippy-gacha-prompt">🎴 GACHA COLLECTION</div>
         <div class="clippy-gacha-title">${ix.esc(remark)}</div>
         <div class="clippy-gacha-prompt" style="margin-bottom:14px;">
-          ${collected}/${total} unique · ${g.total_pulls} total pulls
+          ${collected}/${total} unique · ${Number(g.total_pulls) || 0} total pulls
         </div>
         <div class="clippy-gacha-collection">
           ${GACHA_CARDS.map(c => {
@@ -281,7 +293,7 @@
             return `<div class="clippy-gacha-coll-card is-${c.rarity} ${lockedCls}">
               <div class="clippy-gacha-coll-glyph">${c.glyph}</div>
               <div class="clippy-gacha-coll-name">${count === 0 ? '???' : ix.esc(c.name)}</div>
-              <div class="clippy-gacha-coll-count">×${count}</div>
+              <div class="clippy-gacha-coll-count">×${Number(count) || 0}</div>
             </div>`;
           }).join('')}
         </div>

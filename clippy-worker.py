@@ -1525,7 +1525,7 @@ def _ctrl_gen_amgp(cfg):
     def n(key, dflt):
         try: return float(t.get(key, dflt))
         except Exception: return dflt
-    cam_x, cam_y = int(n("camX", 22)), int(n("camY", 14))
+    cam_x, cam_y = int(n("camX", 35)), int(n("camY", 22))   # v330: match the committed .amgp (x1.6 raise); the old 22/14 fallback reverted the speed when a cfg row lacked the keys
     easing = str(t.get("easing", "easing-quadratic"))
     ease_d = n("easingDur", 1.0)
     r_dead, r_max = int(n("rightDead", 7500)), int(n("rightMax", 30000))

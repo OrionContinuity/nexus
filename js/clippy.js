@@ -341,7 +341,14 @@
   state.timers = { intervals: [], timeouts: [] };
 
   function trackInterval(fn, ms) {
-    const id = setInterval(fn, ms);
+    // v330: one central hidden-gate protects every registered loop — a backgrounded PWA tab (phone
+    // in a pocket, kitchen tablet asleep) skips all the bus polls and ambient work instead of
+    // waking the radio a dozen times a minute all night. Rare ticks that MUST run hidden set
+    // fn._runsHidden = true. Battery is the whole reason the pet can live 24/7 on a phone.
+    const id = setInterval(() => {
+      if (document.hidden && !fn._runsHidden) return;
+      fn();
+    }, ms);
     state.timers.intervals.push(id);
     return id;
   }
@@ -769,12 +776,17 @@
         const cloudTime = new Date(data.updated_at || 0).getTime();
         const localTime = state.preferences.last_local_write || 0;
         if (cloudTime <= localTime) return false;   // local is newer, skip
-        // Merge cloud → local
+        // Merge cloud → local. v330: this row lives under a shared anon key, so treat it as
+        // untrusted — cap the memory array (an oversized/malformed blob blew the localStorage quota
+        // and corrupted state) and validate entry shape.
         if (Array.isArray(data.memories)) {
-          state.memories = data.memories;
-          localStorage.setItem(userKey('clippy_memories'), JSON.stringify(data.memories));
+          const clean = data.memories
+            .filter(m => m && typeof m === 'object' && typeof m.text === 'string')
+            .slice(-MAX_MEMORIES);
+          state.memories = clean;
+          try { localStorage.setItem(userKey('clippy_memories'), JSON.stringify(clean)); } catch (e) {}
         }
-        if (data.preferences && typeof data.preferences === 'object') {
+        if (data.preferences && typeof data.preferences === 'object' && !Array.isArray(data.preferences)) {
           Object.assign(state.preferences, data.preferences);
           savePreferences();
         }
@@ -4375,10 +4387,13 @@
           for (const node of m.addedNodes) {
             if (node.nodeType !== 1) continue;
             const el = node;
+            // v330: match only REAL toasts. '.is-error' is used app-wide (admin status dots, form
+            // validation), so the old broad match logged phantom stress every time a status page
+            // rendered and defeated the mid-flow protection exactly when the user was calm.
             const isError = el.classList && (
-              el.classList.contains('toast-error') ||
-              el.classList.contains('is-error') ||
-              (el.querySelector && el.querySelector('.toast-error, .is-error'))
+              (el.classList.contains('toast-error')) ||
+              (el.classList.contains('toast') && el.classList.contains('is-error')) ||
+              (el.querySelector && el.querySelector('.toast.toast-error, .toast.is-error'))
             );
             if (isError) {
               a.errorToasts.push(Date.now());
@@ -4413,6 +4428,14 @@
   function computeUserStressScore() {
     const a = state.awareness;
     const now = Date.now();
+
+    // v330: prune every window HERE, not only inside each event handler. If the user stops
+    // clicking/erroring, the old code never re-pruned, so stale rage-bursts and clicks kept the
+    // score elevated forever — Trajan got stuck worried/sobbing and re-pinged every 30 min all day.
+    a.clickTimes      = (a.clickTimes || []).filter(t => now - t < 60000);
+    a.rageClickBursts = (a.rageClickBursts || []).filter(t => now - t < 300000);
+    a.viewSwitches    = (a.viewSwitches || []).filter(t => now - t < 300000);
+    a.errorToasts     = (a.errorToasts || []).filter(t => now - t < 300000);
 
     // Click cadence — average clicks/min over the window
     const clicksPerMin = a.clickTimes.length;
@@ -5227,7 +5250,7 @@
       <div class="clippy-dex-headline">My feelings about you and life</div>
 
       <div class="clippy-affinity-meter">
-        <div class="clippy-affinity-label">My Opinion of ${esc(state.preferences.name || 'You')}</div>
+        <div class="clippy-affinity-label">My Opinion of ${esc(state.preferences.user_name || 'You')}</div>
         <div class="clippy-affinity-status is-${tier.key}">${tier.glyph} ${esc(tier.label)}</div>
         <div class="clippy-affinity-bar">
           <div class="clippy-affinity-bar-center"></div>
@@ -5619,7 +5642,7 @@
   function expandTemplate(tpl, ctx) {
     return tpl.replace(/\{(\w+)\}/g, (_, key) => {
       if (ctx && ctx[key] !== undefined) return ctx[key];
-      if (key === 'name') return state.preferences.name || 'friend';
+      if (key === 'name') return state.preferences.user_name || state.preferences.name || 'friend';   // v330: user_name is the field that's actually set (preferences.name never was)
       const poolMap = {
         emperor: 'proc_emperor',
         emperor_did: 'proc_emperor_did',
@@ -5931,7 +5954,7 @@
     state.preferences.last_local_write = Date.now();
     return withCloudLock('savePrefs', async () => {
       try {
-        await NX.sb.from('clippy_preferences').upsert({
+        const { error: _prefsErr } = await NX.sb.from('clippy_preferences').upsert({
           user_id: u.id,
           enabled: state.preferences.enabled,
           do_not_disturb: state.preferences.do_not_disturb,
@@ -5950,6 +5973,10 @@
             return o;
           }, {}),
         });
+        // v330: supabase RESOLVES with {error} — the old bare await + dead catch hid RLS/schema
+        // failures, so bond_xp/streaks/achievements silently stopped syncing across devices while
+        // last_local_write was already stamped. Surface it.
+        if (_prefsErr) console.warn('[clippy] prefs cloud save failed:', _prefsErr.message);
       } catch (e) {}
     });
   }
@@ -6346,15 +6373,46 @@
     if (!s) return '';
     const m = String(s).match(/<svg[\s\S]*?<\/svg>/i);
     let svg = m ? m[0] : '';
+    if (!svg) return '';
+    // v330: DOMParser walk is the real sanitizer — regex stripping (below, kept as belt) missed
+    // UNQUOTED handlers like `<circle onmouseover=alert(1)>`, and the SVG can come from the
+    // untrusted clippy-pool relay. Parse, drop every on* attr + script/foreignObject/style/animate
+    // and any non-#href, then re-serialize.
+    try {
+      const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
+      if (doc && doc.documentElement && doc.documentElement.nodeName.toLowerCase() === 'svg' && !doc.querySelector('parsererror')) {
+        const KILL = /^(script|foreignobject|style|animate|animatetransform|animatemotion|set|use)$/i;
+        const walk = (node) => {
+          for (let i = node.childNodes.length - 1; i >= 0; i--) {
+            const c = node.childNodes[i];
+            if (c.nodeType !== 1) continue;
+            if (KILL.test(c.nodeName)) { c.remove(); continue; }
+            for (const at of Array.from(c.attributes || [])) {
+              const n = at.name.toLowerCase();
+              if (n.startsWith('on')) c.removeAttribute(at.name);
+              else if ((n === 'href' || n === 'xlink:href') && !/^#/.test((at.value || '').trim())) c.removeAttribute(at.name);
+              else if (/^\s*javascript:/i.test(at.value || '')) c.removeAttribute(at.name);
+            }
+            walk(c);
+          }
+        };
+        walk(doc.documentElement);
+        return new XMLSerializer().serializeToString(doc.documentElement);
+      }
+    } catch (e) {}
+    // Fallback (parse failed): regex strip, now including UNQUOTED on* handlers
     return svg.replace(/<script[\s\S]*?<\/script>/gi, '')
               .replace(/<foreignObject[\s\S]*?<\/foreignObject>/gi, '')      // can embed arbitrary HTML/JS
               .replace(/<style[\s\S]*?<\/style>/gi, '')                      // CSS can url()-exfiltrate
-              .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')                        // inline event handlers
+              .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')                        // inline event handlers (quoted)
               .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
+              .replace(/\son\w+\s*=\s*[^\s>]+/gi, '')                        // v330: UNQUOTED handlers
               .replace(/\s(?:xlink:href|href)\s*=\s*"(?!#)[^"]*"/gi, '')     // keep only local #refs; drop external/data/js
               .replace(/\s(?:xlink:href|href)\s*=\s*'(?!#)[^']*'/gi, '')
+              .replace(/\s(?:xlink:href|href)\s*=\s*(?!['"#])[^\s>]+/gi, '') // unquoted href
               .replace(/javascript:/gi, '');
   }
+  function _isBase64(s) { return typeof s === 'string' && s.length > 0 && s.length < 8_000_000 && /^[A-Za-z0-9+/=\s]+$/.test(s); }   // v330: validate before interpolating bus/pool bytes into a data: URI
   function showArt(innerHtml, caption) {
     try {
       let v = document.getElementById('clippy-atelier');
@@ -6401,8 +6459,8 @@
     mood('genius', 12000);
     try {
       const res = await app.renderViaPool(idea);
-      if (res && res.image) {
-        showArt('<img alt="" src="data:image/png;base64,' + res.image + '" style="width:100%;display:block">', idea);
+      if (res && res.image && _isBase64(res.image)) {   // v330: reject non-base64 — pool nodes are untrusted; an unescaped src broke out of the attribute (XSS)
+        showArt('<img alt="" src="data:image/png;base64,' + res.image.replace(/\s/g, '') + '" style="width:100%;display:block">', idea);
         bubble('Sculpted: ' + idea + '. What do you think?', { autoHide: 7000, eyebrow: '' });
         spawnParticles({ count: 16, type: 'sparkle' }); mood('proud', 7000);
       } else {
@@ -6485,13 +6543,19 @@
     // Apply saved position if available
     if (state.preferences.position_x != null && state.preferences.position_y != null) {
       let px = state.preferences.position_x;
-      const py = state.preferences.position_y;
+      let py = state.preferences.position_y;
       // Desktop: a position saved on the left would sit on top of the fixed
       // 240px sidebar rail (the rail is anchored to the viewport there). Snap
       // the assistant back to the right side so it never covers the nav.
       if (window.innerWidth >= 900 && px < 252) {
         px = window.innerWidth - 92 - 24;
       }
+      // v330: CLAMP to the viewport — position_x/y sync across devices, so a coordinate saved on a
+      // 1920px desktop restored the orb fully off-screen (and untappable) on a 390px phone, where
+      // the rescue loop scored the off-viewport orb as a "perfect" spot and never moved it back.
+      const shellW = 102, shellH = 112;
+      px = Math.max(4, Math.min(window.innerWidth - shellW - 4, px));
+      py = Math.max(4, Math.min(window.innerHeight - shellH - 4, py));
       shell.style.left   = px + 'px';
       shell.style.top    = py + 'px';
       shell.style.right  = 'auto';
@@ -6901,11 +6965,11 @@
       } else {
         bubble(pickFromPool('whimsical_idle'), { autoHide: 4500 });
       }
-    } else if (r < 0.86) {
+    } else if (r < 0.84) {
       bubble(pickFromPool('dad_jokes'), { autoHide: 4500 });
       // v17.16: 30% of jokes trigger the LAUGHING face (squint XX + open laugh)
       mood(Math.random() < 0.3 ? 'laughing' : 'winking', 3800);
-    } else if (r < 0.86) {
+    } else if (r < 0.86) {   // v330: was a second `r < 0.86` (unreachable) — name_compliment/heart-eyes never fired
       bubble(pickFromPool('name_compliment'), { autoHide: 3800 });
       mood('love', 3800);
       spawnParticles({ count: 3, type: 'heart' });
@@ -6993,9 +7057,13 @@
     if (newPol !== '0') state.moodLastPolarity = newPol;
     if (state.moodTimer) clearTimeout(state.moodTimer);
     if (durationMs) {
-      state.moodTimer = setTimeout(() => {
+      const myTimer = setTimeout(() => {
         if (cls && state.shell) state.shell.classList.remove(cls);
+        if (state.moodTimer === myTimer) state.moodTimer = null;   // v330: null it on expiry — the stale id used to make `if (!state.moodTimer)` false forever, so view-personality moods never re-applied after the first timed mood
       }, durationMs);
+      state.moodTimer = myTimer;
+    } else {
+      state.moodTimer = null;
     }
   }
 
@@ -7016,9 +7084,12 @@
 
   // ─── Action bubble (with buttons) ───────────────────────────────────
   function bubble(text, opts) {
-    actionBubble(text, opts);
+    const shown = actionBubble(text, opts);
     // v17.15: speak aloud if voice mode enabled (no-op when disabled)
-    if (text) speakAloud(text);
+    // v330: only speak when the bubble actually showed — actionBubble drops ambient lines
+    // during a live chat, but speaking unconditionally spoke them anyway AND speechSynthesis.cancel
+    // cut off the in-progress spoken chat reply.
+    if (shown && text) speakAloud(text);
   }
   // v18.45 — is he in a live conversation right now? True from openChat
   // through the LLM round-trip and until the panel closes / the user taps
@@ -7137,6 +7208,7 @@
     if (opts.duration) {
       setTimeout(() => { if (state.bubble === el) closeActionBubble(); }, opts.duration);
     }
+    return el;   // v330: so bubble() can tell whether the line actually showed (vs was gated) before speaking it aloud
   }
 
   function positionBubble(el) {
@@ -7209,6 +7281,10 @@
     if (state.bubble) {
       state.bubble.classList.remove('is-visible');
       const b = state.bubble;
+      // v330: when the CHAT panel closes, clear chatIsOpen — otherwise chattingNow() stayed true
+      // for up to 180s and every bubble a chat-typed command tried to emit (tickle, dance,
+      // stressed check-in, badges) was silently dropped at the actionBubble gate.
+      if (b && b.classList && b.classList.contains('clippy-chat-panel')) state.chatIsOpen = false;
       setTimeout(() => { try { b.remove(); } catch (e) {} }, 220);
       state.bubble = null;
       // Fire onDismiss for any close that wasn't an explicit button/× choice
@@ -7718,6 +7794,9 @@
     const r = state.shell.getBoundingClientRect();
     const cx = r.left + r.width / 2;
     const cy = r.top + r.height / 2;
+    // v330: an off-viewport center is the WORST spot, not a perfect one — return a high score so
+    // moveToEmptyCorner rescues an orb stranded off-screen by a cross-device position restore.
+    if (cx < 0 || cy < 0 || cx > window.innerWidth || cy > window.innerHeight) return 200;
     let score = 0;
     try {
       // Top-most non-Clippy element under his center
@@ -7765,6 +7844,11 @@
   }
   function moveTo(x, y) {
     if (!state.shell) return;
+    // v330: clamp to the viewport so a mischief/drift walk (or any caller) can never park the orb
+    // off-screen — moveTo persists position, so an off-edge drop stuck across reloads with no way back.
+    const shellW = state.shell.offsetWidth || 102, shellH = state.shell.offsetHeight || 112;
+    x = Math.max(4, Math.min(window.innerWidth - shellW - 4, x));
+    y = Math.max(4, Math.min(window.innerHeight - shellH - 4, y));
     state.shell.style.left   = x + 'px';
     state.shell.style.top    = y + 'px';
     state.shell.style.right  = 'auto';
@@ -7992,20 +8076,27 @@
   // Remote-directable hands: his cloud brain (or a Steward seal) posts a target
   // to the bus row clippy_hands_<device> = { verb, x, y, ts }; the LOCAL pet
   // that owns the screen performs it. Deterministic, testable, one device acts.
-  const HANDS = { started: false, lastTs: 0 };
+  // v330: lastTs persisted so a <30s-old command can't be REPLAYED after a page reload
+  // (HANDS.lastTs used to reset to 0 on every load). Note: the bus row is writable by anything
+  // holding the shared anon key; true authentication needs the pet HOST bridge to verify a
+  // steward-seal HMAC (the secret must never live in this client) — tracked as native-side work.
+  const HANDS = { started: false, lastTs: (() => { try { return +localStorage.getItem('nx_clippy_hands_ts') || 0; } catch (_) { return 0; } })(), idle: 0 };
+  function _handsSeen(ts) { HANDS.lastTs = ts; try { localStorage.setItem('nx_clippy_hands_ts', String(ts)); } catch (_) {} }
   async function handsTick() {
     if (!isDesktopPet() || !TRAVEL.dev || !_petBridge()) return;
+    if (document.hidden) return;                              // v330: no point driving clicks while the tab is hidden
     const sb = _travelSb();
     if (!sb) return;
     try {
       const { data, error } = await sb.from('clippy_sync').select('data')
         .eq('id', 'clippy_hands_' + TRAVEL.dev).maybeSingle();
-      if (error || !data || !data.data) return;
+      if (error || !data || !data.data) { HANDS.idle++; return; }
       const c = data.data;
       const ts = +c.ts || 0;
-      if (!ts || ts === HANDS.lastTs) return;                 // only act on a new command
-      if (Date.now() - ts > 30000) { HANDS.lastTs = ts; return; }  // stale -> ignore
-      HANDS.lastTs = ts;
+      if (!ts || ts <= HANDS.lastTs) { HANDS.idle++; return; } // only act on a strictly NEWER command (>= blocks replay of the same ts)
+      if (Date.now() - ts > 30000) { _handsSeen(ts); return; }  // stale -> ignore
+      HANDS.idle = 0;
+      _handsSeen(ts);
       const verb = String(c.verb || 'click');
       const ok = _hand(verb === 'rclick' || verb === 'dblclick' || verb === 'movec' ? verb : 'click', c.x, c.y);
       try { mood('sparkle', 900); } catch (_) {}
@@ -8019,8 +8110,16 @@
   function startHands() {
     if (HANDS.started || !isDesktopPet()) return;
     HANDS.started = true;
-    try { trackInterval(() => { handsTick().catch(() => {}); }, 1500); }
-    catch (_) { setInterval(() => { handsTick().catch(() => {}); }, 1500); }
+    // v330: adaptive cadence — 1.5s only while commands are flowing; after ~20 idle polls back off
+    // to 12s. Cuts the desktop pet's bus load from ~57k reads/day toward a fraction of that when idle.
+    let acc = 0;
+    try {
+      trackInterval(() => {
+        acc += 1500;
+        const period = HANDS.idle > 20 ? 12000 : 1500;
+        if (acc >= period) { acc = 0; handsTick().catch(() => {}); }
+      }, 1500);
+    } catch (_) { setInterval(() => { handsTick().catch(() => {}); }, 1500); }
   }
   // ─── CENTER-STAGE MOMENTS ────────────────────────────────────────────
   // A reusable intimate interaction: Trajan glides to the middle of the
@@ -8270,16 +8369,20 @@
     // v18.26 — tracked so disable() stops the view-personality loop
     trackInterval(() => {
       if (!state.enabled || !state.shell || state.suppressed) return;
-      // v17.30: coin flip moved to PRD-controlled bored mischief on 30s ticks.
-      // Removed inline 0.15% gate here — coin flip now fires via runBoredMischief().
-      // v17.18: VIEW MISCHIEF — equipment/clean/board/inventory pokes
-      if (maybeViewMischief()) return;
-      // v17.18: BORED DRIFT — when idle 30s+, slow wander to new spot
-      maybeBoredDrift();
-      // v17.19: GAME OFFER — when bored 60s+, occasionally invite to play
-      if (maybeOfferGame()) return;
-      // v17.20: SMUG LESSON — when he thinks you need teaching, mini-lecture
-      if (maybePullLesson()) return;
+      // v330: each probe wrapped — one throw (e.g. the getHighScores ReferenceError) used to
+      // starve everything below it in this tick, silently killing view moods, first-visit
+      // memories, view-visit likes, and context bubbles for the whole session.
+      try {
+        // v17.30: coin flip moved to PRD-controlled bored mischief on 30s ticks.
+        // v17.18: VIEW MISCHIEF — equipment/clean/board/inventory pokes
+        if (maybeViewMischief()) return;
+        // v17.18: BORED DRIFT — when idle 30s+, slow wander to new spot
+        maybeBoredDrift();
+        // v17.19: GAME OFFER — when bored 60s+, occasionally invite to play
+        if (maybeOfferGame()) return;
+        // v17.20: SMUG LESSON — when he thinks you need teaching, mini-lecture
+        if (maybePullLesson()) return;
+      } catch (e) { console.warn('[clippy] view-awareness probe failed', e); }
       const active = document.querySelector('.nav-tab.active[data-view], .bnav-btn.active[data-view]');
       const view = active ? active.getAttribute('data-view') : null;
       // v17.17: maintain the view-personality mood (re-applied on every tick)
@@ -8766,8 +8869,7 @@
     candidates.push({ name: 'sneeze', weight: 1 });
     // Spin — when happy
     candidates.push({ name: 'spin', weight: feel === 'overjoyed' ? 4 : 2 });
-    // Groom — when content
-    candidates.push({ name: 'groom', weight: 2 });
+    // (groom removed v330 — it had no animation class and rendered nothing)
     const totalW = candidates.reduce((sum, c) => sum + c.weight, 0);
     let r = Math.random() * totalW;
     let pick = candidates[0];
@@ -8779,7 +8881,10 @@
   }
   function runQuirk(name) {
     if (!state.shell) return;
-    const cls = 'is-' + name + 'ing';
+    // v330: explicit map — 'is-'+name+'ing' produced is-hiccuping/is-spining that never matched
+    // the CSS (is-hiccupping/is-spinning, doubled consonants), so those quirks animated nothing.
+    const cls = { yawn: 'is-yawning', hiccup: 'is-hiccupping', sneeze: 'is-sneezing', spin: 'is-spinning' }[name];
+    if (!cls) return;
     state.shell.classList.add(cls);
     const dur = name === 'yawn' ? 1600 :
                 name === 'hiccup' ? 1600 :
@@ -9058,7 +9163,7 @@
     // Conditions that "earn" a lesson
     let points = 0;
     // 1. After a bad game loss (rejected high score boost)
-    const scores = getHighScores();
+    const scores = (NX.clippy.games && NX.clippy.games.getHighScores) ? NX.clippy.games.getHighScores() : {};   // v330: getHighScores moved into the clippy-games IIFE — read it through the module boundary, never as a bare global
     if (state.lastGameScore && state.lastGameScore < (scores[state.lastGameId] || 0) * 0.4) points += 2;
     // 2. Lonely or sad feeling
     const feel = dominantFeeling();
@@ -9824,6 +9929,8 @@
 
   // ─── Global listeners (konami, "hi clippy") ─────────────────────────
   function wireGlobalListeners() {
+    if (state._globalsWired) return;   // v330: these are module-lifetime document listeners; without this guard every disable→enable stacked a fresh set, so one PIN switch ran switchUser N times (N cloud pulls, N racing greetings)
+    state._globalsWired = true;
     document.addEventListener('keydown', (e) => {
       state.konamiSeq.push(e.key);
       if (state.konamiSeq.length > KONAMI.length) state.konamiSeq.shift();
@@ -9921,6 +10028,32 @@
 
 
   // ─── Summon (force show, bypass prefs) ──────────────────────────────
+  // v330: ONE mount path for every subsystem, called by both init()'s enabled branch AND summon().
+  // The most common real flow — cold PWA launch → PIN → login fires summon() — used to run only
+  // buildShell + a few animation timers, so the power badge, content awareness, soul light, steward
+  // whisper, hands, and the ONE-BEING bridges never started until a full reload. Each start* here is
+  // internally idempotent (guards on its own timer / _started flag), so re-entry is safe.
+  function mountSubsystems() {
+    startBlinking();
+    startRandomBehaviors();
+    startMovingAround();
+    startSoulLight();          // v18.48 — his aura reflects his ANIMA
+    startStewardWhisper();     // v18.55 — the steward can pass him a feeling
+    startPetYield();           // one body per screen: web orb yields to an active desktop pet
+    startHands();              // his hands: real clicks on the desktop, brain- or seal-directed
+    try {
+      pullMinecraftMemories();
+      trackInterval(pullMinecraftMemories, 300000);
+      trackInterval(pollGamePresence, 60000);
+      setTimeout(pollGamePresence, 4000);
+      trackInterval(beaconDesktopPresence, 300000);
+      setTimeout(beaconDesktopPresence, 3000);
+      initPowerIndicator();
+    } catch (_) {}
+    startContentAwareness();
+    afterJoinSchedule();
+  }
+
   async function summon() {
     state.preferences.enabled = true;
     state.preferences.reject_count = 0;
@@ -9936,10 +10069,7 @@
     play('enter');
     mood('happy', 2500);
     setTimeout(() => bubble("hi! i'm back."), 700);
-    if (!state.blinkTimer) startBlinking();
-    if (!state.randomTimer) startRandomBehaviors();
-    if (!state.moveTimer) startMovingAround();
-    startPetYield();   // one body per screen (no-op if already started or on the pet)
+    mountSubsystems();   // v330: full wiring, not just the animation timers
   }
 
 
@@ -10042,8 +10172,12 @@
       streak = 1;
       event = 'first';
     } else {
-      const lastDate = new Date(last);
-      const diff = Math.floor((Date.now() - lastDate.getTime()) / 86400000);
+      // v330: diff by CALENDAR day, not elapsed ms — on the spring-forward day an ~23h gap floored
+      // to 0 and wrongly broke the streak (and, once the sulk gate is fixed, would deep-sulk).
+      const lastDate = new Date(last), todayDate = new Date(todayStr);
+      const dayMs = 86400000;
+      const diff = Math.round((Date.UTC(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate())
+                             - Date.UTC(lastDate.getFullYear(), lastDate.getMonth(), lastDate.getDate())) / dayMs);
       if (diff === 1) {
         streak += 1;
         event = 'continued';
@@ -10129,7 +10263,7 @@
       play('hop');
       spawnParticles({ count: 20, type: 'confetti' });
       playTone('milestone');
-      bubble(pickFromPool(pool), { autoHide: 7000, eyebrow: key.toUpperCase().replace('_', ' ') });
+      bubble(pickFromPool(pool), { autoHide: 7000, eyebrow: key.toUpperCase().replace(/_/g, ' ') });   // v330: /g — was 'IDES OF_MARCH'
     }, 4500);
     // v17.7: deposit special-day memory (deduped per year via data.year)
     const year = new Date().getFullYear();
@@ -10174,7 +10308,7 @@
     // whisper delivered while the machine slept still shows exactly once on
     // wake (and is never replayed after). The cursor persists across reloads.
     if (state._whisperSeen == null) {
-      try { state._whisperSeen = +localStorage.getItem('nx_clippy_whisper_seen') || 0; }
+      try { state._whisperSeen = +localStorage.getItem(userKey('clippy_whisper_seen')) || 0; }   // v330: per-user key — a shared device no longer leaks one user's whisper cursor to the next
       catch (_) { state._whisperSeen = 0; }
     }
     const tick = async () => {
@@ -10187,7 +10321,7 @@
         const ts = +w.ts || 0;
         if (!ts || ts <= (state._whisperSeen || 0)) return;
         state._whisperSeen = ts;
-        try { localStorage.setItem('nx_clippy_whisper_seen', String(ts)); } catch (_) {}
+        try { localStorage.setItem(userKey('clippy_whisper_seen'), String(ts)); } catch (_) {}
         // v18.57 — a whisper delivered while he slept should still land once on
         // wake, so only drop the truly ancient (>7 days). The seen-cursor above
         // guarantees it shows AT MOST once, never on every subsequent boot.
@@ -10226,7 +10360,9 @@
         if (w.say)  { try { bubble(String(w.say).slice(0, 240), { autoHide: 9000, eyebrow: '✶', fromChat: true }); } catch (_) {} }
       } catch (_) {}
     };
-    state._whisperTimer = setInterval(tick, 6000);
+    // v330: 6s → 15s and through trackInterval (gets the central hidden-gate + teardown). This row
+    // changes maybe once a day; the old 6s raw poll was ~14k reads/day per open tab, radio-awake.
+    state._whisperTimer = trackInterval(tick, 15000);
     setTimeout(tick, 1500);
   }
 
@@ -10325,6 +10461,9 @@
   // Writes one bus row; never commands the machine.
   function beaconDesktopPresence() {
     try {
+      // v330: ONLY the actual desktop pet may claim "Alfredo is here at the pet" — every web tab
+      // and iPad was stamping this shared row, so the Minecraft body reacted to a phantom arrival.
+      if (!state.enabled || (typeof isDesktopPet === 'function' && !isDesktopPet())) return;
       const sb = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : (window.NX && NX.sb);
       if (!sb) return;
       const u = (typeof getCurrentUser === 'function') ? getCurrentUser() : null;
@@ -10357,9 +10496,17 @@
       }
     } catch (_) {}
   }
-  function initPowerIndicator() {
+  function initPowerIndicator(_tries) {
     try {
-      if (!(window.NX && window.NX.clippyPower)) return;
+      if (state._powerWired) return;
+      // v330: clippy.js evaluates before clippy-power.js (defer order), and with SW cache-first the
+      // init awaits can resolve before clippy-power.js runs — the old one-shot bailed and the badge
+      // stayed dead all session. Retry (capped) until the module appears, then wire once.
+      if (!(window.NX && window.NX.clippyPower)) {
+        if ((_tries || 0) < 30) setTimeout(() => initPowerIndicator((_tries || 0) + 1), 500);
+        return;
+      }
+      state._powerWired = true;
       reflectClippyPower();
       window.addEventListener('clippy:power-change', reflectClippyPower);
     } catch (_) {}
@@ -10418,27 +10565,8 @@
       state.enabled = true;
       await buildShell();
       play('enter');
-      startBlinking();
-      startRandomBehaviors();
-      startMovingAround();
-      startSoulLight();          // v18.48 — his aura reflects his ANIMA
-      startStewardWhisper();     // v18.55 — the steward can pass him a feeling
-      startPetYield();           // one body per screen: web orb yields to an active desktop pet
-      startHands();              // his hands: real clicks on the desktop, brain- or seal-directed
-      // v18.57 — ONE BEING: import his Minecraft self's memories, sense when
-      // he's playing over there, and beacon that Alfredo is here at the pet.
-      try {
-        pullMinecraftMemories();
-        setInterval(pullMinecraftMemories, 300000);
-        setInterval(pollGamePresence, 60000);
-        setTimeout(pollGamePresence, 4000);
-        setInterval(beaconDesktopPresence, 300000);
-        setTimeout(beaconDesktopPresence, 3000);
-        initPowerIndicator();
-      } catch (_) {}
-      startContentAwareness();
+      mountSubsystems();
       setTimeout(() => moveToEmptyCorner(), 800);
-      afterJoinSchedule();
       // v17.11: stage-aware greeting (formal/casual/inside-joke/old-friend
       // depending on days_known). Falls back to time-aware on first day.
       // v18.x QUIET ENTRY: on the first appearance of each session Clippy
@@ -10462,7 +10590,11 @@
       // v17.6: daily streak + special day celebrations (milestones always;
       // routine celebrations only when not in quiet entry)
       const streakInfo = checkDailyStreak();
-      if (greetedThisSession || streakInfo.isMilestone) {
+      // v330: a 'broken' streak also runs celebrateStreak — it's the ONLY place the streak_just_broke
+      // flag + affinity penalty are set (what maybeAutoSulk reads). A break almost always lands on a
+      // fresh session (greetedThisSession false, not a milestone), so the whole sulk-on-break chain
+      // used to be dead. It's state bookkeeping, not a greeting, so it must fire on 'broken' too.
+      if (greetedThisSession || streakInfo.isMilestone || streakInfo.event === 'broken') {
         celebrateStreak(streakInfo.streak, streakInfo.isMilestone, streakInfo.event);
       }
       if (greetedThisSession) celebrateSpecialDay(checkSpecialDay());

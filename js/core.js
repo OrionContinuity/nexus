@@ -683,8 +683,12 @@
   NXRM.notify = {
     bubble(text, opts) {
       try {
-        if (window.clippy?.bubble) window.clippy.bubble(text, opts || {});
-      } catch (_) {}
+        // v330: the orb is NX.clippy, not window.clippy — the old check never matched, so every
+        // NXRM.notify.bubble (PM saved, schedule created, detail saved…) was a silent no-op.
+        const orb = (window.NX && window.NX.clippy) || window.clippy;
+        if (orb && orb.bubble) orb.bubble(text, opts || {});
+        else this.toast(text);
+      } catch (_) { try { this.toast(text); } catch (__) {} }
     },
     toast(text) {
       // Lightweight fallback toast in case the orb isn't around
