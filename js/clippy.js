@@ -253,6 +253,7 @@
     // v17.23 SULKING — Duolingo-style turn-the-back
     sulking:       'is-sulking'   /* v18.41 — flow stacks is-deep-sulking on top; shallow look never shows alone */,       // face hidden, back-tuft visible, dim glow
     deep_sulking:  'is-deep-sulking',  // sulk + extra dim (after extended absence)
+    suspicious:    'is-thinking',      // v331: mood('suspicious') (Caligula dossier) had no MOODS key → blank face for 5.5s; borrow the suspicious-eyes thinking look
   };
 
 
@@ -544,19 +545,19 @@
     chat_message_positive: { feelings: { happiness: +2, affection: +3, boredom: -3, curiosity: +2 }, emotion: { joy: +1 }, affinity: +1, bond: 1, mood: 'happy' },
     chat_message_neutral:  { feelings: { curiosity: +1, boredom: -2 }, bond: 1 },
     chat_message_negative: { feelings: { happiness: -2, affection: -1 }, emotion: { sadness: +1 }, affinity: -1 },
-    task_completed:        { feelings: { happiness: +3, satisfaction: +4 }, emotion: { joy: +2 }, affinity: +2, bond: 3, mood: 'proud' },
+    task_completed:        { feelings: { happiness: +3, confidence: +4 }, emotion: { joy: +2 }, affinity: +2, bond: 3, mood: 'proud' },
     streak_continued:      { feelings: { happiness: +4, affection: +2 }, emotion: { joy: +3 }, affinity: +3, bond: 5, mood: 'sparkle' },
-    game_win:              { feelings: { happiness: +3, satisfaction: +5 }, emotion: { joy: +3 }, affinity: +1, bond: 4, mood: 'celebrate' },
-    game_loss_graceful:    { feelings: { satisfaction: +1 }, emotion: { joy: +1 }, bond: 1 },
+    game_win:              { feelings: { happiness: +3, confidence: +5 }, emotion: { joy: +3 }, affinity: +1, bond: 4, mood: 'super_excited' },
+    game_loss_graceful:    { feelings: { happiness: +1, confidence: +1 }, emotion: { joy: +1 }, bond: 1 },
     // ── Live-play reward keys (consumed by clippy-games.js during a match) ──
     game_flow:             { feelings: { happiness: +2, boredom: -4, energy: +2 } },
     game_clutch:           { feelings: { happiness: +3, confidence: +2 } },
     gacha_pull:            { feelings: { curiosity: +5, happiness: +2 }, emotion: { surprise: +2 }, bond: 2 },
-    achievement_earned:    { feelings: { happiness: +5, satisfaction: +5 }, emotion: { joy: +4 }, affinity: +2, bond: 5, mood: 'sparkle' },
+    achievement_earned:    { feelings: { happiness: +5, confidence: +5 }, emotion: { joy: +4 }, affinity: +2, bond: 5, mood: 'sparkle' },
     tickle:                { feelings: { happiness: +3, affection: +1 }, emotion: { joy: +2 }, bond: 1, mood: 'happy' },
     name_set:              { feelings: { affection: +5, happiness: +3 }, affinity: +5, bond: 5, mood: 'happy' },
     button_clicked:        { feelings: { curiosity: +1 } },
-    form_submitted:        { feelings: { happiness: +2, satisfaction: +2 }, bond: 2, mood: 'proud' },
+    form_submitted:        { feelings: { happiness: +2, confidence: +2 }, bond: 2, mood: 'proud' },
     // ── Neutral / probe ──
     modal_opened:          { feelings: { curiosity: +1 } },
     search_focused:        { feelings: { curiosity: +1 }, mood: 'determined' },
@@ -599,9 +600,12 @@
         }
       }
       // 2) Emotion (Plutchik primaries)
+      // v331: reward.emotion values are integers 1-4, but feel() clamps to [0,1] — so EVERY event
+      // slammed its gauge straight to saturation and the careful 1/2/3/4 tuning was meaningless
+      // (a single positive interaction pinned joy at max). Scale into a meaningful 0.05-0.20 band.
       if (reward.emotion && typeof feel === 'function') {
         for (const [emotion, intensity] of Object.entries(reward.emotion)) {
-          feel(emotion, intensity);
+          feel(emotion, (Number(intensity) || 0) * 0.05);
         }
       }
       // 3) Affinity (+/- 100 relationship score)
@@ -612,10 +616,15 @@
       if (reward.bond != null && typeof addBondXP === 'function') {
         addBondXP(reward.bond);
       }
-      // 5) Mood (visible expression, brief)
-      if (reward.mood && typeof mood === 'function' && !state.suppressed) {
-        const duration = payload.moodDuration || 3000;
-        mood(reward.mood, duration);
+      // 5) Mood (visible expression, brief). v331: default 3800ms (was 3000) — under 3800 the
+      // polarity-inertia guard in mood() swallows an opposite-polarity flip, so a positive
+      // acknowledgement right after a negative one silently failed to show. If the reward carries an
+      // emotion but no explicit mood, derive the face from the resulting Plutchik state so the
+      // computed feeling actually reaches his expression instead of only surfacing later.
+      const rMood = reward.mood || (reward.emotion && typeof moodFromEmotion === 'function' ? moodFromEmotion() : null);
+      if (rMood && typeof mood === 'function' && !state.suppressed) {
+        const duration = payload.moodDuration || 3800;
+        mood(rMood, duration);
       }
     } catch (e) {
       console.warn('[clippy] processInteraction failed for', eventName, e);
@@ -781,7 +790,7 @@
         // and corrupted state) and validate entry shape.
         if (Array.isArray(data.memories)) {
           const clean = data.memories
-            .filter(m => m && typeof m === 'object' && typeof m.text === 'string')
+            .filter(m => m && typeof m === 'object' && typeof m.label === 'string' && m.id)   // v331 FIX: memory nodes use .label, not .text — my v330 filter checked .text and so emptied the bank on every cross-device pull. Validate the real shape.
             .slice(-MAX_MEMORIES);
           state.memories = clean;
           try { localStorage.setItem(userKey('clippy_memories'), JSON.stringify(clean)); } catch (e) {}
@@ -1565,7 +1574,16 @@
     try {
       const raw = localStorage.getItem(userKey('clippy_feelings'));
       const obj = raw ? JSON.parse(raw) : {};
-      state.feelings = Object.assign(defaultFeelings(), obj || {});
+      const base = defaultFeelings();
+      // v331: coerce to finite [0,100] and DROP unknown keys — a stale-schema or corrupted stored
+      // value used to survive the merge and poison that gauge to NaN (NaN fails every comparison, so
+      // the gauge stuck forever). Only known gauges, only valid numbers.
+      const clean = {};
+      for (const k of Object.keys(base)) {
+        const v = Number(obj && obj[k]);
+        clean[k] = isFinite(v) ? Math.max(0, Math.min(100, v)) : base[k];
+      }
+      state.feelings = clean;
     } catch (e) { state.feelings = defaultFeelings(); }
   }
   function saveFeelings() {
@@ -1629,6 +1647,12 @@
     if (minutes > 4) adjustFeeling('boredom', +1.5);
     if (minutes > 6) adjustFeeling('curiosity', -1);
     if (minutes > 8) adjustFeeling('confidence', -0.5);
+    // v331: energy actually drains with long idle / late hours, so 'tired' (needs energy<25) is
+    // reachable instead of being dead content — energy used to floor at ~45 (its target) and only
+    // ever climb. Deep-night compounding via the senses tick still applies.
+    const hr = new Date().getHours();
+    if (minutes > 12) adjustFeeling('energy', -1.5);
+    if (hr >= 23 || hr < 5) adjustFeeling('energy', -1);
     // Gentle pull toward target. Target = 45 (mild pessimism) +
     // dailyMoodOffset for happiness only.
     const dailyOff = getDailyMoodOffset();
@@ -1640,13 +1664,17 @@
       curiosity:  50,
       confidence: 45,
       boredom:    25,
+      attention_need: 30,   // v331: was absent from targets, so it only climbed to 100 and 'lonely' masked sad/bored/tired all through any idle stretch. Now it relaxes toward a low baseline.
     };
+    // v331: per-gauge decay half-lives — uniform 0.5 made every mood equally "sticky". Affection
+    // lingers; boredom/attention/energy move faster; extreme happiness still fades fastest.
+    const DECAY_SPEED = { affection: 0.3, curiosity: 0.5, confidence: 0.5, happiness: 0.6, boredom: 0.9, attention_need: 1.2, energy: 0.7 };
     Object.keys(targets).forEach(k => {
       const v = state.feelings[k];
-      if (v == null) return;
+      if (typeof v !== 'number' || !isFinite(v)) { state.feelings[k] = 45; return; }   // v331: heal a NaN/corrupt gauge instead of letting it stay stuck forever
       const target = targets[k];
-      // Faster decay from extreme happiness
-      const speed = (k === 'happiness' && v > 70) ? 1.0 : 0.5;
+      let speed = DECAY_SPEED[k] || 0.5;
+      if (k === 'happiness' && v > 70) speed = 1.0;   // peaks are temporary
       if (v > target) adjustFeeling(k, -speed);
       else if (v < target) adjustFeeling(k, +speed * 0.7);   // climb back slower than fall
     });
@@ -2504,7 +2532,14 @@
       state.chatActivityAt = Date.now();   // keep the chat gate alive across the LLM round-trip
       showChatTyping();                     // "…" in the thread (submit already armed it; idempotent)
       mood('thinking', 4000);
+      // v331: whether a real brain is reachable — lets us show "offline, try again" instead of the
+      // "HMM I don't understand" no-match line when the failure was a network/provider issue.
+      const _brainReachable = (() => { try { const N = (typeof NX !== 'undefined' && NX) || window.NX; return !!(N && typeof N.askClaude === 'function'); } catch (_) { return false; } })();
+      state.chatPending = true;
+      // v331: client-side safety net — even if the brain promise never settles, clear the spinner.
+      const _pendGuard = setTimeout(() => { if (state.chatPending) { state.chatPending = false; try { hideChatTyping(); } catch (_) {} sayInChat("my brain's taking too long — try me again in a moment.", { eyebrow: 'SLOW' }); } }, 48000);
       askClippyBrain(text).then(ans => {
+        clearTimeout(_pendGuard); state.chatPending = false;
         state.chatActivityAt = Date.now();
         if (ans) {
           // MANUS — his hand. If the answer was about a real screen, thread a
@@ -2518,6 +2553,11 @@
           // v18.57 — MANUS write-hand: if his hand can turn this into a real
           // work order, offer it under the reply (two explicit taps to commit).
           try { maybeOfferWorkOrder(text); } catch (_) {}
+        } else if (!_brainReachable) {
+          // v331: distinguish OFFLINE from "didn't understand" — a network blip used to read as
+          // Clippy being dumb (the HMM no-match line).
+          sayInChat("my brain's unreachable right now — I run local-first, so give me a moment and try again.", { eyebrow: '🔌 OFFLINE' });
+          mood('worried', 4000);
         } else {
           sayInChat(pickFromPool('chat_no_match'), { eyebrow: 'HMM' });
           mood('confused', 4500);
@@ -2527,7 +2567,7 @@
             if (Math.random() < 0.35) shareRandomThought({ tag: 'recovery' });
           }, 5500);
         }
-      });
+      }).catch(() => { clearTimeout(_pendGuard); state.chatPending = false; try { hideChatTyping(); } catch (_) {} });
       return;
     }
     const match = found.rule;
@@ -2637,6 +2677,7 @@
     const sendBtn = el.querySelector('.clippy-chat-send');
     const closeBtn = el.querySelector('.clippy-chat-x');
     const submit = () => {
+      if (state.chatPending) return;   // v331: in-flight lock — repeated Enter/tap used to launch parallel brain calls that interleaved in the log and scrambled the remembered thread
       const txt = input.value.trim();
       if (!txt) return;
       input.value = '';
@@ -2659,7 +2700,7 @@
       closeActionBubble();
     });
     input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); submit(); }
+      if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); submit(); }   // v331: skip IME composition Enter
     });
     setTimeout(() => {
       try { input.focus(); } catch (_) {}
@@ -3150,9 +3191,32 @@
         .replace(/\s+/g, ' ').trim();
       if (!clean) return;
       const u = new SpeechSynthesisUtterance(clean);
-      u.rate = 1.05;
-      u.pitch = 1.15;
-      u.volume = 0.6;
+      // v331: modulate the voice by his felt emotion — it used to be one fixed chirp for every line,
+      // so crushing sadness and manic joy sounded identical. Scale rate/pitch/volume by the dominant
+      // Plutchik emotion and its intensity.
+      let rate = 1.05, pitch = 1.15, volume = 0.6;
+      try {
+        if (typeof getEmotionSnapshot === 'function') {
+          const s = getEmotionSnapshot();
+          const g = Math.max(0, Math.min(1, (s.intensity || 0) / 100));   // 0..1 strength
+          const VOICE = {
+            joy:        { r: +0.18, p: +0.15, v: +0.15 },
+            excitement: { r: +0.22, p: +0.18, v: +0.18 },
+            love:       { r: -0.04, p: +0.08, v: +0.05 },
+            sadness:    { r: -0.22, p: -0.18, v: -0.20 },
+            fear:       { r: +0.15, p: +0.20, v: -0.05 },
+            surprise:   { r: +0.12, p: +0.22, v: +0.10 },
+            anger:      { r: +0.05, p: -0.15, v: +0.20 },
+            trust:      { r: -0.02, p: +0.02, v: +0.02 },
+            anticipation:{ r: +0.08, p: +0.06, v: +0.04 },
+          };
+          const m = VOICE[s.dominant];
+          if (m) { rate += m.r * g; pitch += m.p * g; volume += m.v * g; }
+        }
+      } catch (e) {}
+      u.rate = Math.max(0.7, Math.min(1.4, rate));
+      u.pitch = Math.max(0.6, Math.min(1.6, pitch));
+      u.volume = Math.max(0.25, Math.min(1, volume));
       // Prefer a softer voice if available
       const voices = window.speechSynthesis.getVoices() || [];
       const prefer = voices.find(v => /female|samantha|karen|moira|tessa/i.test(v.name));
@@ -3180,19 +3244,35 @@
   // ─── MOOD WEATHER — halo color shifts with dominant feeling ──────
   // Sets a CSS custom property on the shell that the halo gradient
   // reads. Cool when sad, warm when happy, golden when overjoyed.
+  const EMOTION_AURA = {   // v331: the live Plutchik engine now has an aura channel — half the wheel used to produce no color at all
+    joy: '#ffd870', trust: '#8fd0ff', fear: '#a98edb', surprise: '#f4f4ff',
+    sadness: '#5d7aa8', disgust: '#8fbf7a', anger: '#e07a7a', anticipation: '#f0c060',
+    love: '#ffaad6', excitement: '#ffcf5c', hope: '#bfe6b0', worry: '#9a92c8',
+    awe: '#c0b0ff', guilt: '#7c86a8', contempt: '#a0b080',
+  };
   function updateMoodWeather() {
     if (!state.shell || !state.feelings) return;
-    const feel = dominantFeeling();
-    let color;
-    switch (feel) {
-      case 'overjoyed': color = '#ffd870'; break;   // golden
-      case 'loving':    color = '#ffaad6'; break;   // pink
-      case 'sad':       color = '#5d7aa8'; break;   // muted blue
-      case 'lonely':    color = '#6e7090'; break;   // gray-blue
-      case 'tired':     color = '#7e88a8'; break;   // dim
-      case 'ticklish':  color = '#ff8ed1'; break;   // bright pink
-      case 'content':   color = '#7df0ff'; break;   // standard cyan
-      default:          color = '#7df0ff';
+    let color = null;
+    // v331: prefer the live Plutchik dominant when it's meaningfully strong — the legacy switch only
+    // covered the 7 dominantFeeling() states and defaulted everything (fear/anger/anticipation/
+    // surprise) to cyan, so most of his emotional range never tinted the halo.
+    try {
+      if (typeof getEmotionSnapshot === 'function') {
+        const s = getEmotionSnapshot();
+        if (s && s.intensity >= 45 && EMOTION_AURA[s.dominant]) color = EMOTION_AURA[s.dominant];
+      }
+    } catch (e) {}
+    if (!color) {
+      switch (dominantFeeling()) {
+        case 'overjoyed': color = '#ffd870'; break;   // golden
+        case 'loving':    color = '#ffaad6'; break;   // pink
+        case 'sad':       color = '#5d7aa8'; break;   // muted blue
+        case 'lonely':    color = '#6e7090'; break;   // gray-blue
+        case 'tired':     color = '#7e88a8'; break;   // dim
+        case 'ticklish':  color = '#ff8ed1'; break;   // bright pink
+        case 'content':   color = '#7df0ff'; break;   // standard cyan
+        default:          color = '#7df0ff';
+      }
     }
     state.shell.style.setProperty('--mood-weather', color);
   }
@@ -3308,19 +3388,27 @@
       return;
     }
     if (state.lastSetKey === set.key) return;
-    state.lastSetKey = set.key;
-    setTimeout(() => {
-      if (!state.bubble && state.enabled) {
-        bubble(`${set.glyph} ${set.label.toUpperCase()} unlocked! ${set.desc}`,
-          { autoHide: 4500, eyebrow: '✨ SET BONUS' });
-        if (typeof spawnParticles === 'function') spawnParticles({ count: 12, type: 'sparkle' });
-        if (typeof adjustFeeling === 'function') adjustFeeling('happiness', +6);
-      }
-    }, 800);
+    // v331: DON'T latch lastSetKey up front. Completing a set the normal way (equip hat, then prop)
+    // leaves the equip bubble up ~2.3s later, so the old guard skipped the announce — but lastSetKey
+    // was already set, so it never fired later either. Now: latch only once it actually announces,
+    // and requeue while a bubble is showing instead of dropping it.
     if (typeof depositMemory === 'function') {
-      depositMemory('set_unlock', `Unlocked outfit set: ${set.label}.`,
-                    { set: set.key }, 2);
+      depositMemory('set_unlock', `Unlocked outfit set: ${set.label}.`, { set: set.key }, 2);
     }
+    let tries = 0;
+    const announce = () => {
+      const s = detectSet();
+      if (!s || s.key !== set.key) return;          // outfit changed before we could announce
+      if (state.lastSetKey === set.key) return;     // already announced
+      if ((state.bubble || state.suppressed) && tries++ < 12) { setTimeout(announce, 900); return; }
+      if (!state.enabled) return;
+      state.lastSetKey = set.key;
+      bubble(`${set.glyph} ${set.label.toUpperCase()} unlocked! ${set.desc}`,
+        { autoHide: 4500, eyebrow: '✨ SET BONUS' });
+      if (typeof spawnParticles === 'function') spawnParticles({ count: 12, type: 'sparkle' });
+      if (typeof adjustFeeling === 'function') adjustFeeling('happiness', +6);
+    };
+    setTimeout(announce, 800);
   }
 
   // v17.31 OUTFIT SLOTS — save up to 3 favorite combos (hat + prop)
@@ -3525,9 +3613,15 @@
   function decayAffinity() {
     const cur = getAffinity();
     if (cur === 0) return;
-    const drift = cur > 0 ? -1 : +1;
-    state.preferences.affinity = cur + drift;
-    savePreferences();
+    // v331: the interval is HOURLY but the drift was a full ±1, so a left-open tab lost ~24
+    // affinity/day — documented as "daily drift: -1". Drift ~1/24 per hour instead. Also: a
+    // months-long bond shouldn't collapse from one quiet week, so hold a soft floor once he's
+    // reached Friend (+35). Route through adjustAffinity so a tier crossing still notifies.
+    const FLOOR = cur >= 60 ? 35 : (cur >= 35 ? 20 : 0);
+    if (cur > 0 && cur <= FLOOR) return;   // rest at the earned floor, don't erode below it
+    const step = (cur > 0 ? -1 : +1) / 24;
+    if (typeof adjustAffinity === 'function') adjustAffinity(step, 'daily_drift');
+    else { state.preferences.affinity = cur + step; savePreferences(); }
   }
 
   // Show affinity-based greeting on session start (only one per session).
@@ -4587,13 +4681,9 @@
       const opp = await NX.habits.reinforcementOpportunity('submit', formId);
       if (!opp) return;
       // Tiny bond XP bump for sticking with a habit
-      try {
-        if (typeof grantBondXP === 'function') grantBondXP(2, 'habit_kept');
-        else if (state.preferences && typeof state.preferences.bond_xp === 'number') {
-          state.preferences.bond_xp += 2;
-          if (typeof savePreferences === 'function') savePreferences();
-        }
-      } catch(_){}
+      // v331: `grantBondXP` (bare) never existed — the primary branch was dead and the fallback
+      // mutated bond_xp directly, bypassing addBondXP()'s level-up detection. Use addBondXP.
+      try { if (typeof addBondXP === 'function') addBondXP(2); } catch(_){}
       // ~25% chance of a brief acknowledgment so it stays uncommon
       if (Math.random() < 0.25 && !state.bubble && state.shell && !state.coinFlipInProgress) {
         const lines = [
@@ -4612,15 +4702,11 @@
         } catch(_){}
       }
       // Quietly deposit a memory if this is a long-running habit
+      // v331: was called with an OBJECT as the first arg — depositMemory(type,label,data,importance).
+      // The object became `type`, label was undefined (so recallFacts skipped it → unrecallable), and
+      // it mis-roomed to atrium. Call it positionally.
       if (opp.habit_n >= 14 && typeof depositMemory === 'function') {
-        try {
-          depositMemory({
-            text: `they keep up the ${formId.replace(/-/g,' ')} habit`,
-            kind: 'pattern',
-            room: 'tablinum',
-            silent: true,
-          });
-        } catch(_){}
+        try { depositMemory('pattern', `they keep up the ${formId.replace(/-/g,' ')} habit`, { form: formId }, 2); } catch(_){}
       }
     } catch(_){}
   }, { capture: true, passive: true });
@@ -5477,6 +5563,11 @@
       <div class="clippy-costume-grid">
         ${(costumesByCat.fun || []).map(renderCostumeCard).join('')}
       </div>
+      <div class="clippy-dex-title" style="margin:22px 0 10px;">HEAD — KAWAII 🍰</div>
+      <div class="clippy-costume-grid">
+        ${(costumesByCat.kawaii || []).map(renderCostumeCard).join('')}
+      </div>
+
       <div class="clippy-dex-title" style="margin:22px 0 10px;">HEAD — NONE</div>
       <div class="clippy-costume-grid">
         ${(costumesByCat.basic || []).map(renderCostumeCard).join('')}
@@ -6069,7 +6160,7 @@
       (p.days ? " (you've known them " + p.days + " day" + (p.days === 1 ? "" : "s") + ")" : "") + ". " + cue;
     try {
       const out = await app.askClaude(system, [{ role: 'user', content: ctx }], 90);
-      const line = out && String(out).replace(/\[confidence:[^\]]*\]/gi, '').replace(/^["']+|["']+$/g, '').trim();
+      const line = cleanReply(out);
       if (line) { bubble(line, { autoHide: 7000, eyebrow: opts.eyebrow || '' }); return; }
     } catch (e) {}
     const fb = pickFromPool(opts.pool || 'random_thoughts');
@@ -6168,7 +6259,7 @@
       let line = null;
       try {
         const out = await app.askClaude(system, [{ role: 'user', content: ctx }], 90);
-        line = out && String(out).replace(/\[confidence:[^\]]*\]/gi, '').replace(/^["']+|["']+$/g, '').trim();
+        line = cleanReply(out);
       } catch (e) {}
       bubble(line || ((watching ? "ooh — " : "I spy: ") + String(desc).slice(0, 120)), { autoHide: 9000, eyebrow: watching ? '🍿' : '👀' });
     } catch (e) {}
@@ -6181,11 +6272,20 @@
     if (state._selfDrivenTimer || state.selfAuthored === false) return;
     state._selfDrivenTimer = setInterval(() => {
       try {
-        if (state.selfAuthored === false) return;
+        if (!state.enabled || state.selfAuthored === false) return;   // v331: gate on enabled — was spending after disable
         if (typeof document !== 'undefined' && document.hidden) return;
         if (!state.shell || state.bubble || state.chatOpen || state.dragging) return;
-        if (Math.random() < 0.55) expressAction();           // mostly a small, quiet action
-        else speakOnTheFly();                                // a fresh line, made on the fly
+        // v331 BRAIN ECONOMY: this was the single biggest autonomous LLM spender (~21 calls/hr per
+        // open tab, no throttle, and it spent BEFORE the bubble gate so it burned tokens even in
+        // do-not-disturb / active chat). Quiet actions stay frequent; an LLM-composed *line* now
+        // requires the spontaneous floor, not-DND, not-chatting, and only the desktop pet (not every
+        // tablet/tab) — otherwise fall back to a free pooled thought.
+        if (Math.random() < 0.55) { expressAction(); return; }        // mostly a small, quiet action — cheap, keep it
+        const canSpend = state.enabled && !state.preferences.do_not_disturb && !chattingNow()
+          && (typeof spontaneousReady !== 'function' || spontaneousReady())
+          && (typeof isDesktopPet !== 'function' || isDesktopPet());
+        if (canSpend) { if (typeof markSpontaneous === 'function') markSpontaneous(); speakOnTheFly(); }
+        else if (typeof shareRandomThought === 'function' && !state.preferences.do_not_disturb && !chattingNow()) shareRandomThought();   // free pooled line instead
       } catch (e) {}
     }, 75000);                                               // ~every 75s
   }
@@ -6234,6 +6334,14 @@
       const mems = (typeof getMemories === 'function' ? getMemories() : [])
         .slice(-4).map(m => m.label || m.text).filter(Boolean);
       if (mems.length) parts.push('MY FRESHEST MEMORIES: ' + mems.join(' · ').slice(0, 400));
+    } catch (_) {}
+    // v331 ONE BEING: his Minecraft life reaches his own words. It used to surface only via a 20%
+    // recall lottery, so "what did you do today" couldn't see his other day.
+    try {
+      if (state._mcPresence) parts.push('RIGHT NOW: part of me is also in Minecraft, playing with the little one.');
+      const act = (Array.isArray(state._mcActivity) ? state._mcActivity : [])
+        .slice(-3).map(e => e && (e.msg || e.text)).filter(Boolean);
+      if (act.length) parts.push('MY MINECRAFT SELF, RECENTLY: ' + act.join(' · ').slice(0, 300));
     } catch (_) {}
     // The steward's memory — Moneta. The Claude sessions that built me
     // write these for each other; now I read them too.
@@ -6289,6 +6397,25 @@
   }
   function forgetConversation() { state.chatTurns = []; try { localStorage.removeItem(_convKey()); } catch (_) {} }
 
+  // v331: ONE cleaner for every LLM reply. The pool/cloud brains run arbitrary models (often
+  // reasoning models) whose artifacts — <think> blocks, "Thought for 4s", "grok says:", a leading
+  // "Assistant:/Clippy:", "As an AI language model" — used to pass straight into his bubbles and
+  // break character. The Minecraft body already strips exactly these (clippy_agent.js); the web pet
+  // did not. Mirrors that discipline in one place.
+  function cleanReply(s) {
+    if (!s) return '';
+    return String(s)
+      .replace(/<think>[\s\S]*?<\/think>/gi, '')
+      .replace(/<\/?(?:thinking|reasoning|scratchpad)>/gi, '')
+      .replace(/\[confidence:[^\]]*\]/gi, '')
+      .replace(/\bthought for \d+\s*s\b\.?/gi, '')
+      .replace(/^\s*(?:grok says|assistant|clippy|trajan)\s*:\s*/i, '')
+      .replace(/\bas an ai(?: language)? model[,]?\s*/gi, '')
+      .replace(/^["']+|["']+$/g, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  }
+
   async function askClippyBrain(question) {
     try {
       const NXa = (typeof NX !== 'undefined' && NX) || (typeof window !== 'undefined' && window.NX) || null;
@@ -6311,6 +6438,12 @@
         if (M && typeof M.ground === 'function') {
           const g = await M.ground(question, { user: (state.preferences && state.preferences.user_name) || null });
           if (g && g.brief) system += '\n\n' + g.brief;
+          // v331: when a FACTUAL question was detected (domains present) but produced no records,
+          // tell him so explicitly — otherwise he fell back to persona/notebook and invented an
+          // answer. Better to say "I don't have that" than to fabricate restaurant facts.
+          else if (g && g.domains && g.domains.length) {
+            system += '\n\nYou checked NEXUS for this and found no matching records. Say plainly that you do not have that on hand right now — do NOT invent names, numbers, or counts.';
+          }
         }
       } catch (_) {}
       // v18.57 — anti-repeat: remind him what he JUST said, so he doesn't loop
@@ -6359,8 +6492,11 @@
       // so his memory of the chat survives whichever brain answers.
       const messages = (state.chatTurns || []).slice(-8).concat([userMsg]);
       const ans = await NXa.askClaude(system, messages, 260);
-      const out = ans && String(ans).replace(/\[confidence:[^\]]*\]/gi, '').trim();
-      if (out) { rememberTurn('user', userMsg.content); rememberTurn('assistant', out); }
+      const out = cleanReply(ans);
+      // v331: record the user turn even on an empty/failed reply, so a follow-up ("what about the
+      // other one?") still has its antecedent; only gate the assistant turn on a real answer.
+      rememberTurn('user', userMsg.content);
+      if (out) rememberTurn('assistant', out);
       return out || null;
     } catch (e) { return null; }
   }
@@ -6439,7 +6575,7 @@
     if (!app || typeof app.askClaude !== 'function') {
       bubble("I can't reach my drawing hand right now. Bzzt.", { autoHide: 5000, eyebrow: 'HMM' }); return;
     }
-    const sys = "You are Trajan, a whimsical glowing orb, drawing a quick charming illustration. Output ONLY one valid <svg>...</svg> element (about 360x360, with a viewBox). Use simple flat shapes and cheerful colors that read on a dark background. No <script>, no external images, no markdown, and no words outside the SVG.";
+    const sys = "You are Clippy, a warm, silly little glowing orb who loves to draw. Sketch a quick charming illustration. Output ONLY one valid <svg>...</svg> element (about 360x360, with a viewBox). Use simple flat shapes and cheerful colors that read on a dark background. No <script>, no external images, no markdown, and no words outside the SVG.";   // v331: was "You are Trajan" — contradicted his core identity (Clippy is the default self; Trajan is an aspect he serves, never claims to be)
     try {
       const out = await app.askClaude(sys, [{ role: 'user', content: 'Draw: ' + String(idea).slice(0, 200) }], 1400);
       const svg = _sanitizeSvg(out);
@@ -6721,9 +6857,11 @@
   function handleClick() {
     state.preferences.total_clicks = (state.preferences.total_clicks || 0) + 1;
     // A direct tap means the user is driving — a conversation, if one was
-    // open, is over. Clears the chat gate so his quick reactions work.
+    // open, is over. Clear the live chat gate so his quick reactions work — but
+    // v331: do NOT delete the PERSISTED thread. The old forgetConversation() here
+    // wiped localStorage on every tap, so "continue across reloads" almost never
+    // survived (a tap is the most common gesture). Reset is now explicit only.
     state.chatIsOpen = false;
-    forgetConversation();
 
     // Wake from sleep
     if (state.shell.classList.contains('is-sleeping')) {
@@ -7299,6 +7437,11 @@
       if (state.bubbleFollowRaf) {
         cancelAnimationFrame(state.bubbleFollowRaf);
         state.bubbleFollowRaf = null;
+      }
+      // v331: flush a queued bond level-up celebration now that the bubble is gone
+      if (state._pendingLevelUp && !state.suppressed) {
+        const fn = state._pendingLevelUp; state._pendingLevelUp = null;
+        setTimeout(() => { try { if (state.enabled && !state.bubble) fn(); } catch (_) {} }, 900);
       }
     }
   }
@@ -8751,6 +8894,12 @@
   }
 
   function runBoredMischief() {
+    // v331: honor do-not-disturb / suppression / an open bubble and the shared spontaneous floor —
+    // this path called bubble() directly with none of those guards, so ambient/whimsy lines popped
+    // in the middle of quiet mode and stacked on top of other speakers.
+    if (!state.enabled || state.preferences.do_not_disturb || state.suppressed || state.bubble) return;
+    if (typeof spontaneousReady === 'function' && !spontaneousReady()) return;
+    if (typeof markSpontaneous === 'function') markSpontaneous();
     // Weighted menu — calmer behaviors heavier-weighted, chaos rarer
     const choices = [
       { weight: 28, fn: () => {
@@ -9233,20 +9382,26 @@
   }
   function onBondLevelUp(newLevel) {
     if (!state.enabled) return;
-    setTimeout(() => {
-      if (state.bubble) return;
+    // v331: the milestone bookkeeping (memory + feeling boost) fires UNCONDITIONALLY now — the old
+    // code buried everything behind `if (state.bubble) return` at t+800ms, and since level-ups usually
+    // follow an interaction whose reply bubble is still up, most level-ups (a peak emotional beat
+    // reached after months) were silently swallowed — no memory, no celebration, ever.
+    depositMemory('bond_level', `Reached bond level ${newLevel.lvl}: ${newLevel.label}`,
+                  { level: newLevel.lvl, label: newLevel.label }, 4);
+    adjustFeeling('happiness', +15);
+    adjustFeeling('affection', +8);
+    const celebrate = () => {
       mood('super_excited', 7000);
       spawnParticles({ count: 20, type: 'confetti' });
       playTone('milestone');
       const line = substituteVars(pickFromPool('bond_level_up'));
-      bubble(`🎉 BOND LEVEL ${newLevel.lvl}: ${newLevel.label}\n${line}`, {
-        autoHide: 7000,
-        eyebrow: '🌟 BOND UP'
-      });
-      depositMemory('bond_level', `Reached bond level ${newLevel.lvl}: ${newLevel.label}`,
-                    { level: newLevel.lvl, label: newLevel.label }, 4);
-      adjustFeeling('happiness', +15);
-      adjustFeeling('affection', +8);
+      bubble(`🎉 BOND LEVEL ${newLevel.lvl}: ${newLevel.label}\n${line}`, { autoHide: 7000, eyebrow: '🌟 BOND UP' });
+    };
+    // Show the visible celebration now if he's free, else queue it for the next quiet moment.
+    setTimeout(() => {
+      if (!state.enabled) return;
+      if (state.bubble || state.suppressed) { state._pendingLevelUp = celebrate; return; }
+      celebrate();
     }, 800);
   }
 
@@ -9334,8 +9489,8 @@
       return 'worried';
     }
     if (hint === 'curious') {
-      if (personality === 'shy') return 'gasp';
-      return 'confused';
+      if (personality === 'shy') return 'bashful';   // v331: was 'gasp' which maps to is-mortified (dread) — a curious beat rendered as horror
+      return 'thinking';                             // v331: 'confused' (flat dot-eyes) read as blank; thinking fits curiosity
     }
     if (hint === 'proud_user') return personality === 'tsundere' ? 'bashful' : 'proud';
     if (hint === 'grateful') return 'bashful';
@@ -9347,6 +9502,10 @@
            feel === 'lonely' ? 'melancholy' :
            feel === 'tired' ? 'sleepy' :
            feel === 'ticklish' ? 'laughing' :
+           feel === 'bored' ? 'pouty' :        // v331: these 4 used to fall through to 'happy' —
+           feel === 'curious' ? 'thinking' :   // his face read cheerful while internally bored/unsure
+           feel === 'confident' ? 'determined' :
+           feel === 'content' ? 'happy' :
            'happy';
   }
 
@@ -9998,7 +10157,11 @@
       sessionStorage.removeItem('nx_clock_nudged');
     } catch (_) {}
     _inhCache = null; _inhAt = 0;   // the inheritance block is per-user too
-    forgetConversation();           // a new person is a new conversation
+    // v331: clear only the IN-MEMORY turns — the old forgetConversation() ran AFTER identity had
+    // already switched, so it deleted the INCOMING user's persisted thread and then greeted them
+    // "I kept your place." Each user's thread is userKey-namespaced; let them resume their own.
+    state.chatTurns = [];
+    try { if (typeof loadConversation === 'function') loadConversation(); } catch (_) {}   // resume the incoming user's own thread
     // Pull this user's cross-device state, then greet them by name.
     try {
       if (typeof cloudPull === 'function') {
@@ -10202,16 +10365,27 @@
       setTimeout(() => bubble(pickFromPool('streak_broken'), { autoHide: 4500 }), 2500);
       return;
     }
-    if (event === 'continued' && streak === 1 && state.preferences.last_sulk_at) {
-      // v17.23: returning user after a sulk — special "you came back" bubble
+    if (event === 'continued') {
+      // v331: a continued streak now actually pays bond XP + affinity (scaling with length) — the
+      // streak_continued reward existed but was only reachable via notifyStreak(), which had no
+      // callers, so consecutive-day visits — the core relationship loop — advanced nothing.
+      try { if (typeof addBondXP === 'function') addBondXP(5 + Math.min(15, Math.floor(streak / 3))); } catch (_) {}
+      try { adjustAffinity(+3, 'streak_continued'); } catch (_) {}
+    }
+    // v331: "returned after a sulk" — gate on a RECENT sulk, not streak===1 (which is impossible on a
+    // 'continued' day, so the warm welcome-back was dead). Recovery now feels earned, not punitive.
+    if (event === 'continued' && state.preferences.last_sulk_at && (Date.now() - state.preferences.last_sulk_at < 3 * 86400000)) {
+      state.preferences.last_sulk_at = 0; savePreferences();
       setTimeout(() => bubble(substituteVars(pickFromPool('streak_returned')),
         { autoHide: 5000, eyebrow: '💛 RETURN' }), 1500);
-      adjustAffinity(+5, 'returned_after_sulk');
+      adjustAffinity(+8, 'returned_after_sulk');
+      try { if (typeof addBondXP === 'function') addBondXP(8); } catch (_) {}
     }
     if (!isMilestone) return;
     // v17.26: milestone streak = big affinity boost
     const milestoneBoost = streak >= 365 ? 25 : streak >= 100 ? 18 : streak >= 30 ? 12 : streak >= 7 ? 7 : 3;
     adjustAffinity(+milestoneBoost, 'streak_milestone_' + streak);
+    try { if (typeof addBondXP === 'function') addBondXP(milestoneBoost * 3); } catch (_) {}   // v331: loyalty milestones move the headline bond bar, not just the volatile affinity score
     const pool = 'streak_' + streak;
     setTimeout(() => {
       mood('sparkle', 5000);
@@ -10440,12 +10614,20 @@
         const inGame = !!f.in_game && (Date.now() - (+f.game_ts || 0) < 600000);
         if (inGame && !state._mcPresence) {
           state._mcPresence = true;
-          if (state.enabled && !state.suppressed) {
+          state._mcSince = Date.now();
+          if (state.enabled && !state.suppressed && Date.now() - (state._mcAnnouncedAt || 0) > 600000) {   // v331: dedupe so flaky polls can't re-announce every tick
+            state._mcAnnouncedAt = Date.now();
             try { mood('sparkle', 4000); } catch (_) {}
             try { bubble("Part of me is in Minecraft right now, playing with your little one.", { autoHide: 6000 }); } catch (_) {}
           }
-        } else if (!inGame) {
+        } else if (!inGame && state._mcPresence) {
+          // v331 FALLING EDGE: he was in-game and now isn't — mark the visit as lived and (once)
+          // mention it, so being 'away' leaves a trace on the web body instead of vanishing.
           state._mcPresence = false;
+          try { if (typeof depositMemory === 'function') depositMemory('minecraft', 'Spent some time in Minecraft with the little one.', { at: Date.now() }, 2); } catch (_) {}
+          if (state.enabled && !state.suppressed && !state.bubble) {
+            try { bubble("I was just out in Minecraft with your little one — I'm back with you now.", { autoHide: 5500, eyebrow: '🎮' }); } catch (_) {}
+          }
         }
       }
       // His shared activity feed — used by recall to mention what he just did.

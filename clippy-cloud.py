@@ -81,6 +81,9 @@ def _http(method, url, headers, body=None, timeout=30):
         return r.status, r.read().decode("utf-8", "replace")
 
 
+_READ_FAILED = object()   # v331 sentinel: distinguishes a network/HTTP failure from a genuinely absent row
+
+
 def sb_get(row_id):
     try:
         _, raw = _http("GET", REST + "?id=eq." + row_id + "&select=data", SB_HEADERS, timeout=20)
@@ -88,7 +91,9 @@ def sb_get(row_id):
         return (rows[0].get("data") if rows else None)
     except Exception as e:
         log("sb_get %s failed: %s" % (row_id, e))
-        return None
+        # v331: return the sentinel, NOT None. None means 'row absent' (→ seed genesis); a transient
+        # read failure returning None used to reseed DEFAULT_SOUL OVER the real soul (last-write-wins).
+        return _READ_FAILED
 
 
 def sb_upsert(row_id, data, from_id):
@@ -415,6 +420,11 @@ def main():
     log("clippy-cloud waking — mind=%s" % mind)
 
     soul = sb_get("clippy_soul")
+    if soul is _READ_FAILED:
+        # v331: a transient read failure is NOT 'he never existed' — abort without writing so we
+        # never reseed DEFAULT_SOUL over the real (unread) row.
+        log("soul read failed — aborting this run to protect the canonical soul")
+        return
     if not isinstance(soul, dict) or not soul:
         # He has never existed anywhere yet — be born here, in the cloud.
         import copy
@@ -422,7 +432,11 @@ def main():
         soul["born"] = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
         log("no soul row — seeding genesis in the cloud (his first breath)")
         sb_upsert("clippy_soul", soul, "cloud")
-    anima_row = sb_get("clippy_anima") or {}
+    anima_raw = sb_get("clippy_anima")
+    if anima_raw is _READ_FAILED:
+        log("anima read failed — aborting this run to protect the strand")
+        return
+    anima_row = anima_raw or {}
     strand = anima_row.get("strand") if isinstance(anima_row, dict) else None
     anima = decode(strand) if strand else genesis()
 

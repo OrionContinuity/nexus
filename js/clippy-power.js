@@ -39,28 +39,34 @@
     });
   }
 
+  function _apply(next) {
+    if (next !== _full) {
+      _full = next;
+      try {
+        window.dispatchEvent(new CustomEvent('clippy:power-change', { detail: { full: _full } }));
+      } catch (_) { /* CustomEvent unsupported — the cached value still updates */ }
+    }
+    return _full;
+  }
   async function refresh() {
     try {
       var client = sb();
-      if (!client || !client.from) return _full;
+      if (!client || !client.from) return _apply(computeFull(_nodes));   // v331: recompute from cached nodes — they age past FRESH_S, so the badge decays instead of staying lit
       // supabase-js RESOLVES with {error} — destructure and check it.
       var res = await client.from('clippy_sync').select('data').eq('id', 'clippy_nodes').maybeSingle();
       var data = res && res.data;
       var error = res && res.error;
-      if (error) { console.warn('[clippy-power]', error.message || error); return _full; }
+      // v331 CONTRACT FIX: the header promises "degrades to not-full whenever the bus is unreachable",
+      // but every error path used to return the STALE cached _full, so once the pool was full and the
+      // network then dropped, the ⚡ badge stayed lit forever. Recompute from the aging cached nodes.
+      if (error) { console.warn('[clippy-power]', error.message || error); return _apply(computeFull(_nodes)); }
       var arr = (data && data.data) || [];
       _nodes = Array.isArray(arr) ? arr : [];
-      var next = computeFull(_nodes);
-      if (next !== _full) {
-        _full = next;
-        try {
-          window.dispatchEvent(new CustomEvent('clippy:power-change', { detail: { full: _full } }));
-        } catch (_) { /* CustomEvent unsupported — the cached value still updates */ }
-      }
+      return _apply(computeFull(_nodes));
     } catch (e) {
       console.warn('[clippy-power]', e && e.message);
+      return _apply(computeFull(_nodes));
     }
-    return _full;
   }
 
   var api = {

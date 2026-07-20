@@ -3815,12 +3815,21 @@ td.check{background:#F0EDE6 !important}
     if (!key) throw new Error('No API key. Admin → save your Anthropic key.');
     const body = { model: this.getModel(), max_tokens: maxTokens, system, messages };
     if (useSearch) body.tools = [{ type: "web_search_20250305", name: "web_search" }];
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-      body: JSON.stringify(body)
-    });
-    const data = await resp.json();
+    // v331: AbortController timeout — this direct fetch had none (unlike the pool path), so a stalled
+    // connection left the chat "thinking" indicator spinning forever with no fallback ever firing.
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 45000);
+    let resp;
+    try {
+      resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify(body),
+        signal: ctrl.signal
+      });
+    } finally { clearTimeout(to); }
+    const data = await resp.json().catch(() => ({}));   // v331: guard non-JSON error bodies (429/529 HTML) that used to reject with a raw SyntaxError
+    if (!resp.ok) throw new Error((data.error && data.error.message) || ('HTTP ' + resp.status));
     if (data.error) throw new Error(data.error.message || 'API error');
     this._answerSource = 'Claude cloud · ' + this.getModel();
     return data.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';

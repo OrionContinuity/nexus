@@ -163,11 +163,20 @@
 
     function runPull() {
       const state = ix.state;
+      const g = getGachaState();
+      // v331: felt anticipation — when pity is close, tease it with the (previously dead)
+      // gacha_pity_warning pool so the player can feel something rare building.
+      let pityLine = '';
+      if (g.pity_no_legendary >= 25 || g.pity_no_rare >= 7) {
+        const p = ix.pickFromPool('gacha_pity_warning');
+        if (p) pityLine = `<div class="clippy-gacha-prompt" style="opacity:.85;margin-top:6px;">✨ ${ix.esc(p)}</div>`;
+      }
       const ov = document.createElement('div');
       ov.className = 'clippy-gacha-overlay';
       ov.innerHTML = `
-        <div class="clippy-gacha-prompt">DAILY PULL · Streak Day ${state.preferences.daily_streak || 1}</div>
+        <div class="clippy-gacha-prompt">DAILY PULL · Streak Day ${Number(state.preferences.daily_streak) || 1}</div>
         <div class="clippy-gacha-title">${ix.esc(ix.substituteVars(ix.pickFromPool('gacha_invite')))}</div>
+        ${pityLine}
         <div class="clippy-gacha-pull-orb">${state.svgMarkup || ''}</div>
         <div class="clippy-game-buttons">
           <button class="clippy-game-btn" data-act="pull">🎴 Pull!</button>

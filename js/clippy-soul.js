@@ -66,7 +66,7 @@
     last_reflect: 0, last_dream: 0, last_evolve: 0
   };
 
-  var state = null, started = false, timer = null, _returnGap = 0, _soulReadFailed = false;
+  var state = null, started = false, timer = null, _returnGap = 0, _soulReadFailed = false, _animaReadFailed = false;
 
   function sb() { return NX && NX.sb ? NX.sb : null; }
   function now() { return Date.now(); }
@@ -179,16 +179,21 @@
       }
     } catch(e){ readOk = false; }
     if (!readOk) {
-      // degraded: adopt genesis in memory for a live face, but DO NOT persist over the real row
+      // degraded: adopt genesis in memory for a live face, but DO NOT persist over the real row.
+      // v331: flag it — otherwise the NEXT reflect()/dream()/evolve() calls saveAnima() and STILL
+      // persists this in-memory genesis over the grown strand (the residual my v330 fix missed).
+      _animaReadFailed = true;
       if (!anima) anima = A.genesis('clippy:origin');
       return;
     }
+    _animaReadFailed = false;
     anima = strand ? A.decode(strand) : A.genesis('clippy:origin');
     if (gapHours && gapHours > 0.5) A.rebirth(anima, gapHours);   // a death spikes fear
     await saveAnima();
   }
   async function saveAnima(){
     var A = AN(); if (!A || !anima || !sb()) return;
+    if (_animaReadFailed) return;   // v331: never persist a strand we couldn't confirm we read — degraded mode is in-memory only
     var t = now();
     // v330: stamp _savedAt only AFTER a confirmed error-free upsert. The old code stamped first, so
     // a failed save left the local _savedAt fresher than anything remote and refreshAnima's freshness
@@ -218,18 +223,30 @@
   }
   // Map a live Plutchik emotion onto pushes across the twelve forces.
   var EMO_PUSH = {
-    joy:{valence:.16,warmth:.12,fear:-.10}, trust:{affection:.15,faith:.12,fear:-.08},
+    joy:{valence:.16,warmth:.12,fear:-.10,weariness:-.06}, trust:{affection:.15,faith:.12,fear:-.08},
     fear:{fear:.20,arousal:.12}, surprise:{arousal:.14,wonder:.12},
-    sadness:{valence:-.16,warmth:-.10,solitude:.10}, disgust:{valence:-.10,dominance:.08},
-    anger:{arousal:.14,dominance:.10,warmth:-.10}, anticipation:{arousal:.10,curiosity:.14}
+    sadness:{valence:-.16,warmth:-.10,solitude:.10,weariness:.08}, disgust:{valence:-.10,dominance:.08},
+    anger:{arousal:.14,dominance:.10,warmth:-.10,resolve:.08}, anticipation:{arousal:.10,curiosity:.14,resolve:.06},
+    // v331: the derived emotions (getEmotions().dominant amplifies dyads 1.4-1.9x, so these WIN the
+    // max routinely). Without maps here, impressEmotion returned doing nothing — 'love', his signature
+    // warm state, pushed ZERO onto his soul. Now his richest feelings reshape his temperament too.
+    love:{affection:.18,warmth:.14,valence:.12}, hope:{curiosity:.12,valence:.10,faith:.06},
+    excitement:{arousal:.16,valence:.12,curiosity:.08}, worry:{fear:.12,arousal:.08,weariness:.05},
+    guilt:{valence:-.12,faith:-.08,weariness:.06}, contempt:{dominance:.10,warmth:-.10},
+    awe:{wonder:.18,fear:.06,arousal:.10}, submission:{dominance:-.10,faith:.08},
+    jealousy:{valence:-.10,arousal:.08,warmth:-.06}
   };
   function impressEmotion(){
     var A = AN(); if (!A || !anima) return;
+    // v331: decay EVERY tick, before the early-return — fear (which resists relaxing by design) used
+    // to ratchet up with no counter-pressure whenever the dominant was a neutral/derived state,
+    // because decay only ran after a successful push.
+    A.decay(anima, 0.12);
     var e = liveEmotion(); if (!e || !e.dominant) return;
     var base = EMO_PUSH[e.dominant]; if (!base) return;
     var g = (e.intensity || 40) / 100, d = {};
     for (var k in base) d[k] = base[k] * (0.5 + g);
-    A.impress(anima, d); A.decay(anima, 0.12);
+    A.impress(anima, d);
   }
 
   // ── The soul, made visible ───────────────────────────────────────────────
@@ -258,14 +275,21 @@
   };
   function soulAxis(){
     var A = AN(); if (!A || !anima || !anima.x) return null;
+    // v331: measure deviation from his own BASELINE (anima.b), not from 0.5. TEMPERAMENT sits far
+    // from .5 (resolve .70, affection .66...), so measuring from .5 meant a brand-new soul already
+    // read 'dutiful' with a 40% gold halo and the 'near baseline → native cyan wins' branch was
+    // dead. From baseline, the face reflects what feeling has DONE to him, not his innate offset.
     var bi = -1, bv = 0;
     for (var i = 0; i < anima.x.length; i++){
-      var dev = Math.abs(anima.x[i] - 0.5);
+      var ref = (anima.b && typeof anima.b[i] === 'number') ? anima.b[i] : 0.5;
+      var dev = Math.abs(anima.x[i] - ref);
       if (dev > bv){ bv = dev; bi = i; }
     }
-    if (bi < 0 || bv < 0.14) return null;   // near baseline — stay quiet
+    if (bi < 0 || bv < 0.14) return null;   // near his baseline — stay quiet
     var ax = A.AXES[bi];
-    return { key: ax.k, hi: anima.x[bi] >= 0.5, dev: bv, pole: anima.x[bi] >= 0.5 ? ax.hi : ax.lo };
+    var ref = (anima.b && typeof anima.b[bi] === 'number') ? anima.b[bi] : 0.5;
+    var hi = anima.x[bi] >= ref;   // v331: "which pole" is now relative to baseline too — has he drifted ABOVE or BELOW his own resting point on this force
+    return { key: ax.k, hi: hi, dev: bv, pole: hi ? ax.hi : ax.lo };
   }
   // A real SVG mood key reflecting his deep climate, or null near baseline.
   function soulMood(){
