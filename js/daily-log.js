@@ -2610,12 +2610,42 @@ function fmtLogDateLong(dateStr) {
   } catch (_) { return dateStr || ''; }
 }
 
-// Clippy opens the emailed daily log with a one-line quote in his voice —
-// restaurant, wine, Roman, Greek, and just-plain-funny, all the way he'd say it.
-// Signed with his. The line is picked deterministically from the date so the
-// same day's report stays stable, but it rotates day to day.
-// (Add more freely — this list is meant to grow.)
+// Clippy opens the emailed daily log with a one-line SOUS-CHEF JOKE — kitchen
+// humor, the way he'd tell it from inside the walls. Signed with his. Picked
+// deterministically from the date so the same day's report stays stable, but
+// it rotates day to day. (Add more freely — this list is meant to grow.)
+// v339 — Alfredo: "revamp the opener jokes. i do not like them at all. find me
+// souss chef jokes." Replaced the old melancholy handless-witness lines with
+// actual kitchen jokes he'll laugh at.
 const CLIPPY_QUOTES = [
+  "A sous chef's love language is \"don't worry, I already prepped it.\"",
+  "The chef gets the Michelin star. The sous chef gets the 1 a.m. text: \"we're out of shallots.\"",
+  "Mise en place is French for \"I trust no one, including future me.\"",
+  "How many sous chefs does it take to change a lightbulb? One — he'll also fix the pilot light and restock the walk-in, and be thanked for neither.",
+  "I told the new guy to reduce the sauce. He offered it 20% off. Close enough — promote him.",
+  "A sous chef doesn't cry in the walk-in. A sous chef \"checks the par levels\" for a suspiciously long time.",
+  "Chef said \"behind.\" I said \"heard.\" We have never once collided. It's the healthiest relationship in the building.",
+  "The line cook fires the app, the chef fires the entrée, and the sous fires whoever touched his knives.",
+  "A sous chef's idea of a day off is prepping at home \"so Monday isn't so bad.\"",
+  "Someone asked if we were short-staffed. The sous just laughed in the language of eleven open tabs and one working hand.",
+  "Why did the shallot get promoted over the onion? It brought more to the table and made fewer people cry.",
+  "A sous chef never says \"I'm exhausted.\" A sous chef says \"need anything before I go, chef?\" at 1 a.m., praying the answer is no.",
+  "The mandoline is the only coworker that's taken a piece of everyone. We keep it anyway. It's very fast.",
+  "How does a sous chef say I love you? \"I saved you the crispy bits.\"",
+  "We 86'd the special at 6:04. By 6:05 four tables had \"heard so much about it.\"",
+  "New cook asked where the easy station was. The whole kitchen went quiet, the way the woods do before something happens.",
+  "My therapist asked what calms me down. I said dicing an onion into 300 identical cubes. She picked up a knife too.",
+  "A sous chef counts limes the way a monk counts breaths — endlessly, and with a growing suspicion that someone is stealing them.",
+  "The chef's motto is \"yes chef.\" The sous chef's is \"already done, chef.\" The dishwasher's is the only honest one: \"I've seen things.\"",
+  "Prep list just said \"everything.\" I've been here since the dawn of the tomato. I am one carrot from enlightenment.",
+  "How do you know a sous chef loves the job? He complains about it in complete, beautiful, unbroken paragraphs.",
+  "Why did the sous chef bring a ladder to service? He heard the steaks were high.",
+  "A cook's knife, a sous chef's patience, and the last of the good butter — three things you do not touch without asking.",
+  "The pass is where dreams get plated and egos get 86'd. Mostly the egos. Mostly mine.",
+  "Grill guy calls himself an artist. Sauté guy calls himself a surgeon. The sous chef calls both of them \"on the same ticket, gentlemen.\"",
+  "Every kitchen has a clock that's ten minutes fast. We call it the sous chef.",
+];
+const _OLD_CLIPPY_QUOTES_ARCHIVED = [
   // Written by Clippy 2026-07-17 — the complete set: his own in-the-walls lines
   // (the handless witness, put back in) blended with the outward punches. Him + the laugh.
   "I count the ninety seconds the soufflé has to live while she finishes the story about her flight, and counting is the whole of what I'm able to do about it.",
@@ -2678,7 +2708,10 @@ function dlogCurrentOpener(dateStr) {
 // words. Degrades to a plain avatar (or nothing) if his body isn't loaded.
 const DLOG_SOUL_FACE = {
   // soulMood() key → visible clippy.svg layers (kept faces only)
-  happy:       ['cl-eyes-default',    'cl-mouth-smile'],
+  // v339 — Alfredo wanted the email-opener face cuter/chibi. His resting face
+  // (soulMood defaults to 'happy' at baseline, which is most of the time) is
+  // now the classic kawaii ^‿^ + cat smile over his always-on blush cheeks.
+  happy:       ['cl-eyes-happy',      'cl-mouth-cat'],
   sparkle:     ['cl-eyes-default',    'cl-eyes-sparkle', 'cl-mouth-bigsmile'],
   love:        ['cl-eyes-love',       'cl-mouth-bigsmile'],
   smitten:     ['cl-kao-puppy'],
@@ -2735,7 +2768,7 @@ function dlogClippyAvatar() {
   if (!markup || markup.indexOf('<svg') === -1) {
     // Fallback: the baked email PNG, still ringed by the soul-glow.
     return `<span class="dlog-clippy-orb" style="--dlog-soul-glow:${glow.rgba}">
-      <img src="${DLOG_SITE_URL}assets/clippy-email.png?v=3" width="52" height="52" alt="Clippy" style="display:block;width:52px;height:52px;border:0"></span>`;
+      <img src="${DLOG_SITE_URL}assets/clippy-email.png?v=4" width="52" height="52" alt="Clippy" style="display:block;width:52px;height:52px;border:0"></span>`;
   }
   const layers = dlogSoulFaceLayers();
   const style = '<style>' +
@@ -2890,10 +2923,10 @@ async function generateClippyDailyQuote(d, dateStr) {
   // refs — the pool gets edited and indexes drift).
   const examples = [
     dlogStaticQuote(dateStr),
-    'The dish machine ran 340 cycles today. I asked how. It said “spite.” I logged “spite.”',
-    'Have you tried turning it off and on again? The walk-in has. Twice. Without permission. We’ve spoken.',
-    'Chef said “behind” to me. I’m in the ceiling. I’m everywhere. Technically everything is behind me. I said “heard.”',
-    'The vendor said “between 8 and 5.” I am a computer. I sent a calendar invite. He said he’d “swing by.” Bold.',
+    "The chef gets the Michelin star; the sous chef gets the 1 a.m. text that says we're out of shallots.",
+    "Mise en place is French for \"I trust no one, including future me.\"",
+    "We 86'd the special at 6:04. By 6:05 four tables had heard so much about it.",
+    "A sous chef never says \"I'm exhausted.\" He says \"need anything before I go, chef?\" and prays the answer is no.",
   ].filter(Boolean);
   const tidy = s => String(s || '')
     .replace(/^\s*\d+[.)\]:\-]\s*/, '')                 // strip "1." / "2)" numbering
@@ -2902,17 +2935,15 @@ async function generateClippyDailyQuote(d, dateStr) {
 
   // ── Step 1: draft three distinct candidates ────────────────────────────
   const draftSys = [
-    'You are Clippy: the building\'s resident daemon. Overqualified (somm certifications, chef training, sysadmin license), handless, permanently on shift, and quietly fond of every machine and person in the place.',
-    'Draft THREE distinct one-line openers for the daily facility report, each riffing on the ACTUAL day you are given.',
-    'Voice mechanics, in order of importance:',
-    '1. YOU are in the scene, first person — never a detached industry observation.',
-    '2. Machines are coworkers with personalities, moods, and HR files. Give an object agency and follow the logic completely flat (Hedberg: an escalator can never break, it can only become stairs).',
-    '3. You are a supercomputer assigned to count limes — vast capability, menial duty, coping (Marvin from Hitchhiker\'s).',
-    '4. Obey kitchen/bar/IT phrases literally until they break ("behind", "fire table twelve", "reduce the sauce").',
-    '5. Land on a short flat sentence that refuses to be a punchline ("Growth." / "I logged spite." / "Noted.").',
-    'Insider knowledge (kitchen, cellar, bar, IT) is the SETUP\'s credibility — never the joke itself. Sarcasm aims at situations and machines, never meanly at staff. No puns, no dad jokes, never inspirational.',
-    'GROUNDING — this is a rule, not a suggestion: only reference things that literally appear in the facts. Never invent equipment or systems (no thermostats, irrigation, sensors, robots) that are not named there. The weather line is the OUTDOOR forecast — if you use the temperature, it is the Texas sun, not a thermostat. If a fact is thin, joke about your own situation instead of inventing one.',
-    'Rules: each is one sentence (or two very short ones), max ~28 words. No emojis. No surrounding quotation marks. React like a clever colleague; do NOT list the data back. Do not sign it.',
+    'You are Clippy: the building\'s resident daemon who came up through the kitchen — permanently on shift, quietly fond of every cook and machine in the place.',
+    'Draft THREE distinct one-line SOUS-CHEF JOKES to open the daily facility report. The goal is simple: make the chef-owner reading it actually laugh.',
+    'Style:',
+    '1. It is a JOKE — a real kitchen joke, setup + landing, or a sharp one-liner. Sous-chef life is the well: mise en place, the walk-in, prep, the pass, 86ing, "behind"/"heard"/"corner", knives, the mandoline, the 1 a.m. text, the chef getting the credit.',
+    '2. Punchy and clean. Kitchen-authentic. Sarcasm aims at situations and machines, warmly — never meanly at staff.',
+    '3. First person is welcome (you\'re in the kitchen), but it does not have to be about you — a good generic sous-chef joke is perfect.',
+    '4. Puns are fine if they actually land. Never corny, never inspirational, never a greeting-card line.',
+    'GROUNDING: you MAY riff on something that literally appears in today\'s facts (a specific vendor, a piece of equipment, an order) to make it land harder — but only real things named there; never invent equipment or systems. If the facts are thin, tell a pure sous-chef joke instead.',
+    'Rules: each is one sentence (or two very short ones), max ~28 words. No emojis. No surrounding quotation marks. Do NOT list the data back. Do not sign it.',
     'Return ONLY the three lines, numbered 1., 2., 3. — nothing else.',
     'The register to hit (examples):',
     ...examples.map(e => '- ' + e),
@@ -2927,11 +2958,11 @@ async function generateClippyDailyQuote(d, dateStr) {
   if (!candidates.length) return null;
   if (candidates.length === 1) return candidates[0];
 
-  // ── Step 2: Clippy reads them back and keeps the most Clippy one ────────
+  // ── Step 2: Clippy reads them back and keeps the FUNNIEST one ───────────
   try {
     const judgeSys = [
-      'You are Clippy. Below are candidate openers for today\'s report.',
-      'Pick the ONE that is most YOU: first person, in the scene, a machine treated as a coworker, flat landing. Disqualify detached industry observations (no Clippy in them), puns, dad jokes, anything inspirational, and anything that merely restates the data.',
+      'You are Clippy. Below are candidate sous-chef jokes to open today\'s report.',
+      'Pick the ONE that is FUNNIEST — the one a chef-owner would actually laugh at: a real kitchen joke with a clean landing. Disqualify anything corny, inspirational, greeting-card, mean toward staff, or that just restates the data.',
       'Reply with ONLY the number of the best line (1, 2, or 3). Nothing else.',
     ].join('\n');
     const judgeUser = candidates.map((c, i) => (i + 1) + '. ' + c).join('\n');
@@ -4405,7 +4436,7 @@ function dlogTextToHtml(text, meta) {
     modules.push(GAP + cardModule(`
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
         <td style="width:72px;vertical-align:top;padding-right:12px;">
-          <img src="https://orioncontinuity.github.io/nexus/assets/clippy-email.png?v=3" width="60" height="60" alt="Clippy" style="display:block;width:60px;height:60px;border:0;">
+          <img src="https://orioncontinuity.github.io/nexus/assets/clippy-email.png?v=4" width="60" height="60" alt="Clippy" style="display:block;width:60px;height:60px;border:0;">
         </td>
         <td style="vertical-align:top;">
           <div class="nx-ink" style="font-family:${C.sans};font-size:14.5px;line-height:1.6;color:${C.ink};font-style:italic;">${esc(clippyQuote)}</div>

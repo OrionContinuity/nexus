@@ -318,7 +318,6 @@
 .clippy-svg .cl-mouth-star,
 .clippy-svg .cl-mouth-laugh,
 .clippy-svg .cl-mouth-tape,
-.clippy-svg .cl-mouth-bunny,
 .clippy-svg .cl-mouth-triangle { opacity: 0; }
 
 /* v17.16 new overlays — hidden by default */
@@ -1952,9 +1951,8 @@ body.clippy-game-open .clippy-bubble {
 #clippy-shell.is-smitten .cl-heart-blush { opacity: 1; }
 #clippy-shell.is-smitten .cl-cheek { opacity: 0; }
 
-/* BUNNY — default eyes + bunny tooth smile (cute toothy) */
-#clippy-shell.is-bunny .cl-mouth-smile { opacity: 0; }
-#clippy-shell.is-bunny .cl-mouth-bunny { opacity: 1; }
+/* v339 — BUNNY mouth deleted (Alfredo: "mouth bunny is horrendous. delete").
+   The is-bunny state was already retired (the 'bunny' mood maps to is-happy). */
 
 /* STUNNED — wide-shock eyes + tape mouth */
 #clippy-shell.is-stunned .cl-eyes-default { opacity: 0; }
@@ -1997,8 +1995,8 @@ body.clippy-game-open .clippy-bubble {
    bunny tooth smile (cute scholar). Activates in Education view. */
 #clippy-shell.is-studious .cl-eyes-default { opacity: 0; }
 #clippy-shell.is-studious .cl-eyes-studious{ opacity: 1; }
-#clippy-shell.is-studious .cl-mouth-smile  { opacity: 0; }
-#clippy-shell.is-studious .cl-mouth-bunny  { opacity: 1; }
+/* v339 — studious kept its reading glasses but the bunny-tooth mouth is gone;
+   it now wears the default smile (the hide-smile + show-bunny pair was removed). */
 
 /* STRATEGIST — board mode. Determined + cat smirk. */
 #clippy-shell.is-strategist .cl-eyes-default    { opacity: 0; }
