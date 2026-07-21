@@ -2987,7 +2987,48 @@ const CLIPPY_QUOTES = [
   "There's a hierarchy nobody wrote down and everybody knows, and it has nothing to do with title and everything to do with who stays to help mop when it's not their job.",
   "The best compliment in the building isn't 'great service' or 'amazing food' — it's another cook, mid-rush, glancing at your station and giving one small nod.",
   "Every restaurant is haunted, and the ghost is always the same: last month's labor budget, walking the dining room at close, shaking its head.",
-  "The two most dangerous words in service are 'real quick,' and they have never once, in the history of the industry, preceded anything real or quick."
+  "The two most dangerous words in service are 'real quick,' and they have never once, in the history of the industry, preceded anything real or quick.",
+  // v346 — more insider deep-cuts (fine dining, bar program, banquet, diner, pizza, food truck, the deep truths).
+  "In fine dining the tweezers are real, the plating is a nine-minute meditation, and the sixty-dollar course is an amuse the guest, genuinely moved, still follows by asking where the bread is.",
+  "A tasting menu is a two-hour trust exercise where the kitchen says 'let us drive,' and one table always asks to see a menu anyway, as if there were a wrong turn to catch.",
+  "The pass in a fine-dining kitchen is silent, and that silence is scarier than any amount of yelling, because it means the chef is watching — and the chef is always watching.",
+  "Micro-greens are a garnish, a personality, and a small fortune, and the guest will push every one to the side of the plate like weeds, which, botanically, is a fair position.",
+  "The bar program took eight months, a rotovap, and a spreadsheet of house tinctures, and the number-one seller is still a vodka soda — a truth the bar director has made a quiet, expensive peace with.",
+  "Clarified milk punch takes two days and a small act of faith, and it will always outsell nothing, because the guests who'd love it don't know it exists and the rest order 'something fruity.'",
+  "A batched cocktail is a bartender's love letter to their future self, written at 3 p.m. so that at 9 p.m. they can still make forty of them and remember their own name.",
+  "Banquet is where you cook for four hundred people who'll call it 'the chicken,' and you pour your whole heart into it anyway, because that's the job and also somebody's wedding.",
+  "Nothing humbles a line cook like the banquet chafing dish: all your technique reduced to 'keep it above 140 and pray the timing holds through the toasts.'",
+  "The catering gig is set for six, the client shows at four 'just to check,' and the whole team performs relaxed competence while internally recalculating the entire universe.",
+  "The breakfast cook works a flat-top that's a Jackson Pollock of eggs and home fries, holds nine orders in his head, and does it all before most people have found their car keys.",
+  "'Over easy' is a covenant, 'over medium' is a negotiation, and 'over hard but still a little runny' is a request for a miracle the breakfast cook will attempt out of pure professional pride.",
+  "The diner regular has sat in the same seat for twenty years, orders the same thing, tips the same buck — and if he's not in by 7:15 the whole staff quietly starts to worry.",
+  "The pizza guy reads a rush by the dough, launches a peel like a magician, and will fight you, physically, over the word 'pineapple,' and honestly he's earned the right.",
+  "A wood-fired oven runs at 900 degrees and cooks a pie in ninety seconds, so the pizzaiolo has exactly ninety seconds to be a genius or an arsonist — a coin flip he's learned to weight.",
+  "A food truck is a whole restaurant folded into a space the size of a closet, run by two people and a generator with opinions, and it's the purest, most unhinged form of the craft there is.",
+  "The smaller the kitchen, the larger the ego per square foot, and a two-burner line will produce a chef more certain of his genius than any three-star.",
+  "Every kitchen has a playlist war that ends the same way: prep is jazz, service is metal, and cleanup is whatever the last person standing wants, which is usually something sad.",
+  "The knife roll is a cook's whole identity zipped into canvas, worth more than their car, and the first rule everyone learns is you never, ever touch another cook's roll.",
+  "You can date the exact moment a cook fell in love with the job: the first time they nailed a rush, looked up, and realized four hours had passed like four minutes.",
+  "The staff bathroom is where cooks answer the one text, have the ninety-second cry, or just stand in the only silence the building offers — and everyone respects a closed door.",
+  "The chef who came up hard runs the kitchen he swore he never would, catches himself yelling in a voice he recognizes, and spends the drive home quietly trying to be better tomorrow.",
+  "A cook's hands tell the whole résumé: the burn map, the callus grid, the mandoline scar they swear they respect now, and the steadiness only ten thousand covers can buy.",
+  "The line eats standing up, sleeps facing the door, and measures wealth by whether the good knife is sharp and the rent is covered — and by that math most of them feel rich exactly twice a month.",
+  "There's a specific loneliness to being the last cook scrubbing the hood while the front counts their tips, and a specific pride too, and the two live in the same breath.",
+  "The reason cooks stay isn't the money or the hours or the burns — it's that one perfect service, clean and fast and beautiful, that ruins them for every other kind of work forever.",
+  "A veteran can walk into any kitchen in the world, not speak a word of the language, get handed a knife and a board, and instantly, completely, be home.",
+  "The industry doesn't ask where you're from or what you studied — it asks if you showed up, if you kept up, and if you helped clean up, and it has never once asked the wrong question.",
+  "Every cook has quit in their head a thousand times, at the exact moment the rush breaks and the last plate leaves the pass, and un-quit by the time they've wiped the station down.",
+  "The first knife a cook buys is a statement, the second is a lesson, and the third is the one they'll keep twenty years — and they can't tell you why, except that it fits the hand now.",
+  "The 'chef's table' is four seats where guests pay extra to watch grown adults yell 'heard' and 'behind' for two hours, and they leave calling it the best show in town, and they're right.",
+  "There's a table that orders the most expensive bottle and the well-done wagyu in the same breath, and the somm and the chef exchange a look across the whole room that needs no words.",
+  "The manager's walk is a specific gait — calm, unhurried, hands loosely clasped — that means either 'everything is fine' or 'we are on fire and I'm the only one allowed to know.'",
+  "Nothing empties a reservation book like a forecast of thunderstorms and nothing overfills it like 'first 75-degree day,' and no owner has ever once predicted which.",
+  "The regular's 'usual' is a sacred contract that outranks the reservation system, the wait list, and occasionally the fire code, and the whole staff will bend the universe to honor it.",
+  "A cook will defend a restaurant that underpays him, overworks him, and burns him to strangers with the ferocity of a man defending his own family, because at some point it quietly became one.",
+  "There is a hierarchy of clean: 'clean,' 'health-inspector clean,' and 'the chef is coming in tomorrow clean,' and only a lifer can taste the difference in the air.",
+  "The newest cook always over-seasons and the oldest cook always under-explains, and somewhere in the middle a whole cuisine gets passed down without a single written word.",
+  "Everyone romanticizes the open kitchen until they've plated a dish while making eye contact with the guest who's about to eat it, and learned to perform serenity with fire at their back.",
+  "The last table always sits down four minutes before close, orders the long ticket, and lingers — and the crew that treats them exactly like the first table of the night is the crew worth working for."
 ];
 const _OLD_CLIPPY_QUOTES_ARCHIVED = [
   // Written by Clippy 2026-07-17 — the complete set: his own in-the-walls lines
@@ -3025,18 +3066,43 @@ const _OLD_CLIPPY_QUOTES_ARCHIVED = [
 // the fallback when Clippy hasn't authored a fresh line for the day (offline
 // brain, no API key, or generation still in flight).
 function dlogStaticQuote(dateStr) {
-  const s = String(dateStr || '');
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  return CLIPPY_QUOTES[h % CLIPPY_QUOTES.length];
+  const N = CLIPPY_QUOTES.length; if (!N) return '';
+  // v346 — full-cycle deterministic walk: the day-number times a large prime
+  // (coprime to N) visits every line exactly once before any repeat, so
+  // consecutive days never land on the same opener. Pure/stable per date.
+  let day = Math.floor(Date.parse(String(dateStr || '') + 'T12:00:00') / 86400000);
+  if (!isFinite(day)) { let h = 0, s = String(dateStr || ''); for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; day = h; }
+  return CLIPPY_QUOTES[(((day * 99991) % N) + N) % N];
 }
-// A RANDOM pool line (for the "from the pool" refresh button), never the same
-// one twice in a row.
+// v346 — NO-REPEAT memory. Track which openers have been shown this cycle in
+// localStorage; a fresh pick is uniformly random over the UNSEEN lines, and
+// when the whole pool has rotated we start a new cycle. So Alfredo never sees
+// the same joke twice until all ~365 have gone by, and the pool button is
+// genuinely random (not merely "anything but the last one").
+const DLOG_SEEN_KEY = 'nexus_dlog_seen_openers';
+function dlogSeenSet() {
+  try { const a = JSON.parse(localStorage.getItem(DLOG_SEEN_KEY) || '[]'); return new Set(Array.isArray(a) ? a : []); } catch (_) { return new Set(); }
+}
+function dlogSaveSeen(set) {
+  try { localStorage.setItem(DLOG_SEEN_KEY, JSON.stringify(Array.from(set))); } catch (_) {}
+}
+function dlogPickUnseen(exclude) {
+  if (!CLIPPY_QUOTES.length) return '';
+  let seen = dlogSeenSet();
+  let pool = CLIPPY_QUOTES.filter(q => !seen.has(q) && q !== exclude);
+  if (!pool.length) {                                  // whole pool rotated → new cycle
+    seen = new Set();
+    pool = CLIPPY_QUOTES.filter(q => q !== exclude);
+    if (!pool.length) pool = CLIPPY_QUOTES.slice();
+  }
+  const pick = pool[Math.floor(Math.random() * pool.length)];
+  seen.add(pick); dlogSaveSeen(seen);
+  return pick;
+}
+// A random pool line for the "from the pool" button — super random, and never
+// a repeat until the whole pool has cycled.
 function dlogRandomPoolQuote(exclude) {
-  if (CLIPPY_QUOTES.length < 2) return CLIPPY_QUOTES[0];
-  let q;
-  do { q = CLIPPY_QUOTES[Math.floor(Math.random() * CLIPPY_QUOTES.length)]; } while (q === exclude);
-  return q;
+  return dlogPickUnseen(exclude);
 }
 // The current opener for a date: Clippy's authored line if he wrote one today,
 // else the deterministic pool line.
@@ -3348,9 +3414,10 @@ function ensureClippyDailyQuote(d, dateStr) {
     state.clippyQuoteSource = saved.source || 'pool';
     return Promise.resolve(saved.text);
   }
-  // Nothing locked yet → pick the deterministic pool line for this date, lock it,
-  // and persist. Same date always yields the same line, so it never flickers.
-  return Promise.resolve(_saveDailyQuote(dateStr, dlogStaticQuote(dateStr), 'pool'));
+  // v346 — nothing locked yet → pick a random UNSEEN line (no repeats until the
+  // whole pool has cycled), lock it, and persist. Locked per day so it never
+  // flickers on reload; marked seen so it won't recur for ~a year of dailies.
+  return Promise.resolve(_saveDailyQuote(dateStr, dlogPickUnseen(), 'pool'));
 }
 
 function buildDailyLogEmailBody(d, dateStr, sinceISO) {
