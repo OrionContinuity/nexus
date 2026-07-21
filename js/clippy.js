@@ -2642,12 +2642,14 @@
   // finally has a face.
   function openChat(opts) {
     opts = opts || {};
-    closeActionBubble();
+    closeActionBubble(true);   // v351: immediate close so the chat panel never opens beside a fading bubble
     // v18.57 — he's being talked to: beacon that Alfredo is here, so his
     // Minecraft self can react to the moment.
     try { beaconDesktopPresence(); } catch (_) {}
     const host = ensureHost();
     if (!host || !state.shell) return;
+    // v351: sweep any stray bubble so the panel is the only box on screen (never two).
+    try { [].forEach.call(host.querySelectorAll('.clippy-bubble'), function (n) { n.remove(); }); } catch (_) {}
     const el = document.createElement('div');
     el.className = 'clippy-bubble clippy-chat-bubble clippy-chat-panel' + (opts.super ? ' is-super' : '');
     if (state.shell.classList.contains('is-dragging')) {
@@ -7287,8 +7289,11 @@
     // fromChat and always show. This is the single chokepoint that fixes
     // "Clippy chats over himself" — no need to gate 18 separate speakers.
     if (!opts.fromChat && chattingNow()) return null;
-    closeActionBubble();
+    closeActionBubble(true);   // v351: immediate — a replacement is coming, don't leave the old box fading beside it
     if (!text && !opts.eyebrow) return;
+    // v351: belt-and-suspenders — remove ANY stray bubble node so two can never coexist, even if
+    // a prior close raced or an untracked bubble leaked. Only one .clippy-bubble is ever on screen.
+    try { const _h = ensureHost(); if (_h) [].forEach.call(_h.querySelectorAll('.clippy-bubble'), function (n) { n.remove(); }); } catch (_) {}
 
     const el = document.createElement('div');
     el.className = 'clippy-bubble';
@@ -7457,7 +7462,7 @@
     state.bubbleFollowRaf = requestAnimationFrame(tick);
   }
 
-  function closeActionBubble() {
+  function closeActionBubble(immediate) {
     if (state.bubble) {
       state.bubble.classList.remove('is-visible');
       const b = state.bubble;
@@ -7465,7 +7470,11 @@
       // for up to 180s and every bubble a chat-typed command tried to emit (tickle, dance,
       // stressed check-in, badges) was silently dropped at the actionBubble gate.
       if (b && b.classList && b.classList.contains('clippy-chat-panel')) state.chatIsOpen = false;
-      setTimeout(() => { try { b.remove(); } catch (e) {} }, 220);
+      // v351: `immediate` removes the node NOW instead of after the 220ms fade. A replacement
+      // bubble (actionBubble/openChat) passes it so the outgoing box can't linger on-screen
+      // beside the incoming one — that overlap was the "2 chat boxes" the user saw.
+      if (immediate) { try { b.remove(); } catch (e) {} }
+      else setTimeout(() => { try { b.remove(); } catch (e) {} }, 220);
       state.bubble = null;
       // Fire onDismiss for any close that wasn't an explicit button/× choice
       // (auto-hide, replacement, teardown), exactly once — this is what

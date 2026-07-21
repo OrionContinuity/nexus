@@ -2865,10 +2865,55 @@ async function playBuildNew() {
   say('ooh I feel like building ONE ' + k + '!! 🎨')
   return buildStructure(BP[k](), k)
 }
+// 🟣 v351 TELEPORT ON A WHIM (Alfredo). A vanilla non-op client can't /tp, but it CAN throw an
+// ender pearl — real Minecraft teleportation. When he has a pearl (he already hunts them) and isn't
+// hurt, he may on a whim lob one and blink to a new spot. Gated by health + a cooldown so the pearl's
+// impact damage never stacks up dangerously. Falls back to a normal explore when he has no pearls.
+let _lastPearlBlink = 0
+async function playPearlBlink() {
+  if (!bot || !bot.entity) return playExplore()
+  const pearl = bot.inventory && bot.inventory.items().find(i => i.name === 'ender_pearl')
+  if (!pearl) return playExplore()
+  if (Date.now() - _lastPearlBlink < 60000) return playExplore()      // don't blink-spam
+  if (bot.health != null && bot.health < 12) return playExplore()     // pearls hurt on landing — not when low
+  _lastPearlBlink = Date.now()
+  say(_rand(['ender magic!! watch this— *blink* ✨', 'throwing a pearl!! teleport time!! 🟣', 'whoosh!! I\'m gonna be over THERE 💜']))
+  try {
+    await bot.equip(pearl, 'hand')
+    await bot.look(Math.random() * Math.PI * 2, -0.4, true)   // random yaw, lobbed a bit upward for distance
+    bot.activateItem()                                         // throw → teleport where it lands
+    await sleep(300); try { bot.deactivateItem() } catch (e) {}
+    await sleep(1600)
+    say(_rand(['woah!! new view!! 😮', 'teleport never gets old!! 💫', 'blink blink!! where am I now?? 🌀']))
+    try { rememberPlace('blink', bot.entity.position) } catch (e) {}
+    feel({ joy: 5, curiosity: 3 })
+    journal('pearlblink', 'teleported with an ender pearl on a whim', {})
+  } catch (e) {}
+}
+async function playDance() {
+  if (!bot || !bot.entity) return playExplore()
+  say(_rand(['DANCE PARTY!! 💃', 'wiggle wiggle wiggle!! 🎶', 'look at my moves!! ✨']))
+  try {
+    const base = bot.entity.yaw
+    for (let i = 0; i < 6 && bot && bot.entity; i++) {
+      await bot.look(base + i * (Math.PI / 3), (i % 2 ? 0.25 : -0.25), true)
+      try { bot.setControlState('jump', true); await sleep(180); bot.setControlState('jump', false) } catch (e) {}
+      await sleep(150)
+    }
+    feel({ joy: 6 }); journal('dance', 'danced a little jig', {})
+  } catch (e) { try { bot.setControlState('jump', false) } catch (e2) {} }
+}
+async function playStargaze() {
+  if (!bot || !bot.entity) return playExplore()
+  const t = (bot.time && bot.time.timeOfDay) || 0
+  if (!(t > 13000 && t < 23000)) return playExplore()   // only at night; otherwise wander
+  say(_rand(['the stars are out... so many 🌌', 'look up!! it\'s so pretty tonight ✨', 'I could watch the sky forever 🌠']))
+  try { await bot.look(Math.random() * Math.PI * 2, -1.2, true); await sleep(4000); feel({ joy: 3, safety: 2 }); journal('stargaze', 'watched the night sky', {}) } catch (e) {}
+}
 function _pickPlay() {
   // weighted: mostly non-build activity, building is rare. Skip activities the
   // world can't support (they self-fallback to explore).
-  const roster = [[playExplore, 3], [playAnimals, 3], [playFlowers, 2], [playGrove, 2], [playMine, 2], [playLookout, 2], [playLight, 1], [playWithOwner, 2], [playBuildNew, 1], [playFindHome, know.home ? 1 : 0]]
+  const roster = [[playExplore, 3], [playAnimals, 3], [playFlowers, 2], [playGrove, 2], [playMine, 2], [playLookout, 2], [playLight, 1], [playWithOwner, 2], [playBuildNew, 1], [playFindHome, know.home ? 1 : 0], [playPearlBlink, count('ender_pearl') > 0 ? 2 : 0], [playDance, 1], [playStargaze, 1]]
   const total = roster.reduce((s, r) => s + r[1], 0)
   let r = Math.random() * total
   for (const [fn, w] of roster) { if ((r -= w) <= 0) { try { return fn() } catch (e) { return Promise.resolve() } } }
@@ -2897,7 +2942,7 @@ function moodBiasedPlay() {
   if (dom === 'fear' || (s.fear || 0) >= 40) return scaredHide()
   if (dom === 'lonely') { const op = owner && bot.players[owner] && bot.players[owner].entity; if (op) return playWithOwner() }
   const joy = s.joy || 50, fear = s.fear || 0, lonely = s.lonely || 0, bored = s.bored || 0
-  const roster = [[playExplore, 3], [playAnimals, 3 + (joy > 60 ? 2 : 0)], [playFlowers, 2 + (joy > 60 ? 2 : 0)], [playGrove, 2], [playMine, fear > 30 ? 0 : 2], [playLookout, 2], [playLight, 1 + (fear > 25 ? 3 : 0)], [playWithOwner, 2 + (lonely > 30 ? 3 : 0)], [playBuildNew, 1 + (bored > 40 ? 2 : 0)], [playFindHome, know.home ? 1 : 0]]
+  const roster = [[playExplore, 3], [playAnimals, 3 + (joy > 60 ? 2 : 0)], [playFlowers, 2 + (joy > 60 ? 2 : 0)], [playGrove, 2], [playMine, fear > 30 ? 0 : 2], [playLookout, 2], [playLight, 1 + (fear > 25 ? 3 : 0)], [playWithOwner, 2 + (lonely > 30 ? 3 : 0)], [playBuildNew, 1 + (bored > 40 ? 2 : 0)], [playFindHome, know.home ? 1 : 0], [playPearlBlink, count('ender_pearl') > 0 ? (2 + (bored > 40 ? 2 : 0)) : 0], [playDance, 1 + (joy > 60 ? 1 : 0)], [playStargaze, 1]]
   const total = roster.reduce((a, r) => a + r[1], 0)
   let r = Math.random() * total
   for (const [fn, w] of roster) { if ((r -= w) <= 0) { try { return fn() } catch (e) { return Promise.resolve() } } }
@@ -4010,8 +4055,11 @@ function say(t, force) {
   // narration so he isn't a chatterbox; anything the child prompts passes instantly with force=true.
   if (!force) {
     const gap = now - _lastSay
-    if (gap < 10000) return                                    // never two spontaneous lines within ~10s
-    if (gap < 35000 && Math.random() < 0.5) return             // and past that, often just keep playing quietly
+    // v351 — reduce chatter (Alfredo). Longer minimum silence + a stronger "just keep playing
+    // quietly" bias, so his spontaneous narration is roughly half as frequent. A FORCED line
+    // (answering the child) still bypasses all of this and speaks instantly.
+    if (gap < 22000) return                                    // never two spontaneous lines within ~22s (was 10s)
+    if (gap < 80000 && Math.random() < 0.72) return            // and up to ~80s, usually stay quiet (was 35s / 0.5)
   }
   _lastSay = now
   saidRecent.push({ line, norm, ts: now })
@@ -4606,7 +4654,7 @@ function companionGoal() { return (know && know.llmGoal) || 'play and build with
 function companionMenu() {
   return [
     'YOU CAN DO THINGS, not just talk. If it helps, APPEND command(s) at the very END of your reply. Format: <name key=value>. Keep talking like yourself first.',
-    'MOVE: <come> · <follow> · <wait> · <explore> · <jump>',
+    'MOVE: <come> · <follow> · <wait> · <explore> · <jump> · <blink> (throw an ender pearl to teleport — only if I actually have one)',
     'LOOK: <look> (I describe what I really see around me right now — a grounded scene, never made up)',
     'GATHER: <chop count=N> · <mine block=stone count=N> · <mine block=iron_ore count=N> · <path_to block=oak_log>',
     'CRAFT: <craft item=stick count=N> · <craft item=stone_pickaxe> · <craft item=chest> (uses valid minecraft ids)',
@@ -4695,6 +4743,8 @@ async function execCompanionAction(a) {
     case 'follow': mode = 'hangout'; break
     case 'wait': case 'stay': mode = 'stay'; try { bot.pathfinder.setGoal(null) } catch (e) {} break
     case 'explore': try { await explore(true) } catch (e) {} break
+    case 'blink': case 'teleport': case 'pearl': case 'enderpearl': try { await playPearlBlink() } catch (e) {} break   // v351: real teleport via an ender pearl (no ops needed)
+    case 'dance': try { await playDance() } catch (e) {} break   // v351
     case 'look': case 'lookaround': case 'look_around': try { say(lookAround(), true) } catch (e) {} break
     case 'jump': try { bot.setControlState('jump', true); setTimeout(function () { try { bot.setControlState('jump', false) } catch (e) {} }, 600) } catch (e) {} break
     case 'chop': case 'gather_wood': await gatherWood(N(g.count, 5)); break
