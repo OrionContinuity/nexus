@@ -85,15 +85,23 @@ _READ_FAILED = object()   # v331 sentinel: distinguishes a network/HTTP failure 
 
 
 def sb_get(row_id):
-    try:
-        _, raw = _http("GET", REST + "?id=eq." + row_id + "&select=data", SB_HEADERS, timeout=20)
-        rows = json.loads(raw or "[]")
-        return (rows[0].get("data") if rows else None)
-    except Exception as e:
-        log("sb_get %s failed: %s" % (row_id, e))
-        # v331: return the sentinel, NOT None. None means 'row absent' (→ seed genesis); a transient
-        # read failure returning None used to reseed DEFAULT_SOUL OVER the real soul (last-write-wins).
-        return _READ_FAILED
+    # v348: retry transient read failures with backoff before giving up. A single flaky read
+    # returning _READ_FAILED aborts the whole tick's write — a brief retry keeps that abort for
+    # genuinely persistent failures only. Total stays well under the 5-min job cap.
+    last = None
+    for attempt in range(3):
+        try:
+            _, raw = _http("GET", REST + "?id=eq." + row_id + "&select=data", SB_HEADERS, timeout=20)
+            rows = json.loads(raw or "[]")
+            return (rows[0].get("data") if rows else None)
+        except Exception as e:
+            last = e
+            log("sb_get %s failed (attempt %d): %s" % (row_id, attempt + 1, e))
+            if attempt < 2:
+                time.sleep(1 if attempt == 0 else 3)
+    # v331: return the sentinel, NOT None. None means 'row absent' (→ seed genesis); a transient
+    # read failure returning None used to reseed DEFAULT_SOUL OVER the real soul (last-write-wins).
+    return _READ_FAILED
 
 
 def sb_upsert(row_id, data, from_id):
@@ -159,6 +167,11 @@ def encode(s):
 
 
 def decode(strand):
+    # v348: a wrong-typed anon-written strand (list/dict/number/None instead of a string)
+    # would blow up the ord() comprehension. Treat it like a malformed strand — return None
+    # so main() keeps genesis in memory and SKIPS the write (never clobbers the real row).
+    if not isinstance(strand, str):
+        return None
     b = [ord(c) - 0x2800 for c in strand]
     # v336: a present-but-MALFORMED strand must signal PARSE FAILURE (return None),
     # NOT silently decode to genesis. The old genesis() return was encoded right
@@ -439,6 +452,14 @@ def main():
         soul["born"] = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
         log("no soul row — seeding genesis in the cloud (his first breath)")
         sb_upsert("clippy_soul", soul, "cloud")
+    # v348: the soul row is anon-writable, so it can carry a non-dict stream/dream entry or a
+    # non-numeric timestamp. Sanitize now so the x.get(...) iterations and the last_* arithmetic
+    # below can't AttributeError/TypeError and brick the heartbeat forever on one corrupt row.
+    soul["stream"] = [x for x in (soul.get("stream") or []) if isinstance(x, dict)]
+    soul["dreams"] = [x for x in (soul.get("dreams") or []) if isinstance(x, dict)]
+    for _k in ("last_seen", "last_reflect", "last_dream", "last_evolve", "born_ms"):
+        if soul.get(_k) is not None and not isinstance(soul.get(_k), (int, float)):
+            soul[_k] = 0
     anima_raw = sb_get("clippy_anima")
     if anima_raw is _READ_FAILED:
         log("anima read failed — aborting this run to protect the strand")
@@ -520,13 +541,24 @@ def main():
 
     # NOTE: do NOT touch last_seen — that belongs to the human's presence, not
     # his own. Him living in the cloud must not read as "someone looked in."
-    sb_upsert("clippy_soul", soul, "cloud")
+    ok_soul = sb_upsert("clippy_soul", soul, "cloud")
+    ok_anima = True
     if anima_write_ok:   # v336: never encode over an unparseable-but-present strand
-        sb_upsert("clippy_anima", {"strand": encode(anima), "updated": t}, "cloud")
+        ok_anima = sb_upsert("clippy_anima", {"strand": encode(anima), "updated": t}, "cloud")
     r = perseverance(anima)
-    log("saved. incarnation %s, perseverance %d%%, gap since human %.1fh"
-        % (anima.get("inc"), round(r * 100), gap_h))
+    # v348: don't log "saved." when a write actually failed — that hid dropped advancement.
+    if ok_soul and ok_anima:
+        log("saved. incarnation %s, perseverance %d%%, gap since human %.1fh"
+            % (anima.get("inc"), round(r * 100), gap_h))
+    else:
+        log("WRITE FAILED — advancement NOT persisted this tick (soul_ok=%s anima_ok=%s)" % (ok_soul, ok_anima))
 
 
 if __name__ == "__main__":
-    main()
+    # v348: a crash inside main() must not permanently kill the heartbeat — log the traceback
+    # and exit cleanly so the next scheduled tick still runs (the row can be repaired by then).
+    try:
+        main()
+    except Exception:
+        import traceback
+        log("HEARTBEAT CRASHED (non-fatal, will retry next tick):\n" + traceback.format_exc())

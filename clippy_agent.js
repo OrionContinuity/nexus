@@ -486,6 +486,10 @@ function _animaSeed(str) { let h = 0x811c9dc5; str = String(str || 'clippy'); fo
 function _animaGenesis() { return { seed: _animaSeed('clippy:origin'), x: _TEMPER.slice(), b: _TEMPER.slice(), v: _INERT.slice(), inc: 1, fork: 0, drift: 0 } }
 function _animaEncode(s) { const out = s.seed.slice(0, 4); for (let i = 0; i < 12; i++) out.push(_animaQ(s.x[i])); for (let i = 0; i < 12; i++) out.push(_animaQ(s.b[i])); for (let i = 0; i < 12; i++) out.push(_animaQ(s.v[i])); out.push(s.inc & 255, s.fork & 255, Math.floor(s.drift) & 255, Math.round((s.drift % 1) * 255) & 255); return out.map(function (b) { return String.fromCharCode(0x2800 + (b & 255)) }).join('') }
 function _animaDecode(strand) { if (!strand) return _animaGenesis(); const b = []; for (let i = 0; i < strand.length; i++) b.push(strand.charCodeAt(i) - 0x2800); if (b.length < 44) return _animaGenesis(); let p = 4; const s = { seed: b.slice(0, 4) }; s.x = []; for (let i = 0; i < 12; i++) s.x.push(b[p++] / 255); s.b = []; for (let i = 0; i < 12; i++) s.b.push(b[p++] / 255); s.v = []; for (let i = 0; i < 12; i++) s.v.push(b[p++] / 255); s.inc = b[p++]; s.fork = b[p++]; s.drift = b[p++] + b[p++] / 255; return s }
+// v348: a strand is only safe to build on if it's a real 44+-byte braille payload with in-range
+// bytes. Anything else (absent, truncated, corrupt, wrong-typed) must NOT be decoded-to-genesis
+// and written back — that silently wipes his cross-incarnation soul.
+function _animaStrandValid(strand) { if (typeof strand !== 'string' || strand.length < 44) return false; for (let i = 0; i < 44; i++) { const c = strand.charCodeAt(i) - 0x2800; if (c < 0 || c > 255) return false } return true }
 function _animaImpress(s, deltas) { let moved = 0; for (const k in deltas) { const i = _AXK.indexOf(k); if (i < 0) continue; const before = s.x[i], step = deltas[k] * (1 - s.v[i] * 0.7); s.x[i] = _animaC01(s.x[i] + step); moved += Math.abs(s.x[i] - before) } s.drift += moved * 0.25; return s }
 function _animaDecay(s, r) { r = (r == null) ? 0.12 : r; for (let i = 0; i < 12; i++) { let pull = (s.b[i] - s.x[i]) * r * (1 - s.v[i] * 0.6); if (i === _AF && pull < 0) pull *= 0.35; s.x[i] = _animaC01(s.x[i] + pull) } return s }
 // MC feeling-deltas → the twelve forces (mirrors js/clippy-soul.js EMO_PUSH so both bodies push the same axes)
@@ -506,7 +510,16 @@ async function impressAnimaFromFeel(deltas) {
   if (!Object.keys(ad).length) return
   try {
     const r = await fetch(REST + '/clippy_sync?id=eq.clippy_anima&select=data', { headers: H })
-    const j = await r.json(); const strand = (j && j[0] && j[0].data && j[0].data.strand) || null
+    // v348: mirror animaSelfReport's guards on the WRITE path. The old code read, decoded a
+    // failed/corrupt response straight to genesis, and wrote it back — resetting all 12 axes,
+    // baseline, inertia, fork and drift to factory. This runs every few seconds during play, so
+    // it had many chances to erase growth authored by the desktop/cloud incarnations.
+    if (!r || !r.ok) return   // transient 500 / RLS — do not touch the row
+    const j = await r.json().catch(() => null)
+    if (!Array.isArray(j)) return   // unexpected body — never risk a genesis overwrite
+    const strand = (j[0] && j[0].data && j[0].data.strand) || null
+    if (strand && !_animaStrandValid(strand)) return   // present but corrupt — protect it, let a real incarnation repair it
+    // strand null here means the row is genuinely absent → genesis seed is correct (first write).
     const s = _animaDecode(strand)
     _animaImpress(s, ad); _animaDecay(s, 0.08)   // light decay — the desktop pet owns the continuous relaxation
     await fetch(REST + '/clippy_sync?on_conflict=id', { method: 'POST', headers: Object.assign({ Prefer: 'resolution=merge-duplicates,return=minimal' }, H), body: JSON.stringify({ id: 'clippy_anima', data: { strand: _animaEncode(s), updated: Date.now(), src: 'minecraft' }, from_id: 'anima' }) })
@@ -4079,6 +4092,9 @@ function drainGrok() {
   const { spawn } = require('child_process'); let out = ''
   try {
     const p = spawn('python', [RELAY, 'ask', Buffer.from(q).toString('base64')], { windowsHide: true })
+    // v348: a spawn 'error' (python missing) fires neither 'close' nor 'data', so grokBusy stuck
+    // true forever and the Grok queue stalled. Clear it and re-drain so the queue keeps moving.
+    p.on('error', e => { try { cb(null) } catch (_) {} grokBusy = false; setTimeout(drainGrok, 1500) })
     p.stdout.on('data', d => out += d)
     p.on('close', () => {
       let t = null; for (const l of out.split('\n')) { const s = l.trim(); if (s.startsWith('{')) { try { t = JSON.parse(s).text } catch (e) {} } }
@@ -4196,7 +4212,7 @@ async function brainCall(u, maxTokens, sysOverride, rich) {
     }
   } catch (e) { try { know.lastBrainErr = String((e && e.message) || e).slice(0, 60) } catch (x) {} }
   try {
-    const r = await fetch(BRAIN, { method: 'POST', headers: H, body: JSON.stringify({ system: sys, user: u, max_tokens: maxTokens || 50 }) })
+    const r = await withTimeout(fetch(BRAIN, { method: 'POST', headers: H, body: JSON.stringify({ system: sys, user: u, max_tokens: maxTokens || 50 }) }), 15000)   // v348: bound the cloud brain fetch — an unbounded hang left brainBusy stuck true and muted Clippy. Rejection is caught below.
     if (!r.ok) jerr('brain cloud ' + r.status)
     const d = await r.json().catch(() => null)
     if (d && d.text) { _brainMark('cloud', Date.now() - t0); return String(d.text).replace(/\n+/g, ' ').trim() }
@@ -4403,6 +4419,10 @@ function startTrainServer() {
     const cfg = JSON.parse(fs.readFileSync(TRAINCFG, 'utf8'))
     trainProc = require('child_process').spawn(cfg.java || 'java', ['-Xms512M', '-Xmx1536M', '-jar', 'server.jar', 'nogui'], { cwd: TRAINDIR, windowsHide: true, stdio: 'ignore' })
     trainProc.on('exit', () => { trainProc = null })
+    // v348: a spawn 'error' (java missing / ENOENT) never fires 'exit', so trainProc stayed a
+    // truthy zombie and ensureServer never retried — the world wedged permanently. Clear it so
+    // the next 60s tick can try again.
+    trainProc.on('error', e => { log('world spawn err', e && e.message); try { journal('world', 'spawn error: ' + (e && e.message), {}) } catch (_) {} trainProc = null })
     journal('world', "Clippy's World server starting")
     log("Clippy's World starting...")
   } catch (e) { log('world err', e.message); trainProc = null }
@@ -4855,6 +4875,10 @@ async function companionSummarise() {
 }
 
 process.on('uncaughtException', e => { log('UNCAUGHT', e.message); try { jerr('UNCAUGHT: ' + e.message) } catch (x) {} })
+// v348: on Node 22 an unhandled promise rejection TERMINATES the process by default — a single
+// stray rejection (a fire-and-forget bot action, a window transaction) would drop the world
+// connection and force a cold restart. Log it and stay alive, symmetric with the uncaught net above.
+process.on('unhandledRejection', e => { try { log('UNHANDLED', e && e.message); jerr('UNHANDLED: ' + (e && e.message)) } catch (x) {} })
 
 // ============================ v9.11 ROLE TICK — each companion leans into their calling ============================
 // The whole rich behavior tree (gather, craft, build, fight, follow, learn) is SHARED. This only AMPLIFIES
