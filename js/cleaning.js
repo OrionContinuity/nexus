@@ -2760,6 +2760,9 @@
   // local getHours() equals Chicago's wall-clock hour.
   const chiHour = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Chicago' })).getHours();
   let liteShift = (chiHour < 15) ? 'am' : 'pm';
+  // v336: once the user taps a shift pill we stop auto-deriving the default so a
+  // manual selection is never clobbered by the live-hour recompute in renderLite.
+  let liteShiftUserSet = false;
   function liteShiftMatch(t) {
     if (liteShift === 'all') return true;
     const p = (t.shift_pattern || '').toLowerCase();
@@ -3348,6 +3351,13 @@
 
   function renderLite(list) {
     list.innerHTML = '';
+    // v336: re-derive the AM/PM default at the live Chicago hour so a long-lived
+    // tab follows the 3pm shift boundary (the visibilitychange watchdog refreshes
+    // `today` but not liteShift). Skips when the user has picked a shift manually.
+    if (!liteShiftUserSet) {
+      const h = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Chicago' })).getHours();
+      liteShift = h < 15 ? 'am' : 'pm';
+    }
     const cfg = liteConfig();
     // Daily zone cards only make sense for zones that have at least one DAILY
     // task. Zones whose tasks are all periodic (e.g. "Every 2 weeks", "Every
@@ -3532,7 +3542,7 @@
     if (planBtn) planBtn.addEventListener('click', () => liteOpenDayPlanner(liteDay === 'all' ? todayDayOfWeek() : liteDay));
     const copyAll = wrap.querySelector('[data-copy-all]'); if (copyAll) copyAll.addEventListener('click', liteCopyDayToAll);
     const autoBtn = wrap.querySelector('[data-autofill]'); if (autoBtn) autoBtn.addEventListener('click', liteAutofillTwoWeeks);
-    wrap.querySelectorAll('[data-shift]').forEach(b => b.addEventListener('click', () => { liteShift = b.dataset.shift; render(); }));
+    wrap.querySelectorAll('[data-shift]').forEach(b => b.addEventListener('click', () => { liteShift = b.dataset.shift; liteShiftUserSet = true; /* v336: manual pick pins the shift */ render(); }));
     const odBtn = wrap.querySelector('[data-goto-periodic]');
     if (odBtn) odBtn.addEventListener('click', () => {
       const p = document.querySelector('.cleanlite-periodic');

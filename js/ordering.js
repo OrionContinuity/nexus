@@ -2764,9 +2764,14 @@ Thanks for your help sorting this out.`;
       </div>
     `;
     document.body.appendChild(overlay);
-    const close = () => overlay.remove();
+    // v336: a11y — was a keyboard/SR trap (no aria-modal, no focus, no Escape).
+    overlay.querySelector('.ord-confirm-modal').setAttribute('aria-modal', 'true');
+    const escHandler = e => { if (e.key === 'Escape') close(); };
+    const close = () => { document.removeEventListener('keydown', escHandler); overlay.remove(); };
+    document.addEventListener('keydown', escHandler);
     overlay.querySelector('.ord-confirm-backdrop').addEventListener('click', close);
     overlay.querySelector('.ord-confirm-cancel').addEventListener('click', close);
+    overlay.querySelector('.ord-confirm-cancel').focus();
     overlay.querySelector('.ord-confirm-delete').addEventListener('click', async () => {
       const btn = overlay.querySelector('.ord-confirm-delete');
       btn.disabled = true;
@@ -3019,9 +3024,14 @@ Thanks for your help sorting this out.`;
       </div>
     `;
     document.body.appendChild(overlay);
-    const close = () => overlay.remove();
+    // v336: a11y — was a keyboard/SR trap (no aria-modal, no focus, no Escape).
+    overlay.querySelector('.ord-confirm-modal').setAttribute('aria-modal', 'true');
+    const escHandler = e => { if (e.key === 'Escape') close(); };
+    const close = () => { document.removeEventListener('keydown', escHandler); overlay.remove(); };
+    document.addEventListener('keydown', escHandler);
     overlay.querySelector('.ord-confirm-backdrop').addEventListener('click', close);
     overlay.querySelector('.ord-confirm-cancel').addEventListener('click', close);
+    overlay.querySelector('.ord-confirm-cancel').focus();
     overlay.querySelector('.ord-confirm-delete').addEventListener('click', async () => {
       const btn = overlay.querySelector('.ord-confirm-delete');
       btn.disabled = true;
@@ -3110,7 +3120,12 @@ Thanks for your help sorting this out.`;
       </div>
     `;
     document.body.appendChild(overlay);
-    const close = () => overlay.remove();
+    // v336: a11y — was a keyboard/SR trap (no aria-modal, no Escape). Focus
+    // already moves into the dialog via the textarea setTimeout below.
+    overlay.querySelector('.ord-confirm-modal').setAttribute('aria-modal', 'true');
+    const escHandler = e => { if (e.key === 'Escape') close(); };
+    const close = () => { document.removeEventListener('keydown', escHandler); overlay.remove(); };
+    document.addEventListener('keydown', escHandler);
     overlay.querySelector('.ord-confirm-backdrop').addEventListener('click', close);
     overlay.querySelector('.ord-confirm-cancel').addEventListener('click', close);
     setTimeout(() => overlay.querySelector('#ordResolveNote')?.focus(), 100);
