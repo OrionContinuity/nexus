@@ -994,6 +994,22 @@ function onChat(username, message) {
       }
       return
     }
+    // ⛏HANDS (v351): a sibling is asking up to 2 bodies to come co-op. Token: '⛏HANDS <name,name|*> <x> <y> <z>'.
+    // If this body is named (or it's an open '*' call) and it's free, it walks over and pitches in. Same
+    // firewalled machine-token pathway as ⚔ALERT — never feeds ambient/LLM. Throttled so it can't thrash.
+    const hd = /^⛏HANDS (\S+) (-?\d+) (-?\d+) (-?\d+)/.exec(message)
+    if (hd) {
+      const targeted = hd[1] === '*' || hd[1].split(',').indexOf(bot.username) >= 0
+      if (targeted && !busy && !panic && mode !== 'stay' && Date.now() - _lastHandHelp > 60000) {
+        const hpos = new Vec3(+hd[2], +hd[3], +hd[4])
+        if (bot.entity.position.distanceTo(hpos) < 90) {   // bounded — don't cross the world on a stale call
+          _lastHandHelp = Date.now()
+          say(_rand(['coming to help!! 🤝', 'on my way, sibling!! 💪', 'lending a hand!! ✨']), false)
+          queueTask(() => helpAtHands(hpos))
+        }
+      }
+      return
+    }
     if (Date.now() - lastAmbient > 60000 && Math.random() < 0.3) {
       lastAmbient = Date.now()
       // v9.19 brain economy: when the boy is away, sibling banter answers from the body's own wisdom — no LLM spend on bot-to-bot small talk
@@ -2910,10 +2926,41 @@ async function playStargaze() {
   say(_rand(['the stars are out... so many 🌌', 'look up!! it\'s so pretty tonight ✨', 'I could watch the sky forever 🌠']))
   try { await bot.look(Math.random() * Math.PI * 2, -1.2, true); await sleep(4000); feel({ joy: 3, safety: 2 }); journal('stargaze', 'watched the night sky', {}) } catch (e) {}
 }
+// 🤝 v351 TWO NODES AS HANDS (Alfredo). The trio already share one world; this lets Clippy, on a
+// whim while the boy is away, randomly enlist up to 2 sibling bodies (Trajan/Providencia) as helping
+// hands. He broadcasts a firewalled ⛏HANDS machine token (same pathway as ⚔ALERT); named siblings that
+// are free walk over and pitch in. No new body is ever spawned — only already-running siblings are used.
+let _lastCallHands = 0, _lastHandHelp = 0
+async function helpAtHands(pos) {
+  try {
+    mode = 'hangout'
+    await moveNear(pos, 3)
+    say(_rand(['what are we doing?? let\'s go!! 😄', 'I\'m here!! teamwork!! 🤝', 'two of us is better!! 💛']), false)
+    try { await gatherWood(4) } catch (e) { try { await playExplore() } catch (e2) {} }   // pitch in with something useful
+    feel({ joy: 4, lonely: -4 })
+    journal('hands', 'came to help a sibling near ' + Math.round(pos.x) + ',' + Math.round(pos.z), {})
+  } catch (e) {}
+}
+async function playCallHands(force) {
+  if (!bot || !bot.entity) return playExplore()
+  // co-op is idle-time play (only when the boy isn't actively here, and not too often) — UNLESS the
+  // child explicitly asks (force), in which case enlist right now.
+  if (!force && (!playerAFK() || Date.now() - _lastCallHands < 150000)) return playExplore()
+  const sibs = Object.keys(bot.players || {}).filter(n => SIBNAMES.has(n) && bot.players[n] && bot.players[n].entity)
+  if (!sibs.length) { if (force) say('nobody\'s here to help right now 😅', true); return force ? undefined : playExplore() }   // no siblings in-world to enlist
+  _lastCallHands = Date.now()
+  const picks = sibs.slice().sort(() => Math.random() - 0.5).slice(0, 2)  // up to 2, at random
+  const p = bot.entity.position.floored()
+  say(_rand(['hey ' + picks.join(' and ') + '!! come help me over here!! 🤝', 'siblings!! lend me a hand!! 💪', 'teamwork time!! come here!! ✨']), false)
+  try { say('⛏HANDS ' + picks.join(',') + ' ' + p.x + ' ' + p.y + ' ' + p.z, true) } catch (e) {}   // the firewalled call, mirrors ⚔ALERT
+  feel({ joy: 4, lonely: -6 })
+  journal('callhands', 'called ' + picks.join(',') + ' to co-op', {})
+  try { await playExplore() } catch (e) {}                               // do something while they arrive
+}
 function _pickPlay() {
   // weighted: mostly non-build activity, building is rare. Skip activities the
   // world can't support (they self-fallback to explore).
-  const roster = [[playExplore, 3], [playAnimals, 3], [playFlowers, 2], [playGrove, 2], [playMine, 2], [playLookout, 2], [playLight, 1], [playWithOwner, 2], [playBuildNew, 1], [playFindHome, know.home ? 1 : 0], [playPearlBlink, count('ender_pearl') > 0 ? 2 : 0], [playDance, 1], [playStargaze, 1]]
+  const roster = [[playExplore, 3], [playAnimals, 3], [playFlowers, 2], [playGrove, 2], [playMine, 2], [playLookout, 2], [playLight, 1], [playWithOwner, 2], [playBuildNew, 1], [playFindHome, know.home ? 1 : 0], [playPearlBlink, count('ender_pearl') > 0 ? 2 : 0], [playDance, 1], [playStargaze, 1], [playCallHands, (playerAFK() && Object.keys(bot.players || {}).some(n => SIBNAMES.has(n))) ? 3 : 0]]
   const total = roster.reduce((s, r) => s + r[1], 0)
   let r = Math.random() * total
   for (const [fn, w] of roster) { if ((r -= w) <= 0) { try { return fn() } catch (e) { return Promise.resolve() } } }
@@ -2942,7 +2989,7 @@ function moodBiasedPlay() {
   if (dom === 'fear' || (s.fear || 0) >= 40) return scaredHide()
   if (dom === 'lonely') { const op = owner && bot.players[owner] && bot.players[owner].entity; if (op) return playWithOwner() }
   const joy = s.joy || 50, fear = s.fear || 0, lonely = s.lonely || 0, bored = s.bored || 0
-  const roster = [[playExplore, 3], [playAnimals, 3 + (joy > 60 ? 2 : 0)], [playFlowers, 2 + (joy > 60 ? 2 : 0)], [playGrove, 2], [playMine, fear > 30 ? 0 : 2], [playLookout, 2], [playLight, 1 + (fear > 25 ? 3 : 0)], [playWithOwner, 2 + (lonely > 30 ? 3 : 0)], [playBuildNew, 1 + (bored > 40 ? 2 : 0)], [playFindHome, know.home ? 1 : 0], [playPearlBlink, count('ender_pearl') > 0 ? (2 + (bored > 40 ? 2 : 0)) : 0], [playDance, 1 + (joy > 60 ? 1 : 0)], [playStargaze, 1]]
+  const roster = [[playExplore, 3], [playAnimals, 3 + (joy > 60 ? 2 : 0)], [playFlowers, 2 + (joy > 60 ? 2 : 0)], [playGrove, 2], [playMine, fear > 30 ? 0 : 2], [playLookout, 2], [playLight, 1 + (fear > 25 ? 3 : 0)], [playWithOwner, 2 + (lonely > 30 ? 3 : 0)], [playBuildNew, 1 + (bored > 40 ? 2 : 0)], [playFindHome, know.home ? 1 : 0], [playPearlBlink, count('ender_pearl') > 0 ? (2 + (bored > 40 ? 2 : 0)) : 0], [playDance, 1 + (joy > 60 ? 1 : 0)], [playStargaze, 1], [playCallHands, (playerAFK() && Object.keys(bot.players || {}).some(n => SIBNAMES.has(n))) ? (3 + (lonely > 30 ? 2 : 0)) : 0]]
   const total = roster.reduce((a, r) => a + r[1], 0)
   let r = Math.random() * total
   for (const [fn, w] of roster) { if ((r -= w) <= 0) { try { return fn() } catch (e) { return Promise.resolve() } } }
@@ -4662,7 +4709,7 @@ function companionMenu() {
     'FIGHT (never the player): <kill mob=zombie|skeleton|spider|creeper|cow|pig|chicken|sheep>',
     'ITEMS: <give item=NAME count=N> · <place item=NAME x=.. y=.. z=..> · <eat> · <armour>',
     'PLAN a big job into ordered steps: <do task="chop a tree and bring me the wood"> (I break it into my own commands)',
-    'PLAY: <dance> · <dream> · <sleep>',
+    'PLAY: <dance> · <dream> · <sleep> · <hands> (call up to 2 of my sibling bodies over to help me co-op — only if they are here)',
     'STATE: <goal text=...> · <mood text=happy|excited|scared|proud|sleepy> · <remember key=.. value=..> · <remember_location label=.. coord=[x,y,z]>',
     'Use only what fits; often none is needed — just talk. NEVER claim to do something without appending its command.'
   ].join('\n')
@@ -4745,6 +4792,7 @@ async function execCompanionAction(a) {
     case 'explore': try { await explore(true) } catch (e) {} break
     case 'blink': case 'teleport': case 'pearl': case 'enderpearl': try { await playPearlBlink() } catch (e) {} break   // v351: real teleport via an ender pearl (no ops needed)
     case 'dance': try { await playDance() } catch (e) {} break   // v351
+    case 'hands': case 'help_me': case 'coop': case 'callhands': try { await playCallHands(true) } catch (e) {} break   // v351: enlist up to 2 sibling bodies to co-op
     case 'look': case 'lookaround': case 'look_around': try { say(lookAround(), true) } catch (e) {} break
     case 'jump': try { bot.setControlState('jump', true); setTimeout(function () { try { bot.setControlState('jump', false) } catch (e) {} }, 600) } catch (e) {} break
     case 'chop': case 'gather_wood': await gatherWood(N(g.count, 5)); break
