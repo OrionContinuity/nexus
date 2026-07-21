@@ -504,6 +504,48 @@ function Test-ClaudeLoggedIn {
   # only advertises claude:true after a live probe; this is the coarse presence check.)
   return (Test-Path (Join-Path $env:USERPROFILE '.claude'))
 }
+function Check-McLaunchControl {
+  # The NEXUS "Launch Minecraft" button (Tools hub) writes a control row to clippy_sync:
+  #   id = 'clippy_control'                (all computers act on it)
+  #   id = 'clippy_control_<hostname>'     (only this box acts)
+  # with data = { launch_minecraft: true, ts: <ms epoch> }. When we see a launch newer than the
+  # last one we honored (and reasonably fresh), flip on the local bot.on flag; the reviver below
+  # then starts Clippy's world + bot. Edge-triggered on ts so a later manual KILLDESK is never
+  # fought, and idempotent (bot.on is only created if missing). Best-effort — any error is a no-op.
+  # NOTE: this can only START Clippy on a machine that is already ON and running this daemon; it
+  # cannot power on a machine that is off (no Wake-on-LAN in this stack).
+  try {
+    $cn   = ($env:COMPUTERNAME).ToLower()
+    $anon = 'sb_publishable_rOLSdIG6mIjVLY8JmvrwCA_qfM7Vyk9'
+    $hdr  = @{ apikey = $anon; Authorization = "Bearer $anon" }
+    $uri  = "https://oprsthfxqrdbwdvommpw.supabase.co/rest/v1/clippy_sync?id=in.(clippy_control,clippy_control_$cn)&select=id,data"
+    $rows = Invoke-RestMethod -Uri $uri -Headers $hdr -TimeoutSec 12
+    if (-not $rows) { return }
+    $bestTs = [double]0
+    foreach ($r in $rows) {
+      $d = $r.data
+      if ($null -eq $d) { continue }
+      if (-not $d.launch_minecraft) { continue }
+      $ts = [double]0; try { $ts = [double]$d.ts } catch { $ts = [double]0 }
+      if ($ts -gt $bestTs) { $bestTs = $ts }
+    }
+    if ($bestTs -le 0) { return }
+    $tsFile = Join-Path $env:USERPROFILE '.clippy\last_mc_launch_ts'
+    $lastTs = [double]0
+    if (Test-Path $tsFile) { try { $lastTs = [double](Get-Content $tsFile -Raw) } catch { $lastTs = [double]0 } }
+    $nowMs = [double]([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())
+    # Act only on a launch newer than the last we honored, within the last 12h (so an ancient flag
+    # doesn't relaunch Clippy on some unrelated future boot).
+    if ($bestTs -gt $lastTs -and ($nowMs - $bestTs) -lt (12 * 3600 * 1000)) {
+      $flag = Join-Path $env:USERPROFILE '.clippy\bot.on'
+      if (-not (Test-Path $flag)) {
+        New-Item -ItemType File -Path $flag -Force | Out-Null
+        Log '[supervise] NEXUS Launch-Minecraft button -> bot.on set, bringing Clippy into the world' 'Green'
+      }
+      Set-Content -Path $tsFile -Value ([string]$bestTs) -Force
+    }
+  } catch { }
+}
 function Invoke-Supervisor {
   # Persistent loop: keep the slave worker alive and self-heal from GitHub.
   # This is what makes a bad worker version recover automatically instead of
@@ -573,6 +615,9 @@ function Invoke-Supervisor {
     # Controller (F310 -> Minecraft Java): opt-in via the controller.on flag. Starts/stops the antimicrox
     # mapper alongside the child's game so it's all managed from one place. No-op unless enabled.
     try { Tick-Controller } catch {}
+    # NEXUS Launch-Minecraft button: if the web app requested a launch, flip on bot.on so the
+    # reviver below brings Clippy into the world. Checked every loop (~30s); no-op when nothing pending.
+    try { Check-McLaunchControl } catch {}
     # Minecraft bot (Clippy himself): opt-in via bot.on. Provisions Node+deps once, then keeps him alive
     # and REVIVED (his old soft-OOM exit had no reviver). Same crash-loop backoff as the worker.
     if (Test-Path (Join-Path $env:USERPROFILE '.clippy\bot.on')) {

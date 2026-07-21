@@ -128,6 +128,7 @@
   function screenHub(host) {
     host.innerHTML = '<div class="nxt-grid">' +
       btn('nodes', '🖥', 'Nodes', 'PCs in the pool') +
+      btn('mc', '⛏', 'Launch Minecraft', 'start Clippy in-world') +
       btn('activity', '📊', 'Activity', 'live — what they\'re doing') +
       btn('push', '⬆', 'Push update', 'ship latest Clippy') +
       btn('clippy', '📎', 'Install Clippy', 'desktop buddy + node') +
@@ -138,7 +139,7 @@
     busGet('clippy_nodes').then(function (arr) {
       if (!Array.isArray(arr)) return;
       var on = arr.filter(fresh).length;
-      [].forEach.call(host.querySelectorAll('[data-go="nodes"] .pip,[data-go="activity"] .pip'), function (p) {
+      [].forEach.call(host.querySelectorAll('[data-go="nodes"] .pip,[data-go="activity"] .pip,[data-go="mc"] .pip'), function (p) {
         p.textContent = on ? ('● ' + on + ' online') : '○ none online';
       });
     });
@@ -438,10 +439,60 @@
     });
   }
 
+  // ─── LAUNCH MINECRAFT ────────────────────────────────────────────────────
+  // Writes a control row to clippy_sync that each PC's daemon reads and turns
+  // into a bot.on flag → Clippy comes into the world. The shared 'clippy_control'
+  // row is honored by every computer ("all"); a per-node 'clippy_control_<host>'
+  // row targets one. A computer must be ON and running the daemon — this cannot
+  // power on a machine that is off. Reuses the same anon bus (busPost) as the
+  // rest of the hub; the daemon decides what "launch_minecraft" means, so no
+  // steward seal is needed (it is a benign state flag, not a shell command).
+  function screenMC(host) {
+    host.innerHTML = '<div class="nxt-empty">Loading computers…</div>';
+    busGet('clippy_nodes').then(function (arr) {
+      var nodes = Array.isArray(arr) ? arr.slice().sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); }) : [];
+      var online = nodes.filter(fresh);
+      var listHtml = nodes.length ? nodes.map(function (n) {
+        var on = fresh(n);
+        var nm = nodeId(n);
+        return '<div class="nxt-node ' + (on ? 'on' : 'off') + '">' +
+          '<div class="nxt-node-top"><span class="nxt-dot"></span>' +
+          '<span class="nxt-node-name">' + esc(nm) + '</span>' +
+          '<span class="nxt-tag">' + (on ? 'online' : 'offline ' + ago((n.ts || 0) * 1000)) + '</span></div>' +
+          (on ? '<button class="nxt-ghost" data-mc-one="' + esc(String(nm).toLowerCase()) + '">⛏ Launch on ' + esc(nm) + '</button>' : '') +
+          '</div>';
+      }).join('') : '<div class="nxt-empty">○ No computers registered yet.<br>Turn a PC on with the Clippy daemon running, then pull to refresh.</div>';
+      host.innerHTML =
+        '<p class="nxt-info">Brings Clippy into Minecraft on your computers. A computer must be <b>on</b> with the Clippy daemon running — this can’t power on a machine that’s off. It picks up the request within about a minute; a computer that’s currently off will start Clippy the next time it’s on.</p>' +
+        '<button class="nxt-cta" id="nxtMcAll">⛏ Launch Minecraft on all computers' + (online.length ? (' (' + online.length + ' online)') : '') + '</button>' +
+        '<div id="nxtMcMsg" class="nxt-info" style="margin-top:10px"></div>' +
+        '<div class="nxt-h4" style="margin-top:6px">Computers</div>' + listHtml;
+      var msg = host.querySelector('#nxtMcMsg');
+      function launch(target, label) {
+        var id = target ? ('clippy_control_' + target) : 'clippy_control';
+        var data = { launch_minecraft: true, ts: Date.now(), by: 'nexus' };
+        if (msg) msg.textContent = 'Sending…';
+        busPost({ id: id, data: data, from_id: 'nexus' }).then(function (r) {
+          if (msg) msg.innerHTML = (r && r.ok)
+            ? '✓ Sent to ' + esc(label) + '. Clippy comes into the world within about a minute.'
+            : '⚠ Couldn’t reach the pool bus — try again in a moment.';
+        }).catch(function () {
+          if (msg) msg.innerHTML = '⚠ Couldn’t reach the pool bus — try again in a moment.';
+        });
+      }
+      var allBtn = host.querySelector('#nxtMcAll');
+      if (allBtn) allBtn.addEventListener('click', function () { launch(null, 'all computers'); });
+      [].forEach.call(host.querySelectorAll('[data-mc-one]'), function (b) {
+        b.addEventListener('click', function () { launch(b.getAttribute('data-mc-one'), b.getAttribute('data-mc-one')); });
+      });
+    });
+  }
+
   // ─── router ──────────────────────────────────────────────────────────────
   var SCREENS = {
     hub:      { t: 'Tools',          fn: screenHub,      live: false },
     nodes:    { t: 'Nodes',          fn: screenNodes,    live: true },
+    mc:       { t: 'Launch Minecraft', fn: screenMC,     live: true },
     activity: { t: 'Activity',       fn: screenActivity, live: true },
     push:     { t: 'Push update',    fn: screenPush,     live: false },
     clippy:   { t: 'Install Clippy', fn: screenClippy,   live: false },
