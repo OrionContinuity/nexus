@@ -2046,10 +2046,8 @@ body.clippy-game-open .clippy-bubble {
    Activates when user is in Equipment view. */
 #clippy-shell.is-genius .cl-eyes-default { opacity: 0; }
 #clippy-shell.is-genius .cl-eyes-genius  { opacity: 1; }
-/* v359b — the genius/equipment face kept its smile (Alfredo: "your smile") instead of the old flat
-   serious line. Focused eyes + glasses + a warm little smile. */
-#clippy-shell.is-genius .cl-mouth-smile  { opacity: 1; }
-#clippy-shell.is-genius .cl-mouth-flat   { opacity: 0; }
+#clippy-shell.is-genius .cl-mouth-smile  { opacity: 0; }
+#clippy-shell.is-genius .cl-mouth-flat   { opacity: 1; }
 
 /* DISGUSTED — cleaning mode. Squinted skeptical eyes + sweat drop.
    Activates when user is in Duties view or cleaning_gross fires. */
