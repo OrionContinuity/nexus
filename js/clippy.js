@@ -6917,8 +6917,8 @@
       return;
     }
 
-    // v353 — a tap gets a little electric-hand wave hello (most of the time)
-    if (Math.random() < 0.6) { try { handGesture('wave'); } catch (_) {} }
+    // v353 — a tap gets a little electric-hand gesture (wave / cheer / clap), most of the time
+    if (Math.random() < 0.72) { try { handGesture(['wave', 'wave', 'cheer', 'clap', 'reach'][Math.floor(Math.random() * 5)]); } catch (_) {} }
 
     // 5 rapid clicks → dizzy + surprised
     const now = Date.now();
@@ -7958,7 +7958,12 @@
         const magic = Math.random();
         if (magic < 0.14) { teleportWhim(); return; }
         if (magic < 0.24) { bounceAround(); return; }
-        if (magic < 0.34) { handGesture('wave'); mood('happy', 2000); return; }
+        if (magic < 0.42) {
+          const g = ['wave', 'cheer', 'clap', 'reach'][Math.floor(Math.random() * 4)];
+          handGesture(g);
+          mood(g === 'cheer' ? 'excited' : g === 'clap' ? 'happy' : 'happy', 2200);
+          return;
+        }
         const roll = Math.random();
         if (roll < 0.25) {
           // Roman fact — scholarly thinking face
@@ -8081,20 +8086,44 @@
   function handGesture(type, opts) {
     if (!state.shell || state.suppressed) return;
     opts = opts || {};
-    let side = opts.side;
-    if (!side) side = (type === 'point' && opts.dx != null) ? (opts.dx < 0 ? 'l' : 'r') : (Math.random() < 0.5 ? 'l' : 'r');
-    const hand = state.shell.querySelector('.clippy-hand-' + side);
-    if (!hand) return;
-    const cls = type === 'point' ? 'is-pointing' : type === 'reach' ? 'is-reaching' : 'is-waving';
-    if (type === 'point') {
-      hand.style.setProperty('--hand-x', Math.max(-48, Math.min(48, opts.dx != null ? opts.dx : 30)) + 'px');
-      hand.style.setProperty('--hand-y', Math.max(-42, Math.min(30, opts.dy != null ? opts.dy : -6)) + 'px');
+    const CLS = { wave: 'is-waving', point: 'is-pointing', reach: 'is-reaching', cheer: 'is-cheering', clap: 'is-clapping' };
+    const ALL = ['is-waving', 'is-pointing', 'is-reaching', 'is-cheering', 'is-clapping'];
+    const cls = CLS[type] || 'is-waving';
+    const dual = (type === 'cheer' || type === 'clap');   // v353b — two hands
+    const dur = type === 'point' ? 1550 : type === 'reach' ? 1000 : type === 'clap' ? 1150 : type === 'cheer' ? 1320 : 1250;
+    // v353b — LEND a real firefly (or two) from the swarm for the gesture: fade it out so it reads
+    // as one of his own nodes being pulled in close, then restore it after.
+    const lent = [];
+    try {
+      const orbs = state.shell.querySelectorAll('.clippy-orbit-front .clippy-orbital');
+      const need = dual ? 2 : 1;
+      const idxs = [];
+      let guard = 0;
+      while (idxs.length < need && idxs.length < orbs.length && guard++ < 20) {
+        const i = Math.floor(Math.random() * orbs.length);
+        if (idxs.indexOf(i) < 0) idxs.push(i);
+      }
+      idxs.forEach(i => { orbs[i].classList.add('is-lent'); lent.push(orbs[i]); });
+    } catch (_) {}
+    const fire = (side) => {
+      const hand = state.shell.querySelector('.clippy-hand-' + side);
+      if (!hand) return;
+      if (type === 'point') {
+        hand.style.setProperty('--hand-x', Math.max(-48, Math.min(48, opts.dx != null ? opts.dx : 30)) + 'px');
+        hand.style.setProperty('--hand-y', Math.max(-42, Math.min(30, opts.dy != null ? opts.dy : -6)) + 'px');
+      }
+      ALL.forEach(c => hand.classList.remove(c));
+      void hand.offsetWidth;   // reflow so the animation restarts even on a repeat gesture
+      hand.classList.add(cls);
+      setTimeout(() => { try { hand.classList.remove(cls); } catch (_) {} }, dur);
+    };
+    if (dual) { fire('l'); fire('r'); }
+    else {
+      let side = opts.side;
+      if (!side) side = (type === 'point' && opts.dx != null) ? (opts.dx < 0 ? 'l' : 'r') : (Math.random() < 0.5 ? 'l' : 'r');
+      fire(side);
     }
-    hand.classList.remove('is-waving', 'is-pointing', 'is-reaching');
-    void hand.offsetWidth;   // reflow so the animation restarts even on a repeat gesture
-    hand.classList.add(cls);
-    const dur = type === 'point' ? 1550 : type === 'reach' ? 1000 : 1250;
-    setTimeout(() => { try { hand.classList.remove(cls); } catch (_) {} }, dur);
+    setTimeout(() => { lent.forEach(o => { try { o.classList.remove('is-lent'); } catch (_) {} }); }, dur + 80);
   }
 
   // v353 — TELEPORT ON A WHIM. He blinks (no glide) to a fresh low-obstruction spot with an electric
