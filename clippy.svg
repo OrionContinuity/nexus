@@ -282,8 +282,25 @@
       <path d="M 125 92 Q 120 89 110 91" stroke="#04124a" stroke-width="2" fill="none" stroke-linecap="round"/>
     </g>
     <g class="cl-eyes-genius">
-      <circle cx="83" cy="103" r="10.5" fill="#0a0d1f"/><circle class="cl-pupil" cx="83" cy="104" r="3.5" fill="#0a0d1f"/><ellipse class="cl-glint" cx="79.4" cy="99.1" rx="3.4" ry="4" fill="#ffffff"/><circle class="cl-glint" cx="86.4" cy="106.2" r="1.7" fill="#ffffff" opacity="0.95"/><circle cx="117" cy="103" r="10.5" fill="#0a0d1f"/><circle class="cl-pupil" cx="117" cy="104" r="3.5" fill="#0a0d1f"/><ellipse class="cl-glint" cx="113.4" cy="99.1" rx="3.4" ry="4" fill="#ffffff"/><circle class="cl-glint" cx="120.4" cy="106.2" r="1.7" fill="#ffffff" opacity="0.95"/><circle cx="83" cy="103" r="14" fill="none" stroke="#7df0ff" stroke-width="0.9" opacity="0.55"/>
-      <circle cx="117" cy="103" r="14" fill="none" stroke="#7df0ff" stroke-width="0.9" opacity="0.55"/>
+      <!-- v351 — equipment/scan face. Was small dark eyes ringed by thin cyan reticles that read
+           as "weird"; now bigger round focused eyes behind proper reading glasses (Alfredo). A faint
+           cyan lens sheen keeps the smart/scanning feel without the harsh targeting ring. -->
+      <ellipse cx="83" cy="103" rx="11.5" ry="12.5" fill="#0a0d1f"/>
+      <ellipse cx="117" cy="103" rx="11.5" ry="12.5" fill="#0a0d1f"/>
+      <circle class="cl-pupil" cx="83" cy="104" r="3.5" fill="#0a0d1f"/>
+      <circle class="cl-pupil" cx="117" cy="104" r="3.5" fill="#0a0d1f"/>
+      <ellipse class="cl-glint" cx="79.0" cy="98.6" rx="3.6" ry="4.3" fill="#ffffff"/>
+      <ellipse class="cl-glint" cx="113.0" cy="98.6" rx="3.6" ry="4.3" fill="#ffffff"/>
+      <circle class="cl-glint" cx="86.6" cy="106.6" r="1.8" fill="#ffffff" opacity="0.95"/>
+      <circle class="cl-glint" cx="120.6" cy="106.6" r="1.8" fill="#ffffff" opacity="0.95"/>
+      <!-- reading glasses: two round lenses + bridge + temple arms -->
+      <circle cx="83" cy="103" r="15" fill="#7df0ff" opacity="0.09"/>
+      <circle cx="117" cy="103" r="15" fill="#7df0ff" opacity="0.09"/>
+      <circle cx="83" cy="103" r="15" fill="none" stroke="#04124a" stroke-width="2.1" opacity="0.92"/>
+      <circle cx="117" cy="103" r="15" fill="none" stroke="#04124a" stroke-width="2.1" opacity="0.92"/>
+      <line x1="98" y1="103" x2="102" y2="103" stroke="#04124a" stroke-width="2.1"/>
+      <line x1="68" y1="100.5" x2="62.5" y2="98.5" stroke="#04124a" stroke-width="2.1" stroke-linecap="round"/>
+      <line x1="132" y1="100.5" x2="137.5" y2="98.5" stroke="#04124a" stroke-width="2.1" stroke-linecap="round"/>
     </g>
     <g class="cl-eyes-studious">
       <!-- Round focused eyes wearing reading glasses (education mode) -->
