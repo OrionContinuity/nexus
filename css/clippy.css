@@ -792,13 +792,16 @@
   position: absolute;
   bottom: 4px;
   left: 50%;
-  width: 64%;
-  height: 7%;
+  width: 60%;
+  height: 6.5%;
   border-radius: 50%;
+  /* v364 — softer, lighter ground shadow (Alfredo). The old hard 0.32-alpha oval read as a dark
+     blob sitting on the light cleaning cards; this is a faint, blurred shadow that just grounds him. */
   background: radial-gradient(ellipse at center,
-              rgba(0,0,0,0.32) 0%,
-              rgba(0,0,0,0.20) 60%,
+              rgba(0,0,0,0.16) 0%,
+              rgba(0,0,0,0.09) 55%,
               rgba(0,0,0,0) 100%);
+  filter: blur(2.5px);
   transform: translateX(-50%);
   pointer-events: none;
   transition: width 0.3s ease, opacity 0.3s ease, filter 0.3s ease;
