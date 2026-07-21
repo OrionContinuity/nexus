@@ -6375,6 +6375,23 @@ Thanks for your help sorting this out.`;
     // v294 — inline "area" (section) picker on the row. Lists every known
     // section plus a "＋ New section…" escape hatch; changing it reassigns
     // the item's area via moveItemToSection without opening the edit form.
+    // v361 — "more details" the chevron reveals: the fields that don't fit the compact card.
+    const dayPars = WEEKDAY_KEYS
+      .map((k, i) => (item.pars_by_day && item.pars_by_day[k] != null && item.pars_by_day[k] !== '') ? `${WEEKDAY_LBL[i]} ${item.pars_by_day[k]}` : null)
+      .filter(Boolean);
+    const detailRows = [];
+    if (vendorName && houseName && vendorName !== houseName) {
+      detailRows.push(['Vendor name', vendorName]);
+      detailRows.push(['Team name', houseName]);
+    }
+    if (item.vendor_sku) detailRows.push(['SKU', item.vendor_sku]);
+    detailRows.push(['Unit', unitVal]);
+    detailRows.push(['Default par', String(parVal)]);
+    if (dayPars.length) detailRows.push(['Day-of-week pars', dayPars.join('  ·  ')]);
+    if ((item.note || '').trim()) detailRows.push(['Note', item.note.trim()]);
+    const detailsInner = detailRows.map(([k, v]) =>
+      `<div class="ved-detail-k">${esc(k)}</div><div class="ved-detail-v">${esc(v)}</div>`).join('');
+
     const curSec = item.section || '';
     const allSecs = collectAllSectionNames().filter(Boolean).sort((a, b) => a.localeCompare(b));
     const secOpts = allSecs.map(s =>
@@ -6439,6 +6456,17 @@ Thanks for your help sorting this out.`;
             <button type="button" class="ord-qty-btn ved-par-btn" data-par-step="-1" data-item-id="${esc(item.id)}" aria-label="Decrease par">−</button>
             <button type="button" class="ord-qty-btn ved-par-btn" data-par-step="1" data-item-id="${esc(item.id)}" aria-label="Increase par">+</button>
           </div>
+        </div>
+
+        <!-- v361 — centered chevron: expands a read-only "more details" panel in place
+             (vendor/team names, SKU, unit, par, day-of-week pars, note). Tapping the NAME still
+             opens the full edit form; this is a quick peek without leaving the list. -->
+        <button type="button" class="ved-item-expand" data-expand-item="${esc(item.id)}" aria-expanded="false" aria-label="More details">
+          <svg class="ved-chevron" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="ved-item-details" hidden>
+          <div class="ved-detail-grid">${detailsInner}</div>
+          <button type="button" class="ved-detail-edit" data-item-id="${esc(item.id)}">Edit full item</button>
         </div>
       </div>
     `;
@@ -6540,6 +6568,30 @@ Thanks for your help sorting this out.`;
     // Tap item body → open edit form. The drag handle is a sibling
     // of .ved-item-tap, so its events don't reach this listener.
     list.querySelectorAll('.ved-item-tap').forEach(btn => {
+      btn.addEventListener('click', () => {
+        catalogState.editingItemId = btn.dataset.itemId;
+        renderItemsAreaOnly();
+        setTimeout(() => {
+          const form = list.querySelector('.ord-vitem-editing');
+          if (form) form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 50);
+      });
+    });
+
+    // v361 — chevron: expand/collapse the read-only "more details" panel in place.
+    list.querySelectorAll('.ved-item-expand').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const row = btn.closest('.ved-item-row');
+        const panel = row && row.querySelector('.ved-item-details');
+        if (!panel) return;
+        const open = panel.hasAttribute('hidden');
+        if (open) panel.removeAttribute('hidden'); else panel.setAttribute('hidden', '');
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        btn.classList.toggle('is-open', open);
+      });
+    });
+    // v361 — "Edit full item" inside the details panel opens the full edit form (same as tapping the name).
+    list.querySelectorAll('.ved-detail-edit').forEach(btn => {
       btn.addEventListener('click', () => {
         catalogState.editingItemId = btn.dataset.itemId;
         renderItemsAreaOnly();
