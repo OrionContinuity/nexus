@@ -6701,10 +6701,14 @@
       '<span class="clippy-orbital"></span>'.repeat(4) + '</div>';
     const frontFireflies = '<div class="clippy-orbit-front">' +
       '<span class="clippy-orbital"></span>'.repeat(4) + '</div>';
+    // v353 — HAND NODES: two electric nodes (like the fireflies) that can be pulled in close
+    // and used as hands — wave hello, point where he's going, reach out. Idle at opacity 0.
+    const handNodes = '<span class="clippy-hand clippy-hand-l"></span><span class="clippy-hand clippy-hand-r"></span>';
     shell.innerHTML = '<div class="clippy-shadow"></div>' +
                       backFireflies +
                       svgText +
                       frontFireflies +
+                      handNodes +
                       '<div id="clippy-costume-layer"></div>';
     ensureHost().appendChild(shell);
     state.shell = shell;
@@ -6912,6 +6916,9 @@
       wake();
       return;
     }
+
+    // v353 — a tap gets a little electric-hand wave hello (most of the time)
+    if (Math.random() < 0.6) { try { handGesture('wave'); } catch (_) {} }
 
     // 5 rapid clicks → dizzy + surprised
     const now = Date.now();
@@ -7946,6 +7953,12 @@
       const sinceWhimsy = now - lastWhimsyAt;
       if (sinceWhimsy > 30_000 && Math.random() < 0.06) {
         lastWhimsyAt = now;
+        // v353 — on a whim he may blink to a new spot, bounce around the screen, or wave a hand.
+        // These return early (no line) so they also keep him from over-talking.
+        const magic = Math.random();
+        if (magic < 0.14) { teleportWhim(); return; }
+        if (magic < 0.24) { bounceAround(); return; }
+        if (magic < 0.34) { handGesture('wave'); mood('happy', 2000); return; }
         const roll = Math.random();
         if (roll < 0.25) {
           // Roman fact — scholarly thinking face
@@ -8060,6 +8073,109 @@
       }, 250);
     }
   }
+  // v353 — HAND GESTURE. Pull one of his electric nodes in close and use it as a hand:
+  //   'wave'  — waggle hello (on tap / greeting)
+  //   'point' — reach toward a screen delta {dx,dy} from his center (where he's going / looking)
+  //   'reach' — a quick grab/tap outward
+  // Self-contained + purely cosmetic; a no-op if the shell isn't built.
+  function handGesture(type, opts) {
+    if (!state.shell || state.suppressed) return;
+    opts = opts || {};
+    let side = opts.side;
+    if (!side) side = (type === 'point' && opts.dx != null) ? (opts.dx < 0 ? 'l' : 'r') : (Math.random() < 0.5 ? 'l' : 'r');
+    const hand = state.shell.querySelector('.clippy-hand-' + side);
+    if (!hand) return;
+    const cls = type === 'point' ? 'is-pointing' : type === 'reach' ? 'is-reaching' : 'is-waving';
+    if (type === 'point') {
+      hand.style.setProperty('--hand-x', Math.max(-48, Math.min(48, opts.dx != null ? opts.dx : 30)) + 'px');
+      hand.style.setProperty('--hand-y', Math.max(-42, Math.min(30, opts.dy != null ? opts.dy : -6)) + 'px');
+    }
+    hand.classList.remove('is-waving', 'is-pointing', 'is-reaching');
+    void hand.offsetWidth;   // reflow so the animation restarts even on a repeat gesture
+    hand.classList.add(cls);
+    const dur = type === 'point' ? 1550 : type === 'reach' ? 1000 : 1250;
+    setTimeout(() => { try { hand.classList.remove(cls); } catch (_) {} }, dur);
+  }
+
+  // v353 — TELEPORT ON A WHIM. He blinks (no glide) to a fresh low-obstruction spot with an electric
+  // poof at both ends. Respects DND / active bubble / suppression like every other autonomous move.
+  function teleportWhim() {
+    if (!state.shell || !state.enabled || state.preferences.do_not_disturb) return;
+    if (state.bubble || state.palette || state.suppressed || state._bouncing) return;
+    const shellW = state.shell.offsetWidth || 102, shellH = state.shell.offsetHeight || 112;
+    let best = null, bestScore = Infinity;
+    for (let i = 0; i < 7; i++) {
+      const x = 12 + Math.random() * Math.max(1, window.innerWidth - shellW - 24);
+      const y = 70 + Math.random() * Math.max(1, window.innerHeight - shellH - 190);
+      let sc = Math.random() * 5;   // tiny jitter so ties vary
+      try {
+        const el = document.elementFromPoint(x + shellW / 2, y + shellH / 2);
+        if (el) {
+          if (el.matches('button, input, textarea, a, [role="button"]')) sc += 50;
+          if (el.closest('.bottom-nav, .nx-tabbar, .nx-tr-fab, header, nav, [data-overlay-active]')) sc += 90;
+        }
+      } catch (_) {}
+      if (sc < bestScore) { bestScore = sc; best = { x, y }; }
+    }
+    if (!best) return;
+    try { spawnParticles({ count: 12, type: 'sparkle' }); } catch (_) {}
+    state.shell.classList.add('is-teleporting');
+    const prevTransition = state.shell.style.transition;
+    state.shell.style.transition = 'none';   // a true blink — no position glide
+    setTimeout(() => {
+      try { moveTo(best.x, best.y); spawnParticles({ count: 14, type: 'sparkle' }); } catch (_) {}
+    }, 175);
+    setTimeout(() => {
+      if (!state.shell) return;
+      state.shell.style.transition = prevTransition || '';
+      state.shell.classList.remove('is-teleporting');
+    }, 470);
+  }
+
+  // v353 — BOUNCE AROUND. A short playful burst: he gains a little velocity and bounces off the
+  // screen edges a few times (sparkle on each wall), then settles and saves where he lands.
+  function bounceAround() {
+    if (!state.shell || !state.enabled || state.preferences.do_not_disturb) return;
+    if (state.bubble || state.palette || state.suppressed || state._bouncing) return;
+    state._bouncing = true;
+    const shellW = state.shell.offsetWidth || 102, shellH = state.shell.offsetHeight || 112;
+    const rect = state.shell.getBoundingClientRect();
+    let x = rect.left, y = rect.top;
+    let vx = (Math.random() < 0.5 ? -1 : 1) * (6 + Math.random() * 4);
+    let vy = (Math.random() < 0.5 ? -1 : 1) * (5 + Math.random() * 4);
+    const minX = 6, minY = 62, maxX = window.innerWidth - shellW - 6, maxY = window.innerHeight - shellH - 92;
+    const prevTransition = state.shell.style.transition;
+    state.shell.style.transition = 'none';
+    try { play('bounce'); } catch (_) {}
+    let bounces = 0, ticks = 0;
+    const end = () => {
+      state._bouncing = false;
+      if (state._bounceRaf) { cancelAnimationFrame(state._bounceRaf); state._bounceRaf = null; }
+      if (state.shell) {
+        state.shell.style.transition = prevTransition || '';
+        const fx = Math.round(parseFloat(state.shell.style.left) || x);
+        const fy = Math.round(parseFloat(state.shell.style.top) || y);
+        state.preferences.position_x = fx; state.preferences.position_y = fy;
+        try { savePreferences(); } catch (_) {}
+      }
+    };
+    const step = () => {
+      if (!state._bouncing || !state.shell || state.bubble || state.suppressed || state.preferences.do_not_disturb) return end();
+      x += vx; y += vy; ticks++;
+      let hit = false;
+      if (x <= minX) { x = minX; vx = Math.abs(vx); hit = true; }
+      else if (x >= maxX) { x = maxX; vx = -Math.abs(vx); hit = true; }
+      if (y <= minY) { y = minY; vy = Math.abs(vy); hit = true; }
+      else if (y >= maxY) { y = maxY; vy = -Math.abs(vy); hit = true; }
+      state.shell.style.left = x + 'px'; state.shell.style.top = y + 'px';
+      state.shell.style.right = 'auto'; state.shell.style.bottom = 'auto';
+      if (hit) { bounces++; try { play('bounce'); spawnParticles({ count: 4, type: 'sparkle' }); } catch (_) {} }
+      if (bounces >= 4 || ticks > 260) return end();
+      state._bounceRaf = requestAnimationFrame(step);
+    };
+    state._bounceRaf = requestAnimationFrame(step);
+  }
+
   // Desktop pet only: slide the whole host overlay across the monitor. moveTo
   // repositions him INSIDE the bounded stage; this lets him actually travel the
   // screen — "allow drift on screen if he's on the way" (Alfredo 2026-07-17).
