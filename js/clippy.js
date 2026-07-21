@@ -8090,7 +8090,7 @@
     const ALL = ['is-waving', 'is-pointing', 'is-reaching', 'is-cheering', 'is-clapping'];
     const cls = CLS[type] || 'is-waving';
     const dual = (type === 'cheer' || type === 'clap');   // v353b — two hands
-    const dur = type === 'point' ? 1550 : type === 'reach' ? 1000 : type === 'clap' ? 1150 : type === 'cheer' ? 1320 : 1250;
+    const dur = type === 'point' ? 2580 : type === 'reach' ? 1670 : type === 'clap' ? 1920 : type === 'cheer' ? 2200 : 2080;   // v356b — 0.6x speed (matches the CSS durations)
     // v353b — LEND a real firefly (or two) from the swarm for the gesture: fade it out so it reads
     // as one of his own nodes being pulled in close, then restore it after.
     const lent = [];
