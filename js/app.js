@@ -3837,7 +3837,15 @@ td.check{background:#F0EDE6 !important}
       // brain is unreachable AND a local key happens to exist.
       const cloud = await this.askCloudBrain(system, this._flattenMessages(messages), maxTokens);
       if (cloud) { this._answerSource = 'Claude cloud · clippy-brain'; return cloud; }
-      if (!this.getApiKey()) throw new Error('The cloud brain and the PC pool are both unreachable right now — try again in a moment.');
+      if (!this.getApiKey()) {
+        // v368: a PC in the pool that just didn't answer is "waking up", not
+        // "unreachable" — say so instead of implying nothing is on.
+        let anyNodeLive = false;
+        try { anyNodeLive = (await this.clippyPoolNodes()).length > 0; } catch (_) {}
+        throw new Error(anyNodeLive
+          ? 'Your PC is waking up (or busy) — give it a few seconds and ask again.'
+          : 'No AI brain is reachable right now — turn on a PC or add an Anthropic key in Admin ▸ Settings, then try again.');
+      }
       // else fall through to the direct Anthropic path below
     }
     const key = this.getApiKey();
@@ -3883,12 +3891,14 @@ td.check{background:#F0EDE6 !important}
       // memory so the next scans go straight to cloud instead of waiting.
       const POOL_DOWN_KEY = 'nx_pool_down_until';
       let poolDownUntil = 0;
+      let anyNodeLive = false;   // v367: a PC IS in the pool but the scan didn't land → "waking up", not "unreachable"
       try { poolDownUntil = parseInt(localStorage.getItem(POOL_DOWN_KEY) || '0', 10) || 0; } catch (_) {}
       // v18.44 — the node registry beats the blind backoff both ways: a
       // fresh node online CLEARS the down-memory (laptop just opened —
       // use it now), and zero nodes online skips the pool instantly.
       try {
         const _live = await this.clippyPoolNodes();
+        anyNodeLive = _live.length > 0;
         if (_live.length) { poolDownUntil = 0; try { localStorage.removeItem(POOL_DOWN_KEY); } catch (_) {} }
         else poolDownUntil = Date.now() + 1;
       } catch (_) {}
@@ -3914,7 +3924,14 @@ td.check{background:#F0EDE6 !important}
       // to Claude vision when a key exists so AI Create still works — the
       // provenance stamp records which brain actually answered. With no key we
       // surface the pool error rather than silently doing nothing.
-      if (!this.getApiKey()) { this._lastVisionError = 'The cloud vision brain and the PC pool are both unreachable right now — try again in a moment.'; return ''; }
+      if (!this.getApiKey()) {
+        // v368: distinguish "a PC is in the pool but this scan didn't land"
+        // (it's booting / already busy on another scan) from "no brain at all".
+        this._lastVisionError = anyNodeLive
+          ? 'Your PC is waking up (or busy on another scan) — give it a few seconds and tap Scan again.'
+          : 'No AI brain is reachable right now — turn on a PC or add an Anthropic key in Admin ▸ Settings, then try again.';
+        return '';
+      }
       this._lastVisionError = null;   // give the cloud a clean shot
       // (fall through to the Anthropic path below)
     }
