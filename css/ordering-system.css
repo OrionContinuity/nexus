@@ -1934,10 +1934,17 @@ body.ord-overlay-open .nav {
 .ord-vitem-editing {
   display: block;
   cursor: default;
-  padding: 14px;
+  padding: 16px;
   background: var(--nx-bg);
   border: 1px solid var(--nx-gold);
   box-shadow: var(--nx-shadow-pill, 0 2px 10px var(--nx-gold-soft));
+  /* v363 — smooth entrance so opening an item doesn't pop the list. */
+  animation: vedEditIn .26s cubic-bezier(0.22, 0.61, 0.36, 1);
+  transform-origin: top center;
+}
+@keyframes vedEditIn {
+  from { opacity: 0; transform: translateY(-8px) scale(0.985); }
+  to   { opacity: 1; transform: none; }
 }
 .ord-vitem-editing .ord-form-field {
   margin-bottom: 12px;
@@ -2547,7 +2554,7 @@ body.ord-overlay-open .nav {
 .ved-items-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 12px;   /* v363 — more breathing room between item cards (was 4px) */
 }
 
 /* ─── Item row — Linear-style: row IS the action ────────────────── */
@@ -2946,7 +2953,7 @@ body.ord-overlay-open .nav {
 /* ─── Items list (vendor editor) — bigger names ────────────────── */
 
 .ved-item-row {
-  padding: 14px 14px;       /* up from 11/12 */
+  padding: 18px 16px;       /* v363 — roomier card (was 14px) */
   border-radius: 16px;
   gap: 14px;
 }

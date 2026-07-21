@@ -6551,7 +6551,7 @@ Thanks for your help sorting this out.`;
         renderItemsAreaOnly();
         setTimeout(() => {
           const form = list.querySelector('.ord-vitem-editing');
-          if (form) form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          if (form) form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }, 50);
       });
     });
@@ -6563,7 +6563,7 @@ Thanks for your help sorting this out.`;
         renderItemsAreaOnly();
         setTimeout(() => {
           const form = list.querySelector('.ord-vitem-editing');
-          if (form) form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          if (form) form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }, 50);
       });
     });
@@ -6760,7 +6760,7 @@ Thanks for your help sorting this out.`;
         renderItemsAreaOnly();
         setTimeout(() => {
           const form = list.querySelector('.ord-vitem-editing');
-          if (form) form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          if (form) form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }, 50);
       });
     });
