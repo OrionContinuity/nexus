@@ -4641,7 +4641,10 @@ async function openDetail(id) {
     (async () => {
       const [primary, compat] = await Promise.all([
         NX.sb.from('equipment_parts').select('*').eq('equipment_id', id),
-        NX.sb.from('equipment_parts').select('*').contains('compatible_equipment_ids', [id]),
+        // v358b — compatible_equipment_ids is JSONB, not a Postgres array. Passing a JS array made
+        // supabase-js emit `cs.{id}` (array-literal form) → 400. JSON.stringify makes it `cs.["id"]`,
+        // the correct jsonb containment form (same pattern as notifications-bell.js watchers).
+        NX.sb.from('equipment_parts').select('*').contains('compatible_equipment_ids', JSON.stringify([id])),
       ]);
       // If either errored, surface — but still merge what came back.
       const err = primary.error || compat.error || null;
