@@ -969,12 +969,17 @@
     if (!vendor?.phone) { alert('No phone on file for this vendor.'); return; }
     const body = buildSMSBody(issue, equipment, vendor);
     const sep = navigator.userAgent.includes('iPhone') ? '&body=' : '?body=';
-    window.location.href = 'sms:' + vendor.phone + sep + encodeURIComponent(body);
+    // v336: sanitize phone → digits/+ only (raw formatted numbers made
+    // malformed sms: URIs). Matches the row-menu handlers above.
+    const tel = String(vendor.phone || '').replace(/[^\d+]/g, '');
+    window.location.href = 'sms:' + tel + sep + encodeURIComponent(body);
     logDispatch(issue, vendor, 'sms');
   }
   function dispatchCall(issue, equipment, vendor) {
     if (!vendor?.phone) { alert('No phone on file for this vendor.'); return; }
-    window.location.href = 'tel:' + vendor.phone;
+    // v336: sanitize phone → digits/+ only for a valid tel: URI.
+    const tel = String(vendor.phone || '').replace(/[^\d+]/g, '');
+    window.location.href = 'tel:' + tel;
     logDispatch(issue, vendor, 'call');
   }
   function dispatchEmail(issue, equipment, vendor, comments) {
@@ -2465,7 +2470,26 @@
       if (!state.loaded) { try { await mod.init(); } catch (_) {} }
       let v = mergeData().find(x => String(x.id) === String(vendorId));
       if (!v && window.NX && NX.sb) {
-        try { const { data } = await NX.sb.from('vendors').select('*').eq('id', vendorId).single(); if (data) v = data; } catch (_) {}
+        // supabase-js RESOLVES with {error} — check it (no throw to catch).
+        const { data, error } = await NX.sb.from('vendors').select('*').eq('id', vendorId).single();
+        if (!error && data) {
+          // v336: a raw vendors row has no performance fields, so the detail
+          // stat grid rendered 'undefined'/'$NaN'. Merge the same way
+          // mergeData() does — use its v_vendor_performance row if loaded,
+          // else default numeric fields to 0 and avg_* to null.
+          const perf = (state.perfRows || []).find(p => p.vendor_id === data.id) || {};
+          v = {
+            ...data,
+            total_jobs:               Number(perf.total_jobs)         || 0,
+            completed_jobs:           Number(perf.completed_jobs)     || 0,
+            active_jobs:              Number(perf.active_jobs)        || 0,
+            total_spend:              Number(perf.total_spend)        || 0,
+            avg_response_hours:       perf.avg_response_hours == null ? null : Number(perf.avg_response_hours),
+            avg_time_to_fix_hours:    perf.avg_time_to_fix_hours == null ? null : Number(perf.avg_time_to_fix_hours),
+            last_job_at:              perf.last_job_at,
+            equipment_serviced_count: Number(perf.equipment_serviced_count) || 0,
+          };
+        }
       }
       if (!v) { (window.NX && NX.toast) && NX.toast('Vendor not found', 'warn', 1800); return; }
       state.activeVendor = v;

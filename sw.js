@@ -217,7 +217,7 @@
    - composer onSend now reports method: 'gmail-api' | 'draft'.
    - Empty ledger (first use) = exactly the old today-only behavior.
 */
-const CACHE_NAME = 'nexus-v336-audit-fixes';
+const CACHE_NAME = 'nexus-v337-audit-fixes-2';
 const SW_VERSION = CACHE_NAME.replace(/^nexus-/, '');
 
 // ─── App shell — everything needed to run offline ─────────────────
@@ -431,11 +431,18 @@ self.addEventListener('fetch', event => {
         }
         return response;
       }).catch(() =>
-        caches.match(event.request, { ignoreSearch: true }).then(cached =>   // ignoreSearch: clippy-power.js?v=1 is precached without the query — an exact match would miss it offline
-          cached || new Response('<h1>NEXUS Offline</h1><p>No cached version available. Connect to WiFi to load.</p>', {
-            headers: { 'Content-Type': 'text/html' }
-          })
-        )
+        caches.match(event.request, { ignoreSearch: true }).then(cached => {   // ignoreSearch: clippy-power.js?v=1 is precached without the query — an exact match would miss it offline
+          if (cached) return cached;
+          // v336: only navigations get the HTML offline page. A missing JS/CSS/
+          // SVG/JSON subresource must fail cleanly, not receive an HTML body
+          // served under the wrong content type.
+          if (event.request.mode === 'navigate') {
+            return new Response('<h1>NEXUS Offline</h1><p>No cached version available. Connect to WiFi to load.</p>', {
+              headers: { 'Content-Type': 'text/html' }
+            });
+          }
+          return new Response('', { status: 504, statusText: 'Offline' });
+        })
       )
     );
     return;

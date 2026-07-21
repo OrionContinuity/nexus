@@ -510,19 +510,21 @@
       // Add this device to the device_ids array if not already there.
       // We can't easily append-only via PostgREST in one call, so we
       // do a small upsert that pulls existing then writes.
+      // v336: affective_baseline is owned exclusively by
+      // updateAffectiveBaseline. Upsert with onConflict:'user_id' only SETs
+      // columns present in the payload, so omitting it preserves the stored
+      // value and avoids a lost-update hazard.
       const { data: existing } = await NX.sb.from('trajan_profiles')
-        .select('device_ids, affective_baseline')
+        .select('device_ids')
         .eq('user_id', uid).maybeSingle();
       const deviceIds = new Set(existing?.device_ids || []);
       deviceIds.add(_state.deviceId);
       payload.device_ids = Array.from(deviceIds);
 
-      // Preserve any affective_baseline already there (Phase 3 writes this)
-      if (existing?.affective_baseline) {
-        payload.affective_baseline = existing.affective_baseline;
-      }
-
-      await NX.sb.from('trajan_profiles').upsert(payload, { onConflict: 'user_id' });
+      // v336: supabase-js RESOLVES with {error} (law) — check it, don't
+      // let a failed write fall through to marking the sync succeeded.
+      const { error } = await NX.sb.from('trajan_profiles').upsert(payload, { onConflict: 'user_id' });
+      if (error) { console.warn('[habits] cloud sync failed:', error.message); return; }
       _state.lastCloudSyncAt = nowMs();
     } catch (e) {
       console.warn('[habits] cloud sync failed:', e?.message || e);
@@ -532,8 +534,10 @@
   async function pullCloudProfile(uid) {
     if (!NX.sb || uid == null) return null;
     try {
-      const { data } = await NX.sb.from('trajan_profiles')
+      // v336: supabase-js RESOLVES with {error} (law) — check it.
+      const { data, error } = await NX.sb.from('trajan_profiles')
         .select('*').eq('user_id', uid).maybeSingle();
+      if (error) { console.warn('[habits] pull profile failed:', error.message); return null; }
       _state.cloudProfile = data || null;
       return data;
     } catch (e) {
@@ -843,11 +847,17 @@
       const { data: existing } = await NX.sb.from('trajan_profiles')
         .select('affective_baseline').eq('user_id', userId).maybeSingle();
       const merged = Object.assign({}, existing?.affective_baseline || {}, partial);
-      await NX.sb.from('trajan_profiles').upsert({
+      // v336: supabase-js RESOLVES with {error} (law) — check it.
+      const { error } = await NX.sb.from('trajan_profiles').upsert({
         user_id: userId,
         affective_baseline: merged,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id' });
+      if (error) { console.warn('[habits] baseline update failed:', error.message); return; }
+      // v336: keep the in-memory cache coherent so getAffectiveBaseline sees
+      // a baseline written mid-session (previously invisible until next login).
+      if (_state.cloudProfile && _state.cloudProfile.user_id === userId) _state.cloudProfile.affective_baseline = merged;
+      else _state.cloudProfile = { user_id: userId, affective_baseline: merged };
     } catch(_){}
   }
 

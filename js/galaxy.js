@@ -491,7 +491,15 @@
       p.x = cx + Math.cos(theta) * p.baseR;
       p.y = cy + Math.sin(theta) * p.baseR;
 
-      if (p.x < -20 || p.x > W+20 || p.y < -20 || p.y > H+20) continue;
+      // v336: cull in SCREEN space, not world space. Drawing/hit-testing run
+      // inside the pan+zoom transform, so testing world coords against [0,W]x[0,H]
+      // culled visible stars (and left them untappable) when panned/zoomed out.
+      // Reuse the exact draw-site transform (see ~L562) and always store screenX/screenY.
+      const sX = (p.x - cx) * zoom + cx + camX;
+      const sY = (p.y - cy) * zoom + cy + camY;
+      p.screenX = sX;
+      p.screenY = sY;
+      if (sX < -20 || sX > W+20 || sY < -20 || sY > H+20) continue;
 
       // Twinkle — subtle breathing
       const twinkle = 0.92 + Math.sin(state.t * p.twinkleSpeed + p.twinklePhase) * 0.08;
@@ -559,8 +567,8 @@
         haloList.push({ x: p.x, y: p.y, size: drawSize, color, alpha, isSpecial });
       }
 
-      p.screenX = (p.x - cx) * zoom + cx + camX;
-      p.screenY = (p.y - cy) * zoom + cy + camY;
+      // v336: screenX/screenY are now computed (and stored) before the cull above,
+      // reusing the identical transform; no need to recompute here.
     }
 
     // ─── PASS 2: Halos (additive) ───────────────────────────────────────
@@ -831,21 +839,41 @@
     // Opacity pulse — connections gently breathe at ~2s cycle
     const breath = 0.7 + Math.sin(state.t * 1.8) * 0.3;
 
+    // v336: decouple edge-dedup from the spoke fallback. Previously an edge was
+    // only counted when partner.id > p.id, so a link that exists in only ONE
+    // direction between two hits was drawn as neither a real edge nor once —
+    // both endpoints then emitted spurious spokes to the black hole.
+    // Now: build a set of unordered hit-pairs from links in EITHER direction,
+    // draw each pair once (symmetric key), and track which hits are connected.
+    const pairKeys = new Set();     // "a|b" with a<b — dedups symmetric edges
+    const edges = [];               // unique edges to draw
+    const connected = new Set();    // hit ids that have >=1 partner among hits
     hitParticles.forEach((p, pid) => {
       const node = p.node;
       if (!node) return;
-      const partners = (node.links || []).filter(lid => hitParticles.has(lid) && lid > pid);
-      // Only draw each edge once: require partner.id > p.id
-      if (partners.length === 0) {
-        // Fallback: spoke from this hit to the NEXUS black hole
-        drawCurvedString(p.x, p.y, cx, cy, 0.5 * breath);
-      } else {
-        partners.forEach(lid => {
-          const other = hitParticles.get(lid);
-          if (!other) return;
-          drawCurvedString(p.x, p.y, other.x, other.y, 0.75 * breath);
-        });
-      }
+      (node.links || []).forEach(lid => {
+        if (!hitParticles.has(lid) || lid === pid) return;
+        connected.add(pid);
+        connected.add(lid);
+        const key = pid < lid ? pid + '|' + lid : lid + '|' + pid;
+        if (pairKeys.has(key)) return;
+        pairKeys.add(key);
+        edges.push([pid, lid]);
+      });
+    });
+
+    // Draw each shared edge exactly once
+    edges.forEach(([aId, bId]) => {
+      const a = hitParticles.get(aId);
+      const b = hitParticles.get(bId);
+      if (!a || !b) return;
+      drawCurvedString(a.x, a.y, b.x, b.y, 0.75 * breath);
+    });
+
+    // Spoke to the NEXUS black hole ONLY for hits with no link partner among hits
+    hitParticles.forEach((p, pid) => {
+      if (connected.has(pid)) return;
+      drawCurvedString(p.x, p.y, cx, cy, 0.5 * breath);
     });
 
     ctx.setLineDash([]);

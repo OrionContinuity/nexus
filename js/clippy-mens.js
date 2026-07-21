@@ -134,7 +134,7 @@
     });
     var issues = await q(function () {
       return sb.from('equipment_issues')
-        .select('id,title,status,priority,severity,reported_at,equipment_id')
+        .select('id,title,status,priority,severity,reported_at,equipment_id,equipment(location)')   // v336: embed parent equipment's location so these rows can be house-filtered
         .neq('status', 'repaired').order('reported_at', { ascending: false }).limit(15);
     });
     var cards = await q(function () {
@@ -145,6 +145,7 @@
     });
     tickets = tickets.filter(function (t) { return !t.is_deleted && (!loc || locNorm(t.location) === loc); });
     cards = cards.filter(function (c) { return (c.status !== 'closed') && (!loc || locNorm(c.location) === loc); });
+    issues = issues.filter(function (i) { return !loc || locNorm(i.equipment && i.equipment.location) === loc; });   // v336: equip-issues ride the location-scoped OPEN WORK header — filter by parent equipment's house so a Suerte question never shows Este equipment
 
     var lines = [];
     tickets.slice(0, 10).forEach(function (t) {

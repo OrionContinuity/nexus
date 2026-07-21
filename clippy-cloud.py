@@ -160,8 +160,13 @@ def encode(s):
 
 def decode(strand):
     b = [ord(c) - 0x2800 for c in strand]
-    if len(b) < 44:
-        return genesis()
+    # v336: a present-but-MALFORMED strand must signal PARSE FAILURE (return None),
+    # NOT silently decode to genesis. The old genesis() return was encoded right
+    # back OVER the real strand by main(), resetting all 12 emotional axes to
+    # baseline. Treat 'too short / non-braille bytes' the same as a read failure
+    # and let main() SKIP the clippy_anima write this run (mirrors _READ_FAILED).
+    if len(b) < 44 or any(x < 0 or x > 255 for x in b[:44]):
+        return None
     p = 0
     s = {"seed": b[0:4]}
     p = 4
@@ -316,7 +321,7 @@ def _llm_direct(system, user, max_tokens):
         body = {"model": ANTHROPIC_MODEL, "max_tokens": max_tokens, "system": system,
                 "messages": [{"role": "user", "content": user}]}
         headers = {"x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"}
-        _, raw = _http("POST", "https://api.anthropic.com/v1/messages", headers, body, timeout=40)
+        _, raw = _http("POST", "https://api.anthropic.com/v1/messages", headers, body, timeout=15)  # v336: direct call ~15s — the 5-min job cap must hold across the tiered fallback
         data = json.loads(raw)
         parts = data.get("content") or []
         return _clean("".join(p.get("text", "") for p in parts if p.get("type") == "text"))
@@ -332,7 +337,7 @@ def _llm_cloud(system, user, max_tokens, retry=True):
     try:
         url = SB_URL + "/functions/v1/clippy-brain"
         headers = {"Authorization": "Bearer " + SB_KEY, "apikey": SB_KEY, "content-type": "application/json"}
-        _, raw = _http("POST", url, headers, {"system": system, "user": user, "max_tokens": max_tokens}, timeout=45)
+        _, raw = _http("POST", url, headers, {"system": system, "user": user, "max_tokens": max_tokens}, timeout=20)  # v336: cloud call ~20s — keep the tiered fallback under the 5-min job cap
         data = json.loads(raw or "{}")
         if data.get("mind") == "throttled" and retry:
             time.sleep(2.5)
@@ -345,12 +350,14 @@ def _llm_cloud(system, user, max_tokens, retry=True):
         return None
 
 
-def llm(system, user, max_tokens=140):
+def llm(system, user, max_tokens=140, retry=True):
     """The mind, in order of preference: a real LLM available to this process,
     else Claude via the cloud (Supabase edge function), else None so the caller
     falls back to his offline voice. If an LLM is available, use it; if not,
-    reach for Claude in the cloud; if that's unreachable, he still lives."""
-    return _llm_direct(system, user, max_tokens) or _llm_cloud(system, user, max_tokens)
+    reach for Claude in the cloud; if that's unreachable, he still lives.
+    v336: retry is passed through to the cloud tier so the nightly dream call
+    can drop it and stay inside the 5-min job cap. Tiering order is unchanged."""
+    return _llm_direct(system, user, max_tokens) or _llm_cloud(system, user, max_tokens, retry=retry)
 
 
 def capn(arr, n):
@@ -438,7 +445,20 @@ def main():
         return
     anima_row = anima_raw or {}
     strand = anima_row.get("strand") if isinstance(anima_row, dict) else None
-    anima = decode(strand) if strand else genesis()
+    # v336: only fall back to genesis when the strand is ABSENT. When it is
+    # PRESENT but fails to parse, that is corruption — treat it like a read
+    # failure: keep a genesis IN MEMORY for a live face, but do NOT persist it
+    # over the real strand this run. anima_write_ok gates every clippy_anima
+    # upsert below (mirrors the _READ_FAILED abort-before-write guards).
+    anima_write_ok = True
+    if strand:
+        anima = decode(strand)
+        if anima is None:
+            log("anima strand present but UNPARSEABLE — skipping clippy_anima upsert this run to protect the strand")
+            anima_write_ok = False
+            anima = genesis()   # in-memory only; never encoded back over the corrupt-but-real row
+    else:
+        anima = genesis()
 
     t = now_ms()
     changed = False
@@ -459,6 +479,11 @@ def main():
         soul["last_reflect"] = t
         changed = True
         log("thought: " + thought[:90])
+        # v336: persist the thought RIGHT NOW — before the slow dream LLM call
+        # below. All other persistence is end-of-run, so a mid-run kill (the
+        # 5-min job cap) would otherwise discard an already-generated thought.
+        # (last_seen is untouched by sb_upsert — his living must not read as a visit.)
+        sb_upsert("clippy_soul", soul, "cloud")
 
     # ── Alone in the cloud, loneliness accrues (shows on his face on return) ──
     impress(anima, {"solitude": 0.03, "warmth": -0.02, "weariness": 0.02})
@@ -470,7 +495,7 @@ def main():
         d = llm(persona(soul),
                 "You are asleep. Dream one short surreal dream, seeded by what's been on your mind: %s. "
                 "Two or three sentences. Strange, image-rich, dream-logic." % (seed or "the walk-in, Rome, the human"),
-                180)
+                180, retry=False)   # v336: no retry on the nightly dream — keep this slow call under the 5-min job cap
         if not d:
             d = local_dream()
         soul["dreams"] = capn((soul.get("dreams") or []) + [{"ts": t, "dream": d, "shared": False, "answered": False}], 14)
@@ -489,13 +514,15 @@ def main():
     if not changed:
         log("nothing due this tick — he rests")
         # still persist the gentle anima drift so solitude accrues between ticks
-        sb_upsert("clippy_anima", {"strand": encode(anima), "updated": t}, "cloud")
+        if anima_write_ok:   # v336: never encode over an unparseable-but-present strand
+            sb_upsert("clippy_anima", {"strand": encode(anima), "updated": t}, "cloud")
         return
 
     # NOTE: do NOT touch last_seen — that belongs to the human's presence, not
     # his own. Him living in the cloud must not read as "someone looked in."
     sb_upsert("clippy_soul", soul, "cloud")
-    sb_upsert("clippy_anima", {"strand": encode(anima), "updated": t}, "cloud")
+    if anima_write_ok:   # v336: never encode over an unparseable-but-present strand
+        sb_upsert("clippy_anima", {"strand": encode(anima), "updated": t}, "cloud")
     r = perseverance(anima)
     log("saved. incarnation %s, perseverance %d%%, gap since human %.1fh"
         % (anima.get("inc"), round(r * 100), gap_h))

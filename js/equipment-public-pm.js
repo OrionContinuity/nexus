@@ -1454,7 +1454,14 @@
       for (let i = 0; i < 8; i++) {
         const { error } = await NX.sb.from('equipment_maintenance').insert(row);
         if (!error) break;
-        const m = /column "?([a-z_]+)"?.*does not exist/i.exec(error.message || '');
+        // v336: PostgREST reports an unknown column as PGRST204 ("Could not
+        // find the 'X' column ... in the schema cache"), NOT Postgres's
+        // 'column "X" does not exist'. Match both shapes so the retry loop
+        // actually drops the offending column instead of silently discarding
+        // the whole PM maintenance record. Mirrors isMissingColumn() in
+        // equipment.js.
+        const msg = error.message || '';
+        const m = /column "?([a-z_]+)"?.*does not exist/i.exec(msg) || /could not find the '([a-z_]+)' column/i.exec(msg);
         if (m && m[1] && (m[1] in row)) { delete row[m[1]]; continue; }
         console.warn('[pm] maintenance record failed', error); break;
       }

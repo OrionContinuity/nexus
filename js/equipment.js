@@ -16620,9 +16620,23 @@ async function loadContractorsList() {
     // includes match — handles "Tyler from Austin Air & Ice" matching
     // contractor named "Austin Air & Ice").
     const nameLower = (c.name || '').toLowerCase();
+    // v336: the old bidirectional substring test (pb.includes(name) ||
+    // name.includes(pb)) attributed one maintenance record to MULTIPLE
+    // contractors whenever one name was a substring of another (or
+    // performed_by was a short token), double-counting YTD spend + call
+    // counts. Require a whole-name / word-boundary match instead, guarded by
+    // a minimum name length. Still matches
+    // 'Tyler from Austin Air & Ice' → 'Austin Air & Ice'.
+    const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const nameRe = nameLower.length >= 4
+      ? new RegExp('\\b' + esc(nameLower) + '\\b')
+      : null;
     const myMaint = maint.filter(m => {
       const pb = (m.performed_by || '').toLowerCase();
-      return pb && (pb.includes(nameLower) || nameLower.includes(pb));
+      if (!pb) return false;
+      if (nameRe) return nameRe.test(pb);
+      // Very short contractor names: fall back to exact match only.
+      return pb === nameLower;
     });
     const myIssues = issues.filter(i =>
       i.contractor_node_id == c.id ||

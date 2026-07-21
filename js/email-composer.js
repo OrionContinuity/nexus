@@ -439,6 +439,11 @@
     }
     function persistRecipients(addedKind, addedAddr) {
       var snap = snapshot();
+      // v336: a CC/BCC edit persists a live To snapshot; if To is transiently
+      // empty/half-typed, don't let it clobber the saved primary recipient
+      // (locally AND in Supabase → cross-device data loss). Keep the prior To.
+      var prev = recall(key) || {};
+      if (!validEmail(snap.to) && prev.to) snap.to = prev.to;
       var who = addedKind ? (addedKind.toUpperCase() + ' ' + (addedAddr || '') + ' ') : 'Recipients ';
       if (key) store(key, snap);  // instant local
       if (key && T && T.sb) {
@@ -460,10 +465,16 @@
       loadRemote(key).then(function (remote) {
         if (!remote) return;
         var changed = false;
-        if (!(opts.cc && opts.cc.length) && Array.isArray(remote.cc) && remote.cc.length && !state.cc.length) { state.cc = remote.cc.slice(); changed = true; }
-        if (!(opts.bcc && opts.bcc.length) && Array.isArray(remote.bcc) && remote.bcc.length && !state.bcc.length) { state.bcc = remote.bcc.slice(); changed = true; }
-        if (!opts.to && remote.to) { var toEl = bg.querySelector('[data-to]'); if (toEl && !toEl.value) { toEl.value = remote.to; state.to = remote.to; changed = true; } }
-        if (changed) { rerenderChips('cc'); rerenderChips('bcc'); }
+        // v336: Supabase is authoritative for any field the CALLER didn't
+        // explicitly pass. Previously remote was applied only when the local
+        // list was still empty, so a device that ever seeded from stale
+        // localStorage never picked up recipient changes made elsewhere.
+        // This runs on open before user interaction, so it won't clobber
+        // in-progress edits; REPLACE (not only-fill) to reflect deletions too.
+        if (!(opts.cc && opts.cc.length) && Array.isArray(remote.cc)) { state.cc = remote.cc.slice(); changed = true; }
+        if (!(opts.bcc && opts.bcc.length) && Array.isArray(remote.bcc)) { state.bcc = remote.bcc.slice(); changed = true; }
+        if (!opts.to && remote.to) { var toEl = bg.querySelector('[data-to]'); if (toEl) { toEl.value = remote.to; } state.to = remote.to; changed = true; }
+        if (changed) { rerenderChips('cc'); rerenderChips('bcc'); store(key, snapshot()); }
       });
     }
 

@@ -199,7 +199,9 @@
     // a failed save left the local _savedAt fresher than anything remote and refreshAnima's freshness
     // gate then rejected every real strand from the Minecraft body for the rest of the session.
     try {
-      var w = await sb().from('clippy_sync').upsert({ id:'clippy_anima', data:{ strand: A.encode(anima), updated: t }, from_id:'anima' }, { onConflict:'id' });
+      // v336: stamp updated_at ourselves — the column's only writer is a DEFAULT now() on INSERT
+      // (no ON UPDATE trigger), so without this it freezes at first-insert on every subsequent upsert.
+      var w = await sb().from('clippy_sync').upsert({ id:'clippy_anima', data:{ strand: A.encode(anima), updated: t }, from_id:'anima', updated_at: new Date().toISOString() }, { onConflict:'id' });
       if (!(w && w.error)) anima._savedAt = t;
     } catch(e){}
   }
@@ -412,7 +414,9 @@
     if (_soulReadFailed) return;   // v330: never persist a soul we couldn't confirm we read — degraded mode is in-memory only
     state.last_seen = now();
     try {
-      var w = await s.from('clippy_sync').upsert({ id: SOUL_ID, data: state, from_id: 'soul' }, { onConflict: 'id' });
+      // v336: stamp updated_at ourselves — clippy_sync.updated_at is DEFAULT now() on INSERT only
+      // (no ON UPDATE trigger), so it stays frozen at first-insert unless we write it on each upsert.
+      var w = await s.from('clippy_sync').upsert({ id: SOUL_ID, data: state, from_id: 'soul', updated_at: new Date().toISOString() }, { onConflict: 'id' });
       if (w && w.error) console.warn('[soul] save failed:', w.error.message);
     } catch (e) {}
   }

@@ -2470,36 +2470,42 @@
           const curRank = rank[currentStatus] != null ? rank[currentStatus] : 0;
           const desRank = rank[desiredStatus];
           if (desRank > curRank) {
-            ticketData.prior_eq_status = currentStatus;
-            try {
-              await sb.from('equipment')
-                .update({ status: desiredStatus })
-                .eq('id', eq.id);
-            } catch (statusErr) {
-              console.warn('[scan] eq status bump failed (non-fatal):', statusErr);
-            }
-            // Log the flip so it surfaces in the daily-notes activity feed —
-            // the staff flows write the same event; the public page was the
-            // one path whose status changes never appeared there.
-            try {
-              const LBL = { operational: 'Operational', needs_service: 'Needs Service', down: 'Down' };
-              await sb.from('equipment_events').insert({
-                equipment_id: eq.id,
-                event_type: 'status_change',
-                payload: {
-                  from: currentStatus, to: desiredStatus,
-                  from_label: LBL[currentStatus] || currentStatus,
-                  to_label: LBL[desiredStatus] || desiredStatus,
-                  equipment_name: eq.name,
-                  source: 'public_scan_report',
-                  ticket_priority: priority,
-                },
-                location: eq.location || null,
-                actor_user_id: null,
-                actor_name: reporter || 'QR scan',
-              });
-            } catch (evErr) {
-              console.warn('[scan] status event log failed (non-fatal):', evErr);
+            // v336: supabase-js RESOLVES with {error}; the old try/catch was a
+            // dead catch, so prior_eq_status was stamped and a status_change
+            // event inserted even when the equipment UPDATE silently failed.
+            // Destructure {error} and only record the flip in the SUCCESS
+            // branch. On failure: warn and skip (non-fatal).
+            const { error: eqUpdErr } = await sb.from('equipment')
+              .update({ status: desiredStatus })
+              .eq('id', eq.id);
+            if (eqUpdErr) {
+              console.warn('[scan] eq status bump failed (non-fatal):', eqUpdErr);
+            } else {
+              ticketData.prior_eq_status = currentStatus;
+              // Log the flip so it surfaces in the daily-notes activity feed —
+              // the staff flows write the same event; the public page was the
+              // one path whose status changes never appeared there.
+              try {
+                const LBL = { operational: 'Operational', needs_service: 'Needs Service', down: 'Down' };
+                const { error: evErr2 } = await sb.from('equipment_events').insert({
+                  equipment_id: eq.id,
+                  event_type: 'status_change',
+                  payload: {
+                    from: currentStatus, to: desiredStatus,
+                    from_label: LBL[currentStatus] || currentStatus,
+                    to_label: LBL[desiredStatus] || desiredStatus,
+                    equipment_name: eq.name,
+                    source: 'public_scan_report',
+                    ticket_priority: priority,
+                  },
+                  location: eq.location || null,
+                  actor_user_id: null,
+                  actor_name: reporter || 'QR scan',
+                });
+                if (evErr2) console.warn('[scan] status event log failed (non-fatal):', evErr2);
+              } catch (evErr) {
+                console.warn('[scan] status event log failed (non-fatal):', evErr);
+              }
             }
           }
         }

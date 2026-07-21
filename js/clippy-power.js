@@ -35,7 +35,7 @@
     if (!Array.isArray(arr)) return false;
     var now = Date.now() / 1000;
     return arr.some(function (n) {
-      return n && (now - (n.ts || 0) < FRESH_S) && (n.txt || n.claude);
+      return n && (now - (n.ts || 0) < FRESH_S) && n.claude;   // v336: FULL POWER = the live Claude subscription lane only. The worker hardcodes txt:true on every heartbeat, so `n.txt||n.claude` lit the badge for ANY online node — contradicting this module's own contract.
     });
   }
 

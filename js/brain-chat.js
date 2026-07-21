@@ -312,20 +312,28 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
                   aiCreated: true,
                 });
               } else {
-                await NX.sb.from('kanban_cards').insert(cardRow);
+                // v336: supabase-js resolves with {error} — check it so a failed
+                // insert throws into the catch instead of a false success toast.
+                const { error } = await NX.sb.from('kanban_cards').insert(cardRow);
+                if (error) throw error;
                 if (NX.notifyCardCreated) NX.notifyCardCreated(cardRow);
               }
               chainLog.push({type:'card',title:action.title,result:'created'});
             }else if(action.type==='log'){
               if(NX.log&&NX.log.write)await NX.log.write({type:'user',text:action.title+' — '+action.detail});
-              else await NX.sb.from('daily_logs').insert({entry:action.title+' — '+action.detail});
+              else { // v336: check {error} so a failed daily_logs insert throws
+                const { error } = await NX.sb.from('daily_logs').insert({entry:action.title+' — '+action.detail});
+                if (error) throw error;
+              }
               chainLog.push({type:'log',title:action.title,result:'logged'});
             }else if(action.type==='schedule'){
               // Look up contractor from brain
               const contractor=NX.nodes.find(n=>n.category==='contractors'&&(n.name||'').toLowerCase().includes((action.detail||'').toLowerCase().split(' ')[0]));
               if(contractor){
                 const tomorrow=new Date(Date.now()+86400000).toISOString().split('T')[0];
-                await NX.sb.from('contractor_events').insert({contractor_name:contractor.name,event_date:tomorrow,description:action.title,status:'pending'});
+                // v336: check {error} so a failed contractor_events insert throws
+                const { error } = await NX.sb.from('contractor_events').insert({contractor_name:contractor.name,event_date:tomorrow,description:action.title,status:'pending'});
+                if (error) throw error;
                 chainLog.push({type:'schedule',title:contractor.name,result:'event created'});
               }else{
                 const target=await resolveBoardAndList();
@@ -351,7 +359,9 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
                     aiCreated: true,
                   });
                 } else {
-                  await NX.sb.from('kanban_cards').insert(schedCard);
+                  // v336: check {error} so a failed insert throws into the catch
+                  const { error } = await NX.sb.from('kanban_cards').insert(schedCard);
+                  if (error) throw error;
                   if (NX.notifyCardCreated) NX.notifyCardCreated(schedCard);
                 }
                 chainLog.push({type:'card',title:'Schedule: '+action.title,result:'card created (no contractor found)'});

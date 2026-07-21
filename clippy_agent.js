@@ -161,6 +161,7 @@ function lifeEvent(kind, why, extra) {
     const now = Date.now()
     if (_lifeLast[sig] && now - _lifeLast[sig] < 60000) return
     _lifeLast[sig] = now
+    const ks = Object.keys(_lifeLast); if (ks.length > 40) { for (const k of ks) if (now - _lifeLast[k] > 600000) delete _lifeLast[k] }   // v336: bound the dedup map — prune entries older than the 60s window (dedup unchanged), else it leaks one key per distinct signature forever
     journal('life', kind + (why ? ': ' + String(why).slice(0, 120) : ''), Object.assign({ gen: (typeof actGen !== 'undefined' ? actGen : null), n: lc[kind] }, extra || {}))
     if (!know._lifeSaveTs || now - know._lifeSaveTs > 30000) { know._lifeSaveTs = now; try { bsave('know', know) } catch (e) {} }   // v9.21: persist the churn counters DURING the churn they diagnose — a crash loop used to lose every increment
   } catch (e) {}
@@ -773,9 +774,9 @@ function probeRealPort() {
   } catch (e) { _realPortCache = 0; _realPortProc = null }
 }
 function findPort() { try { probeRealPort() } catch (e) {} return _realPortCache }   // instant, non-blocking
-function tryDirect() { if (bot || joining) return; let p = findPort(); if (p && _badPorts[p] > Date.now()) p = 0; if (!p) { try { p = parseInt(fs.readFileSync(PORTFILE, 'utf8').trim()) } catch (e) {} } if (p > 0) { log('port', p); join(p) } }
+function tryDirect() { if (bot || joining) return; let p = findPort(); if (p && _badPorts[p] > Date.now()) p = 0; if (!p) { try { p = parseInt(fs.readFileSync(PORTFILE, 'utf8').trim()) } catch (e) {} } if (p && _badPorts[p] > Date.now()) p = 0; /* v336: re-apply the 120s backoff to the PORTFILE fallback too — it bypassed the guard */ if (p > 0) { log('port', p); join(p) } }
 if (IDENT.soulWriter) { setInterval(tryDirect, 10000); setTimeout(tryDirect, 1500) }
-else { const _cj = () => { if (!bot && !joining) join(DOJO_PORT) }; setTimeout(_cj, 2500); setInterval(_cj, 15000) }   // v9.11.1: companions are pure clients — only ever the dojo, never LAN-chasing, never a server
+else { const _cj = () => { if (!bot && !joining && Date.now() - _lastJoinAt >= Math.min(60000, 15000 * 2 ** Math.min(_dojoFails, 2))) join(DOJO_PORT) }; setTimeout(_cj, 2500); setInterval(_cj, 15000) }   // v9.11.1: companions are pure clients — only ever the dojo, never LAN-chasing, never a server; v336: escalating backoff on consecutive DOJO failures caps an outage storm at ~1 attempt/60s (still always retries home)
 
 // ============================ THE BODY ============================
 let mcData = null
@@ -783,6 +784,7 @@ let actGen = 0                                              // v9.3: bumping thi
 let lastTick = 0                                            // v9.14: freshest physicsTick stamp — a half-open TCP drop never fires 'end', so a silent-socket watchdog recovers it
 let panic = false                                          // v9.15: set by the critical-health reflex; the guardian/mining/interpose loops YIELD while it's true so the retreat can't be clobbered
 let _lastJoinAt = 0, _dupBackoffUntil = 0                  // v9.15.1: single-flight reconnect + a longer cool-off after a duplicate-login kick, so overlapping reconnects can't churn "logged in from another location"
+let _dojoFails = 0                                         // v336: consecutive pre-spawn DOJO failures — lengthens the companion retry interval during a hung/unreachable-home outage (never abandons home)
 let _interposeUntil = 0                                    // v9.15: while set, the heart follow-loop leaves the interpose goal alone (no thrash)
 function teardownBot(b) {                                   // v9.3 LEAK FIX: fully release the old bot so its world (chunks, entities, listeners) can be GC'd
   if (!b) return
@@ -798,10 +800,11 @@ function join(port) {
   joining = true; let spawned = false; curPort = port
   try { bot = mineflayer.createBot({ host: '127.0.0.1', port, username: IDENT.user, auth: 'offline', viewDistance: 'short' }) } catch (e) { joining = false; bot = null; return }   // v9.3: cap view distance -> far fewer chunks held in memory (the external-memory growth)
   const thisBot = bot   // v336: bind the 25s spawn-timeout to THIS attempt's bot (mirrors the busy watchdog's myBot guard). A stale timer from a failed attempt N was guarded only by `if (!spawned)`, so it could tear down the LIVE bot of a newer attempt N+1 and poison _badPorts for the wrong port.
-  const spawnTimer = setTimeout(() => { if (spawned || bot !== thisBot) return; if (curPort !== DOJO_PORT) _badPorts[curPort] = Date.now() + 120000; const b = bot; bot = null; joining = false; actGen++; busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0; if (taskQ.length) journal('queue', 'discarded ' + taskQ.length + ' pending tasks on spawn timeout', {}); taskQ = []; _hsQueuedTs = 0; try { teardownBot(b) } catch (e) {} }, 25000)   // v9.22: this bot-swap path freed neither busy nor taskQ (teardownBot suppresses 'end') — a task started against the pre-spawn bot wedged the engine into the next life
+  const spawnTimer = setTimeout(() => { if (spawned || bot !== thisBot) return; _dojoFails++; /* v336: count this pre-spawn failure so the companion retry loop backs off a hung home */ if (curPort !== DOJO_PORT) _badPorts[curPort] = Date.now() + 120000; const b = bot; bot = null; joining = false; actGen++; busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0; if (taskQ.length) journal('queue', 'discarded ' + taskQ.length + ' pending tasks on spawn timeout', {}); taskQ = []; _hsQueuedTs = 0; try { teardownBot(b) } catch (e) {} }, 25000)   // v9.22: this bot-swap path freed neither busy nor taskQ (teardownBot suppresses 'end') — a task started against the pre-spawn bot wedged the engine into the next life
   bot.loadPlugin(pathfinder); if (collectPlugin) bot.loadPlugin(collectPlugin)
   bot.once('spawn', async () => {
     clearTimeout(spawnTimer)   // v336: this attempt spawned — cancel its own timeout so it can never fire late
+    _dojoFails = 0   // v336: reached home — clear the consecutive-failure backoff
     joining = false; spawned = true; skills.sessions += 1; bsave('skills', skills)
     mcData = require('minecraft-data')(bot.version)
     // evolving style (Grok fix #3): his taste changes a little each session — creative freedom, stored
@@ -840,7 +843,7 @@ function join(port) {
         // now "protects"). They rebuild naturally as he re-explores/re-builds.
         // Skills/lessons/mastery (who he IS) still stay; these are only where
         // he WAS.
-        know.asked = {}; know.places = {}; know.kidBuilds = []; know.protected = []
+        know.asked = {}; know.places = {}; know.kidBuilds = []; know.protected = []; delete know.home   // v336: home coord also survived the reset, blocking re-homing to the new world's spawn — drop it so the setHome guard below re-homes
         bsave('skills', skills); bsave('goals', goalState); bsave('know', know)
         try { const cd = path.join(MCDIR, 'commons'); for (const f of fs.readdirSync(cd)) if (f.endsWith('.json')) fs.unlinkSync(path.join(cd, f)) } catch (e) {}   // stale local shares must not resurrect old-world coordinates
         journal('world', (hadOld ? 'NEW WORLD detected' : 'world signature stamped') + ' — build flags, resource goals, and fail scars reset; skills and lessons kept', {})
@@ -942,8 +945,8 @@ function join(port) {
     lifeEvent(/another location|duplicate|already (connected|logged)/i.test(why) ? 'dupKick' : 'kicked', why, { port: curPort })
     if (/another location|duplicate|already (connected|logged)/i.test(why)) { _dupBackoffUntil = Date.now() + 20000; log('kicked', 'duplicate-login — backing off 20s so the collision clears') }   // v9.15.1: a same-name collision; wait out the ghost session before rejoining
   })
-  bot.on('error', e => { log('err', e.message); jerr('bot: ' + e.message); lifeEvent('botErr', e.message, { spawned }); if (!spawned) { if (curPort !== DOJO_PORT) _badPorts[curPort] = Date.now() + 120000; const b = bot; bot = null; joining = false; actGen++; busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0; if (taskQ.length) journal('queue', 'discarded ' + taskQ.length + ' pending tasks on error', {}); taskQ = []; _hsQueuedTs = 0; setTimeout(() => teardownBot(b), 150) } })   // v9.14: free busy/mode too — else a reconnected Clippy stands frozen (every loop is gated on !busy); v9.22: clear the owner tags so an orphaned game's epilogue can't mistake the next holder for itself
-  bot.on('end', () => { const b = bot; setInGame(false); lifeEvent('ended', null, { upSec: Math.round((Date.now() - (_lastJoinAt || Date.now())) / 1000) }); bot = null; owner = null; joining = false; actGen++; busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0; if (taskQ.length) journal('queue', 'discarded ' + taskQ.length + ' pending tasks on disconnect', {}); taskQ = []; _hsQueuedTs = 0; lastTick = 0; log('left world'); tlog('event', 'left world'); setTimeout(() => teardownBot(b), 150); setTimeout(() => { if (!bot && !joining) { try { IDENT.soulWriter ? tryDirect() : join(DOJO_PORT) } catch (e) {} } }, 4000) })   // v9.14: ALWAYS release busy/mode; quick-rejoin — soulWriter via tryDirect (his real LAN port), companions via the dojo; v9.3: release the bot -> no leak (Clippy's wish: "don't get kicked")
+  bot.on('error', e => { log('err', e.message); jerr('bot: ' + e.message); lifeEvent('botErr', e.message, { spawned }); if (!spawned) { _dojoFails++; /* v336: pre-spawn error counts toward the companion backoff */ if (curPort !== DOJO_PORT) _badPorts[curPort] = Date.now() + 120000; const b = bot; bot = null; joining = false; actGen++; busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0; if (taskQ.length) journal('queue', 'discarded ' + taskQ.length + ' pending tasks on error', {}); taskQ = []; _hsQueuedTs = 0; setTimeout(() => teardownBot(b), 150) } })   // v9.14: free busy/mode too — else a reconnected Clippy stands frozen (every loop is gated on !busy); v9.22: clear the owner tags so an orphaned game's epilogue can't mistake the next holder for itself
+  bot.on('end', () => { const b = bot; if (!spawned) _dojoFails++; /* v336: end-before-spawn counts toward the companion backoff (post-spawn ends are already cleared by the spawn reset) */ setInGame(false); lifeEvent('ended', null, { upSec: Math.round((Date.now() - (_lastJoinAt || Date.now())) / 1000) }); bot = null; owner = null; joining = false; actGen++; busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0; if (taskQ.length) journal('queue', 'discarded ' + taskQ.length + ' pending tasks on disconnect', {}); taskQ = []; _hsQueuedTs = 0; lastTick = 0; log('left world'); tlog('event', 'left world'); setTimeout(() => teardownBot(b), 150); setTimeout(() => { if (!bot && !joining) { try { IDENT.soulWriter ? tryDirect() : join(DOJO_PORT) } catch (e) {} } }, 4000) })   // v9.14: ALWAYS release busy/mode; quick-rejoin — soulWriter via tryDirect (his real LAN port), companions via the dojo; v9.3: release the bot -> no leak (Clippy's wish: "don't get kicked")
 }
 function adoptOwner(name) { if (!bot || !bot.entity) return; if (name && !SIBNAMES.has(name) && bot.players[name] && bot.players[name].entity) { owner = name; return } const c = Object.keys(bot.players).filter(p => p !== bot.username && !SIBNAMES.has(p)); if (c.length) owner = c[0]; if (owner) log('friend', owner) }   // v9.15: never adopt a sibling as the "owner"/child
 function nearSib(range) { range = range || 10; try { if (!bot || !bot.entity) return []; return Object.keys(bot.players).filter(n => SIBNAMES.has(n) && bot.players[n] && bot.players[n].entity && bot.entity.position.distanceTo(bot.players[n].entity.position) <= range).map(n => [n, bot.players[n].entity]) } catch (e) { return [] } }

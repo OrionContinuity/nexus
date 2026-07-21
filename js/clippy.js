@@ -3038,10 +3038,12 @@
   function checkMorningRitual() {
     const today = new Date().toDateString();
     if (state.preferences.morning_ritual_date === today) return false;
-    state.preferences.morning_ritual_date = today;
-    savePreferences();
     setTimeout(() => {
       if (!state.bubble && state.enabled && !state.suppressed) {
+        // v336: mark+persist the once-per-day flag INSIDE the shown branch, so a
+        // suppressed/bubbling moment no longer permanently consumes the day's ritual.
+        state.preferences.morning_ritual_date = today;
+        savePreferences();
         play('bounce');                 // morning stretch via bounce
         mood('happy', 5000);
         bubble(substituteVars(pickFromPool('morning_ritual')),
@@ -3259,7 +3261,12 @@
     try {
       if (typeof getEmotionSnapshot === 'function') {
         const s = getEmotionSnapshot();
-        if (s && s.intensity >= 45 && EMOTION_AURA[s.dominant]) color = EMOTION_AURA[s.dominant];
+        // v336: only take the Plutchik aura when the dominant emotion is ELEVATED
+        // above its OWN baseline — the old `intensity >= 45` gate was always open
+        // (resting trust baseline 0.55 => intensity 55), pinning the halo to
+        // trust-blue and starving the feelings-gauge switch (sad/lonely/tired/etc).
+        const above = (s && s.intensity01 || 0) - (EMOTION_BASELINE[s && s.dominant] || 0.2);
+        if (s && above >= 0.15 && EMOTION_AURA[s.dominant]) color = EMOTION_AURA[s.dominant];
       }
     } catch (e) {}
     if (!color) {
@@ -4423,7 +4430,9 @@
     // Click cadence — rolling 60-second window
     // Rage-click detection — 5+ clicks within 1.5s on same path
     let rageWindow = [];   // last 5 clicks: { t, target }
-    document.addEventListener('pointerdown', (e) => {
+    // v336: route through trackListener so teardown() removes it — was a raw
+    // addEventListener, so every disable→enable stacked another leaked listener.
+    trackListener(document, 'pointerdown', (e) => {
       const now = Date.now();
       a.clickTimes.push(now);
       a.lastInputAt = now;
@@ -4454,7 +4463,8 @@
 
     // View-switch detection — watch nav-tab + bnav-btn clicks
     // (NEXUS pattern: clicks on .nav-tab or .bnav-btn change the active view)
-    document.addEventListener('click', (e) => {
+    // v336: route through trackListener so teardown() removes it (was raw, leaked).
+    trackListener(document, 'click', (e) => {
       const tab = e.target && e.target.closest && e.target.closest('.nav-tab, .bnav-btn');
       if (!tab) return;
       const view = tab.getAttribute('data-view');
@@ -4476,7 +4486,8 @@
     // We can't intercept NX.toast() directly without monkey-patching, so
     // we observe DOM additions of .toast.toast-error (a stable class).
     try {
-      const obs = new MutationObserver((muts) => {
+      // v336: wrap in trackObserver so teardown() disconnects it (was raw, leaked).
+      const obs = trackObserver(new MutationObserver((muts) => {
         for (const m of muts) {
           for (const node of m.addedNodes) {
             if (node.nodeType !== 1) continue;
@@ -4502,7 +4513,7 @@
             }
           }
         }
-      });
+      }));
       obs.observe(document.body, { childList: true, subtree: true });
       a._toastObserver = obs;
     } catch (e) { /* MutationObserver unavailable in some test envs */ }
@@ -4597,7 +4608,9 @@
     // (4s+ recently set mood resists flips) but we add our own
     // gate too.
     const now = Date.now();
-    if (now - a.lastExpressionAt > 60_000) {
+    // v336: don't override the face while sulking or suppressed — the raw
+    // dispatcher broke the sulk pose (contradicting design principle #4).
+    if (now - a.lastExpressionAt > 60_000 && !state.sulkActive && !state.suppressed) {
       const chosen = pickAffectiveExpression(a);
       if (chosen) {
         try { mood(chosen, 30_000); } catch (e) {}
@@ -6830,7 +6843,9 @@
     });
 
     // Cursor gaze on document (sparse to save CPU)
-    document.addEventListener('pointermove', (e) => {
+    // v336: register via trackListener so teardown() removes it — the shell is
+    // rebuilt on every enable, so a raw addEventListener accumulated each time.
+    trackListener(document, 'pointermove', (e) => {
       if (Math.random() > 0.25) return;
       updateGaze(e.clientX, e.clientY);
     });

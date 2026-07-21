@@ -1180,9 +1180,17 @@ td.check{background:#F0EDE6 !important}
           else setErr('No connection to server — check WiFi, then reload.');
         });
       };
-      probe();
+      let _lastProbeAt = 0;
+      const _origProbe = probe;
+      const probeThrottled = () => { _lastProbeAt = Date.now(); _origProbe(); };
+      probeThrottled();
       // The moment the OS says we're back online, re-check and clear the banner.
-      try { window.addEventListener('online', () => { settled = false; attempt = 0; probe(); }); } catch(_) {}
+      // v336: throttle the 'online' re-probe so wifi flapping can't fire
+      // back-to-back invalid verify_pin calls into its server-side rate limiter.
+      try { window.addEventListener('online', () => {
+        if (Date.now() - _lastProbeAt < 20000) return;
+        settled = false; attempt = 0; probeThrottled();
+      }); } catch(_) {}
     })();
     // Skip PIN screen setup if this is a public QR scan — the public scan
     // detector will render its own UI over the page body
@@ -2338,7 +2346,9 @@ td.check{background:#F0EDE6 !important}
         if (config.trello_token) updates.trello_token = config.trello_token;
         if (config.model) updates.model = config.model;
         if (Object.keys(updates).length) {
-          await this.sb.from('nexus_config').update(updates).eq('id', 1);
+          // v336: check {error} so a rejected write doesn't show a false success.
+          const { error } = await this.sb.from('nexus_config').update(updates).eq('id', 1);
+          if (error) throw error;
           Object.assign(this.config || {}, updates);
         }
         s.textContent = '✓ Restored from Drive'; s.style.color = 'var(--green)';
@@ -2901,6 +2911,7 @@ td.check{background:#F0EDE6 !important}
             (extra > 0 ? `<span class="admin-user-tag-more">+${extra}</span>` : '') +
           '</span>';
         }
+        // v336: aria-label on the bare ✕ remove-user button (accessible name)
         return `
         <div class="admin-user-row" data-user-id="${u.id}" data-user-name="${this._escAttr(u.name)}">
           <span class="admin-user-name-sm">${this._escAttr(u.name)}</span>
@@ -2910,7 +2921,7 @@ td.check{background:#F0EDE6 !important}
           <span class="admin-user-pin-sm">PIN: ${u.pin}</span>
           ${chipsHtml}
           <button class="admin-user-edit-interests" data-id="${u.id}" data-name="${this._escAttr(u.name)}" title="Edit interests">${NX.interests ? '✦' : '★'}</button>
-          ${u.id !== this.currentUser?.id ? `<button class="admin-user-del" data-id="${u.id}">✕</button>` : ''}
+          ${u.id !== this.currentUser?.id ? `<button class="admin-user-del" data-id="${u.id}" aria-label="Remove user">✕</button>` : ''}
         </div>`;
       }).join('');
       el.querySelectorAll('.admin-user-del').forEach(btn => {
@@ -2961,11 +2972,12 @@ td.check{background:#F0EDE6 !important}
 
     const bg = document.createElement('div');
     bg.className = 'admin-interest-editor-bg';
+    // v336: aria-label on the bare ✕ close button (accessible name)
     bg.innerHTML = `
       <div class="admin-interest-editor-card">
         <div class="admin-interest-editor-head">
           <div class="admin-interest-editor-title">${this._escAttr(user.name)}'s interests</div>
-          <button class="admin-interest-editor-close">✕</button>
+          <button class="admin-interest-editor-close" aria-label="Close">✕</button>
         </div>
         <div class="admin-interest-editor-sub">
           Tap to toggle. Trajan will weave these into his presence —
@@ -3552,13 +3564,16 @@ td.check{background:#F0EDE6 !important}
       const { data } = await this.sb.from('chat_history').select('*').order('created_at', { ascending: false }).limit(100);
       list.innerHTML = '';
       if (!data || !data.length) { list.innerHTML = '<div style="font-size:11px;color:var(--faint);padding:8px">No chat history yet.</div>'; return; }
+      // v336: escape user-controlled chat_history fields to prevent stored XSS
+      const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
       data.forEach(entry => {
         const el = document.createElement('div');
         el.className = 'chat-log-entry';
         const time = new Date(entry.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-        const user = entry.user_name || 'Unknown';
-        const answer = (entry.answer || '').slice(0, 300);
-        el.innerHTML = `<div class="chat-log-meta"><span class="chat-log-user">${user}</span><span>${time}</span></div><div class="chat-log-q">Q: ${entry.question || ''}</div><div class="chat-log-a" onclick="this.classList.toggle('expanded')">A: ${answer}${answer.length >= 300 ? '...' : ''}</div>`;
+        const user = esc(entry.user_name || 'Unknown');
+        const answerRaw = (entry.answer || '').slice(0, 300);
+        const answer = esc(answerRaw);
+        el.innerHTML = `<div class="chat-log-meta"><span class="chat-log-user">${user}</span><span>${time}</span></div><div class="chat-log-q">Q: ${esc(entry.question || '')}</div><div class="chat-log-a" onclick="this.classList.toggle('expanded')">A: ${answer}${answerRaw.length >= 300 ? '...' : ''}</div>`;
         list.appendChild(el);
       });
     } catch (e) { list.innerHTML = '<div style="color:var(--red);font-size:11px;padding:8px">Error loading chat log.</div>'; }
@@ -3672,7 +3687,8 @@ td.check{background:#F0EDE6 !important}
       if(briefing.contractors.length){
         const banner=document.getElementById('contractorBanner');
         if(banner&&!banner.dataset.dismissed){
-          banner.innerHTML='<span class="alert-kicker">TODAY</span> '+briefing.contractors.map(e=>`<b>${e.contractor_name}</b>${e.event_time?' @ '+e.event_time:''}${e.location?' · '+e.location:''}`).join(' | ')+' <button class="alert-dismiss" onclick="this.parentElement.style.display=\'none\';this.parentElement.dataset.dismissed=\'1\'">✕</button>';
+          // v336: aria-label on the bare ✕ dismiss button (accessible name)
+          banner.innerHTML='<span class="alert-kicker">TODAY</span> '+briefing.contractors.map(e=>`<b>${e.contractor_name}</b>${e.event_time?' @ '+e.event_time:''}${e.location?' · '+e.location:''}`).join(' | ')+' <button class="alert-dismiss" aria-label="Dismiss alert" onclick="this.parentElement.style.display=\'none\';this.parentElement.dataset.dismissed=\'1\'">✕</button>';
           banner.style.display='';
         }
       }
@@ -3753,7 +3769,8 @@ td.check{background:#F0EDE6 !important}
           const briefEl=document.createElement('div');
           briefEl.id='morningBrief';
           briefEl.className='morning-brief';
-          briefEl.innerHTML=`<div class="brief-header">Morning Brief</div><div class="brief-text">${brief[0].brief_text}</div><button class="brief-dismiss" onclick="this.parentElement.style.display='none';NX.trackBriefDismiss()">✕</button>`;
+          // v336: aria-label on the bare ✕ dismiss button (accessible name)
+          briefEl.innerHTML=`<div class="brief-header">Morning Brief</div><div class="brief-text">${brief[0].brief_text}</div><button class="brief-dismiss" aria-label="Dismiss brief" onclick="this.parentElement.style.display='none';NX.trackBriefDismiss()">✕</button>`;
           briefEl.dataset.shownAt=Date.now();
           welcome.parentElement.insertBefore(briefEl,welcome.nextSibling);
         }
@@ -5095,23 +5112,33 @@ NX.timeClock = {
     const rowEl = document.getElementById('tcUndoRow');
     if (rowEl) rowEl.style.display = 'none';
     clearTimeout(this._undoTimer);
+    // v336: supabase-js resolves with {error} — check it so a failed DB write
+    // throws into the catch instead of falsely reporting the punch as undone.
+    let _savedActive = null, _savedClosed = null;
     try {
       if (type === 'in' && this._activeEntry) {
+        _savedActive = this._activeEntry;
         const id = this._activeEntry.id;
         this._activeEntry = null;
         if (id && !String(id).startsWith('pending-')) {
-          await NX.sb.from('time_clock').delete().eq('id', id);
+          const { error } = await NX.sb.from('time_clock').delete().eq('id', id);
+          if (error) throw error;
         }
         if (NX.toast) NX.toast('Clock-in undone', 'info', 2000);
       } else if (type === 'out' && this._lastClosed) {
         const row = this._lastClosed;
+        _savedClosed = row;
         this._lastClosed = null;
-        await NX.sb.from('time_clock').update({ clock_out: null, hours: null }).eq('id', row.id);
+        const { error } = await NX.sb.from('time_clock').update({ clock_out: null, hours: null }).eq('id', row.id);
+        if (error) throw error;
         this._activeEntry = row;
         if (NX.toast) NX.toast('Clock-out undone — shift reopened', 'info', 2200);
       }
     } catch (e) {
       console.error('[timeClock] undo failed:', e);
+      // v336: restore the in-memory state cleared above so the UI matches the DB.
+      if (_savedActive) this._activeEntry = _savedActive;
+      if (_savedClosed) { this._lastClosed = _savedClosed; this._activeEntry = null; }
       if (NX.toast) NX.toast('Undo failed — check My Timesheet', 'error', 3000);
     }
     this.updateUI();
