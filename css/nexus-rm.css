@@ -2161,7 +2161,9 @@
 .cleanlite-cta-wrap {
   position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 10px; justify-content: center;
   padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); pointer-events: none; z-index: 30;
-  background: linear-gradient(to top, var(--nx-bg, #0e1320) 40%, transparent);
+  /* v366 — no scrim (Alfredo): the fade-to-bg gradient read as a shadow band across the bottom of
+     the cleaning list. The Summary button has its own solid background, so it floats fine without it. */
+  background: transparent;
 }
 .cleanlite-cta {
   pointer-events: auto; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
@@ -2784,7 +2786,7 @@
 #cleanView .cleanlite-mode-btn.is-active { background: var(--nx-gold, #d4a44e); color: var(--nx-gold-on, #101626); }
 /* v260 — the CTA dock wrapped its five pills over the zone list; per-mode
    it now holds at most four, wraps safely, and backs them fully. */
-.cleanlite-cta-wrap { flex-wrap: wrap; background: linear-gradient(to top, var(--nx-bg, #0e1320) 62%, transparent); }
+.cleanlite-cta-wrap { flex-wrap: wrap; background: transparent; }   /* v366 — scrim removed (see base rule) */
 #cleanView .cleanlite-shift { display: inline-flex; gap: 0; border: 1px solid var(--nx-gold-line, rgba(212,164,78,.25)); border-radius: 9px; overflow: hidden; }
 #cleanView .cleanlite-shift-btn {
   padding: 6px 14px; font: inherit; font-size: 12px; font-weight: 600;
