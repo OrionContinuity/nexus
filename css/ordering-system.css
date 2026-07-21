@@ -10153,10 +10153,9 @@ body.ord-overlay-open .nav {
 [data-theme="light"] .ord-catalog-overlay .ved-item-area-select:focus { background: var(--nx-gold-faint); }
 [data-theme="light"] .ord-catalog-overlay .ved-section-count { background: rgba(31, 79, 125, 0.05); }
 
-/* ─── v361 — catalog item "more details" chevron + expandable panel ─────────
-   A centered chevron under each item's controls expands a read-only detail
-   grid in place (names, SKU, unit, par, day-of-week pars, note). Tapping the
-   item NAME still opens the full edit form; this is a quick peek. */
+/* ─── v362 — catalog item chevron → opens the full edit form ────────────────
+   A centered chevron under each item's controls; tapping it opens that item's
+   edit form (same destination as tapping the name), a clear "open details" tap. */
 .ved-item-expand {
   display: flex;
   align-items: center;
@@ -10173,46 +10172,6 @@ body.ord-overlay-open .nav {
   transition: color .14s, background .14s;
 }
 .ved-item-expand:hover { color: var(--nx-gold); background: var(--nx-gold-faint, rgba(200, 164, 78, 0.10)); }
-.ved-chevron { transition: transform .2s ease; }
-.ved-item-expand.is-open .ved-chevron { transform: rotate(180deg); }
-.ved-item-details {
-  margin-top: 8px;
-  padding-top: 10px;
-  border-top: 1px solid var(--nx-gold-line, rgba(200, 164, 78, 0.20));
-  animation: vedDetailsIn .18s ease;
-}
-@keyframes vedDetailsIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
-.ved-detail-grid {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 6px 14px;
-  align-items: baseline;
-}
-.ved-detail-k {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-  color: var(--nx-faint);
-  white-space: nowrap;
-  padding-top: 1px;
-}
-.ved-detail-v {
-  font-size: 13px;
-  color: var(--nx-text);
-  font-weight: 500;
-  overflow-wrap: anywhere;
-}
-.ved-detail-edit {
-  margin-top: 11px;
-  padding: 7px 15px;
-  border: 1px solid var(--nx-gold-line, rgba(200, 164, 78, 0.30));
-  background: transparent;
-  color: var(--nx-gold);
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background .14s;
-}
-.ved-detail-edit:hover { background: var(--nx-gold-faint, rgba(200, 164, 78, 0.10)); }
+.ved-item-expand:active { transform: translateY(1px); }
+.ved-chevron { transition: transform .14s ease; }
+.ved-item-expand:hover .ved-chevron { transform: translateY(1px); }
