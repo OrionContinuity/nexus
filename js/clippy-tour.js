@@ -166,7 +166,11 @@
       let ok = false;
       try { ok = NX.clippy.moment ? NX.clippy.moment(opts) : false; } catch (_) {}
       if (!ok) {
-        actionBubble(opener, { eyebrow: '👋 WELCOME', autoHide: 0, actions: opts.actions, onDismiss: () => { running = false; } });
+        // v348: the fallback bubble can also be dropped (bubble busy). fromChat:true lets it
+        // supersede a passive bubble, and if it still can't show we must clear running so the
+        // tour isn't wedged "in progress" forever (mirrors the v330 step-bubble pattern).
+        var shown = actionBubble(opener, { eyebrow: '👋 WELCOME', autoHide: 0, fromChat: true, actions: opts.actions, onDismiss: () => { running = false; } });
+        if (!shown) running = false;
       }
     }
 
@@ -187,9 +191,13 @@
         var offerKey = 'nx_clippy_tour_offered_ever:' +
           ((window.NX && NX.currentUser && (NX.currentUser.id || NX.currentUser.name)) || 'anon');
         if (localStorage.getItem(offerKey)) return;
-        try { localStorage.setItem(offerKey, '1'); } catch (_) {}
+        // v348: burn the once-ever flag only when the offer ACTUALLY shows. Stamping it
+        // before the 9s timer meant that if he was busy/suppressed when the timer fired,
+        // start() was skipped but the flag was spent — so the welcome never appeared again.
         trackTimeout(() => {
-          if (!running && !state.bubble && !state.suppressed) start();
+          if (running || state.bubble || state.suppressed) return;
+          try { localStorage.setItem(offerKey, '1'); } catch (_) {}
+          start();
         }, 9000);
       } catch (_) {}
     }

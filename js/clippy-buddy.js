@@ -59,24 +59,24 @@
         client.from('v_pm_due_soon').select('*'),
         client.from('equipment').select('id,name,location,status,status_note'),
       ]);
-      // v330: supabase RESOLVES with {error} — the old `.data || []` turned a failed read into
-      // empty lists and cheerfully reported "Quiet house". If any query errored, say so instead.
-      if (res[0].error || res[1].error || res[2].error) {
-        out.lines.push({ kind: 'err', text: 'I couldn’t reach the records just now — walk on, I’ll catch up.' });
-        return out;
-      }
-      var cards = (res[0].data || []).filter(function (c) {
+      // v330: supabase RESOLVES with {error}. v348: handle each query's error INDEPENDENTLY —
+      // one failing view (v_pm_due_soon is the fragile one) must not blank the whole brief when
+      // the board and equipment loaded fine. Build each section only from a query that succeeded,
+      // and add a soft per-section line for whatever couldn't be reached.
+      var cardsOk = !res[0].error, pmsOk = !res[1].error, downOk = !res[2].error;
+      var cards = cardsOk ? (res[0].data || []).filter(function (c) {
         // closed_at filtered server-side now; belt-and-suspenders here too — a Done card is not "open work"
         return c.archived !== true && !c.closed_at && norm(c.location) === key;
-      }).sort(function (a, b) { return new Date(a.created_at) - new Date(b.created_at); });
-      var pms = (res[1].data || []).filter(function (p) {
+      }).sort(function (a, b) { return new Date(a.created_at) - new Date(b.created_at); }) : [];
+      var pms = pmsOk ? (res[1].data || []).filter(function (p) {
         return norm(p.restaurant) === key && p.days_until_due != null && p.days_until_due <= 7;
-      }).sort(function (a, b) { return (a.days_until_due || 0) - (b.days_until_due || 0); });
-      var down = (res[2].data || []).filter(function (e) {
+      }).sort(function (a, b) { return (a.days_until_due || 0) - (b.days_until_due || 0); }) : [];
+      var down = downOk ? (res[2].data || []).filter(function (e) {
         return norm(e.location) === key && /^(down|broken|needs_service)$/.test(String(e.status || '').toLowerCase());
-      });
+      }) : [];
 
-      out.lines.push({ kind: 'head', text: cards.length + ' open card' + (cards.length === 1 ? '' : 's') + ' here' + (pms.length ? ' · ' + pms.length + ' PM' + (pms.length === 1 ? '' : 's') + ' due this week' : '') + (down.length ? ' · ' + down.length + ' unit' + (down.length === 1 ? '' : 's') + ' not right' : '') });
+      // Head line only claims counts for sections that actually loaded.
+      out.lines.push({ kind: 'head', text: (cardsOk ? (cards.length + ' open card' + (cards.length === 1 ? '' : 's') + ' here') : 'board unreachable') + (pms.length ? ' · ' + pms.length + ' PM' + (pms.length === 1 ? '' : 's') + ' due this week' : '') + (down.length ? ' · ' + down.length + ' unit' + (down.length === 1 ? '' : 's') + ' not right' : '') });
       cards.slice(0, 3).forEach(function (c) {
         out.lines.push({ kind: 'card', view: 'board', text: '“' + (c.title || 'Untitled') + '” — ' + ageDays(c.created_at) + 'd old' + ((c.priority || '') === 'urgent' ? ' · URGENT' : '') });
       });
@@ -87,7 +87,11 @@
       down.slice(0, 3).forEach(function (e) {
         out.lines.push({ kind: 'down', view: 'equipment', text: (e.name || 'Equipment') + ' — ' + String(e.status || '').replace(/_/g, ' ') + (e.status_note ? ' · ' + String(e.status_note).slice(0, 60) : '') });
       });
-      if (!cards.length && !pms.length && !down.length) {
+      // v348: soft per-section failure lines instead of discarding the whole brief.
+      if (!pmsOk) out.lines.push({ kind: 'err', text: 'Couldn’t reach the PM schedule just now.' });
+      if (!downOk) out.lines.push({ kind: 'err', text: 'Couldn’t reach equipment status just now.' });
+      // "Quiet house" only when ALL three succeeded AND all are empty — never on a partial read.
+      if (cardsOk && pmsOk && downOk && !cards.length && !pms.length && !down.length) {
         out.lines.push({ kind: 'clear', text: 'Quiet house — nothing open, nothing due this week, everything upright.' });
       }
     } catch (e) {

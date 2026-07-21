@@ -799,15 +799,18 @@
           Object.assign(state.preferences, data.preferences);
           savePreferences();
         }
-        if (data.feelings && typeof data.feelings === 'object') {
+        // v348: per-field shape guards + isolated try/catch so one oversized/bad remote
+        // field can't corrupt in-memory state or abort the rest of the merge (the old bare
+        // setItem at feelings could throw on quota and skip gacha+highscores entirely).
+        if (data.feelings && typeof data.feelings === 'object' && !Array.isArray(data.feelings)) {
           state.feelings = data.feelings;
-          localStorage.setItem(userKey('clippy_feelings'), JSON.stringify(data.feelings));
+          try { localStorage.setItem(userKey('clippy_feelings'), JSON.stringify(data.feelings)); } catch (e) {}
         }
-        if (data.gacha) {
-          localStorage.setItem(userKey('clippy_gacha'), JSON.stringify(data.gacha));
+        if (data.gacha && typeof data.gacha === 'object') {
+          try { localStorage.setItem(userKey('clippy_gacha'), JSON.stringify(data.gacha)); } catch (e) {}
         }
-        if (data.highscores) {
-          localStorage.setItem(userKey('clippy_highscores'), JSON.stringify(data.highscores));
+        if (data.highscores && typeof data.highscores === 'object') {
+          try { localStorage.setItem(userKey('clippy_highscores'), JSON.stringify(data.highscores)); } catch (e) {}
         }
         return true;
       } catch (e) {
@@ -1285,8 +1288,10 @@
     // v18.57 — SHARED STREAM. A weighty desktop memory (importance ≥4) is
     // published to the shared clippy_memories realm='desktop', so his
     // Minecraft self can know what mattered here. Fire-and-forget; never
-    // re-publish memories he pulled IN from Minecraft (source==='minecraft').
-    if (importance >= 4 && node.source !== 'minecraft') {
+    // re-publish memories he pulled IN from Minecraft. v348: guard on the memory TYPE,
+    // not node.source — source is hardcoded 'clippy' here so the old check was always true
+    // (dead). The sole Minecraft-origin deposit passes type:'minecraft'.
+    if (importance >= 4 && type !== 'minecraft') {
       try {
         const sbShare = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : null;
         if (sbShare) {
@@ -2501,11 +2506,23 @@
       return;
     }
     // Forget: "forget X" / "scratch that" / "delete X" removes stale facts.
-    const forM = text.match(/^\s*(?:forget|scratch that|nevermind|never mind|delete|remove|drop)\b(?:\s+(?:about|that))?\s*[:,-]?\s*(.*)$/i);
+    // v348: "nevermind"/"never mind" REMOVED from this command — a bare dismissal was
+    // capturing an empty target and silently deleting his single most-recent notebook
+    // fact ("Forgotten."). Now only an explicit "scratch that" may delete the newest fact
+    // with no named target; a bare "forget"/"delete" with no argument asks instead of
+    // guessing. (Notebook is his #1 wish; standing rule: never bulk-modify without asking.)
+    const forM = text.match(/^\s*(forget|scratch that|delete|remove|drop)\b(?:\s+(?:about|that))?\s*[:,-]?\s*(.*)$/i);
     if (forM) {
-      const dropped = forget((forM[1] || '').trim());
+      const forCmd = (forM[1] || '').toLowerCase();
+      const forQ = (forM[2] || '').trim();
+      if (!forQ && forCmd !== 'scratch that') {
+        sayInChat('Forget what, exactly? Name it and I\'ll drop it from my notebook.', { eyebrow: '🧽 WHICH?' });
+        mood('thinking', 2500);
+        return;
+      }
+      const dropped = forget(forQ);
       if (dropped.length) {
-        sayInChat('Forgotten' + (forM[1] && forM[1].trim() ? ' — "' + dropped[0].label.slice(0, 80) + '"' + (dropped.length > 1 ? ' (+' + (dropped.length - 1) + ' more)' : '') : '') + '.', { eyebrow: '🧽 FORGOT' });
+        sayInChat('Forgotten' + (forQ ? ' — "' + dropped[0].label.slice(0, 80) + '"' + (dropped.length > 1 ? ' (+' + (dropped.length - 1) + ' more)' : '') : ' the last thing you told me') + '.', { eyebrow: '🧽 FORGOT' });
       } else {
         sayInChat('Nothing matching that in my notebook to forget.', { eyebrow: '🧽 NOTHING' });
       }
@@ -3556,6 +3573,10 @@
     const beforeTier = getAffinityTier().key;
     const after = Math.max(-100, Math.min(100, before + delta));
     state.preferences.affinity = after;
+    // v348: track the earned high-water mark so decayAffinity's soft floor is anchored to
+    // the peak bond, not the live (decaying) value — otherwise the floor slides down with
+    // erosion and a months-long bond still collapses to 0.
+    state.preferences.affinity_peak = Math.max(state.preferences.affinity_peak || 0, after);
     state.preferences.affinity_last_changed = Date.now();
     savePreferences();
     const afterTier = getAffinityTier().key;
@@ -3624,7 +3645,10 @@
     // affinity/day — documented as "daily drift: -1". Drift ~1/24 per hour instead. Also: a
     // months-long bond shouldn't collapse from one quiet week, so hold a soft floor once he's
     // reached Friend (+35). Route through adjustAffinity so a tier crossing still notifies.
-    const FLOOR = cur >= 60 ? 35 : (cur >= 35 ? 20 : 0);
+    // v348: derive the floor from the earned PEAK, not the live value. Anchoring to cur made
+    // the threshold slide down with erosion (cur<35 → FLOOR 0), so the bond always drained to 0.
+    const peak = Math.max(state.preferences.affinity_peak || 0, cur);
+    const FLOOR = peak >= 60 ? 35 : (peak >= 35 ? 20 : 0);
     if (cur > 0 && cur <= FLOOR) return;   // rest at the earned floor, don't erode below it
     const step = (cur > 0 ? -1 : +1) / 24;
     if (typeof adjustAffinity === 'function') adjustAffinity(step, 'daily_drift');
@@ -3902,7 +3926,10 @@
     if (existingPill) existingPill.remove();
 
     const active = getActiveConqueror();
-    if (!active) return;
+    // v348: when a conqueror clears/expires, re-assert the user's persisted costume — a
+    // conqueror had removed it (below) to avoid double-hats, and the old bare `return` left
+    // the user's equipped hat missing until reload. applyPersistedCostume is idempotent.
+    if (!active) { applyPersistedCostume(); return; }
     state.shell.classList.add(active.hatClass);
     state.shell.classList.add(active.personaClass);
     // Also remove the regular costume class so we don't get double-hats
@@ -9021,7 +9048,7 @@
   // ════════════════════════════════════════════════════════════════════
 
   function doQuirk() {
-    if (!state.enabled || state.suppressed || state.bubble) return;
+    if (!state.enabled || state.suppressed || state.bubble || state.preferences.do_not_disturb) return;   // v348: honor DND (mirrors runBoredMischief) — quirks are unsolicited motion
     if (state.coinFlipInProgress) return;
     const feel = state.feelings ? dominantFeeling() : 'content';
     const candidates = [];
@@ -9090,7 +9117,7 @@
     }, delay);
   }
   function maybeAutonomousAction() {
-    if (!state.enabled || state.suppressed || state.sulkActive || state.bubble) return;
+    if (!state.enabled || state.suppressed || state.sulkActive || state.bubble || state.preferences.do_not_disturb) return;   // v348: honor DND — autonomous actions are unsolicited
     const actions = [
       { fn: doSweep,    pool: 'autonomous_sweep',  eyebrow: '🧹 SWEEPING',  ms: 6000 },
       { fn: doRead,     pool: 'autonomous_read',   eyebrow: '📖 READING',   ms: 8000 },
@@ -10068,8 +10095,11 @@
       if (!items.length) return;
       total += items.length;
       html += `<div class="clippy-palette-section-label">${esc(sec.section)}</div>`;
-      items.forEach((it, i) => {
-        html += `<button class="clippy-palette-item" data-section="${esc(sec.section)}" data-idx="${i}">
+      items.forEach((it) => {
+        // v348: emit the item's ORIGINAL index in sec.items, not its position in the
+        // filtered list — the click handler indexes sec.items[idx], so a filtered search
+        // was firing the wrong action. Each item is a unique object literal, so indexOf is exact.
+        html += `<button class="clippy-palette-item" data-section="${esc(sec.section)}" data-idx="${sec.items.indexOf(it)}">
           <div class="clippy-palette-item-icon">${esc(it.icon)}</div>
           <div class="clippy-palette-item-body">
             <div class="clippy-palette-item-name">${esc(it.name)}</div>
@@ -11249,6 +11279,9 @@
       grantBondXP_game_played, grantBondXP_game_high_score,
       // v18.33 — for clippy-tour.js (persists tour_completed).
       savePreferences,
+      // v348 — so clippy-gacha.js can schedule a cloud sync after a pull, else a
+      // gacha collection/pity only lives in localStorage and is lost cross-device.
+      cloudPushQueued,
       // Utilities
       esc, userKey,
       // Overlay manager

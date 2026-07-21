@@ -181,7 +181,14 @@
   }
   function close() { if (panel) { try { panel.remove(); } catch (_) {} panel = null; } }
 
+  var building = false;
   async function show() {
+    // v348: guard re-entry. show() is async and close() runs at its top, before the awaits
+    // resolve — so two concurrent invocations each build a panel and the first is orphaned
+    // (never removed). A DOM sweep can't fix it since neither panel is attached yet at that point.
+    if (building) return;
+    building = true;
+    try {
     close();
     var games = await listGames();
     var game = games[0].name;
@@ -317,9 +324,12 @@
     var resetBtn = el('button', 'clippy-ctrl-reset', '↩ Back to committed default');
     resetBtn.onclick = async function () {
       resetBtn.disabled = true; setStatus('Clearing override…');
-      await clearCfg(gameSel.value);
-      cfg = defaults(); delete cfg.label; renderBody();
+      // v348: check the result — clearCfg resolves with {error} and never throws, so the
+      // old code reported "✓ Override cleared" even when the delete failed (mirrors saveBtn).
+      var r = await clearCfg(gameSel.value);
       resetBtn.disabled = false;
+      if (r && r.error) { setStatus('⚠ ' + r.error); return; }
+      cfg = defaults(); delete cfg.label; renderBody();
       setStatus('✓ Override cleared — the repo profile (toddler v2) stands.');
     };
     foot.appendChild(saveBtn); foot.appendChild(resetBtn);
@@ -335,6 +345,7 @@
 
     panel.addEventListener('click', function (e) { if (e.target === panel) close(); });
     document.body.appendChild(panel);
+    } finally { building = false; }
   }
 
   NX.clippyController = { show: show, close: close, ACTIONS: ACTIONS, PRESETS: PRESETS };

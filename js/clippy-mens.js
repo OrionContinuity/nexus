@@ -128,9 +128,11 @@
   async function perceiveWork(loc) {
     var sb = sbClient(); if (!sb) return null;
     var tickets = await q(function () {
-      return sb.from('tickets')
+      var b = sb.from('tickets')
         .select('id,title,notes,location,status,priority,created_at,equipment_id')
-        .eq('status', 'open').eq('is_deleted', false).order('created_at', { ascending: false }).limit(25);   // v330: filter is_deleted server-side — the client `!t.is_deleted` guard was dead (the column was never selected, always undefined)
+        .eq('status', 'open').eq('is_deleted', false);   // v330: filter is_deleted server-side — the client `!t.is_deleted` guard was dead (the column was never selected, always undefined)
+      if (loc) b = b.ilike('location', '%' + loc + '%');   // v348: scope by house BEFORE the row cap, else a house's tickets fall outside the newest-25 window and Clippy falsely reports "no open work"
+      return b.order('created_at', { ascending: false }).limit(25);
     });
     var issues = await q(function () {
       return sb.from('equipment_issues')
@@ -138,10 +140,11 @@
         .neq('status', 'repaired').order('reported_at', { ascending: false }).limit(15);
     });
     var cards = await q(function () {
-      return sb.from('kanban_cards')
+      var b = sb.from('kanban_cards')
         .select('id,title,column_name,status,location,priority,created_at,closed_at')
-        .neq('column_name', 'done').eq('is_deleted', false).eq('archived', false).is('closed_at', null)   // v330: the app archives via `archived` (not `is_archived`) and marks Done via closed_at — the old filter surfaced already-archived cards as OPEN WORK, which the brain then answered from "exactly"
-        .order('created_at', { ascending: false }).limit(25);
+        .neq('column_name', 'done').eq('is_deleted', false).eq('archived', false).is('closed_at', null);   // v330: the app archives via `archived` (not `is_archived`) and marks Done via closed_at — the old filter surfaced already-archived cards as OPEN WORK, which the brain then answered from "exactly"
+      if (loc) b = b.ilike('location', '%' + loc + '%');   // v348: scope by house before the 25-row cap (same false-negative class as tickets)
+      return b.order('created_at', { ascending: false }).limit(25);
     });
     tickets = tickets.filter(function (t) { return !t.is_deleted && (!loc || locNorm(t.location) === loc); });
     cards = cards.filter(function (c) { return (c.status !== 'closed') && (!loc || locNorm(c.location) === loc); });
@@ -188,8 +191,9 @@
       });
     } else {
       rows = await q(function () {
-        return sb.from('equipment').select(sel).eq('is_deleted', false)
-          .order('next_pm_date', { ascending: true, nullsFirst: false }).limit(40);
+        var b = sb.from('equipment').select(sel).eq('is_deleted', false);
+        if (loc) b = b.ilike('location', '%' + loc + '%');   // v348: scope by house before the 40-row cap so a house's equipment isn't pushed out of the PM-sorted window
+        return b.order('next_pm_date', { ascending: true, nullsFirst: false }).limit(40);
       });
     }
     if (loc) rows = rows.filter(function (r) { return locNorm(r.location) === loc; });
@@ -215,8 +219,10 @@
   async function perceiveOrdering(loc) {
     var sb = sbClient(); if (!sb) return null;
     var orders = await q(function () {
-      return sb.from('orders').select('id,location,delivery_date,status,vendor_id,created_at')
-        .in('status', ['draft', 'sent', 'confirmed']).is('archived_at', null).order('created_at', { ascending: false }).limit(15);   // v330: 'confirmed' too — a vendor-confirmed order is still awaiting delivery. v336: filter archived_at — a dismissed/archived order must NOT be surfaced as a live pending delivery (mirrors the is_deleted/closed_at guards the other perceivers apply)
+      var b = sb.from('orders').select('id,location,delivery_date,status,vendor_id,created_at')
+        .in('status', ['draft', 'sent', 'confirmed']).is('archived_at', null);   // v330: 'confirmed' too — a vendor-confirmed order is still awaiting delivery. v336: filter archived_at — a dismissed/archived order must NOT be surfaced as a live pending delivery (mirrors the is_deleted/closed_at guards the other perceivers apply)
+      if (loc) b = b.ilike('location', '%' + loc + '%');   // v348: scope by house before the 15-row cap
+      return b.order('created_at', { ascending: false }).limit(15);
     });
     if (loc) orders = orders.filter(function (o) { return locNorm(o.location) === loc; });
     var vmap = {};

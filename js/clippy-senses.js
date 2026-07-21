@@ -106,12 +106,21 @@
         if (sampleHouse._r <= 8) setTimeout(sampleHouse, 15000);
         return;
       }
-      const cnt = async (q) => { try { const r = await q; return r.count || 0; } catch (_) { return 0; } };
-      const urgent = await cnt(NX.sb.from('equipment_issues').select('*', { count: 'exact', head: true })
-        .in('priority', ['urgent', 'high', 'critical']).not('status', 'in', '(repaired,closed,cancelled,invoice_paid)'));
-      const down = await cnt(NX.sb.from('equipment').select('*', { count: 'exact', head: true }).in('status', ['down', 'broken']));
-      const overdue = await cnt(NX.sb.from('kanban_cards').select('*', { count: 'exact', head: true })
-        .eq('archived', false).lt('due_date', new Date().toISOString().slice(0, 10)).not('due_date', 'is', null).is('closed_at', null));
+      // v348: report {count, ok} so a transient DB/RLS error is distinguishable from a real 0.
+      const cnt = async (q) => { try { const r = await q; return { count: r.count || 0, ok: !r.error }; } catch (_) { return { count: 0, ok: false }; } };
+      // v348: issue the three counts concurrently instead of three sequential round-trips.
+      const [urgentR, downR, overdueR] = await Promise.all([
+        cnt(NX.sb.from('equipment_issues').select('*', { count: 'exact', head: true })
+          .in('priority', ['urgent', 'high', 'critical']).not('status', 'in', '(repaired,closed,cancelled,invoice_paid)')),
+        cnt(NX.sb.from('equipment').select('*', { count: 'exact', head: true }).in('status', ['down', 'broken'])),
+        cnt(NX.sb.from('kanban_cards').select('*', { count: 'exact', head: true })
+          .eq('archived', false).lt('due_date', new Date().toISOString().slice(0, 10)).not('due_date', 'is', null).is('closed_at', null)),
+      ]);
+      // v348: if any sample failed, keep the last-good reading rather than collapsing to
+      // "the house is calm" — a false all-clear is the dangerous direction for a house sense.
+      if (!urgentR.ok || !downR.ok || !overdueR.ok) { S.house._sampleOk = false; return; }
+      const urgent = urgentR.count, down = downR.count, overdue = overdueR.count;
+      S.house._sampleOk = true;
       S.house.v = Math.min(1, urgent / 5 * 0.5 + down / 2 * 0.3 + overdue / 10 * 0.2);
       S.house.detail = (urgent || down || overdue)
         ? `${urgent} urgent · ${down} down · ${overdue} overdue`

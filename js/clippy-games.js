@@ -1380,11 +1380,13 @@
         }
         board.appendChild(banner);
         clearDecoys();
-        try { target.style.opacity = '0'; } catch(_){}
+        // v348: make the target non-interactive during the between-level banner — a tap on the
+        // (invisible but still clickable) target re-entered finishLevel and double-advanced the level.
+        try { target.style.opacity = '0'; target.style.pointerEvents = 'none'; } catch(_){}
 
         setTimeout(() => {
           try { banner.remove(); } catch(_){}
-          try { target.style.opacity = '1'; } catch(_){}
+          try { target.style.opacity = '1'; target.style.pointerEvents = ''; } catch(_){}
           if (!passed) {
             // Game over — score = last cleared level
             running = false;
@@ -1574,6 +1576,10 @@
         <div class="clippy-memory-grid" data-grid></div>
         <div class="clippy-game-buttons"><button class="clippy-game-btn is-ghost" data-act="quit">Quit</button></div>`;
       ov.querySelector('[data-act="quit"]').addEventListener('click', () => {
+        // v348: stop the sequence playback before leaving, else its tones keep firing over the
+        // result screen when the player quits mid-"watch" phase. (playInterval is assigned below,
+        // before any user click can occur.)
+        try { clearInterval(playInterval); } catch (_) {}
         showGameResult('memory', Math.max(0, level - 1));
       });
       const grid = ov.querySelector('[data-grid]');
@@ -1721,7 +1727,6 @@
       let colSeq = 0;   // v330: monotonic column id — idx:columns.length reused ids after front-splice, so bonus stars bound to the wrong (older) column and teleported
       const trail = [];
       const bonusStars = [];
-      let nextColumnX = W + 60;
       let groundOff = 0, t = 0;
       let flapPulse = 0;
       let faceFlash = null;   // v18.35 — momentary face from his chibi set
@@ -1798,13 +1803,15 @@
         const oscFreq  = 0.0016 + Math.random() * 0.0014;
         const oscPhase = Math.random() * Math.PI * 2;
         const col = {
-          x: nextColumnX,
+          // v348: spawn relative to the LAST column's live (scrolling) x, so the gap is always
+          // exactly spacingAt(). The old absolute `nextColumnX` only ever increased and never
+          // scrolled with the world, so column gaps grew without bound → Flappy became unplayable.
+          x: columns.length ? columns[columns.length - 1].x + spacingAt(lastScore) : W + 60,
           gapY: baseGapY, baseGapY,
           gap: GAP, scored: false, idx: colSeq++,
           oscillate, oscAmp, oscFreq, oscPhase,
         };
         columns.push(col);
-        nextColumnX += spacingAt(lastScore);
         // v18.34 — stars arrive sooner and more often. The +5 chase is
         // the fun part; making players wait 6 columns for it was stingy.
         if (score >= 2 && Math.random() < 0.45) {
@@ -1826,7 +1833,6 @@
         score = 0; combo = 0;
         started = false; alive = true; deadFace = 'dead';
         columns.length = 0; trail.length = 0; bonusStars.length = 0;
-        nextColumnX = W + 60;
         groundOff = 0; t = 0;
         flapPulse = 0; comboFlash = 0; nearMissPulse = 0; faceFlash = null;
         isRetryShown = false;
@@ -2023,8 +2029,10 @@
       function showDeathOptions() {
         const isNewBest = score > best;
         if (isNewBest) {
-          best = score;
-          setBest('flappy', best);
+          best = score;   // v348: keep for the in-canvas NEW BEST banner…
+          // …but do NOT setBest() here — that made showGameResult (the Finish path) see
+          // score===stored-best and skip the new-best celebration + bond XP + memory deposit.
+          // showGameResult is now the single writer (matches the v336 fix for the other 5 games).
           // Confetti for new best
           for (let k = 0; k < 50; k++) {
             juice.burst(W / 2 + (Math.random() - 0.5) * W * 0.6, H * 0.3 + (Math.random() - 0.5) * 40, 1, {
@@ -2041,7 +2049,9 @@
         btnRow.innerHTML = `
           <button class="clippy-game-btn" data-act="retry">↺ Retry</button>
           <button class="clippy-game-btn is-ghost" data-act="finish">Finish</button>`;
-        btnRow.querySelector('[data-act="retry"]').addEventListener('click', restart);
+        // v348: the Retry path never reaches showGameResult, so persist the best HERE for
+        // durability (else a new best set this run is lost if the player retries then quits).
+        btnRow.querySelector('[data-act="retry"]').addEventListener('click', () => { try { setBest('flappy', best); } catch (_) {} restart(); });
         btnRow.querySelector('[data-act="finish"]').addEventListener('click', () => {
           loop.stop();
           // v18.33 — pass THIS run's score (was `best`, so the result
@@ -2999,10 +3009,16 @@
           if (p.y > paddleY - 8 && p.y < paddleY + paddleH + 8 && p.x > paddleX && p.x < paddleX + paddleW) {
             if (p.kind === 'wide')  paddleW = Math.min(160, paddleW + 30);
             else if (p.kind === 'multi') {
+              // v348: cap total balls at 8. The old split TRIPLED the ball count on every
+              // pickup with no ceiling — a few multi-balls made the board an unplayable swarm
+              // and thrashed the frame loop.
+              const CAP = 8;
               const newBalls = [];
               for (const b of balls) {
+                if (balls.length + newBalls.length >= CAP) break;
                 const sp = Math.hypot(b.vx, b.vy);
                 newBalls.push({ ...b, vx: b.vx * 0.7 + Math.cos(Math.PI / 4) * sp * 0.5, vy: -Math.abs(b.vy) });
+                if (balls.length + newBalls.length >= CAP) break;
                 newBalls.push({ ...b, vx: b.vx * 0.7 - Math.cos(Math.PI / 4) * sp * 0.5, vy: -Math.abs(b.vy) });
               }
               for (const nb of newBalls) balls.push(nb);
@@ -3436,7 +3452,7 @@
           if (s.life > 60 * 6) { starsFx.splice(i, 1); continue; }
           const dx = s.x - px, dy = s.y - py;
           if (dx * dx + dy * dy < (s.r + PLAYER_R) * (s.r + PLAYER_R)) {
-            score += 5; starsCaught++;
+            starsCaught++;   // v348: dropped a dead `score += 5` here — score is fully recomputed as floor(t/60) + starsCaught*5 at the end of the frame, so the increment was overwritten every tick.
             pFace = 'starstruck'; pFaceUntil = performance.now() + 900;
             // JUICE
             juice.flyScore('+5', s.x, s.y, '#ffd870');

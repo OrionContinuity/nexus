@@ -115,6 +115,9 @@
     }
     function saveGachaState(s) {
       try { localStorage.setItem(ix.userKey('clippy_gacha'), JSON.stringify(s)); } catch (e) {}
+      // v348: also schedule a cloud sync so the collection + pity counter survive across
+      // devices (previously gacha only ever lived in localStorage — lost on device switch).
+      try { if (ix.cloudPushQueued) ix.cloudPushQueued(); } catch (_) {}
     }
     function pickGachaRarity(g) {
       // Pity overrides — guaranteed rare every 10 pulls, legendary every 30

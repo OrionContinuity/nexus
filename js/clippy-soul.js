@@ -529,8 +529,11 @@
     var longReturn = _returnGap >= 3 * 60 * 60 * 1000;          // away 3h+ = a real return
     var freshToday = state.last_dream_greet !== _dayKey();
     if (!((morning && freshToday) || longReturn)) return;       // otherwise, don't nag
-    state.last_dream_greet = _dayKey(); save();
-    offerDream(last);
+    // v348: only burn today's dream-greet if the dream actually surfaced. offerDream can
+    // bail (bubble busy / suppressed / disabled) and return falsy — the old code stamped the
+    // greet unconditionally, so a suppressed dream was silently skipped for the whole day.
+    var shown = offerDream(last);
+    if (shown) { state.last_dream_greet = _dayKey(); save(); }
   }
 
   async function evolve() {
@@ -796,10 +799,14 @@
       '</div>';
     document.body.appendChild(bg);
     requestAnimationFrame(function(){ bg.classList.add('open'); });
-    var close = function(){ bg.classList.remove('open'); setTimeout(function(){bg.remove();}, 500); };
+    // v348: remove the Escape listener in close() so it's cleaned up on EVERY exit path.
+    // The old inline handler only detached itself when the user pressed Escape — closing via
+    // the X or the backdrop left it attached, leaking one listener per open of the inner room.
+    function escH(e){ if(e.key==='Escape') close(); }
+    var close = function(){ document.removeEventListener('keydown', escH); bg.classList.remove('open'); setTimeout(function(){bg.remove();}, 500); };
     bg.querySelector('.x').addEventListener('click', close);
     bg.addEventListener('click', function(e){ if (e.target === bg) close(); });
-    document.addEventListener('keydown', function h(e){ if(e.key==='Escape'){close();document.removeEventListener('keydown',h);} });
+    document.addEventListener('keydown', escH);
   }
 
   // v18.40 — the tap gesture is gone. The inner room is reached only

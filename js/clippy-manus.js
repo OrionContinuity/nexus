@@ -48,14 +48,15 @@
   // Actually go. Mirrors the deep-link router's own nav(): click whichever
   // control exists (desktop tab or bottom-nav button).
   function navigate(view) {
-    var hit = false;
     try {
-      var t = document.querySelector('.nav-tab[data-view="' + view + '"]');
-      if (t) { t.click(); hit = true; }
-      var b = document.querySelector('.bnav-btn[data-view="' + view + '"]');
-      if (b) { b.click(); hit = true; }
+      // v348: click only ONE control. Clicking both the desktop tab AND the bottom-nav
+      // button fired the view switch twice (double toggle / flicker). The router treats
+      // them as the same destination, so the first that exists is enough.
+      var el = document.querySelector('.nav-tab[data-view="' + view + '"]')
+            || document.querySelector('.bnav-btn[data-view="' + view + '"]');
+      if (el) { el.click(); return true; }
     } catch (_) {}
-    return hit;
+    return false;
   }
 
   // Given a question, where — if anywhere — should his hand offer to go?

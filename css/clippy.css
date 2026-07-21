@@ -1179,50 +1179,50 @@ body.clippy-game-open .clippy-bubble {
   bottom: -16px;
   right: 28px;
   border-width: 16px 14px 0 0;
-  border-color: #1a1a1a transparent transparent transparent;
+  border-color: rgba(212,164,78,0.30) transparent transparent transparent;   /* v348: gold frame tone */
 }
 .clippy-bubble.tail-right::after {
   bottom: -12px;
   right: 30px;
   border-width: 12px 11px 0 0;
-  border-color: #fffef6 transparent transparent transparent;
+  border-color: rgba(20,17,12,0.99) transparent transparent transparent;   /* v348: match the dark espresso bubble body (was cream #fffef6, wrong since the body was redefined dark) */
 }
 .clippy-bubble.tail-left::before {
   bottom: -16px;
   left: 28px;
   border-width: 16px 0 0 14px;
-  border-color: #1a1a1a transparent transparent transparent;
+  border-color: rgba(212,164,78,0.30) transparent transparent transparent;   /* v348: gold frame tone, matching the bubble's inset gold frame */
 }
 .clippy-bubble.tail-left::after {
   bottom: -12px;
   left: 30px;
   border-width: 12px 0 0 11px;
-  border-color: #fffef6 transparent transparent transparent;
+  border-color: rgba(20,17,12,0.99) transparent transparent transparent;   /* v348: dark body */
 }
 /* v17.24 — Tail pointing UP (bubble is BELOW Trajan) — arrow at bubble's top */
 .clippy-bubble.tail-up-right::before {
   top: -16px;
   right: 28px;
   border-width: 0 14px 16px 0;
-  border-color: transparent transparent #1a1a1a transparent;
+  border-color: transparent transparent rgba(212,164,78,0.30) transparent;   /* v348: gold frame tone */
 }
 .clippy-bubble.tail-up-right::after {
   top: -12px;
   right: 30px;
   border-width: 0 11px 12px 0;
-  border-color: transparent transparent #fffef6 transparent;
+  border-color: transparent transparent rgba(20,17,12,0.99) transparent;   /* v348: dark body */
 }
 .clippy-bubble.tail-up-left::before {
   top: -16px;
   left: 28px;
   border-width: 0 0 16px 14px;
-  border-color: transparent transparent #1a1a1a transparent;
+  border-color: transparent transparent rgba(212,164,78,0.30) transparent;   /* v348: gold frame tone */
 }
 .clippy-bubble.tail-up-left::after {
   top: -12px;
   left: 30px;
   border-width: 0 0 12px 11px;
-  border-color: transparent transparent #fffef6 transparent;
+  border-color: transparent transparent rgba(20,17,12,0.99) transparent;   /* v348: dark body */
 }
 .clippy-bubble-close {
   position: absolute;
@@ -1707,7 +1707,8 @@ body.clippy-game-open .clippy-bubble {
    The body picks up a soft drop-shadow tint matching the mood. */
 #clippy-shell {
   --mood-weather: #7df0ff;
-  transition: filter 1.2s ease;
+  /* v348: removed a filter-only `transition` here — it (and the later 1.4s one) clobbered the
+     position glide. The shell's transition is now consolidated in the mood-halo rule below. */
 }
 #clippy-shell .cl-body {
   filter: drop-shadow(0 0 8px var(--mood-weather));
@@ -2276,7 +2277,10 @@ body.clippy-game-open .clippy-bubble {
    ════════════════════════════════════════════════════════════════════ */
 
 #clippy-shell {
-  transition: filter 1.4s ease;
+  /* v348: this is the LAST #clippy-shell transition, so it wins — the old filter-only value
+     silently clobbered the position glide + opacity fade from the base rule, making Clippy
+     SNAP to new positions instead of gliding. Fold them back in (reuse --pos-transition). */
+  transition: var(--pos-transition), opacity 280ms ease, filter 1.4s ease;
 }
 
 /* HAPPY family — warm gold glow */
