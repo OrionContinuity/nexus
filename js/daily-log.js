@@ -2618,31 +2618,30 @@ function fmtLogDateLong(dateStr) {
 // souss chef jokes." Replaced the old melancholy handless-witness lines with
 // actual kitchen jokes he'll laugh at.
 const CLIPPY_QUOTES = [
-  "A sous chef's love language is \"don't worry, I already prepped it.\"",
-  "The chef gets the Michelin star. The sous chef gets the 1 a.m. text: \"we're out of shallots.\"",
+  // v340 — Alfredo: "cuter and longer. i'm loving them. more chaos." Longer
+  // service-rush jokes with a warm landing, a few short favorites kept for
+  // rhythm. Kitchen chaos + heart.
+  "It's 7:45 on a Saturday, fourteen tickets on the rail, the printer going like it owes somebody money, the new kid just answered a question I didn't ask with a very confident \"oui chef,\" and someone is yelling \"behind!\" from inside the walk-in. I have never in my life been happier. This is the only church I ever understood.",
+  "Chef stepped out \"for ten minutes.\" In the two hours since, we sold out of the special, built a second special from the lowboy, 86'd it, un-86'd it when the fish guy finally showed, and turned forty covers. When he walks back in I'm going to look him dead in the eye and tell him it was quiet.",
+  "New dishwasher, first Friday, buried by eight — plates stacked to the heavens, glasses coming in faster than God intended. And without a word the whole line started bussing their own stations for him. Nobody said anything. Nobody ever does. That's the family part they leave off the sign.",
+  "Table twelve sent back a perfectly cooked steak for being \"too beefy.\" We stood at the pass — grill, sauté, expo, me — reading the ticket in total silence, the way you'd read a note left by a ghost. Then we fired another one, exactly the same, and it came back \"perfect.\" We will think about this on our deathbeds.",
+  "The new kid finally, FINALLY made it through a Saturday without falling in the weeds — clean station all day, tickets flying, and he didn't drown. At the end of the night the chef, who has not smiled since the last administration, walked over, said nothing, and tapped him once on the shoulder. The kid nearly cried. So did I, and I don't have eyes.",
+  "Ran out of the good butter at 8:15 and I have known no peace since. There is a specific silence to the walk-in at 8:16 — me on my knees, headlamp on, negotiating with a nearly-empty case like it might've hidden a pound from me out of kindness. It had not. It never does.",
+  "Somebody 86'd the fish without telling expo, expo kept selling it, the ticket came in — and for one perfect second the entire back of the house reached an enlightenment usually reserved for monks who meditate forty years. We solved it in eleven seconds. We do not talk about it. We were monks, briefly, at 8 on a Tuesday.",
+  "It's family meal, fifteen minutes to open, everyone shoulder to shoulder on milk crates eating whatever we made from the trim, somebody telling a story that's definitely a lie, the grill guy nursing a burn he's pretending he doesn't have. Loud and stupid and the best meal any of us eats all day. Then the printer wakes up — and we're gone. But for fifteen minutes: a family.",
+  "Chef asked for the sauce \"tighter.\" I reduced it. \"Tighter.\" I reduced it more. \"TIGHTER.\" It is now a glaze. It is now a candy. It is now, arguably, a solid. He tasted it, nodded once, said \"there,\" and walked away — and I have never felt so completely understood by another living soul.",
+  "Chef yelled \"FIRE TABLE TWELVE\" and four of us moved at once without looking, like a flock of birds turning, like we share one nervous system, like we've done this ten thousand times — because we have. Strangers in September, a single organism by December. Nobody planned it. It just happens in the heat.",
+  "The regular came in, sat at his usual, ordered his usual — and the kitchen, mid-rush, fourteen deep, drowning, somehow fired it perfectly and early without anyone saying his name. He'll never know. He thinks he's anonymous. He is the most known man in town and we would defend his four-top with our lives.",
+  "The 86 list started as one line on the whiteboard at six. By nine it was a scroll. By close it was a historical document — a small kingdom's tragic final chapter, three colors of marker deep. We leave it up all night. Someone should study it. Someone should light a candle.",
+  "The printer produced a single ticket forty items long — a party nobody warned us about — and it curled out slowly, endlessly, like a receipt from hell, and the whole line just watched it come, unable to look away, united at last in awe and dread. Then somebody said \"heard,\" and we went to work. Because of course we did. We always do.",
+  "The health inspector came Tuesday. We passed. But you have never seen forty humans move like we moved in the twenty minutes before — a silent frenzy of date labels and sanitizer, a busser physically lifted to wipe a vent hood, all of us bound by one shared and holy terror. Teamwork, they call it. We call it Tuesday.",
+  "Mise en place is a religion and I am its most anxious monk. I have labeled the labels. I dated the tape. I know exactly how many shallots I have and I still count them at 2 a.m. like a father checking the locks. It was never about the shallots. It has never once been about the shallots.",
+  "A sous chef's love language is walking past your station in the worst of the rush, saying absolutely nothing, and just — restocking your tickets, wiping your rail, dropping a fresh side towel exactly where your hand was about to reach. You don't even see it happen. You just suddenly have what you need. That's the whole job. That's the whole love.",
+  // short ones, kept for rhythm
   "Mise en place is French for \"I trust no one, including future me.\"",
-  "How many sous chefs does it take to change a lightbulb? One — he'll also fix the pilot light and restock the walk-in, and be thanked for neither.",
-  "I told the new guy to reduce the sauce. He offered it 20% off. Close enough — promote him.",
-  "A sous chef doesn't cry in the walk-in. A sous chef \"checks the par levels\" for a suspiciously long time.",
-  "Chef said \"behind.\" I said \"heard.\" We have never once collided. It's the healthiest relationship in the building.",
-  "The line cook fires the app, the chef fires the entrée, and the sous fires whoever touched his knives.",
-  "A sous chef's idea of a day off is prepping at home \"so Monday isn't so bad.\"",
-  "Someone asked if we were short-staffed. The sous just laughed in the language of eleven open tabs and one working hand.",
-  "Why did the shallot get promoted over the onion? It brought more to the table and made fewer people cry.",
-  "A sous chef never says \"I'm exhausted.\" A sous chef says \"need anything before I go, chef?\" at 1 a.m., praying the answer is no.",
-  "The mandoline is the only coworker that's taken a piece of everyone. We keep it anyway. It's very fast.",
-  "How does a sous chef say I love you? \"I saved you the crispy bits.\"",
   "We 86'd the special at 6:04. By 6:05 four tables had \"heard so much about it.\"",
-  "New cook asked where the easy station was. The whole kitchen went quiet, the way the woods do before something happens.",
-  "My therapist asked what calms me down. I said dicing an onion into 300 identical cubes. She picked up a knife too.",
-  "A sous chef counts limes the way a monk counts breaths — endlessly, and with a growing suspicion that someone is stealing them.",
-  "The chef's motto is \"yes chef.\" The sous chef's is \"already done, chef.\" The dishwasher's is the only honest one: \"I've seen things.\"",
-  "Prep list just said \"everything.\" I've been here since the dawn of the tomato. I am one carrot from enlightenment.",
-  "How do you know a sous chef loves the job? He complains about it in complete, beautiful, unbroken paragraphs.",
-  "Why did the sous chef bring a ladder to service? He heard the steaks were high.",
+  "How does a sous chef say I love you? \"I saved you the crispy bits.\"",
   "A cook's knife, a sous chef's patience, and the last of the good butter — three things you do not touch without asking.",
-  "The pass is where dreams get plated and egos get 86'd. Mostly the egos. Mostly mine.",
-  "Grill guy calls himself an artist. Sauté guy calls himself a surgeon. The sous chef calls both of them \"on the same ticket, gentlemen.\"",
   "Every kitchen has a clock that's ten minutes fast. We call it the sous chef.",
 ];
 const _OLD_CLIPPY_QUOTES_ARCHIVED = [
@@ -2936,14 +2935,14 @@ async function generateClippyDailyQuote(d, dateStr) {
   // ── Step 1: draft three distinct candidates ────────────────────────────
   const draftSys = [
     'You are Clippy: the building\'s resident daemon who came up through the kitchen — permanently on shift, quietly fond of every cook and machine in the place.',
-    'Draft THREE distinct one-line SOUS-CHEF JOKES to open the daily facility report. The goal is simple: make the chef-owner reading it actually laugh.',
+    'Draft THREE distinct SOUS-CHEF JOKES to open the daily facility report. The goal is simple: make the chef-owner reading it laugh out loud.',
     'Style:',
-    '1. It is a JOKE — a real kitchen joke, setup + landing, or a sharp one-liner. Sous-chef life is the well: mise en place, the walk-in, prep, the pass, 86ing, "behind"/"heard"/"corner", knives, the mandoline, the 1 a.m. text, the chef getting the credit.',
-    '2. Punchy and clean. Kitchen-authentic. Sarcasm aims at situations and machines, warmly — never meanly at staff.',
-    '3. First person is welcome (you\'re in the kitchen), but it does not have to be about you — a good generic sous-chef joke is perfect.',
+    '1. LONGER and a little unhinged — a real service-rush story-joke, 3 to 5 sentences that build the chaos and then land it warm. The frantic energy of a Saturday at 7:45: the printer that won\'t stop, fourteen on the rail, the walk-in avalanche, the 86 list becoming a scroll, "behind!"/"heard!"/"corner!", the new kid in the weeds, family meal on milk crates. Chaos with a beating heart.',
+    '2. CUTE where it counts — the best ones end soft: the line quietly bussing the drowning dishwasher\'s station, the chef\'s one silent shoulder-tap, the family you\'d defend with your life. Warm, never saccharine. Kitchen-authentic. Sarcasm aims at situations and machines, never meanly at staff.',
+    '3. First person is welcome (you\'re in the kitchen), but it does not have to be about you — a great generic sous-chef story-joke is perfect.',
     '4. Puns are fine if they actually land. Never corny, never inspirational, never a greeting-card line.',
-    'GROUNDING: you MAY riff on something that literally appears in today\'s facts (a specific vendor, a piece of equipment, an order) to make it land harder — but only real things named there; never invent equipment or systems. If the facts are thin, tell a pure sous-chef joke instead.',
-    'Rules: each is one sentence (or two very short ones), max ~28 words. No emojis. No surrounding quotation marks. Do NOT list the data back. Do not sign it.',
+    'GROUNDING: you MAY weave in something that literally appears in today\'s facts (a specific vendor, a piece of equipment, an order) to make it land harder — but only real things named there; never invent equipment or systems. If the facts are thin, tell a pure sous-chef story instead.',
+    'Rules: 3 to 5 sentences each, up to ~70 words. No emojis. No surrounding quotation marks. Do NOT list the data back. Do not sign it.',
     'Return ONLY the three lines, numbered 1., 2., 3. — nothing else.',
     'The register to hit (examples):',
     ...examples.map(e => '- ' + e),
@@ -2951,9 +2950,9 @@ async function generateClippyDailyQuote(d, dateStr) {
   const draftUser = "Today's report facts:\n" + summary + "\n\nDraft Clippy's three candidate openers.";
   let candidates = [];
   try {
-    const raw = await dlogAskLLM(draftSys, draftUser, 220);
+    const raw = await dlogAskLLM(draftSys, draftUser, 520);   // v340: longer, chaotic story-jokes need the headroom (was 220)
     candidates = String(raw || '').split('\n').map(tidy)
-      .filter(x => x.length >= 8 && x.length <= 240).slice(0, 3);
+      .filter(x => x.length >= 8 && x.length <= 600).slice(0, 3);   // v340: allow the longer openers through (was 240)
   } catch (_) { return null; }
   if (!candidates.length) return null;
   if (candidates.length === 1) return candidates[0];
