@@ -797,9 +797,11 @@ function join(port) {
   if (bot) { try { teardownBot(bot) } catch (e) {} bot = null; busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0; if (taskQ.length) journal('queue', 'discarded ' + taskQ.length + ' pending tasks on live-bot replace', {}); taskQ = []; _hsQueuedTs = 0 }   // never leak the previous bot on reconnect (the OOM root cause); v9.22: teardownBot suppresses 'end', so the mutex/queue cleanup must happen HERE or the myBot guard wedges 8 min
   joining = true; let spawned = false; curPort = port
   try { bot = mineflayer.createBot({ host: '127.0.0.1', port, username: IDENT.user, auth: 'offline', viewDistance: 'short' }) } catch (e) { joining = false; bot = null; return }   // v9.3: cap view distance -> far fewer chunks held in memory (the external-memory growth)
-  setTimeout(() => { if (!spawned) { if (curPort !== DOJO_PORT) _badPorts[curPort] = Date.now() + 120000; const b = bot; bot = null; joining = false; actGen++; busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0; if (taskQ.length) journal('queue', 'discarded ' + taskQ.length + ' pending tasks on spawn timeout', {}); taskQ = []; _hsQueuedTs = 0; try { teardownBot(b) } catch (e) {} } }, 25000)   // v9.22: this bot-swap path freed neither busy nor taskQ (teardownBot suppresses 'end') — a task started against the pre-spawn bot wedged the engine into the next life
+  const thisBot = bot   // v336: bind the 25s spawn-timeout to THIS attempt's bot (mirrors the busy watchdog's myBot guard). A stale timer from a failed attempt N was guarded only by `if (!spawned)`, so it could tear down the LIVE bot of a newer attempt N+1 and poison _badPorts for the wrong port.
+  const spawnTimer = setTimeout(() => { if (spawned || bot !== thisBot) return; if (curPort !== DOJO_PORT) _badPorts[curPort] = Date.now() + 120000; const b = bot; bot = null; joining = false; actGen++; busy = false; mode = 'hangout'; _busyBy = ''; _busySince = 0; if (taskQ.length) journal('queue', 'discarded ' + taskQ.length + ' pending tasks on spawn timeout', {}); taskQ = []; _hsQueuedTs = 0; try { teardownBot(b) } catch (e) {} }, 25000)   // v9.22: this bot-swap path freed neither busy nor taskQ (teardownBot suppresses 'end') — a task started against the pre-spawn bot wedged the engine into the next life
   bot.loadPlugin(pathfinder); if (collectPlugin) bot.loadPlugin(collectPlugin)
   bot.once('spawn', async () => {
+    clearTimeout(spawnTimer)   // v336: this attempt spawned — cancel its own timeout so it can never fire late
     joining = false; spawned = true; skills.sessions += 1; bsave('skills', skills)
     mcData = require('minecraft-data')(bot.version)
     // evolving style (Grok fix #3): his taste changes a little each session — creative freedom, stored
@@ -831,7 +833,14 @@ function join(port) {
         const RESET_GOALS = ['shelter', 'camp', 'home', 'base', 'village', 'diamonds', 'iron', 'ironstock', 'wood', 'planks', 'stone', 'bed', 'food']
         goalState.done = (goalState.done || []).filter(g => !RESET_GOALS.includes(g))
         goalState.fails = {}; goalState.active = null
-        know.asked = {}
+        // v336: also wipe the ABSOLUTE-coordinate caches — places (memory of
+        // where things are), kidBuilds (the boy's structures to defend), and
+        // protected (no-grief boxes incl. the homestead hearth). In a fresh
+        // world these coords point at nothing (or, worse, at random terrain he
+        // now "protects"). They rebuild naturally as he re-explores/re-builds.
+        // Skills/lessons/mastery (who he IS) still stay; these are only where
+        // he WAS.
+        know.asked = {}; know.places = {}; know.kidBuilds = []; know.protected = []
         bsave('skills', skills); bsave('goals', goalState); bsave('know', know)
         try { const cd = path.join(MCDIR, 'commons'); for (const f of fs.readdirSync(cd)) if (f.endsWith('.json')) fs.unlinkSync(path.join(cd, f)) } catch (e) {}   // stale local shares must not resurrect old-world coordinates
         journal('world', (hadOld ? 'NEW WORLD detected' : 'world signature stamped') + ' — build flags, resource goals, and fail scars reset; skills and lessons kept', {})

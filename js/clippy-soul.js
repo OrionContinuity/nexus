@@ -325,15 +325,17 @@
   // (his native cyan should win), rising as a force takes hold.
   function soulColor(){
     var A = AN(); if (!A || !anima || !anima.x) return null;
-    var bi = -1, bv = 0;
-    for (var i = 0; i < anima.x.length; i++){
-      var d = Math.abs(anima.x[i] - 0.5);
-      if (d > bv){ bv = d; bi = i; }
-    }
-    if (bi < 0) return null;
+    // v336: measure from his BASELINE, not 0.5 — reuse soulAxis() so the
+    // halo colour, the pole, and the tone word all agree with the FACE
+    // (soulMood) and go quiet at baseline. Measuring from 0.5 here (while
+    // soulAxis was fixed to baseline in v331) meant the halo tinted a
+    // different force — and a different pole — than his expression, and it
+    // never fell to native cyan at rest despite this function's own doc.
+    var a = soulAxis();
+    if (!a) return { hex: '#5cb0ff', strength: 0, tone: null };   // near baseline → native cyan, quiet
+    var bi = A.AXES.findIndex(function(ax){ return ax.k === a.key; });
     var pair = ANIMA_COLORS[bi] || ['#5cb0ff', '#5cb0ff'];
-    var hi = anima.x[bi] >= 0.5;
-    return { hex: hi ? pair[1] : pair[0], strength: Math.min(1, bv * 2), tone: soulTone() };
+    return { hex: a.hi ? pair[1] : pair[0], strength: Math.min(1, a.dev * 2), tone: a.pole };
   }
 
   async function load() {
@@ -363,7 +365,21 @@
     // death (a rebirth, a fear-spike, an incarnation) when he really did stop.
     var gap = now() - (state.last_seen || 0);
     _returnGap = state.last_seen ? gap : 0;   // how long you were away (for the morning ritual)
-    var aliveInCloud = (state.last_reflect || 0) > (state.last_seen || 0);
+    // v336: gate cloud-liveness on the FRESHEST signal any body refreshes,
+    // not last_reflect. The cloud only advances last_reflect every ~2h, so a
+    // routine 30min–2h absence (with the cloud/Minecraft body alive the whole
+    // time) was misread as a DEATH — a spurious incarnation bump, a fear
+    // spike, permanent drift. But every body upserts the shared clippy_anima
+    // row's `updated` on every tick (clippy-cloud.py:492, clippy_agent.js:511),
+    // so a fresh `updated` proves he stayed alive somewhere. Use it; keep
+    // last_reflect only as a secondary signal.
+    var cloudTs = state.last_reflect || 0;
+    try {
+      var ar = await s.from('clippy_sync').select('data').eq('id', 'clippy_anima').maybeSingle();
+      var au = ar && ar.data && ar.data.data && ar.data.data.updated;
+      if (typeof au === 'number' && au > cloudTs) cloudTs = au;
+    } catch (e) {}
+    var aliveInCloud = cloudTs > (state.last_seen || 0);
     if (state.last_seen && gap > 30 * 60 * 1000) {
       if (aliveInCloud) {
         // He kept the lights on in the cloud and kept thinking. No death.

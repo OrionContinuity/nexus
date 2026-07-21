@@ -1205,7 +1205,14 @@ td.check{background:#F0EDE6 !important}
       // flicker). For galaxy/admin/etc the user shouldn't have seen
       // the button at all (applyPermissionGates hid it), but a stale
       // bookmark or programmatic call could still try — so guard here.
-      if (view !== 'home' && this.hasPermission && !this.hasPermission(view)) {
+      // Only gate views that are actual permission resources. The brain
+      // (galaxy) view id is 'brain' but its permission resource is 'galaxy'
+      // — without this remap, a user granted galaxy was still bounced from
+      // the wordmark, and any non-resource view (not in PERM_RESOURCES) was
+      // falsely blocked because hasPermission() returns false for unknown
+      // resources once a user has any configured perms.
+      const permKey = (view === 'brain') ? 'galaxy' : view;
+      if (view !== 'home' && this.hasPermission && this.PERM_RESOURCES.includes(permKey) && !this.hasPermission(permKey)) {
         if (NX.toast) NX.toast('No access to that section', 'warn');
         view = 'home';
       }
@@ -2114,9 +2121,14 @@ td.check{background:#F0EDE6 !important}
     });
     document.getElementById('aiWritesToggle')?.addEventListener('click',async()=>{
       try{
-        const {data}=await this.sb.from('nexus_config').select('ai_writes_enabled').eq('id',1).single();
+        // supabase-js RESOLVES with {error} — must destructure+check, or a
+        // failed read/write silently reports success and this SAFETY switch
+        // (the AI-writes kill switch) doesn't actually move.
+        const {data,error:readErr}=await this.sb.from('nexus_config').select('ai_writes_enabled').eq('id',1).single();
+        if(readErr) throw readErr;
         const newValue=!(data?.ai_writes_enabled);
-        await this.sb.from('nexus_config').update({ai_writes_enabled:newValue}).eq('id',1);
+        const {error:writeErr}=await this.sb.from('nexus_config').update({ai_writes_enabled:newValue}).eq('id',1);
+        if(writeErr) throw writeErr;
         this.toast(`AI writes ${newValue?'ENABLED':'DISABLED'}`, newValue?'success':'info');
         this.refreshAiWritesStatus();
       }catch(e){ this.toast('Toggle failed: '+e.message,'error'); }

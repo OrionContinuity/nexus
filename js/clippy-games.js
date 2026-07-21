@@ -2649,7 +2649,7 @@
       function gameOver(survived) {
         loop.stop();
         clearInterval(timerInt);
-        if (score > best) { best = score; setBest('cannon', best); }
+        if (score > best) best = score;   // v336: don't persist here — showGameResult() below is the single writer; saving first made its saveHighScore see newRecord=false, killing the celebration + bond XP + memory deposit
         if (!survived) bubble(pickFromPool('cannon_die'), { autoHide: 2500 });
         setTimeout(() => showGameResult('cannon', score, {
           stats: [{ label: 'Time', value: (90 - Math.ceil(timeLeft)) + 's' }],
@@ -2791,7 +2791,7 @@
         juice.flash('#c83a3a', 0.45, 10);
         juice.burst(hx, hy, 24, { colors: ['#4cb6ff', '#fffef6', '#ff8855'], speed: 4.5 });
         playPitch(160, 0.20, 'sawtooth');
-        if (snake.length > best) { best = snake.length; setBest('snake', best); }
+        if (snake.length > best) best = snake.length;   // v336: showGameResult() is the single writer (see cannon note)
         bubble(pickFromPool('snake_die'), { autoHide: 2500 });
         setTimeout(() => showGameResult('snake', snake.length, {
           stats: [{ label: 'Speed', value: (140 - stepMs) + ' ms faster' }],
@@ -3028,7 +3028,7 @@
               colors: ['#ffd870', '#fff4c8', '#7df0ff', '#ff8855'], speed: 5, gravity: 0.05,
             });
           }
-          if (score + 100 > best) { best = score + 100; setBest('breaker', best); }
+          if (score + 100 > best) best = score + 100;   // v336: showGameResult() is the single writer (see cannon note)
           setTimeout(() => showGameResult('breaker', score + 100, {
             stats: [{ label: 'Bonus', value: 'Cleared! +100' }, { label: 'Lives left', value: lives }],
           }), 800);
@@ -3038,7 +3038,7 @@
       function gameOver() {
         loop.stop();
         juice.shake(18); juice.flash('#c83a3a', 0.5, 14);
-        if (score > best) { best = score; setBest('breaker', best); }
+        if (score > best) best = score;   // v336: showGameResult() is the single writer (see cannon note)
         bubble(pickFromPool('breaker_die'), { autoHide: 2500 });
         setTimeout(() => showGameResult('breaker', score, {
           stats: [{ label: 'Bricks broken', value: bricks.filter(b => !b.alive).length }],
@@ -3308,7 +3308,7 @@
           if (timeLeft <= 0) {
             loop.stop();
             clearInterval(timerInt);
-            if (score > best) { best = score; setBest('coins', best); }
+            if (score > best) best = score;   // v336: showGameResult() is the single writer (see cannon note)
             setTimeout(() => showGameResult('coins', score, {
               stats: [
                 { label: 'Missed', value: missed },
@@ -3460,7 +3460,7 @@
         juice.burst(px, py, 40, { colors: ['#7df0ff', '#fffef6', '#ff8855', '#4cb6ff'], speed: 6 });
         playPitch(140, 0.20, 'sawtooth');
         setTimeout(() => playPitch(85, 0.35, 'sawtooth'), 80);
-        if (score > best) { best = score; setBest('asteroids', best); }
+        if (score > best) best = score;   // v336: showGameResult() is the single writer (see cannon note)
         bubble(pickFromPool('asteroids_die'), { autoHide: 2500 });
         setTimeout(() => showGameResult('asteroids', score, {
           stats: [

@@ -217,7 +217,7 @@
    - composer onSend now reports method: 'gmail-api' | 'draft'.
    - Empty ledger (first use) = exactly the old today-only behavior.
 */
-const CACHE_NAME = 'nexus-v335-catalog-cards';
+const CACHE_NAME = 'nexus-v336-audit-fixes';
 const SW_VERSION = CACHE_NAME.replace(/^nexus-/, '');
 
 // ─── App shell — everything needed to run offline ─────────────────
@@ -410,7 +410,7 @@ self.addEventListener('fetch', event => {
       url.hostname.includes('anthropic.com') ||
       url.hostname.includes('elevenlabs.io') ||
       url.hostname.includes('open-meteo.com') ||      // weather + geocode — must stay fresh
-      url.hostname.includes('googleapis.com/gmail')) {
+      (url.hostname.includes('googleapis.com') && url.pathname.startsWith('/gmail'))) {  // hostname can't carry a path — must test host + path separately, else Gmail API GETs fell through and got cached stale
     return; // Let browser handle normally (network only)
   }
 
@@ -471,10 +471,13 @@ self.addEventListener('push', event => {
 
   const isHigh = data.priority === 'high';
 
+  // Scope-relative icon paths — the app is served from the /nexus/ subpath
+  // on GitHub Pages, so absolute '/icon-192.png' 404s. Derive from scope.
+  const _base = new URL(self.registration.scope).pathname;
   const opts = {
     body: data.body || '',
-    icon: data.icon || '/icon-192.png',
-    badge: '/icon-192.png',
+    icon: data.icon || (_base + 'icon-192.png'),
+    badge: _base + 'icon-192.png',
     tag: data.tag,
     renotify: !!data.tag && isHigh,
     data: data.data || {},
@@ -500,7 +503,10 @@ self.addEventListener('notificationclick', event => {
   if (view) params.set('view', view);
   if (entityId) params.set('id', String(entityId));
   if (data.alert_type) params.set('alert', data.alert_type);
-  const targetUrl = params.toString() ? `/?${params}` : '/';
+  // Scope-relative — the app lives at /nexus/, so a hardcoded '/' opened the
+  // wrong page. Derive the base from the SW registration scope.
+  const _base = new URL(self.registration.scope).pathname;
+  const targetUrl = _base + (params.toString() ? `?${params}` : '');
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true })

@@ -758,8 +758,13 @@
   }
 
   // Returns 1-7 for today (1=Sun, 2=Mon, ..., 7=Sat). Postgres convention.
+  // Derive the weekday from the CLEANING SHIFT date (getCleaningDate rolls
+  // at 8am US-Central), NOT the raw device clock — otherwise between
+  // midnight and 8am the roster's selected day, "today" crew, and is-today
+  // highlight diverge from the shift that check-offs actually log to. Parse
+  // at noon so a UTC/DST edge can't bump the date by a day.
   function todayDayOfWeek() {
-    return new Date().getDay() + 1;
+    return new Date(getCleaningDate() + 'T12:00:00').getDay() + 1;
   }
 
   // ─── DB: load any open board cards linked to cleaning sections ────────

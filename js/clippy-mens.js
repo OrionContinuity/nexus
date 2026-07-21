@@ -215,7 +215,7 @@
     var sb = sbClient(); if (!sb) return null;
     var orders = await q(function () {
       return sb.from('orders').select('id,location,delivery_date,status,vendor_id,created_at')
-        .in('status', ['draft', 'sent', 'confirmed']).order('created_at', { ascending: false }).limit(15);   // v330: 'confirmed' too — a vendor-confirmed order is still awaiting delivery (ordering.js treats sent||confirmed as pending); without it Clippy denied deliveries actually en route
+        .in('status', ['draft', 'sent', 'confirmed']).is('archived_at', null).order('created_at', { ascending: false }).limit(15);   // v330: 'confirmed' too — a vendor-confirmed order is still awaiting delivery. v336: filter archived_at — a dismissed/archived order must NOT be surfaced as a live pending delivery (mirrors the is_deleted/closed_at guards the other perceivers apply)
     });
     if (loc) orders = orders.filter(function (o) { return locNorm(o.location) === loc; });
     var vmap = {};

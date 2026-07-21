@@ -77,15 +77,21 @@
         .order('created_at', { ascending: false }).limit(1);
       card = data && data[0];
     } catch (_) {}
-    // 1. Mark the open issue(s) repaired (+ file the invoice photo)
+    // 1. Mark the completed issue repaired (+ file the invoice photo).
+    //    Scope to the SPECIFIC issue being completed (extras.issueId) — a
+    //    unit can carry several open work orders at once, and closing one
+    //    must never silently close the others (data-safety: no bulk-modify
+    //    without an explicit choice). Falls back to the old equipment-wide
+    //    close only when no issueId was threaded (legacy callers).
     try {
       const patch = { status: 'repaired', repaired_at: now };
       if (extras.invoiceUrl) { patch.invoice_url = extras.invoiceUrl; patch.invoice_received_at = now; }
       if (extras.cost) { patch.invoice_amount = extras.cost; patch.total_cost = extras.cost; }
-      const { error } = await NX.sb.from('equipment_issues')
-        .update(patch)
-        .eq('equipment_id', equipmentId)
-        .not('status', 'in', '(repaired,closed,resolved)');
+      let q = NX.sb.from('equipment_issues').update(patch);
+      q = extras.issueId
+        ? q.eq('id', extras.issueId)
+        : q.eq('equipment_id', equipmentId).not('status', 'in', '(repaired,closed,resolved)');
+      const { error } = await q;
       if (error) NX.toast?.('Issue may not be marked repaired — ' + error.message, 'warn', 3600);
     } catch (_) {}
     // 2. The card rides to the board's DONE list (visible, not archived);
@@ -178,7 +184,7 @@
   // (opens the camera on mobile), what was done, and where the unit's
   // status should land. Photo and notes are optional — a quick tap-through
   // still completes; the status defaults to Operational.
-  function openCompleteSheet({ eqId, title, onDone }) {
+  function openCompleteSheet({ eqId, issueId, title, onDone }) {
     const wrap = document.createElement('div');
     wrap.className = 'wo-overlay';
     wrap.innerHTML = `
@@ -231,6 +237,7 @@
       btn.textContent = 'Completing…';
       const costRaw = parseFloat((wrap.querySelector('#woCost').value || '').replace(/[^0-9.]/g, ''));
       const res = await doFulfill(eqId, {
+        issueId,
         notes: (wrap.querySelector('#woNotes').value || '').trim(),
         restoreStatus: wrap.querySelector('#woEqStatus').value,
         invoiceUrl,
@@ -349,7 +356,7 @@
         document.querySelector('.bnav-btn[data-view="board"]')?.click();
       } else if (btn.dataset.act === 'complete' && eqId) {
         const title = row.querySelector('.wo-row-title')?.textContent?.trim() || '';
-        openCompleteSheet({ eqId, title, onDone: () => {
+        openCompleteSheet({ eqId, issueId, title, onDone: () => {
           row.remove();
           const left = list.querySelectorAll('.wo-row').length;
           wrap.querySelector('#woCount').textContent = left ? '· ' + left + ' open' : '';
@@ -442,7 +449,7 @@
       document.querySelector('.bnav-btn[data-view="board"]')?.click();
     });
     body.querySelector('#woDComplete')?.addEventListener('click', () => {
-      openCompleteSheet({ eqId, title: issue.title || 'Work order', onDone: () => {
+      openCompleteSheet({ eqId, issueId, title: issue.title || 'Work order', onDone: () => {
         sheet.remove(); parentWrap && parentWrap.remove(); open();
       } });
     });

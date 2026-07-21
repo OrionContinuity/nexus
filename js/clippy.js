@@ -10863,7 +10863,10 @@
             // Silent worry first; speak only sometimes, never twice in 10 min.
             mood('concerned', 3000); mood('sad', 3000);
             const quietLongEnough = Date.now() - vis.spokeAt > 10 * 60 * 1000;
-            if (quietLongEnough && Math.random() < 0.25 && (state.sessionDismissals || 0) < 3) {
+            // Honor his quiet preference — TRUE VISION used to speak the
+            // NOTICED bubble even with do-not-disturb set or while sulking.
+            if (quietLongEnough && !state.preferences.do_not_disturb && !state.sulkActive &&
+                Math.random() < 0.25 && (state.sessionDismissals || 0) < 3) {
               vis.spokeAt = Date.now();
               bubble(FACT_LINES[worsened](vis.last[worsened]) + recallMemory(),
                      { autoHide: 4200, eyebrow: 'NOTICED' });

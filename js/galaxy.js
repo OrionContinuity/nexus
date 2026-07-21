@@ -1683,6 +1683,12 @@
 
   function openPanel(n) {
     if (!n) return;
+    // Ingested-email fields (from/to/subject/date, attachment names) are
+    // attacker-controllable — anyone who emails the restaurant. They flow
+    // into innerHTML below, so every one must be HTML-escaped (the body
+    // already was; the headers were not — stored XSS, fixed here).
+    const esc = (s) => String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     const hud = document.getElementById('chatHud');
     if (hud) hud.classList.remove('expanded');
     state.activeNode = n;
@@ -1781,7 +1787,7 @@
         src.forEach(s => {
           const card = document.createElement('div');
           card.className = 'np-email-card';
-          card.innerHTML = `<div class="np-email-header"><div class="np-email-from">${s.from || 'Unknown'}</div><div class="np-email-date">${s.date || ''}</div></div><div class="np-email-subject">${s.subject || '(no subject)'}</div>`;
+          card.innerHTML = `<div class="np-email-header"><div class="np-email-from">${esc(s.from) || 'Unknown'}</div><div class="np-email-date">${esc(s.date)}</div></div><div class="np-email-subject">${esc(s.subject) || '(no subject)'}</div>`;
           if (s.snippet || s.body) {
             const preview = document.createElement('div');
             preview.className = 'np-email-preview';
@@ -1795,7 +1801,7 @@
             const detail = document.createElement('div');
             detail.className = 'np-email-detail';
             detail.style.display = 'none';
-            detail.innerHTML = `<div class="np-email-detail-header"><div class="np-detail-row"><span class="np-detail-label">From</span><span class="np-detail-value">${s.from || ''}</span></div>${s.to ? `<div class="np-detail-row"><span class="np-detail-label">To</span><span class="np-detail-value">${s.to}</span></div>` : ''}<div class="np-detail-row"><span class="np-detail-label">Date</span><span class="np-detail-value">${s.date || ''}</span></div><div class="np-detail-row"><span class="np-detail-label">Subject</span><span class="np-detail-value">${s.subject || ''}</span></div></div><div class="np-email-full-body">${(s.body || '').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')}</div>`;
+            detail.innerHTML = `<div class="np-email-detail-header"><div class="np-detail-row"><span class="np-detail-label">From</span><span class="np-detail-value">${esc(s.from)}</span></div>${s.to ? `<div class="np-detail-row"><span class="np-detail-label">To</span><span class="np-detail-value">${esc(s.to)}</span></div>` : ''}<div class="np-detail-row"><span class="np-detail-label">Date</span><span class="np-detail-value">${esc(s.date)}</span></div><div class="np-detail-row"><span class="np-detail-label">Subject</span><span class="np-detail-value">${esc(s.subject)}</span></div></div><div class="np-email-full-body">${(s.body || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')}</div>`;
             toggle.addEventListener('click', () => {
               const open = detail.style.display !== 'none';
               detail.style.display = open ? 'none' : 'block';
@@ -1833,7 +1839,7 @@
 
           const card = document.createElement('div');
           card.className = 'np-att-card';
-          card.innerHTML = `<div class="np-att-info"><span class="np-att-icon">${icon}</span><div class="np-att-details"><div class="np-att-name">${fname.length > 35 ? fname.slice(0,32) + '...' : fname}</div><div class="np-att-meta">${a.from ? a.from.split('<')[0].trim() : ''} ${a.date ? '· ' + a.date.split('T')[0] : ''}</div></div></div>`;
+          card.innerHTML = `<div class="np-att-info"><span class="np-att-icon">${icon}</span><div class="np-att-details"><div class="np-att-name">${esc(fname.length > 35 ? fname.slice(0,32) + '...' : fname)}</div><div class="np-att-meta">${a.from ? esc(a.from.split('<')[0].trim()) : ''} ${a.date ? '· ' + esc(a.date.split('T')[0]) : ''}</div></div></div>`;
 
           if (a.url) {
             const viewBtn = document.createElement('button');
