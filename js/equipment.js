@@ -1345,6 +1345,8 @@ async function loadLocationsFromDB() {
 /* Compute per-location dashboard stats. Reads from the global
    `equipment` array (already loaded). Returns counts the location
    card needs to surface attention level + scale. */
+// v349: statuses that mean "deliberately out of service" — these are NOT problems to flag.
+const BENIGN_EQ_STATUS = new Set(['operational', 'retired', 'archived', 'missing', 'relocated', 'loaned']);
 function computeLocationStats(label) {
   const eqs = (typeof equipment !== 'undefined' && equipment)
     ? equipment.filter(e => e.location === label && !e.archived_at && !e.archived)
@@ -1368,7 +1370,11 @@ function computeLocationStats(label) {
       missedScheduled++;
     }
   }
-  const issues = eqs.filter(e => e.status && e.status !== 'operational').length;
+  // v349: "needs attention" = an ACTIVE problem status, not merely "not operational". A unit that
+  // is retired/archived/missing/relocated/loaned is deliberately out of service and must NEVER raise
+  // a NEEDS ATTN flag (a retired Pastry Low Boy was doing exactly that — a phantom 1 NEEDS ATTN, and
+  // the same unit is why the card counts it while the detail view hides retired by default).
+  const issues = eqs.filter(e => e.status && !BENIGN_EQ_STATUS.has(String(e.status).toLowerCase())).length;
   const healthAvg = total > 0
     ? Math.round(eqs.reduce((s, e) => s + (e.health_score ?? 100), 0) / total)
     : 100;
