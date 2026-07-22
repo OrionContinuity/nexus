@@ -3571,6 +3571,60 @@
     list.appendChild(wrap);
   }
 
+  // ═══ OPS-PULSE HOOK (Clippy's Watch) ════════════════════════════════════
+  /* Periodic / deep-clean OVERDUE count per house, read fresh off Supabase so
+     it works with no cleaning screen open. Self-contained (does not touch the
+     screen's tasksByLoc/lastDone caches) but mirrors periodicNextDue's rule
+     exactly: overdue when never done, or when last-done + frequency_days is
+     before the current 8am-roll shift date. Read-only. Returns
+     { suerte, este, toti, total }. Fail-soft: any error → that house stays 0. */
+  async function overdueByLocation() {
+    const out = { suerte: 0, este: 0, toti: 0, total: 0 };
+    if (!window.NX || !NX.sb || NX.paused) return out;
+    const shiftDate = getCleaningDate();
+    for (const loc of LOCATIONS) {
+      if (out[loc] == null) continue;   // only the canonical trio carry a bucket
+      try {
+        const { data: tasks, error } = await NX.sb.from('cleaning_tasks')
+          .select('id, section_es, task_order, frequency_type, frequency_days')
+          .eq('location', loc).eq('archived', false);
+        if (error || !Array.isArray(tasks)) continue;
+        const periodic = tasks.filter(t => !DAILY_TYPES.has(t.frequency_type));
+        if (!periodic.length) continue;
+        // Latest done per task at this house (identity-first, positional fallback).
+        const lastById = {}, lastByKey = {};
+        let hist = null;
+        const rpc = await NX.sb.rpc('cleaning_last_done', { p_location: loc });
+        if (!rpc.error && Array.isArray(rpc.data)) hist = rpc.data;
+        else {
+          const fb = await NX.sb.from('cleaning_logs')
+            .select('section, task_index, log_date, task_id')
+            .eq('location', loc).eq('done', true)
+            .order('log_date', { ascending: false }).limit(1000);
+          hist = fb.error ? [] : (fb.data || []);
+        }
+        hist.forEach(r => {
+          const key = r.section + '_' + r.task_index;
+          if (!lastByKey[key] || lastByKey[key] < r.log_date) lastByKey[key] = r.log_date;
+          if (r.task_id && (!lastById[r.task_id] || lastById[r.task_id] < r.log_date)) lastById[r.task_id] = r.log_date;
+        });
+        let n = 0;
+        periodic.forEach(t => {
+          const last = lastById[t.id] || lastByKey[t.section_es + '_' + t.task_order] || null;
+          if (!last) { n++; return; }   // never done → due now
+          const freq = parseInt(t.frequency_days, 10) || (FREQ_BY_TYPE[t.frequency_type] && FREQ_BY_TYPE[t.frequency_type].days) || 30;
+          const d = new Date(last + 'T00:00:00');
+          if (isNaN(d)) return;
+          d.setDate(d.getDate() + freq);
+          if (d.toISOString().slice(0, 10) < shiftDate) n++;
+        });
+        out[loc] = n;
+        out.total += n;
+      } catch (_) {}
+    }
+    return out;
+  }
+
   // ═══ EXPORTS ════════════════════════════════════════════════════════════
   if (!window.NX) window.NX = {};
   if (!NX.modules) NX.modules = {};
@@ -3582,5 +3636,8 @@
     removeTask: apiRemoveTask,
     getLocations: () => LOCATIONS.slice(),
   };
+  // Ops-Pulse hooks for Clippy's Watch.
+  NX.cleaningOverdue = overdueByLocation;
+  NX.cleaningToday = getCleaningDate;
 
 })();

@@ -1347,6 +1347,9 @@ async function loadLocationsFromDB() {
    card needs to surface attention level + scale. */
 // v349: statuses that mean "deliberately out of service" — these are NOT problems to flag.
 const BENIGN_EQ_STATUS = new Set(['operational', 'retired', 'archived', 'missing', 'relocated', 'loaned']);
+// Expose the benign-status rule so the Ops Pulse (Clippy's Watch) flags
+// "needs attention" identically — one source of truth for what counts.
+try { if (window.NX) window.NX.EQUIP_BENIGN_STATUS = BENIGN_EQ_STATUS; } catch (_) {}
 function computeLocationStats(label) {
   const eqs = (typeof equipment !== 'undefined' && equipment)
     ? equipment.filter(e => e.location === label && !e.archived_at && !e.archived)

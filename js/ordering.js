@@ -578,6 +578,77 @@
      Renders nothing when the day is fully quiet (all counts zero).
      Each chip is tappable: needs-ordering scrolls to the first such
      vendor in the list, issues + awaiting + arriving filter Recent. */
+  /* Pure counter for the five Daily-Pulse states, over an arbitrary
+     orders+vendors set at a given location. Extracted from renderPulse so the
+     off-screen Ops Pulse (Clippy's Watch, NX.orderingPulse) computes them the
+     SAME way — one rule, not two. No DOM, no module state beyond the schedule
+     helpers (nextDeliveryDate / vendorCutoffMoment are pure over the vendor). */
+  function computePulseCounts(orders, vendors, loc) {
+    orders = orders || [];
+    vendors = vendors || [];
+    const today = todayISO();
+    const tomorrow = addDays(today, 1);
+
+    // 1) Vendors that need ordering — delivery today/tomorrow + no active order.
+    let needsOrdering = 0, firstNeedsOrderingId = null;
+    for (const v of vendors) {
+      if (v.archived) continue;
+      if (!Array.isArray(v.delivery_days) || !v.delivery_days.length) continue;
+      const nextIso = nextDeliveryDate(v, loc);
+      if (nextIso !== today && nextIso !== tomorrow) continue;
+      const hasActive = orders.some(o =>
+        o.vendor_id === v.id && o.location === loc && !o.archived_at && o.delivery_date === nextIso
+      );
+      if (!hasActive) { needsOrdering++; if (!firstNeedsOrderingId) firstNeedsOrderingId = v.id; }
+    }
+
+    // 2) Cutoffs in the next 4 hours (with something still unsent).
+    const fourHrMs = 4 * 3600 * 1000, now = Date.now();
+    let cutoffSoon = 0;
+    for (const v of vendors) {
+      if (v.archived || !v.cutoff_time) continue;
+      const nextIso = nextDeliveryDate(v, loc);
+      if (!nextIso) continue;
+      const cutoff = vendorCutoffMoment(v, nextIso, loc);
+      if (!cutoff) continue;
+      const ms = cutoff.getTime() - now;
+      if (ms > 0 && ms <= fourHrMs) {
+        const sentAlready = orders.some(o =>
+          o.vendor_id === v.id && o.location === loc && !o.archived_at
+          && o.delivery_date === nextIso && o.email_sent_at
+        );
+        if (!sentAlready) cutoffSoon++;
+      }
+    }
+
+    // 3) Issues unresolved · 4) Sent not confirmed · 5) Arriving today.
+    const issues = orders.filter(o => o.location === loc && !o.archived_at && o.issue_at && !o.issue_resolved_at).length;
+    const awaiting = orders.filter(o => o.location === loc && !o.archived_at && o.status === 'sent').length;
+    const arrivingToday = orders.filter(o => o.location === loc && !o.archived_at && o.delivery_date === today && (o.status === 'sent' || o.status === 'confirmed')).length;
+
+    return { needsOrdering, firstNeedsOrderingId, cutoffSoon, issues, awaiting, arrivingToday };
+  }
+
+  /* Ops-Pulse hook (Clippy's Watch): the same five counts for ALL THREE houses,
+     read fresh off Supabase so it works with no ordering screen open. Reuses
+     loadVendors/loadRecentOrders + computePulseCounts — the ordering rules stay
+     in ordering.js, their one home. Returns { byLoc: { suerte:{...}, … } }. */
+  async function orderingPulseAll() {
+    try {
+      const vends = await loadVendors();
+      const byLoc = {};
+      for (const L of LOCS) {
+        const ords = await loadRecentOrders(L.id, 80);
+        const c = computePulseCounts(ords, vends, L.id);
+        byLoc[L.id] = {
+          needsOrdering: c.needsOrdering, cutoffSoon: c.cutoffSoon,
+          issues: c.issues, awaiting: c.awaiting, arrivingToday: c.arrivingToday,
+        };
+      }
+      return { byLoc };
+    } catch (_) { return { byLoc: {} }; }
+  }
+
   function renderPulse() {
     const el = document.getElementById('ordPulse');
     if (!el) return;
@@ -587,80 +658,14 @@
     const orders = recentOrders || [];
     const vendorList = vendors || [];
 
-    // 1) Vendors that need ordering — delivery today/tomorrow + no
-    //    active order for that delivery yet.
-    let needsOrderingCount = 0;
-    let firstNeedsOrderingId = null;
-    for (const v of vendorList) {
-      if (v.archived) continue;
-      if (!Array.isArray(v.delivery_days) || !v.delivery_days.length) continue;
-      const nextIso = nextDeliveryDate(v, activeLoc);
-      if (nextIso !== today && nextIso !== tomorrow) continue;
-      const hasActive = orders.some(o =>
-        o.vendor_id === v.id
-        && o.location === activeLoc
-        && !o.archived_at
-        && o.delivery_date === nextIso
-      );
-      if (!hasActive) {
-        needsOrderingCount++;
-        if (!firstNeedsOrderingId) firstNeedsOrderingId = v.id;
-      }
-    }
-
-    // 2) Cutoffs in the next 4 hours
-    const fourHrMs = 4 * 3600 * 1000;
-    const now = Date.now();
-    let cutoffSoonCount = 0;
-    for (const v of vendorList) {
-      if (v.archived || !v.cutoff_time) continue;
-      const nextIso = nextDeliveryDate(v, activeLoc);
-      if (!nextIso) continue;
-      // Only count if there's actually something to send — a draft order
-      // or a vendor with no order at all for this delivery cycle.
-      const draft = orders.find(o =>
-        o.vendor_id === v.id && o.location === activeLoc
-        && !o.archived_at && o.delivery_date === nextIso
-        && (o.status === 'draft' || !o.email_sent_at)
-      );
-      // Surface either if there's a draft to send, OR if there's nothing
-      // (the user might still need to start one).
-      const cutoff = vendorCutoffMoment(v, nextIso, activeLoc);
-      if (!cutoff) continue;
-      const ms = cutoff.getTime() - now;
-      if (ms > 0 && ms <= fourHrMs) {
-        // Skip only if order is already sent (no-action-needed)
-        const sentAlready = orders.some(o =>
-          o.vendor_id === v.id && o.location === activeLoc
-          && !o.archived_at && o.delivery_date === nextIso
-          && o.email_sent_at
-        );
-        if (!sentAlready) cutoffSoonCount++;
-      }
-    }
-
-    // 3) Issues unresolved
-    const issuesCount = orders.filter(o =>
-      o.location === activeLoc
-      && !o.archived_at
-      && o.issue_at
-      && !o.issue_resolved_at
-    ).length;
-
-    // 4) Sent but not yet confirmed
-    const awaitingCount = orders.filter(o =>
-      o.location === activeLoc
-      && !o.archived_at
-      && o.status === 'sent'
-    ).length;
-
-    // 5) Deliveries arriving today (confirmed/sent with delivery=today)
-    const arrivingTodayCount = orders.filter(o =>
-      o.location === activeLoc
-      && !o.archived_at
-      && o.delivery_date === today
-      && (o.status === 'sent' || o.status === 'confirmed')
-    ).length;
+    // The five counts come from the shared pure counter (see computePulseCounts).
+    const _pc = computePulseCounts(orders, vendorList, activeLoc);
+    const needsOrderingCount   = _pc.needsOrdering;
+    const firstNeedsOrderingId = _pc.firstNeedsOrderingId;
+    const cutoffSoonCount      = _pc.cutoffSoon;
+    const issuesCount          = _pc.issues;
+    const awaitingCount        = _pc.awaiting;
+    const arrivingTodayCount   = _pc.arrivingToday;
 
     const total = needsOrderingCount + cutoffSoonCount + issuesCount + awaitingCount + arrivingTodayCount;
     if (total === 0) {
@@ -10120,5 +10125,7 @@ Thanks for your help sorting this out.`;
     openOrderDetail, closeOrderDetail, reorderFromOrder, reportIssuesOnOrder,
     openTransactionsView, closeTransactionsView,
   };
+  // Ops-Pulse hook for Clippy's Watch — all-houses delivery/cutoff counts.
+  NX.orderingPulse = orderingPulseAll;
   console.log('[ordering] loaded (Phase B — vendor + item management)');
 })();

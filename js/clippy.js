@@ -4429,10 +4429,30 @@
       a.opOverduePMs       = (overdueRes && overdueRes.count) || 0;
       a.opFailedDispatches = (failedRes  && failedRes.count)  || 0;
 
+      // v369 — CLIPPY'S WATCH. The equipment/PM/dispatch signal above was the
+      // whole story; cleaning and ordering (the two domains Alfredo touches
+      // every day) were invisible to his face. The Ops Pulse folds them in.
+      // Equipment authority stays HERE (no double-count); we add only the
+      // cleaning + ordering weight. Below-par is FYI — deliberately excluded.
+      let extra = 0;
+      try {
+        if (window.NX && typeof NX.opsPulse === 'function') {
+          const p = await NX.opsPulse();
+          const t = (p && p.totals) || {};
+          extra = (t.cleaningOverdue || 0) * 0.6
+                + (t.ordersDue       || 0) * 0.8
+                + (t.cutoffSoon      || 0) * 2.0
+                + (t.orderIssues     || 0) * 1.5;
+          a.opCleaningOverdue = t.cleaningOverdue || 0;
+          a.opOrdersDue       = t.ordersDue || 0;
+        }
+      } catch (_) {}
+
       const raw = a.opOpenIssues * 1.0
                 + a.opDownEquipment * 3.0
                 + a.opOverduePMs * 0.5
-                + a.opFailedDispatches * 1.5;
+                + a.opFailedDispatches * 1.5
+                + extra;
       a.opScore = Math.min(100, raw * 4);
       a.opLastPollAt = Date.now();
       a.pollErrors = 0;
@@ -5094,6 +5114,105 @@
     state.awareness._tickTimer = trackInterval(awarenessTick, 30_000);
     // First tick after 10s so behavior sensors have some data
     trackTimeout(awarenessTick, 10_000);
+    // v369 — CLIPPY'S WATCH: the Morning Whisper. Once the shell has settled,
+    // greet Alfredo with the true state of his three houses. Self-gates to
+    // once per shift-day and to admin sessions; a no-op otherwise.
+    trackTimeout(() => { try { maybeMorningWhisper(); } catch (_) {} }, 4500);
+  }
+
+  // ─── THE MORNING WHISPER (Clippy's Watch) ──────────────────────────
+  // When Alfredo opens NEXUS, Clippy greets him — in character, spoken if
+  // his voice is on — with what actually needs him today: equipment down,
+  // cleaning overdue, orders due. Composed by his own brain from the live
+  // Ops Pulse; a deterministic template stands in if no brain is reachable,
+  // so the greeting never fails silently. Once per 8am-roll shift-day.
+  function _whisperShiftDate() {
+    try { if (window.NX && typeof NX.cleaningToday === 'function') return NX.cleaningToday(); } catch (_) {}
+    // Fallback: America/Chicago wall-clock date with the same 8am roll.
+    try {
+      const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Chicago' }));
+      if (now.getHours() < 8) now.setDate(now.getDate() - 1);
+      return now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+    } catch (_) { return String(Date.now()).slice(0, 8); }
+  }
+
+  function _pulseDigest(p) {
+    if (!p) return 'No live reading available.';
+    const t = p.totals || {};
+    const head = 'Totals — down units: ' + (t.downUnits || 0) +
+      ', needing service: ' + (t.attnUnits || 0) +
+      ', open equipment issues: ' + (t.openIssues || 0) +
+      ', PMs overdue: ' + (t.overduePM || 0) +
+      ', cleaning tasks overdue: ' + (t.cleaningOverdue || 0) +
+      ', order cutoffs soon: ' + (t.cutoffSoon || 0) +
+      ', vendors to order: ' + (t.ordersDue || 0) +
+      ', order issues: ' + (t.orderIssues || 0) +
+      ', items below par (FYI only): ' + (t.belowPar || 0) + '.';
+    const per = (p.lines || []).join('\n');
+    return head + (per ? '\n\nBy house:\n' + per : '');
+  }
+
+  // Deterministic fallback line — used when no brain answers.
+  function _templateWhisper(p) {
+    const t = (p && p.totals) || {};
+    const bits = [];
+    if (t.downUnits) bits.push(t.downUnits + (t.downUnits === 1 ? ' unit down' : ' units down'));
+    if (t.attnUnits) bits.push(t.attnUnits + ' needing service');
+    if (t.overduePM) bits.push(t.overduePM + ' PM' + (t.overduePM === 1 ? '' : 's') + ' overdue');
+    if (t.cleaningOverdue) bits.push(t.cleaningOverdue + ' cleaning task' + (t.cleaningOverdue === 1 ? '' : 's') + ' overdue');
+    if (t.cutoffSoon) bits.push(t.cutoffSoon + ' order cutoff' + (t.cutoffSoon === 1 ? '' : 's') + ' soon');
+    if (t.ordersDue) bits.push(t.ordersDue + ' vendor' + (t.ordersDue === 1 ? '' : 's') + ' to order');
+    if (t.orderIssues) bits.push(t.orderIssues + ' order issue' + (t.orderIssues === 1 ? '' : 's'));
+    if (!bits.length) {
+      const fyi = t.belowPar ? ` (${t.belowPar} below par, when you get a moment)` : '';
+      return 'Morning, chef. All three houses look calm — nothing needs you right now' + fyi + '.';
+    }
+    return 'Morning, chef. ' + bits.slice(0, 3).join(', ') + '. The rest is handled.';
+  }
+
+  async function _composeWhisperLine(p) {
+    try {
+      const NXa = (typeof NX !== 'undefined' && NX) || window.NX;
+      if (!NXa || typeof NXa.askClaude !== 'function') return null;
+      const name = (state.preferences && state.preferences.user_name) || 'chef';
+      const system = "You are Clippy — Alfredo's warm, loyal companion who watches over his three Austin restaurants (Suerte, Este, Bar Toti) through NEXUS, like you've kept an eye on the shop overnight. Greet him for the morning in ONE or TWO short spoken sentences, in character. Lead with what actually needs him today (a unit down, cleaning overdue, an order due), then a calm word that the rest is handled. If everything is quiet, say so warmly. Use ONLY the numbers given — never invent counts. Below-par is just an aside, never a nudge to order. No lists, no markdown, under 240 characters.";
+      const user = 'The true state of the shop right now:\n' + _pulseDigest(p) + '\n\nGreet ' + name + ' for the morning.';
+      const out = await NXa.askClaude(system, [{ role: 'user', content: user }], 160);
+      const clean = (typeof cleanReply === 'function') ? cleanReply(out) : String(out || '').trim();
+      return clean || null;
+    } catch (_) { return null; }
+  }
+
+  async function maybeMorningWhisper() {
+    try {
+      if (!state.enabled || state.suppressed) return;
+      if (state.preferences && state.preferences.do_not_disturb) return;
+      if (!(window.NX && window.NX.isAdmin)) return;                 // Alfredo's sessions only
+      if (!(window.NX && typeof NX.opsPulse === 'function')) return;
+      if (chattingNow()) return;                                     // never interrupt a live chat
+      const shift = _whisperShiftDate();
+      const KEY = 'nx_whisper_shown';
+      let last = ''; try { last = localStorage.getItem(KEY) || ''; } catch (_) {}
+      if (last === shift) return;                                    // already greeted this shift-day
+      const pulse = await NX.opsPulse();
+      let line = await _composeWhisperLine(pulse);
+      if (!line) line = _templateWhisper(pulse);
+      if (!line) return;
+      try { localStorage.setItem(KEY, shift); } catch (_) {}         // mark BEFORE showing — never double-greet
+      const concern = (pulse && pulse.concern) || 0;
+      const face = concern > 45 ? 'worried' : (concern > 18 ? 'thinking' : 'happy');
+      try { mood(face, 9000); } catch (_) {}
+      bubble(line, {
+        eyebrow: 'Morning, chef',
+        duration: 15000,
+        actions: [{
+          label: 'Show me', onClick: () => {
+            closeActionBubble();
+            try { if (window.NX && typeof NX.showBriefing === 'function') NX.showBriefing(); } catch (_) {}
+          }
+        }],
+      });
+    } catch (_) {}
   }
 
 
