@@ -2620,12 +2620,16 @@ If everything looks handled, say so. Be brief. JSON format:
       }
       log(`Found ${parsed.items.length} unresolved items:`,'warn');
       for(const item of parsed.items){
+        // Smart-reminder fields are model output derived from inbound email/chat
+        // (attacker-influenceable) — escape every one before it enters innerHTML,
+        // and pass the card title via an escaped data-attribute the handler reads
+        // at click time, so untrusted text is never interpolated into JS (v370).
         log(`<div class="reminder-item">
-          <div class="reminder-what">${item.discussed}</div>
-          <div class="reminder-who">${item.who} — ${item.date}</div>
+          <div class="reminder-what">${escapeHtml(item.discussed)}</div>
+          <div class="reminder-who">${escapeHtml(item.who)} — ${escapeHtml(item.date)}</div>
           <div class="reminder-action">
-            <button class="reminder-btn" onclick="NX.sb.from('kanban_cards').insert({title:'${(item.discussed||'').slice(0,80).replace(/'/g,"\\'")}',column_name:'todo'}).then(()=>{NX.toast('Card added ✓','success');this.textContent='Added ✓';this.disabled=true;})">+ Add Card</button>
-            Suggested: ${item.action}
+            <button class="reminder-btn" data-ct="${escapeHtml((item.discussed||'').slice(0,80))}" onclick="var t=this.dataset.ct;NX.sb.from('kanban_cards').insert({title:t,column_name:'todo'}).then(()=>{NX.toast('Card added ✓','success');this.textContent='Added ✓';this.disabled=true;})">+ Add Card</button>
+            Suggested: ${escapeHtml(item.action)}
           </div>
         </div>`);
       }

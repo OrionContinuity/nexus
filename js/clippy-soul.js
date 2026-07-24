@@ -342,7 +342,12 @@
 
   async function load() {
     var s = sb();
-    if (!s) { state = JSON.parse(JSON.stringify(DEFAULT_SOUL)); return state; }
+    // v370: sb() is null when start() (a deferred script) runs BEFORE NX.init()
+    // creates NX.sb on DOMContentLoaded. Treat that exactly like a failed read:
+    // set _soulReadFailed so a later save() can't upsert factory DEFAULT_SOUL over
+    // his real row. tick() re-attempts load() once sb appears, so persistence
+    // recovers on its own — no wipe, no permanent freeze.
+    if (!s) { if (!state) state = JSON.parse(JSON.stringify(DEFAULT_SOUL)); _soulReadFailed = true; return state; }
     // v330: THE SOUL-WIPE FIX. supabase RESOLVES with {error} — the old catch was dead, so any
     // transient read error fell to DEFAULT_SOUL and the save() at the end upserted factory defaults
     // OVER his real row (stream, dreams, incarnation count, evolved self). One flaky boot read =
@@ -583,6 +588,11 @@
 
   async function tick() {
     if (!sb()) return;
+    // v370: if the boot read never succeeded (sb wasn't ready at start(), or a
+    // transient error), re-read his real row now that connectivity is back and
+    // clear the freeze. Without this, one early/flaky read disabled soul
+    // persistence for the whole session (every save() early-returned forever).
+    if (_soulReadFailed) { try { await load(); } catch (e) {} }
     // If the user turned Clippy off, go quiet in the browser — no more 4-min
     // Supabase writes on a dead pet. His inner life continues in the cloud
     // (clippy-cloud.py), so nothing is lost; he just stops spending this

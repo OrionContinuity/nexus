@@ -50,7 +50,7 @@
             const notePreview=(n.notes||'').slice(0,80);
             const tagStr=(n.tags||[]).slice(0,3).map(t=>'#'+t).join(' ');
             const commLabel=n.community_label?` · ${n.community_label.split(':')[0]}`:'';
-            el.innerHTML=`<div class="sr-cat">${n.category}</div><div class="sr-main"><div class="sr-name">${nameHtml}</div><div class="sr-meta">${tagStr}${commLabel}${notePreview?' · '+notePreview.slice(0,50):''}</div></div>`;
+            el.innerHTML=`<div class="sr-cat">${esc(n.category)}</div><div class="sr-main"><div class="sr-name">${nameHtml}</div><div class="sr-meta">${esc(tagStr)}${esc(commLabel)}${notePreview?' · '+esc(notePreview.slice(0,50)):''}</div></div>`;
             el.addEventListener('click',()=>{
               res.classList.remove('open');res.innerHTML='';inp.value='';
               NX.brain.state.searchHits=new Set();
@@ -86,9 +86,12 @@
   }
 
   function highlightMatch(text,q){
+    text=String(text==null?'':text);
     const idx=text.toLowerCase().indexOf(q);
-    if(idx===-1)return text;
-    return text.slice(0,idx)+'<mark>'+text.slice(idx,idx+q.length)+'</mark>'+text.slice(idx+q.length);
+    if(idx===-1)return esc(text);
+    // Escape each slice before wrapping the match, so an anon-writable node name
+    // can't smuggle markup through the <mark> highlight (stored XSS).
+    return esc(text.slice(0,idx))+'<mark>'+esc(text.slice(idx,idx+q.length))+'</mark>'+esc(text.slice(idx+q.length));
   }
 
   // ─── Semantic recall (MONETA MIND) ──────────────────────────────
@@ -354,7 +357,7 @@
       const age=n.last_relevant_date?timeAgo(n.last_relevant_date):'';
       const commTag=n.community_label?n.community_label.split(':')[0]:'';
 
-      el.innerHTML=`<div class="list-node-cat">${n.category}${role}</div><div class="list-node-main"><div class="list-node-title">${n.name}</div><div class="list-node-notes">${(n.notes||'').slice(0,120)}</div><div class="list-node-footer">${linkCount?linkCount+' links':'no links'}${commTag?' · '+commTag:''}${age?' · '+age:''}</div></div>`;
+      el.innerHTML=`<div class="list-node-cat">${esc(n.category)}${role}</div><div class="list-node-main"><div class="list-node-title">${esc(n.name)}</div><div class="list-node-notes">${esc((n.notes||'').slice(0,120))}</div><div class="list-node-footer">${linkCount?linkCount+' links':'no links'}${commTag?' · '+esc(commTag):''}${age?' · '+esc(age):''}</div></div>`;
 
       // Click to open node panel
       el.addEventListener('click',()=>NX.brain.openPanel(n));

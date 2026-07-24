@@ -1769,7 +1769,7 @@
         backlinks.slice(0, 10).forEach(bl => {
           const d = document.createElement('div');
           d.className = 'np-link-item';
-          d.innerHTML = `<span class="np-link-cat">${bl.category}</span>${bl.name}`;
+          d.innerHTML = `<span class="np-link-cat">${esc(bl.category)}</span>${esc(bl.name)}`;
           d.onclick = () => {
             const fp = state.particles.find(p => p.id === bl.id);
             if (fp) { state.frozenNode = fp; state.activeNode = bl; openPanel(bl); }
@@ -1793,7 +1793,7 @@
           if (!ln.notes || ln.notes.length < 10) return;
           const card = document.createElement('div');
           card.className = 'np-transclude';
-          card.innerHTML = `<div class="np-transclude-head"><span class="np-link-cat">${ln.category}</span><span class="np-transclude-name">${ln.name}</span></div><div class="np-transclude-body">${(ln.notes || '').slice(0, 200)}${ln.notes.length > 200 ? '…' : ''}</div>`;
+          card.innerHTML = `<div class="np-transclude-head"><span class="np-link-cat">${esc(ln.category)}</span><span class="np-transclude-name">${esc(ln.name)}</span></div><div class="np-transclude-body">${esc((ln.notes || '').slice(0, 200))}${ln.notes.length > 200 ? '…' : ''}</div>`;
           card.addEventListener('click', () => {
             const fp = state.particles.find(p => p.id === ln.id);
             if (fp) { state.frozenNode = fp; state.activeNode = ln; openPanel(ln); }
@@ -1925,7 +1925,7 @@
           if (!ln) return;
           const d = document.createElement('div');
           d.className = 'np-link-item';
-          d.innerHTML = `<span class="np-link-cat">${ln.category}</span>${ln.name}`;
+          d.innerHTML = `<span class="np-link-cat">${esc(ln.category)}</span>${esc(ln.name)}`;
           d.onclick = () => {
             const fp = state.particles.find(p => p.id === lid);
             if (fp) { state.frozenNode = fp; state.activeNode = ln; openPanel(ln); }
@@ -1992,7 +1992,7 @@
             history.slice().reverse().forEach(h => {
               const item = document.createElement('div');
               item.className = 'np-hist-item';
-              item.innerHTML = `<div class="np-hist-date">${h.date || 'unknown'}</div><div class="np-hist-text">${(h.text || '').slice(0,100)}</div>`;
+              item.innerHTML = `<div class="np-hist-date">${esc(h.date || 'unknown')}</div><div class="np-hist-text">${esc((h.text || '').slice(0,100))}</div>`;
               item.onclick = () => { ta.value = h.text; histDiv.remove(); };
               histDiv.appendChild(item);
             });

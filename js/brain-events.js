@@ -1,5 +1,8 @@
 /* NEXUS Brain Events — Contractor scheduling */
 (function(){
+  // contractor_events is anon-writable (shared public key), so its free-text
+  // fields must be escaped before they enter innerHTML — stored-XSS guard (v370).
+  function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
   function setupContractorEvents(){
     document.getElementById('eventsToggle').addEventListener('click',()=>{const p=document.getElementById('eventsPanel');p.classList.toggle('open');if(p.classList.contains('open'))loadEvents();});
     document.getElementById('eventsClose').addEventListener('click',()=>document.getElementById('eventsPanel').classList.remove('open'));
@@ -22,7 +25,7 @@
     let ld='';events.forEach(ev=>{
       if(ev.event_date!==ld){ld=ev.event_date;const s=document.createElement('div');s.className='event-date-sep'+(ev.event_date===NX.today?' today':'');s.textContent=ev.event_date===NX.today?'TODAY':new Date(ev.event_date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});l.appendChild(s);}
       const el=document.createElement('div');el.className='event-card';
-      el.innerHTML=`<div class="event-top"><span class="event-contractor">${ev.contractor_name||''}</span><span class="event-time">${ev.event_time?fmt(ev.event_time):''}</span></div><div class="event-desc">${ev.description||''}</div><div class="event-bottom"><span class="event-loc">${ev.location?ev.location[0].toUpperCase()+ev.location.slice(1):''}</span><button class="event-done-btn" data-id="${ev.id}">✓</button><button class="event-del-btn" data-id="${ev.id}">✕</button></div>`;
+      el.innerHTML=`<div class="event-top"><span class="event-contractor">${esc(ev.contractor_name||'')}</span><span class="event-time">${ev.event_time?esc(fmt(ev.event_time)):''}</span></div><div class="event-desc">${esc(ev.description||'')}</div><div class="event-bottom"><span class="event-loc">${ev.location?esc(ev.location[0].toUpperCase()+ev.location.slice(1)):''}</span><button class="event-done-btn" data-id="${esc(ev.id)}">✓</button><button class="event-del-btn" data-id="${esc(ev.id)}">✕</button></div>`;
       el.querySelector('.event-done-btn').addEventListener('click',async e=>{e.stopPropagation();try{await NX.sb.from('contractor_events').update({status:'done'}).eq('id',e.target.dataset.id);}catch(err){}fireSynapse(ev.contractor_name);loadEvents();});
       el.querySelector('.event-del-btn').addEventListener('click',async e=>{e.stopPropagation();try{await NX.sb.from('contractor_events').delete().eq('id',e.target.dataset.id);}catch(err){}loadEvents();});
       el.addEventListener('click',()=>fireSynapse(ev.contractor_name));

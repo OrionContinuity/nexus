@@ -331,8 +331,8 @@ function buildTicketCard(r, pinned) {
       '<div class="feed-content">' +
         '<div class="feed-text">' + escHTML(r.title || r.notes || '') + '</div>' +
         (r.notes && r.title ? '<div class="feed-sub">' + escHTML(r.notes) + '</div>' : '') +
-        (r.photo_url ? '<img src="' + r.photo_url + '" class="feed-photo">' : '') +
-        (r.ai_troubleshoot ? '<details class="feed-ai-detail"><summary>AI Troubleshoot</summary><div class="feed-ai-body">' + r.ai_troubleshoot + '</div></details>' : '') +
+        (safeUrl(r.photo_url) ? '<img src="' + safeUrl(r.photo_url) + '" class="feed-photo">' : '') +
+        (r.ai_troubleshoot ? '<details class="feed-ai-detail"><summary>AI Troubleshoot</summary><div class="feed-ai-body">' + escHTML(r.ai_troubleshoot) + '</div></details>' : '') +
         '<div class="feed-who">' + escHTML(r.reported_by || '') + ' · ' + (r.status || 'open') + '</div>' +
       '</div>' +
     '</div>';
@@ -656,6 +656,15 @@ function buildSystemCard(r) {
 function escHTML(s) {
   if (!s) return '';
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// tickets is anon-writable — a photo_url in an <img src> attribute must reject
+// non-http(s) schemes (javascript:, data:) and escape quotes so it can't break
+// out of the attribute (stored-XSS guard, v370).
+function safeUrl(u) {
+  u = String(u == null ? '' : u).trim();
+  if (!/^https?:\/\//i.test(u)) return '';
+  return u.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function addDeleteBtn(el, id, table) {

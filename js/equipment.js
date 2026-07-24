@@ -154,7 +154,12 @@ async function loadCategoriesFromDB() {
     CATEGORIES = data.map(c => ({ key: c.key, label: c.label, id: c.id }));
     const newIcons = {};
     for (const c of data) {
-      if (c.icon_path) newIcons[c.key] = c.icon_path;
+      // equipment_categories is anon-writable with the shared public key, and
+      // icon_path is emitted raw inside <svg> at several render sites. Sanitize
+      // ONCE here (covers every render site): accept only benign SVG-shape markup
+      // (no <script>, no event handlers, no tag that could break out of <svg>).
+      // Anything suspicious falls back to the preset icon. (v370)
+      if (c.icon_path && safeIconPath(c.icon_path)) newIcons[c.key] = c.icon_path;
     }
     // Preserve any hardcoded icon paths for keys that DB row didn't override
     ICON_PATHS = Object.assign({ other: '<circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6m11-7h-6m-6 0H1"/>' }, newIcons);
@@ -6543,7 +6548,8 @@ function closeService() {
 async function deleteMaintenance(id, equipId) {
   if (!confirm('Delete this service record?')) return;
   try {
-    await NX.sb.from('equipment_maintenance').delete().eq('id', id);
+    const { error } = await NX.sb.from('equipment_maintenance').delete().eq('id', id);
+    if (error) throw error;         // {error} resolves, not throws (house law 3) — else the record reappears on refetch
     NX.toast && NX.toast('Deleted ✓', 'success');
     closeService();                 // close the edit sheet if the delete came from it
     try { await NX.sb.rpc('recompute_health_score', { eq_id: equipId }); } catch(e){}
@@ -6662,11 +6668,12 @@ function openPartModal(part, equipId) {
       data.vendors = modal._pickedVendors;
     }
     try {
-      if (part) {
-        await NX.sb.from('equipment_parts').update(data).eq('id', part.id);
-      } else {
-        await NX.sb.from('equipment_parts').insert(data);
-      }
+      // supabase-js RESOLVES with {error} — check it, don't rely on a throw
+      // (house law 3), or a failed write would still toast "Saved ✓" (v370).
+      const { error } = part
+        ? await NX.sb.from('equipment_parts').update(data).eq('id', part.id)
+        : await NX.sb.from('equipment_parts').insert(data);
+      if (error) throw error;
       NX.toast && NX.toast('Saved ✓', 'success');
       closePart();
       openDetail(equipId);
@@ -6810,10 +6817,11 @@ function closePart() {
 async function deletePart(id, equipId) {
   if (!confirm('Delete this part?')) return;
   try {
-    await NX.sb.from('equipment_parts').delete().eq('id', id);
+    const { error } = await NX.sb.from('equipment_parts').delete().eq('id', id);
+    if (error) throw error;         // house law 3: {error} resolves — a silent failure would still toast "Deleted ✓"
     NX.toast && NX.toast('Deleted ✓', 'success');
     openDetail(equipId);
-  } catch(e) { console.error(e); }
+  } catch(e) { console.error(e); NX.toast && NX.toast('Delete failed', 'error'); }
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -11062,7 +11070,7 @@ async function openFullEditor(equipId) {
             <h4>Main Photo</h4>
             ${eq.photo_url ? `
               <div class="eq-photo-wrap">
-                <img src="${eq.photo_url}" class="eq-photo-main">
+                <img src="${safeUrl(eq.photo_url)}" class="eq-photo-main">
                 <div class="eq-photo-actions">
                   <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.replacePhoto('${equipId}', 'photo_url')">Replace</button>
                   <button class="eq-btn eq-btn-danger" onclick="NX.modules.equipment.removePhoto('${equipId}', 'photo_url')">Remove</button>
@@ -11076,7 +11084,7 @@ async function openFullEditor(equipId) {
             <h4>Data Plate Photo</h4>
             ${eq.data_plate_url ? `
               <div class="eq-photo-wrap">
-                <img src="${eq.data_plate_url}" class="eq-photo-main">
+                <img src="${safeUrl(eq.data_plate_url)}" class="eq-photo-main">
                 <div class="eq-photo-actions">
                   <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.replacePhoto('${equipId}', 'data_plate_url')">Replace</button>
                   <button class="eq-btn eq-btn-danger" onclick="NX.modules.equipment.removePhoto('${equipId}', 'data_plate_url')">Remove</button>
@@ -11174,14 +11182,14 @@ async function openFullEditor(equipId) {
             <label>Manual Source URL</label>
             <div class="eq-url-field">
               <input type="url" data-field="manual_source_url" value="${escAttr(eq.manual_source_url||'')}" placeholder="https://www.hoshizakiamerica.com/...">
-              ${eq.manual_source_url ? `<a href="${eq.manual_source_url}" target="_blank" class="eq-btn eq-btn-tiny">Open ↗</a>` : ''}
+              ${safeUrl(eq.manual_source_url) ? `<a href="${safeUrl(eq.manual_source_url)}" target="_blank" class="eq-btn eq-btn-tiny">Open ↗</a>` : ''}
             </div>
           </div>
           <div class="eq-form-group">
             <label>Manual PDF URL (uploaded)</label>
             <div class="eq-url-field">
               <input type="url" data-field="manual_url" value="${escAttr(eq.manual_url||'')}">
-              ${eq.manual_url ? `<a href="${eq.manual_url}" target="_blank" class="eq-btn eq-btn-tiny">Open ↗</a>` : ''}
+              ${safeUrl(eq.manual_url) ? `<a href="${safeUrl(eq.manual_url)}" target="_blank" class="eq-btn eq-btn-tiny">Open ↗</a>` : ''}
             </div>
           </div>
         </div>
@@ -11517,9 +11525,9 @@ function renderAttachment(a) {
           </select>
         </div>
         ${a.description ? `<div class="eq-attach-desc">${esc(a.description)}</div>` : ''}
-        ${isImage && url ? `<img src="${url}" class="eq-attach-preview">` : ''}
+        ${isImage && safeUrl(url) ? `<img src="${safeUrl(url)}" class="eq-attach-preview">` : ''}
         <div class="eq-attach-meta">
-          ${url ? `<a href="${url}" target="_blank" class="eq-attach-link">↗ Open</a>` : ''}
+          ${safeUrl(url) ? `<a href="${safeUrl(url)}" target="_blank" class="eq-attach-link">↗ Open</a>` : ''}
           ${a.file_size ? ` · ${formatBytes(a.file_size)}` : ''}
           · ${new Date(a.created_at).toLocaleDateString()}
           ${a.uploaded_by ? ` · ${esc(a.uploaded_by)}` : ''}
@@ -13854,6 +13862,25 @@ function esc(s) {
 function escAttr(s) {
   if (s == null) return '';
   return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// v370 — the whole DB is writable with the shared public anon key, so any URL
+// or icon path that reaches an href/src/<svg> must be treated as untrusted.
+// safeUrl: allow only http(s), then attribute-escape; anything else → '' (no link).
+function safeUrl(u) {
+  u = String(u == null ? '' : u).trim();
+  if (!/^https?:\/\//i.test(u)) return '';
+  return u.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+// safeIconPath: accept a category icon_path only if it is benign SVG-shape markup
+// — the allowed tag set, no event handlers, no </svg>/<script>/<foreignObject>.
+function safeIconPath(p) {
+  p = String(p == null ? '' : p);
+  if (!p) return false;
+  if (/on\w+\s*=|<\s*\/?\s*(script|foreignobject|image|use|a|svg|iframe|animate|set|handler)\b|javascript:|&#/i.test(p)) return false;
+  const tags = p.match(/<\s*([a-zA-Z]+)/g) || [];
+  const ok = new Set(['path','circle','line','rect','polyline','polygon','ellipse','g']);
+  return tags.every(t => ok.has(t.replace(/[<\s]/g, '').toLowerCase()));
 }
 
 function fileToBase64(file) {

@@ -2313,11 +2313,14 @@
         return;
       }
 
+      // House law #1: PAR is a reference number only — never suggest or compute
+      // an order quantity from it. The card carries the bare facts (count, par,
+      // threshold) and leaves the ordering call to a human. (v370 — removed the
+      // old par-derived "Suggested order" line.)
       const description = `Stock dropped to ${currentCount} (PAR ${stock.par_level}, threshold ${stock.reorder_threshold}).
 Location: ${stock.location}${stock.bin_hint ? ' · ' + stock.bin_hint : ''}
 ${stock.manufacturer_pn ? 'OEM PN: ' + stock.manufacturer_pn : ''}
-${stock.primary_supplier ? 'Supplier: ' + stock.primary_supplier : ''}
-Suggested order: ${(stock.par_level - currentCount) * 2} units (rebuild buffer)`;
+${stock.primary_supplier ? 'Supplier: ' + stock.primary_supplier : ''}`.trim();
 
       // Create on the LIVE board via the unified work API (card + ticket
       // mirror, cross-linked). Replaces the old write to the legacy `cards`
